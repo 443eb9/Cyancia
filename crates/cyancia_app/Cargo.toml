@@ -10,3 +10,4 @@ log.workspace = true
 cyancia_assets.workspace = true
 cyancia_input.workspace = true
 futures.workspace = true
+cyancia_id.workspace = true

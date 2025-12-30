@@ -9,16 +9,10 @@ use crate::{
     key::KeySequence,
 };
 
-#[derive(Debug)]
-pub struct ActionChange {
-    pub finished: Option<(Id<Action>, Arc<Action>)>,
-    pub started: Option<(Id<Action>, Arc<Action>)>,
-}
-
 pub struct ActionMatcher {
     collection: ActionCollection,
     current_keys: IndexSet<key::Code>,
-    current_action: Option<(Id<Action>, Arc<Action>)>,
+    current_action: Option<(Id<Action>, Arc<Action>, KeySequence)>,
     last_matched: Instant,
 }
 
@@ -32,32 +26,34 @@ impl ActionMatcher {
         }
     }
 
-    pub fn key_pressed(&mut self, key: key::Code) -> ActionChange {
+    pub fn key_pressed(
+        &mut self,
+        key: key::Code,
+    ) -> Option<(Id<Action>, Arc<Action>, KeySequence)> {
         self.current_keys.insert(key);
         let previous = self.current_action.take();
         self.update_action();
         self.last_matched = Instant::now();
-        ActionChange {
-            finished: previous,
-            started: self.current_action.clone(),
-        }
+
+        previous
     }
 
-    pub fn key_released(&mut self, key: key::Code) -> ActionChange {
+    pub fn key_released(
+        &mut self,
+        key: key::Code,
+    ) -> Option<(Id<Action>, Arc<Action>, KeySequence)> {
         self.current_keys.swap_remove(&key);
         let previous = self.current_action.take();
         self.update_action();
-        ActionChange {
-            finished: previous.filter(|(_, a)| match a.ty {
-                ActionType::OneShot => false,
-                ActionType::Toggle => self.last_matched.elapsed().as_secs_f32() > 0.2,
-                ActionType::Hold => true,
-            }),
-            started: self.current_action.clone(),
-        }
+
+        previous.filter(|(_, a, _)| match a.ty {
+            ActionType::OneShot => false,
+            ActionType::Toggle => self.last_matched.elapsed().as_secs_f32() > 0.2,
+            ActionType::Hold => true,
+        })
     }
 
-    pub fn current_action(&self) -> Option<(Id<Action>, Arc<Action>)> {
+    pub fn current_action(&self) -> Option<(Id<Action>, Arc<Action>, KeySequence)> {
         self.current_action.clone()
     }
 
@@ -65,10 +61,10 @@ impl ActionMatcher {
         self.current_action = self.matched_action();
     }
 
-    fn matched_action(&mut self) -> Option<(Id<Action>, Arc<Action>)> {
+    fn matched_action(&mut self) -> Option<(Id<Action>, Arc<Action>, KeySequence)> {
         let keys = KeySequence::from_codes(self.current_keys.iter().cloned()).ok()?;
         let id = self.collection.get_action_id(keys)?;
         let action = self.collection.get_action(id)?.clone();
-        Some((id, action))
+        Some((id, action, keys))
     }
 }

@@ -647,6 +647,7 @@ version = "0.1.0"
 dependencies = [
  "cyancia_assets",
  "cyancia_canvas",
+ "cyancia_id",
  "cyancia_input",
  "futures",
  "iced",
@@ -671,9 +672,12 @@ name = "cyancia_canvas"
 version = "0.1.0"
 dependencies = [
  "cyancia_assets",
+ "cyancia_id",
  "cyancia_input",
+ "cyancia_utils",
  "iced_core",
  "log",
+ "parking_lot",
 ]
 
 [[package]]
@@ -704,6 +708,7 @@ dependencies = [
 name = "cyancia_input"
 version = "0.1.0"
 dependencies = [
+ "bitflags 2.10.0",
  "cyancia_assets",
  "cyancia_id",
  "iced_core",

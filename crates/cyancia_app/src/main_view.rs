@@ -1,25 +1,42 @@
 use std::sync::Arc;
 
 use cyancia_assets::store::{AssetLoaderRegistry, AssetRegistry};
-use cyancia_canvas::widget::CanvasWidget;
-use cyancia_input::action::{
-    ActionCollection, ActionManifest,
-    matching::{ActionChange, ActionMatcher},
+use cyancia_canvas::{
+    CCanvas,
+    action::{
+        CanvasActionCollection,
+        control::{CanvasPanAction, CanvasRotateAction, CanvasZoomAction},
+    },
+    widget::CanvasWidget,
+};
+use cyancia_id::Id;
+use cyancia_input::{
+    action::{Action, ActionCollection, ActionManifest, ActionType, matching::ActionMatcher},
+    key::KeySequence,
+    mouse::MouseState,
 };
 use iced::{
-    Element, Renderer, Subscription, Task, Theme,
+    Element, Point, Renderer, Subscription, Task, Theme, event,
     keyboard::{self, key},
+    mouse,
 };
 
 pub struct MainView {
     pub assets: AssetRegistry,
     pub action_matcher: ActionMatcher,
+    pub canvas_actions: CanvasActionCollection,
+    pub canvas: CCanvas,
+    pub mouse_state: MouseState,
+    pub current_action: Option<(Id<Action>, Arc<Action>, KeySequence)>,
 }
 
 #[derive(Debug)]
 pub enum MainViewMessage {
     KeyPressed(key::Code),
     KeyReleased(key::Code),
+    MousePressed(mouse::Button),
+    MouseMoved(Point),
+    MouseReleased(mouse::Button),
 }
 
 impl MainView {
@@ -28,11 +45,20 @@ impl MainView {
         cyancia_input::register_loaders(&mut loaders);
         let assets = AssetRegistry::new("assets", &loaders);
 
+        let mut canvas_actions = CanvasActionCollection::new();
+        canvas_actions.register::<CanvasPanAction>();
+        canvas_actions.register::<CanvasRotateAction>();
+        canvas_actions.register::<CanvasZoomAction>();
+
         Self {
             action_matcher: ActionMatcher::new(ActionCollection::new(
                 assets.store::<ActionManifest>().clone(),
             )),
+            canvas_actions,
             assets,
+            canvas: CCanvas {},
+            mouse_state: MouseState::new(),
+            current_action: None,
         }
     }
 
@@ -43,12 +69,24 @@ impl MainView {
     pub fn update(&mut self, message: MainViewMessage) -> Task<MainViewMessage> {
         match message {
             MainViewMessage::KeyPressed(key) => {
-                let change = self.action_matcher.key_pressed(key);
-                self.handle_action_change(change);
+                let previous = self.action_matcher.key_pressed(key);
+                self.handle_action_change(previous);
             }
             MainViewMessage::KeyReleased(key) => {
-                let change = self.action_matcher.key_released(key);
-                self.handle_action_change(change);
+                let previous = self.action_matcher.key_released(key);
+                self.handle_action_change(previous);
+            }
+            MainViewMessage::MousePressed(button) => {
+                self.mouse_state.press(button);
+                self.try_begin_current_action();
+            }
+            MainViewMessage::MouseMoved(position) => {
+                self.mouse_state.move_to(position);
+                self.try_update_current_action();
+            }
+            MainViewMessage::MouseReleased(button) => {
+                self.mouse_state.release(button);
+                self.try_end_current_action();
             }
         }
 
@@ -56,34 +94,91 @@ impl MainView {
     }
 
     pub fn subscription(&self) -> Subscription<MainViewMessage> {
-        keyboard::listen().filter_map(|event| match event {
-            keyboard::Event::KeyPressed {
-                physical_key,
-                repeat,
-                ..
-            } => {
-                if repeat {
-                    return None;
+        event::listen().filter_map(|event| match event {
+            iced::Event::Keyboard(event) => match event {
+                keyboard::Event::KeyPressed {
+                    physical_key,
+                    repeat,
+                    ..
+                } => {
+                    if repeat {
+                        return None;
+                    }
+
+                    let key::Physical::Code(key) = physical_key else {
+                        log::warn!("Unknown key pressed: {:?}", physical_key);
+                        return None;
+                    };
+
+                    Some(MainViewMessage::KeyPressed(key))
                 }
+                keyboard::Event::KeyReleased { physical_key, .. } => {
+                    let key::Physical::Code(key) = physical_key else {
+                        log::warn!("Unknown key released: {:?}", physical_key);
+                        return None;
+                    };
 
-                let key::Physical::Code(key) = physical_key else {
-                    log::warn!("Unknown key pressed: {:?}", physical_key);
-                    return None;
-                };
-
-                Some(MainViewMessage::KeyPressed(key))
-            }
-            keyboard::Event::KeyReleased { physical_key, .. } => {
-                let key::Physical::Code(key) = physical_key else {
-                    log::warn!("Unknown key released: {:?}", physical_key);
-                    return None;
-                };
-
-                Some(MainViewMessage::KeyReleased(key))
-            }
+                    Some(MainViewMessage::KeyReleased(key))
+                }
+                _ => None,
+            },
+            iced::Event::Mouse(event) => match event {
+                mouse::Event::CursorMoved { position } => {
+                    Some(MainViewMessage::MouseMoved(position))
+                }
+                mouse::Event::ButtonPressed(button) => Some(MainViewMessage::MousePressed(button)),
+                mouse::Event::ButtonReleased(button) => {
+                    Some(MainViewMessage::MouseReleased(button))
+                }
+                _ => None,
+            },
             _ => None,
         })
     }
 
-    fn handle_action_change(&mut self, change: ActionChange) {}
+    fn handle_action_change(&mut self, previous: Option<(Id<Action>, Arc<Action>, KeySequence)>) {
+        if let Some((id, _, keys)) = self.action_matcher.current_action()
+            && !self.mouse_state.is_pressed(mouse::Button::Left)
+            && let Some(action) = self.canvas_actions.get(&id)
+        {
+            action.prepare(keys, &mut self.canvas);
+            self.current_action = self.action_matcher.current_action();
+        }
+
+        if let Some((id, _, keys)) = previous
+            && !self.mouse_state.is_pressed(mouse::Button::Left)
+            && let Some(action) = self.canvas_actions.get(&id)
+        {
+            action.end(keys, self.mouse_state.position(), &mut self.canvas);
+        }
+    }
+
+    fn try_begin_current_action(&mut self) {
+        if let Some((id, action, keys)) = &self.current_action
+            && action.ty != ActionType::OneShot
+            && let Some(action) = self.canvas_actions.get(&id)
+        {
+            action.begin(*keys, self.mouse_state.position(), &mut self.canvas);
+        }
+    }
+
+    fn try_update_current_action(&mut self) {
+        if self.mouse_state.is_pressed(mouse::Button::Left)
+            && let Some((id, action, keys)) = &self.current_action
+            && action.ty != ActionType::OneShot
+            && let Some(action) = self.canvas_actions.get(&id)
+        {
+            action.update(*keys, self.mouse_state.position(), &mut self.canvas);
+        }
+    }
+
+    fn try_end_current_action(&mut self) {
+        if let Some((id, action, keys)) = &self.current_action
+            && action.ty != ActionType::OneShot
+            && let Some(action) = self.canvas_actions.get(&id)
+        {
+            action.end(*keys, self.mouse_state.position(), &mut self.canvas);
+            self.current_action = self.action_matcher.current_action();
+        }
+    }
 }
