@@ -14,28 +14,32 @@ pub trait CanvasAction: Send + Sync + 'static {
 
     fn id(&self) -> Id<Action>;
     fn default_state(&self) -> Self::State;
-    fn prepare(&self, shortcut: KeySequence, canvas: &mut CCanvas, state: &mut Self::State);
+    fn activate(&self, shortcut: KeySequence, canvas: &mut CCanvas, state: &mut Self::State) {}
     fn begin(
         &self,
         shortcut: KeySequence,
         cursor: Point,
         canvas: &mut CCanvas,
         state: &mut Self::State,
-    );
+    ) {
+    }
     fn update(
         &self,
         shortcut: KeySequence,
         cursor: Point,
         canvas: &mut CCanvas,
         state: &mut Self::State,
-    );
+    ) {
+    }
     fn end(
         &self,
         shortcut: KeySequence,
         cursor: Point,
         canvas: &mut CCanvas,
         state: &mut Self::State,
-    );
+    ) {
+    }
+    fn deactivate(&self, shortcut: KeySequence, canvas: &mut CCanvas, state: &mut Self::State) {}
 }
 
 pub trait ErasedCanvasAction {
@@ -68,6 +72,12 @@ pub trait ErasedCanvasAction {
         canvas: &mut CCanvas,
         state: &mut Box<dyn Any + Send + Sync>,
     );
+    fn deactivate(
+        &self,
+        shortcut: KeySequence,
+        canvas: &mut CCanvas,
+        state: &mut Box<dyn Any + Send + Sync>,
+    );
 }
 
 impl<T: CanvasAction> ErasedCanvasAction for T {
@@ -88,7 +98,7 @@ impl<T: CanvasAction> ErasedCanvasAction for T {
         let state = state
             .downcast_mut::<T::State>()
             .expect("CanvasAction state has incorrect type");
-        <T as CanvasAction>::prepare(self, shortcut, canvas, state);
+        <T as CanvasAction>::activate(self, shortcut, canvas, state);
     }
 
     fn begin(
@@ -129,6 +139,18 @@ impl<T: CanvasAction> ErasedCanvasAction for T {
             .expect("CanvasAction state has incorrect type");
         <T as CanvasAction>::end(self, shortcut, cursor, canvas, state);
     }
+
+    fn deactivate(
+        &self,
+        shortcut: KeySequence,
+        canvas: &mut CCanvas,
+        state: &mut Box<dyn Any + Send + Sync>,
+    ) {
+        let state = state
+            .downcast_mut::<T::State>()
+            .expect("CanvasAction state has incorrect type");
+        <T as CanvasAction>::deactivate(self, shortcut, canvas, state);
+    }
 }
 
 pub struct StatefulCanvasAction {
@@ -159,6 +181,11 @@ impl StatefulCanvasAction {
     pub fn end(&self, shortcut: KeySequence, cursor: Point, canvas: &mut CCanvas) {
         self.action
             .end(shortcut, cursor, canvas, &mut self.state.write());
+    }
+
+    pub fn deactivate(&self, shortcut: KeySequence, canvas: &mut CCanvas) {
+        self.action
+            .deactivate(shortcut, canvas, &mut self.state.write());
     }
 }
 

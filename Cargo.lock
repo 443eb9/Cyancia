@@ -649,9 +649,11 @@ dependencies = [
  "cyancia_canvas",
  "cyancia_id",
  "cyancia_input",
+ "cyancia_tools",
  "futures",
  "iced",
  "log",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -717,6 +719,16 @@ dependencies = [
  "smallvec",
  "thiserror 2.0.17",
  "toml",
+]
+
+[[package]]
+name = "cyancia_tools"
+version = "0.1.0"
+dependencies = [
+ "cyancia_canvas",
+ "cyancia_id",
+ "cyancia_input",
+ "iced_core",
 ]
 
 [[package]]

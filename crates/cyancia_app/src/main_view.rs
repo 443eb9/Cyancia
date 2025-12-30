@@ -15,6 +15,7 @@ use cyancia_input::{
     key::KeySequence,
     mouse::MouseState,
 };
+use cyancia_tools::{brush::BrushTool, canvas_pan::CanvasPanTool};
 use iced::{
     Element, Point, Renderer, Subscription, Task, Theme, event,
     keyboard::{self, key},
@@ -49,6 +50,8 @@ impl MainView {
         canvas_actions.register::<CanvasPanAction>();
         canvas_actions.register::<CanvasRotateAction>();
         canvas_actions.register::<CanvasZoomAction>();
+        canvas_actions.register::<CanvasPanTool>();
+        canvas_actions.register::<BrushTool>();
 
         Self {
             action_matcher: ActionMatcher::new(ActionCollection::new(
@@ -137,28 +140,39 @@ impl MainView {
     }
 
     fn handle_action_change(&mut self, previous: Option<(Id<Action>, Arc<Action>, KeySequence)>) {
-        if let Some((id, _, keys)) = self.action_matcher.current_action()
+        if let Some((id, _, keys)) = previous
             && !self.mouse_state.is_pressed(mouse::Button::Left)
-            && let Some(action) = self.canvas_actions.get(&id)
+            && let Some(canvas_action) = self.canvas_actions.get(&id)
         {
-            action.prepare(keys, &mut self.canvas);
+            canvas_action.deactivate(keys, &mut self.canvas);
             self.current_action = self.action_matcher.current_action();
         }
 
-        if let Some((id, _, keys)) = previous
+        if let Some((id, action, keys)) = self.action_matcher.current_action()
             && !self.mouse_state.is_pressed(mouse::Button::Left)
-            && let Some(action) = self.canvas_actions.get(&id)
+            && let Some(canvas_action) = self.canvas_actions.get(&id)
         {
-            action.end(keys, self.mouse_state.position(), &mut self.canvas);
+            if self
+                .current_action
+                .as_ref()
+                .is_some_and(|(old, _, _)| *old == id)
+                && action.ty == ActionType::Toggle
+            {
+                canvas_action.deactivate(keys, &mut self.canvas);
+                self.current_action = None;
+            } else {
+                canvas_action.prepare(keys, &mut self.canvas);
+                self.current_action = self.action_matcher.current_action();
+            }
         }
     }
 
     fn try_begin_current_action(&mut self) {
         if let Some((id, action, keys)) = &self.current_action
             && action.ty != ActionType::OneShot
-            && let Some(action) = self.canvas_actions.get(&id)
+            && let Some(canvas_action) = self.canvas_actions.get(&id)
         {
-            action.begin(*keys, self.mouse_state.position(), &mut self.canvas);
+            canvas_action.begin(*keys, self.mouse_state.position(), &mut self.canvas);
         }
     }
 
@@ -166,19 +180,27 @@ impl MainView {
         if self.mouse_state.is_pressed(mouse::Button::Left)
             && let Some((id, action, keys)) = &self.current_action
             && action.ty != ActionType::OneShot
-            && let Some(action) = self.canvas_actions.get(&id)
+            && let Some(canvas_action) = self.canvas_actions.get(&id)
         {
-            action.update(*keys, self.mouse_state.position(), &mut self.canvas);
+            canvas_action.update(*keys, self.mouse_state.position(), &mut self.canvas);
         }
     }
 
     fn try_end_current_action(&mut self) {
         if let Some((id, action, keys)) = &self.current_action
-            && action.ty != ActionType::OneShot
-            && let Some(action) = self.canvas_actions.get(&id)
+            && let Some(canvas_action) = self.canvas_actions.get(&id)
         {
-            action.end(*keys, self.mouse_state.position(), &mut self.canvas);
-            self.current_action = self.action_matcher.current_action();
+            canvas_action.end(*keys, self.mouse_state.position(), &mut self.canvas);
+
+            let action_changed = self
+                .action_matcher
+                .current_action()
+                .as_ref()
+                .is_none_or(|(new, _, _)| new != id);
+            if action.ty == ActionType::Hold && action_changed {
+                canvas_action.deactivate(*keys, &mut self.canvas);
+                self.current_action = self.action_matcher.current_action();
+            }
         }
     }
 }

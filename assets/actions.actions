@@ -9,3 +9,19 @@ shortcut = [["ShiftLeft", "Space"]]
 [canvas_zoom_action]
 ty = "Hold"
 shortcut = [["ControlLeft", "Space"]]
+
+[canvas_pan_tool]
+ty = "Toggle"
+shortcut = [["KeyH"]]
+
+[canvas_rotate_tool]
+ty = "Toggle"
+shortcut = [["KeyR"]]
+
+[canvas_zoom_tool]
+ty = "Toggle"
+shortcut = [["KeyZ"]]
+
+[brush_tool]
+ty = "Toggle"
+shortcut = [["KeyB"]]

@@ -53,7 +53,10 @@ impl AssetRegistry {
     pub fn store<T: Asset>(&self) -> &AssetStore<T> {
         self.stores
             .get(&TypeId::of::<T>())
-            .unwrap()
+            .expect(&format!(
+                "Store of type {} doesn't exist.",
+                std::any::type_name::<T>()
+            ))
             .downcast_ref::<AssetStore<T>>()
             .unwrap()
     }
@@ -61,7 +64,10 @@ impl AssetRegistry {
     pub fn store_mut<T: Asset>(&mut self) -> &mut AssetStore<T> {
         self.stores
             .get_mut(&TypeId::of::<T>())
-            .unwrap()
+            .expect(&format!(
+                "Store of type {} doesn't exist.",
+                std::any::type_name::<T>()
+            ))
             .downcast_mut::<AssetStore<T>>()
             .unwrap()
     }
