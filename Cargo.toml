@@ -9,6 +9,7 @@ cyancia_utils_derive = { version = "0.1.0", path = "crates/cyancia_utils_derive"
 cyancia_widgets = { version = "0.1.0", path = "crates/cyancia_widgets" }
 cyancia_input = { version = "0.1.0", path = "crates/cyancia_input" }
 cyancia_assets = { version = "0.1.0", path = "crates/cyancia_assets" }
+cyancia_canvas = { version = "0.1.0", path = "crates/cyancia_canvas" }
 
 iced = { version = "0.14", features = ["debug", "canvas"] }
 iced_beacon = "0.14"
@@ -37,6 +38,7 @@ smallvec = "1"
 toml = "0.9"
 log = "0.4"
 downcast-rs = "2"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 indexmap = "2"
 parking_lot = "0.12"
+futures = "0.3"

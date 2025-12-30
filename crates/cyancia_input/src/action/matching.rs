@@ -1,16 +1,25 @@
+use std::{collections, sync::Arc, time::Instant};
+
 use cyancia_assets::id::AssetId;
-use iced_core::keyboard::key;
+use iced_core::keyboard::{Key, key};
 use indexmap::IndexSet;
 
 use crate::{
-    action::{Action, ActionCollection},
+    action::{Action, ActionCollection, ActionType},
     key::KeySequence,
 };
+
+#[derive(Debug)]
+pub struct ActionChange {
+    pub finished: Option<(AssetId<Action>, Arc<Action>)>,
+    pub started: Option<(AssetId<Action>, Arc<Action>)>,
+}
 
 pub struct ActionMatcher {
     collection: ActionCollection,
     current_keys: IndexSet<key::Code>,
-    current_action: Option<AssetId<Action>>,
+    current_action: Option<(AssetId<Action>, Arc<Action>)>,
+    last_matched: Instant,
 }
 
 impl ActionMatcher {
@@ -19,29 +28,47 @@ impl ActionMatcher {
             collection,
             current_keys: IndexSet::new(),
             current_action: None,
+            last_matched: Instant::now(),
         }
     }
 
-    pub fn key_pressed(&mut self, key: key::Code) {
+    pub fn key_pressed(&mut self, key: key::Code) -> ActionChange {
         self.current_keys.insert(key);
-        self.update_current_action();
+        let previous = self.current_action.take();
+        self.update_action();
+        self.last_matched = Instant::now();
+        ActionChange {
+            finished: previous,
+            started: self.current_action.clone(),
+        }
     }
 
-    pub fn key_released(&mut self, key: key::Code) {
+    pub fn key_released(&mut self, key: key::Code) -> ActionChange {
         self.current_keys.swap_remove(&key);
-        self.update_current_action();
+        let previous = self.current_action.take();
+        self.update_action();
+        ActionChange {
+            finished: previous.filter(|(_, a)| match a.ty {
+                ActionType::OneShot => false,
+                ActionType::Toggle => self.last_matched.elapsed().as_secs_f32() > 0.2,
+                ActionType::Hold => true,
+            }),
+            started: self.current_action.clone(),
+        }
     }
 
-    pub fn current_action(&self) -> Option<AssetId<Action>> {
-        self.current_action
+    pub fn current_action(&self) -> Option<(AssetId<Action>, Arc<Action>)> {
+        self.current_action.clone()
     }
 
-    fn update_current_action(&mut self) {
-        let Ok(keys) = KeySequence::from_codes(self.current_keys.clone().into_iter()) else {
-            self.current_action = None;
-            return;
-        };
+    fn update_action(&mut self) {
+        self.current_action = self.matched_action();
+    }
 
-        self.current_action = self.collection.get_action(keys);
+    fn matched_action(&mut self) -> Option<(AssetId<Action>, Arc<Action>)> {
+        let keys = KeySequence::from_codes(self.current_keys.iter().cloned()).ok()?;
+        let id = self.collection.get_action_id(keys)?;
+        let action = self.collection.get_action(id)?.clone();
+        Some((id, action))
     }
 }

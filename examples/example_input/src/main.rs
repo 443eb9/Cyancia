@@ -19,14 +19,14 @@ fn main() {
 
     matcher.key_pressed(Code::Space);
     assert_eq!(
-        matcher.current_action(),
+        matcher.current_action().map(|a| a.0),
         Some(AssetId::from_str("canvas_pan_action"))
     );
     matcher.key_pressed(Code::ControlLeft);
     assert_eq!(
-        matcher.current_action(),
+        matcher.current_action().map(|a| a.0),
         Some(AssetId::from_str("canvas_zoom_action"))
     );
     matcher.key_released(Code::Space);
-    assert_eq!(matcher.current_action(), None);
+    assert_eq!(matcher.current_action().map(|a| a.0), None);
 }

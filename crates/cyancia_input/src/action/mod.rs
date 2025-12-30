@@ -19,8 +19,17 @@ impl Asset for Action {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ActionType {
+    /// A action that triggers once per shortcut activation. Like inverting a layer.
     OneShot,
+    /// A action that triggers on shortcut activation.
+    /// If the shortcut is held for more than 0.2 seconds before deactivation,
+    /// it will deactivate on shortcut release. Otherwise it will remain active until
+    /// another shortcut is activated.
+    /// Like tools, e.g. straight line tool.
     Toggle,
+    /// A action that only remains active while the shortcut is held down.
+    /// Like panning or zooming the canvas.
+    Hold,
 }
 
 #[derive(Debug, Clone)]
@@ -106,12 +115,16 @@ impl ActionCollection {
         Self { shortcuts, actions }
     }
 
-    pub fn get_action(&self, shortcut: KeySequence) -> Option<AssetId<Action>> {
+    pub fn get_action_id(&self, shortcut: KeySequence) -> Option<AssetId<Action>> {
         let ids = self.shortcuts.get(&shortcut)?;
         ids.first().cloned()
     }
 
-    pub fn get_all_actions(&self, shortcut: KeySequence) -> Option<Vec<AssetId<Action>>> {
+    pub fn get_action(&self, id: AssetId<Action>) -> Option<Arc<Action>> {
+        self.actions.get(&id).cloned()
+    }
+
+    pub fn get_all_action_ids(&self, shortcut: KeySequence) -> Option<Vec<AssetId<Action>>> {
         self.shortcuts.get(&shortcut).cloned()
     }
 }
