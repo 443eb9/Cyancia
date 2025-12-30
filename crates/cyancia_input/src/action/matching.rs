@@ -38,6 +38,7 @@ impl ActionMatcher {
 
     fn update_current_action(&mut self) {
         let Ok(keys) = KeySequence::from_codes(self.current_keys.clone().into_iter()) else {
+            self.current_action = None;
             return;
         };
 
