@@ -14,12 +14,12 @@ pub trait CanvasAction: Send + Sync + 'static {
 
     fn id(&self) -> Id<Action>;
     fn default_state(&self) -> Self::State;
-    fn activate(&self, shortcut: KeySequence, canvas: &mut CCanvas, state: &mut Self::State) {}
+    fn activate(&self, shortcut: KeySequence, canvas: &CCanvas, state: &mut Self::State) {}
     fn begin(
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Self::State,
     ) {
     }
@@ -27,7 +27,7 @@ pub trait CanvasAction: Send + Sync + 'static {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Self::State,
     ) {
     }
@@ -35,11 +35,11 @@ pub trait CanvasAction: Send + Sync + 'static {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Self::State,
     ) {
     }
-    fn deactivate(&self, shortcut: KeySequence, canvas: &mut CCanvas, state: &mut Self::State) {}
+    fn deactivate(&self, shortcut: KeySequence, canvas: &CCanvas, state: &mut Self::State) {}
 }
 
 pub trait ErasedCanvasAction {
@@ -48,34 +48,34 @@ pub trait ErasedCanvasAction {
     fn prepare(
         &self,
         shortcut: KeySequence,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Box<dyn Any + Send + Sync>,
     );
     fn begin(
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Box<dyn Any + Send + Sync>,
     );
     fn update(
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Box<dyn Any + Send + Sync>,
     );
     fn end(
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Box<dyn Any + Send + Sync>,
     );
     fn deactivate(
         &self,
         shortcut: KeySequence,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Box<dyn Any + Send + Sync>,
     );
 }
@@ -92,7 +92,7 @@ impl<T: CanvasAction> ErasedCanvasAction for T {
     fn prepare(
         &self,
         shortcut: KeySequence,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Box<dyn Any + Send + Sync>,
     ) {
         let state = state
@@ -105,7 +105,7 @@ impl<T: CanvasAction> ErasedCanvasAction for T {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Box<dyn Any + Send + Sync>,
     ) {
         let state = state
@@ -118,7 +118,7 @@ impl<T: CanvasAction> ErasedCanvasAction for T {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Box<dyn Any + Send + Sync>,
     ) {
         let state = state
@@ -131,7 +131,7 @@ impl<T: CanvasAction> ErasedCanvasAction for T {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Box<dyn Any + Send + Sync>,
     ) {
         let state = state
@@ -143,7 +143,7 @@ impl<T: CanvasAction> ErasedCanvasAction for T {
     fn deactivate(
         &self,
         shortcut: KeySequence,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Box<dyn Any + Send + Sync>,
     ) {
         let state = state
@@ -163,27 +163,27 @@ impl StatefulCanvasAction {
         self.action.id()
     }
 
-    pub fn prepare(&self, shortcut: KeySequence, canvas: &mut CCanvas) {
+    pub fn prepare(&self, shortcut: KeySequence, canvas: &CCanvas) {
         self.action
             .prepare(shortcut, canvas, &mut self.state.write());
     }
 
-    pub fn begin(&self, shortcut: KeySequence, cursor: Point, canvas: &mut CCanvas) {
+    pub fn begin(&self, shortcut: KeySequence, cursor: Point, canvas: &CCanvas) {
         self.action
             .begin(shortcut, cursor, canvas, &mut self.state.write());
     }
 
-    pub fn update(&self, shortcut: KeySequence, cursor: Point, canvas: &mut CCanvas) {
+    pub fn update(&self, shortcut: KeySequence, cursor: Point, canvas: &CCanvas) {
         self.action
             .update(shortcut, cursor, canvas, &mut self.state.write());
     }
 
-    pub fn end(&self, shortcut: KeySequence, cursor: Point, canvas: &mut CCanvas) {
+    pub fn end(&self, shortcut: KeySequence, cursor: Point, canvas: &CCanvas) {
         self.action
             .end(shortcut, cursor, canvas, &mut self.state.write());
     }
 
-    pub fn deactivate(&self, shortcut: KeySequence, canvas: &mut CCanvas) {
+    pub fn deactivate(&self, shortcut: KeySequence, canvas: &CCanvas) {
         self.action
             .deactivate(shortcut, canvas, &mut self.state.write());
     }

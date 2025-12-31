@@ -12,22 +12,34 @@ cyancia_assets = { version = "0.1.0", path = "crates/cyancia_assets" }
 cyancia_canvas = { version = "0.1.0", path = "crates/cyancia_canvas" }
 cyancia_id = { version = "0.1.0", path = "crates/cyancia_id" }
 cyancia_tools = { version = "0.1.0", path = "crates/cyancia_tools" }
+cyancia_image = { version = "0.1.0", path = "crates/cyancia_image" }
+cyancia_render = { version = "0.1.0", path = "crates/cyancia_render" }
+cyancia_math = { version = "0.1.0", path = "crates/cyancia_math" }
 
-iced = { version = "0.14", features = ["debug", "canvas"] }
-iced_beacon = "0.14"
-iced_core = "0.14"
-iced_debug = "0.14"
-iced_devtools = "0.14"
-iced_futures = "0.14"
-iced_graphics = { version = "0.14", features = ["geometry"] }
-iced_highlighter = "0.14"
-iced_program = "0.14"
-iced_renderer = "0.14"
-iced_runtime = "0.14"
-iced_selector = "0.14"
-iced_wgpu = { version = "0.14", features = ["geometry"] }
-iced_widget = { version = "0.14", features = ["wgpu"] }
-iced_winit = "0.14"
+iced = { version = "0.14", features = [
+    "debug",
+    "canvas",
+], git = "https://github.com/443eb9/iced.git", branch = "0.14" }
+iced_beacon = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
+iced_core = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
+iced_debug = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
+iced_devtools = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
+iced_futures = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
+iced_graphics = { version = "0.14", features = [
+    "geometry",
+], git = "https://github.com/443eb9/iced.git", branch = "0.14" }
+iced_highlighter = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
+iced_program = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
+iced_renderer = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
+iced_runtime = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
+iced_selector = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
+iced_wgpu = { version = "0.14", features = [
+    "geometry",
+], git = "https://github.com/443eb9/iced.git", branch = "0.14" }
+iced_widget = { version = "0.14", features = [
+    "wgpu",
+], git = "https://github.com/443eb9/iced.git", branch = "0.14" }
+iced_winit = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
 uuid = { version = "1", features = ["v4", "serde"] }
 syn = "2"
 quote = "1"
@@ -45,3 +57,10 @@ indexmap = "2"
 parking_lot = "0.12"
 futures = "0.3"
 bitflags = "2"
+wgpu = "27"
+glam = { version = "0.30", features = ["encase"] }
+dashmap = "6"
+wesl = { version = "0.3", features = ["package"] }
+encase = "0.12"
+bytemuck = "1"
+image = "0.25"

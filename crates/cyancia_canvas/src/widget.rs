@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use cyancia_assets::store::AssetRegistry;
+use cyancia_image::tile::GpuTileStorage;
 use cyancia_input::action::{ActionCollection, ActionManifest, matching::ActionMatcher};
 use iced_core::{
     Clipboard, Element, Event, Layout, Length, Rectangle, Shell, Size, Widget,
@@ -9,18 +10,27 @@ use iced_core::{
     mouse, renderer,
     widget::{Tree, tree},
 };
+use iced_wgpu::primitive::Renderer;
+use iced_widget::{renderer::wgpu::primitive, shader::Program};
 
-pub struct CanvasWidget {}
+use crate::{CCanvas, render::CanvasPrimitive};
 
-impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer> for CanvasWidget
-where
-    Renderer: iced_core::Renderer,
-{
+pub struct CanvasWidget {
+    pub canvas: Arc<CCanvas>,
+    pub gpu_tile_storage: Arc<GpuTileStorage>,
+}
+
+impl<Message, Theme> Widget<Message, Theme, iced_wgpu::Renderer> for CanvasWidget {
     fn size(&self) -> Size<Length> {
         Size::new(Length::Fill, Length::Fill)
     }
 
-    fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &Limits) -> layout::Node {
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &iced_wgpu::Renderer,
+        limits: &Limits,
+    ) -> layout::Node {
         layout::atomic(limits, Length::Fill, Length::Fill)
     }
 
@@ -30,7 +40,7 @@ where
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        renderer: &Renderer,
+        renderer: &iced_wgpu::Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
@@ -40,20 +50,24 @@ where
     fn draw(
         &self,
         tree: &Tree,
-        renderer: &mut Renderer,
+        renderer: &mut iced_wgpu::Renderer,
         theme: &Theme,
         style: &renderer::Style,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
+        renderer.draw_primitive(
+            layout.bounds(),
+            CanvasPrimitive {
+                canvas: self.canvas.clone(),
+                tile_storage: self.gpu_tile_storage.clone(),
+            },
+        );
     }
 }
 
-impl<Message, Theme, Renderer> From<CanvasWidget> for Element<'_, Message, Theme, Renderer>
-where
-    Renderer: iced_core::Renderer,
-{
+impl<Message, Theme> From<CanvasWidget> for Element<'_, Message, Theme, iced_wgpu::Renderer> {
     fn from(canvas: CanvasWidget) -> Self {
         Element::new(canvas)
     }

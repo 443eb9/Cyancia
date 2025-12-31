@@ -26,7 +26,7 @@ impl CanvasAction for CanvasPanTool {
         self.action.default_state()
     }
 
-    fn activate(&self, shortcut: KeySequence, canvas: &mut CCanvas, state: &mut Self::State) {
+    fn activate(&self, shortcut: KeySequence, canvas: &CCanvas, state: &mut Self::State) {
         self.action.activate(shortcut, canvas, state)
     }
 
@@ -34,7 +34,7 @@ impl CanvasAction for CanvasPanTool {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Self::State,
     ) {
         self.action.begin(shortcut, cursor, canvas, state)
@@ -44,7 +44,7 @@ impl CanvasAction for CanvasPanTool {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Self::State,
     ) {
         self.action.update(shortcut, cursor, canvas, state)
@@ -54,13 +54,13 @@ impl CanvasAction for CanvasPanTool {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Self::State,
     ) {
         self.action.end(shortcut, cursor, canvas, state)
     }
 
-    fn deactivate(&self, shortcut: KeySequence, canvas: &mut CCanvas, state: &mut Self::State) {
+    fn deactivate(&self, shortcut: KeySequence, canvas: &CCanvas, state: &mut Self::State) {
         self.action.deactivate(shortcut, canvas, state)
     }
 }

@@ -21,7 +21,7 @@ impl CanvasAction for BrushTool {
         ()
     }
 
-    fn activate(&self, shortcut: KeySequence, canvas: &mut CCanvas, state: &mut Self::State) {
+    fn activate(&self, shortcut: KeySequence, canvas: &CCanvas, state: &mut Self::State) {
         println!("Switched to brush!");
     }
 
@@ -29,13 +29,13 @@ impl CanvasAction for BrushTool {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Self::State,
     ) {
         println!("Painting at: {:?}", cursor);
     }
 
-    fn deactivate(&self, shortcut: KeySequence, canvas: &mut CCanvas, state: &mut Self::State) {
+    fn deactivate(&self, shortcut: KeySequence, canvas: &CCanvas, state: &mut Self::State) {
         println!("Exited brush!");
     }
 }

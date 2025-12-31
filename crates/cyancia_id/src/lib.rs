@@ -67,6 +67,13 @@ impl<T> Id<T> {
         }
     }
 
+    pub const fn from_uuid(id: Uuid) -> Self {
+        Self {
+            id,
+            _marker: PhantomData,
+        }
+    }
+
     pub fn from_str(s: &str) -> Self {
         let id = Uuid::from_u128(xxhash_rust::xxh3::xxh3_128(s.as_bytes()));
         #[cfg(debug_assertions)]
@@ -152,6 +159,10 @@ impl UntypedId {
             id: Uuid::new_v4(),
             ty,
         }
+    }
+
+    pub const fn from_uuid(ty: TypeId, id: Uuid) -> Self {
+        Self { id, ty }
     }
 
     pub fn from_str(s: &str, ty: TypeId) -> Self {

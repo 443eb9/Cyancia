@@ -20,7 +20,7 @@ impl CanvasAction for CanvasPanAction {
         CanvasPanActionState {}
     }
 
-    fn activate(&self, shortcut: KeySequence, canvas: &mut CCanvas, state: &mut Self::State) {
+    fn activate(&self, shortcut: KeySequence, canvas: &CCanvas, state: &mut Self::State) {
         dbg!();
     }
 
@@ -28,7 +28,7 @@ impl CanvasAction for CanvasPanAction {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Self::State,
     ) {
         dbg!();
@@ -38,7 +38,7 @@ impl CanvasAction for CanvasPanAction {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Self::State,
     ) {
         dbg!();
@@ -48,13 +48,13 @@ impl CanvasAction for CanvasPanAction {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Self::State,
     ) {
         dbg!();
     }
 
-    fn deactivate(&self, shortcut: KeySequence, canvas: &mut CCanvas, state: &mut Self::State) {
+    fn deactivate(&self, shortcut: KeySequence, canvas: &CCanvas, state: &mut Self::State) {
         dbg!();
     }
 }
@@ -75,7 +75,7 @@ impl CanvasAction for CanvasRotateAction {
         CanvasRotateActionState {}
     }
 
-    fn activate(&self, shortcut: KeySequence, canvas: &mut CCanvas, state: &mut Self::State) {
+    fn activate(&self, shortcut: KeySequence, canvas: &CCanvas, state: &mut Self::State) {
         dbg!();
     }
 
@@ -83,7 +83,7 @@ impl CanvasAction for CanvasRotateAction {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Self::State,
     ) {
         dbg!();
@@ -93,7 +93,7 @@ impl CanvasAction for CanvasRotateAction {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Self::State,
     ) {
         dbg!();
@@ -103,13 +103,13 @@ impl CanvasAction for CanvasRotateAction {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Self::State,
     ) {
         dbg!();
     }
 
-    fn deactivate(&self, shortcut: KeySequence, canvas: &mut CCanvas, state: &mut Self::State) {
+    fn deactivate(&self, shortcut: KeySequence, canvas: &CCanvas, state: &mut Self::State) {
         dbg!();
     }
 }
@@ -130,7 +130,7 @@ impl CanvasAction for CanvasZoomAction {
         CanvasZoomActionState {}
     }
 
-    fn activate(&self, shortcut: KeySequence, canvas: &mut CCanvas, state: &mut Self::State) {
+    fn activate(&self, shortcut: KeySequence, canvas: &CCanvas, state: &mut Self::State) {
         dbg!();
     }
 
@@ -138,7 +138,7 @@ impl CanvasAction for CanvasZoomAction {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Self::State,
     ) {
         dbg!();
@@ -148,7 +148,7 @@ impl CanvasAction for CanvasZoomAction {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Self::State,
     ) {
         dbg!();
@@ -158,13 +158,13 @@ impl CanvasAction for CanvasZoomAction {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &mut CCanvas,
+        canvas: &CCanvas,
         state: &mut Self::State,
     ) {
         dbg!();
     }
 
-    fn deactivate(&self, shortcut: KeySequence, canvas: &mut CCanvas, state: &mut Self::State) {
+    fn deactivate(&self, shortcut: KeySequence, canvas: &CCanvas, state: &mut Self::State) {
         dbg!();
     }
 }
