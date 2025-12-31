@@ -23,7 +23,7 @@ impl Layer {
         self.id
     }
 
-    pub fn from_image(&self, img: DynamicImage, tiles: &GpuTileStorage) -> Self {
+    pub fn from_image(img: DynamicImage, tiles: &GpuTileStorage) -> Self {
         let id = Id::random();
         let size = UVec2::new(img.width(), img.height());
         tiles.upload_image(id, img);

@@ -166,7 +166,7 @@ impl CanvasRenderPipeline {
                     binding: 0,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Texture {
-                        sample_type: TextureSampleType::Float { filterable: true },
+                        sample_type: TextureSampleType::Float { filterable: false },
                         view_dimension: TextureViewDimension::D2Array,
                         multisampled: false,
                     },
@@ -176,7 +176,7 @@ impl CanvasRenderPipeline {
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    ty: BindingType::Sampler(SamplerBindingType::NonFiltering),
                     count: None,
                 },
                 // canvas uniform
@@ -280,8 +280,8 @@ impl CanvasRenderPipeline {
             address_mode_u: AddressMode::ClampToEdge,
             address_mode_v: AddressMode::ClampToEdge,
             address_mode_w: AddressMode::ClampToEdge,
-            min_filter: FilterMode::Linear,
-            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Nearest,
+            mag_filter: FilterMode::Nearest,
             mipmap_filter: FilterMode::Nearest,
             ..Default::default()
         });
@@ -292,6 +292,7 @@ impl CanvasRenderPipeline {
             for TileId {
                 image_layer,
                 index,
+                pile_index,
                 pile_layer,
             } in group.tiles
             {
@@ -374,7 +375,7 @@ impl CanvasPresentPipeline {
                     binding: 0,
                     visibility: ShaderStages::FRAGMENT,
                     ty: BindingType::Texture {
-                        sample_type: TextureSampleType::Float { filterable: true },
+                        sample_type: TextureSampleType::Float { filterable: false },
                         view_dimension: TextureViewDimension::D2,
                         multisampled: false,
                     },
@@ -383,7 +384,7 @@ impl CanvasPresentPipeline {
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    ty: BindingType::Sampler(SamplerBindingType::NonFiltering),
                     count: None,
                 },
             ],
@@ -425,8 +426,8 @@ impl CanvasPresentPipeline {
             address_mode_u: AddressMode::ClampToEdge,
             address_mode_v: AddressMode::ClampToEdge,
             address_mode_w: AddressMode::ClampToEdge,
-            min_filter: FilterMode::Linear,
-            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Nearest,
+            mag_filter: FilterMode::Nearest,
             mipmap_filter: FilterMode::Nearest,
             ..Default::default()
         });

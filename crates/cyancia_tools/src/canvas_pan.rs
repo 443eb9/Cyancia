@@ -1,7 +1,5 @@
-use cyancia_canvas::{
-    CCanvas,
-    action::{CanvasAction, control::CanvasPanAction},
-};
+use cyancia_actions::{ActionFunction, control::CanvasPanAction, shell::CShell};
+use cyancia_canvas::CCanvas;
 use cyancia_id::Id;
 use cyancia_input::{action::Action, key::KeySequence};
 use iced_core::Point;
@@ -15,8 +13,8 @@ pub struct CanvasPanTool {
 
 impl CanvasTool for CanvasPanTool {}
 
-impl CanvasAction for CanvasPanTool {
-    type State = <CanvasPanAction as CanvasAction>::State;
+impl ActionFunction for CanvasPanTool {
+    type State = <CanvasPanAction as ActionFunction>::State;
 
     fn id(&self) -> Id<Action> {
         Id::from_str("canvas_pan_tool")
@@ -26,41 +24,23 @@ impl CanvasAction for CanvasPanTool {
         self.action.default_state()
     }
 
-    fn activate(&self, shortcut: KeySequence, canvas: &CCanvas, state: &mut Self::State) {
-        self.action.activate(shortcut, canvas, state)
+    fn activate(&self, shortcut: KeySequence, shell: &mut CShell, state: &mut Self::State) {
+        self.action.activate(shortcut, shell, state)
     }
 
-    fn begin(
-        &self,
-        shortcut: KeySequence,
-        cursor: Point,
-        canvas: &CCanvas,
-        state: &mut Self::State,
-    ) {
-        self.action.begin(shortcut, cursor, canvas, state)
+    fn begin(&self, shortcut: KeySequence, cursor: Point, shell: &mut CShell, state: &mut Self::State) {
+        self.action.begin(shortcut, cursor, shell, state)
     }
 
-    fn update(
-        &self,
-        shortcut: KeySequence,
-        cursor: Point,
-        canvas: &CCanvas,
-        state: &mut Self::State,
-    ) {
-        self.action.update(shortcut, cursor, canvas, state)
+    fn update(&self, shortcut: KeySequence, cursor: Point, shell: &mut CShell, state: &mut Self::State) {
+        self.action.update(shortcut, cursor, shell, state)
     }
 
-    fn end(
-        &self,
-        shortcut: KeySequence,
-        cursor: Point,
-        canvas: &CCanvas,
-        state: &mut Self::State,
-    ) {
-        self.action.end(shortcut, cursor, canvas, state)
+    fn end(&self, shortcut: KeySequence, cursor: Point, shell: &mut CShell, state: &mut Self::State) {
+        self.action.end(shortcut, cursor, shell, state)
     }
 
-    fn deactivate(&self, shortcut: KeySequence, canvas: &CCanvas, state: &mut Self::State) {
-        self.action.deactivate(shortcut, canvas, state)
+    fn deactivate(&self, shortcut: KeySequence, shell: &mut CShell, state: &mut Self::State) {
+        self.action.deactivate(shortcut, shell, state)
     }
 }

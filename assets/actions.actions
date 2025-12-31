@@ -25,3 +25,7 @@ shortcut = [["KeyZ"]]
 [brush_tool]
 ty = "Toggle"
 shortcut = [["KeyB"]]
+
+[open_file_action]
+ty = "OneShot"
+shortcut = [["ControlLeft", "KeyO"]]

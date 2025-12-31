@@ -15,6 +15,7 @@ cyancia_tools = { version = "0.1.0", path = "crates/cyancia_tools" }
 cyancia_image = { version = "0.1.0", path = "crates/cyancia_image" }
 cyancia_render = { version = "0.1.0", path = "crates/cyancia_render" }
 cyancia_math = { version = "0.1.0", path = "crates/cyancia_math" }
+cyancia_actions = { version = "0.1.0", path = "crates/cyancia_actions" }
 
 iced = { version = "0.14", features = [
     "debug",
@@ -67,3 +68,4 @@ image = "0.25"
 palette = "0.7"
 rayon = "1"
 half = "2"
+rfd = "0.16"

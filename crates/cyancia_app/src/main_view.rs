@@ -1,14 +1,13 @@
 use std::sync::Arc;
 
-use cyancia_assets::store::{AssetLoaderRegistry, AssetRegistry};
-use cyancia_canvas::{
-    CCanvas,
-    action::{
-        CanvasActionCollection,
-        control::{CanvasPanAction, CanvasRotateAction, CanvasZoomAction},
-    },
-    widget::CanvasWidget,
+use cyancia_actions::{
+    ActionFunctionCollection,
+    control::{CanvasPanAction, CanvasRotateAction, CanvasZoomAction},
+    files::OpenFileAction,
+    shell::CShell,
 };
+use cyancia_assets::store::{AssetLoaderRegistry, AssetRegistry};
+use cyancia_canvas::{CCanvas, widget::CanvasWidget};
 use cyancia_id::Id;
 use cyancia_image::{
     CImage,
@@ -35,7 +34,7 @@ use iced::{
 pub struct MainView {
     pub assets: AssetRegistry,
     pub action_matcher: ActionMatcher,
-    pub canvas_actions: CanvasActionCollection,
+    pub canvas_actions: ActionFunctionCollection,
     pub canvas: Arc<CCanvas>,
     pub mouse_state: MouseState,
     pub current_action: Option<(Id<Action>, Arc<Action>, KeySequence)>,
@@ -60,12 +59,13 @@ impl MainView {
         cyancia_input::register_loaders(&mut loaders);
         let assets = AssetRegistry::new("assets", &loaders);
 
-        let mut canvas_actions = CanvasActionCollection::new();
+        let mut canvas_actions = ActionFunctionCollection::new();
         canvas_actions.register::<CanvasPanAction>();
         canvas_actions.register::<CanvasRotateAction>();
         canvas_actions.register::<CanvasZoomAction>();
         canvas_actions.register::<CanvasPanTool>();
         canvas_actions.register::<BrushTool>();
+        canvas_actions.register::<OpenFileAction>();
 
         Self {
             action_matcher: ActionMatcher::new(ActionCollection::new(
@@ -185,11 +185,12 @@ impl MainView {
     }
 
     fn handle_action_change(&mut self, previous: Option<(Id<Action>, Arc<Action>, KeySequence)>) {
+        let mut shell = self.create_shell();
         if let Some((id, _, keys)) = previous
             && !self.mouse_state.is_pressed(mouse::Button::Left)
             && let Some(canvas_action) = self.canvas_actions.get(&id)
         {
-            canvas_action.deactivate(keys, &mut self.canvas);
+            canvas_action.deactivate(keys, &mut shell);
             self.current_action = self.action_matcher.current_action();
         }
 
@@ -203,39 +204,45 @@ impl MainView {
                 .is_some_and(|(old, _, _)| *old == id)
                 && action.ty == ActionType::Toggle
             {
-                canvas_action.deactivate(keys, &mut self.canvas);
+                canvas_action.deactivate(keys, &mut shell);
                 self.current_action = None;
             } else {
-                canvas_action.prepare(keys, &mut self.canvas);
+                canvas_action.activate(keys, &mut shell);
                 self.current_action = self.action_matcher.current_action();
             }
         }
+        self.apply_shell(shell);
     }
 
     fn try_begin_current_action(&mut self) {
+        let mut shell = self.create_shell();
         if let Some((id, action, keys)) = &self.current_action
             && action.ty != ActionType::OneShot
             && let Some(canvas_action) = self.canvas_actions.get(&id)
         {
-            canvas_action.begin(*keys, self.mouse_state.position(), &mut self.canvas);
+            canvas_action.begin(*keys, self.mouse_state.position(), &mut shell);
         }
+        self.apply_shell(shell);
     }
 
     fn try_update_current_action(&mut self) {
+        let mut shell = self.create_shell();
         if self.mouse_state.is_pressed(mouse::Button::Left)
             && let Some((id, action, keys)) = &self.current_action
             && action.ty != ActionType::OneShot
             && let Some(canvas_action) = self.canvas_actions.get(&id)
         {
-            canvas_action.update(*keys, self.mouse_state.position(), &mut self.canvas);
+            canvas_action.update(*keys, self.mouse_state.position(), &mut shell);
         }
+        self.apply_shell(shell);
     }
 
     fn try_end_current_action(&mut self) {
+        let mut shell = self.create_shell();
         if let Some((id, action, keys)) = &self.current_action
             && let Some(canvas_action) = self.canvas_actions.get(&id)
         {
-            canvas_action.end(*keys, self.mouse_state.position(), &mut self.canvas);
+            canvas_action.end(*keys, self.mouse_state.position(), &mut shell);
 
             let action_changed = self
                 .action_matcher
@@ -243,9 +250,23 @@ impl MainView {
                 .as_ref()
                 .is_none_or(|(new, _, _)| new != id);
             if action.ty == ActionType::Hold && action_changed {
-                canvas_action.deactivate(*keys, &mut self.canvas);
+                canvas_action.deactivate(*keys, &mut shell);
                 self.current_action = self.action_matcher.current_action();
             }
+        }
+        self.apply_shell(shell);
+    }
+
+    fn create_shell(&self) -> CShell {
+        CShell::new(self.canvas.clone())
+    }
+
+    fn apply_shell(&mut self, shell: CShell) {
+        let shell = shell.destruct();
+        self.canvas = shell.current_canvas;
+        for canvas in shell.canvases {
+            log::info!("Canvas created: {:?}", canvas);
+            self.canvas = canvas;
         }
     }
 }

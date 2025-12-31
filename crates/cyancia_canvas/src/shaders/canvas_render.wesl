@@ -12,7 +12,7 @@ struct Canvas {
 @group(0) @binding(1) var tile_sampler: sampler;
 @group(0) @binding(2) var<uniform> canvas: Canvas;
 @group(0) @binding(3) var<storage, read> tile_mapper: array<u32>;
-@group(0) @binding(4) var output: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(4) var output: texture_storage_2d<rgba32float, write>;
 
 @compute
 @workgroup_size(16, 16, 1)
@@ -38,6 +38,6 @@ fn main(@builtin(global_invocation_id) index: vec3u) {
     let tile_sample_coord = (canvas_pos.xy % vec2f(canvas.tile_size)) / vec2f(canvas.tile_size);
     let color = textureSampleLevel(tile_pile, tile_sampler, tile_sample_coord, tile_layer_id, 0.0);
 
-    // textureStore(output, vec2u(pixel_pos), color);
-    textureStore(output, vec2u(tile_sample_coord), color);
+    textureStore(output, vec2u(pixel_pos), color);
+    // textureStore(output, vec2u(pixel_pos), vec4f(tile_sample_coord, 0.0, 1.0));
 }

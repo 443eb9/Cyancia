@@ -8,3 +8,4 @@ cyancia_canvas.workspace = true
 cyancia_input.workspace = true
 cyancia_id.workspace = true
 iced_core.workspace = true
+cyancia_actions.workspace = true

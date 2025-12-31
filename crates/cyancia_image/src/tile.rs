@@ -34,6 +34,7 @@ pub struct GroupedTileViews {
 pub struct TileId {
     pub image_layer: Id<Layer>,
     pub index: UVec2,
+    pub pile_index: usize,
     pub pile_layer: u32,
 }
 
@@ -59,10 +60,11 @@ impl GpuTileStorage {
     pub const TILES_PER_PILE: u32 = 256;
     pub const EMPTY_TILE_ID: TileId = TileId {
         image_layer: Id::from_uuid(Uuid::from_u128(0)),
-        pile_layer: 0,
         index: UVec2::ZERO,
+        pile_layer: 0,
+        pile_index: 0,
     };
-    pub const TILE_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
+    pub const TILE_FORMAT: TextureFormat = TextureFormat::Rgba32Float;
 
     pub fn calc_tile_count(image_size: UVec2) -> UVec2 {
         UVec2::new(
@@ -140,15 +142,19 @@ impl GpuTileStorage {
             .get(&(image_layer, index))
             .map(|r| r.value().clone())
             .unwrap_or_else(|| {
-                self.tiles
+                let mut empty = self
+                    .tiles
                     .get(&(Self::EMPTY_TILE_ID.image_layer, Self::EMPTY_TILE_ID.index))
                     .unwrap()
                     .value()
-                    .clone()
+                    .clone();
+                empty.id.index = index;
+                empty
             })
     }
 
     pub fn get_tile_mut(&self, image_layer: Id<Layer>, index: UVec2) -> Tile {
+        dbg!(self.tiles.len(), self.available_slices.read().len());
         match self.tiles.entry((image_layer, index)) {
             dashmap::Entry::Occupied(e) => e.get().clone(),
             dashmap::Entry::Vacant(e) => {
@@ -166,11 +172,13 @@ impl GpuTileStorage {
                     array_layer_count: Some(1),
                     usage: None,
                 });
+                dbg!(slice_index);
 
                 let tile = Tile {
                     id: TileId {
                         image_layer,
                         index,
+                        pile_index,
                         pile_layer: slice_index as u32,
                     },
                     view: view.clone().into(),
@@ -182,6 +190,10 @@ impl GpuTileStorage {
     }
 
     fn try_allocate_new_tile_pile(&self) {
+        if !self.available_slices.read().is_empty() {
+            return;
+        }
+
         let texture = self.device.create_texture(&TextureDescriptor {
             label: Some("pile"),
             size: Extent3d {
@@ -215,6 +227,10 @@ impl GpuTileStorage {
             texture: Arc::new(texture),
             texture_view: Arc::new(texture_view),
         });
+        log::info!(
+            "Allocated new tile pile. Current pile count: {}",
+            piles.len()
+        );
         let pile_index = piles.len() - 1;
         self.available_slices
             .write()
@@ -228,9 +244,10 @@ impl GpuTileStorage {
         let img = img.into_rgba32f();
         let data = img
             .into_raw()
-            .par_iter()
-            .map(|x| half::f16::from_f32(*x).to_bits())
-            .collect::<Vec<_>>();
+            // .par_iter()
+            // .map(|x| half::f16::from_f32(*x).to_bits())
+            // .collect::<Vec<_>>()
+            ;
 
         let texture = self.device.create_texture_with_data(
             &self.queue,
@@ -279,7 +296,16 @@ impl GpuTileStorage {
                     },
                     aspect: TextureAspect::All,
                 },
-                tile.view.texture().as_image_copy(),
+                TexelCopyTextureInfo {
+                    texture: tile.view.texture(),
+                    mip_level: 0,
+                    origin: Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: tile.id.pile_layer,
+                    },
+                    aspect: TextureAspect::All,
+                },
                 Extent3d {
                     width: Self::TILE_SIZE.min(width - origin.x),
                     height: Self::TILE_SIZE.min(height - origin.y),
@@ -368,7 +394,7 @@ impl GpuTileStorage {
                 (min.y..=max.y).map(move |y| self.get_tile(image_layer, UVec2::new(x, y)))
             })
             .fold(HashMap::new(), |mut acc, tile| {
-                acc.entry(tile.id.pile_layer as usize)
+                acc.entry(tile.id.pile_index)
                     .or_insert_with(Vec::new)
                     .push(tile.id);
                 acc
@@ -377,8 +403,8 @@ impl GpuTileStorage {
         let piles = self.piles.read();
         groups
             .into_iter()
-            .map(|(texture_index, tiles)| GroupedTileViews {
-                pile: piles[texture_index].texture_view.clone(),
+            .map(|(pile_index, tiles)| GroupedTileViews {
+                pile: piles[pile_index].texture_view.clone(),
                 tiles,
             })
             .collect()

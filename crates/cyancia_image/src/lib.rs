@@ -22,6 +22,10 @@ impl CImage {
         }
     }
 
+    pub fn from_layer(size: UVec2, root: Layer) -> Self {
+        Self { size, root }
+    }
+
     pub fn from_file(path: impl AsRef<Path>) -> image::ImageResult<Self> {
         Ok(Self::from_dynamic(image::open(path)?))
     }

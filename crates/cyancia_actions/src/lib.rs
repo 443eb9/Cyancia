@@ -5,21 +5,23 @@ use cyancia_input::{action::Action, key::KeySequence};
 use iced_core::Point;
 use parking_lot::RwLock;
 
-use crate::CCanvas;
+use crate::shell::CShell;
 
 pub mod control;
+pub mod files;
+pub mod shell;
 
-pub trait CanvasAction: Send + Sync + 'static {
+pub trait ActionFunction: Send + Sync + 'static {
     type State: Send + Sync + 'static;
 
     fn id(&self) -> Id<Action>;
     fn default_state(&self) -> Self::State;
-    fn activate(&self, shortcut: KeySequence, canvas: &CCanvas, state: &mut Self::State) {}
+    fn activate(&self, shortcut: KeySequence, shell: &mut CShell, state: &mut Self::State) {}
     fn begin(
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &CCanvas,
+        shell: &mut CShell,
         state: &mut Self::State,
     ) {
     }
@@ -27,7 +29,7 @@ pub trait CanvasAction: Send + Sync + 'static {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &CCanvas,
+        shell: &mut CShell,
         state: &mut Self::State,
     ) {
     }
@@ -35,183 +37,183 @@ pub trait CanvasAction: Send + Sync + 'static {
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &CCanvas,
+        shell: &mut CShell,
         state: &mut Self::State,
     ) {
     }
-    fn deactivate(&self, shortcut: KeySequence, canvas: &CCanvas, state: &mut Self::State) {}
+    fn deactivate(&self, shortcut: KeySequence, shell: &mut CShell, state: &mut Self::State) {}
 }
 
-pub trait ErasedCanvasAction {
+pub trait ErasedActionFunction {
     fn id(&self) -> Id<Action>;
     fn default_state(&self) -> Box<dyn Any + Send + Sync>;
-    fn prepare(
+    fn activate(
         &self,
         shortcut: KeySequence,
-        canvas: &CCanvas,
+        shell: &mut CShell,
         state: &mut Box<dyn Any + Send + Sync>,
     );
     fn begin(
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &CCanvas,
+        shell: &mut CShell,
         state: &mut Box<dyn Any + Send + Sync>,
     );
     fn update(
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &CCanvas,
+        shell: &mut CShell,
         state: &mut Box<dyn Any + Send + Sync>,
     );
     fn end(
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &CCanvas,
+        shell: &mut CShell,
         state: &mut Box<dyn Any + Send + Sync>,
     );
     fn deactivate(
         &self,
         shortcut: KeySequence,
-        canvas: &CCanvas,
+        shell: &mut CShell,
         state: &mut Box<dyn Any + Send + Sync>,
     );
 }
 
-impl<T: CanvasAction> ErasedCanvasAction for T {
+impl<T: ActionFunction> ErasedActionFunction for T {
     fn id(&self) -> Id<Action> {
-        <T as CanvasAction>::id(self)
+        <T as ActionFunction>::id(self)
     }
 
     fn default_state(&self) -> Box<dyn Any + Send + Sync> {
-        Box::new(<T as CanvasAction>::default_state(self))
+        Box::new(<T as ActionFunction>::default_state(self))
     }
 
-    fn prepare(
+    fn activate(
         &self,
         shortcut: KeySequence,
-        canvas: &CCanvas,
+        shell: &mut CShell,
         state: &mut Box<dyn Any + Send + Sync>,
     ) {
         let state = state
             .downcast_mut::<T::State>()
             .expect("CanvasAction state has incorrect type");
-        <T as CanvasAction>::activate(self, shortcut, canvas, state);
+        <T as ActionFunction>::activate(self, shortcut, shell, state);
     }
 
     fn begin(
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &CCanvas,
+        shell: &mut CShell,
         state: &mut Box<dyn Any + Send + Sync>,
     ) {
         let state = state
             .downcast_mut::<T::State>()
             .expect("CanvasAction state has incorrect type");
-        <T as CanvasAction>::begin(self, shortcut, cursor, canvas, state);
+        <T as ActionFunction>::begin(self, shortcut, cursor, shell, state);
     }
 
     fn update(
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &CCanvas,
+        shell: &mut CShell,
         state: &mut Box<dyn Any + Send + Sync>,
     ) {
         let state = state
             .downcast_mut::<T::State>()
             .expect("CanvasAction state has incorrect type");
-        <T as CanvasAction>::update(self, shortcut, cursor, canvas, state);
+        <T as ActionFunction>::update(self, shortcut, cursor, shell, state);
     }
 
     fn end(
         &self,
         shortcut: KeySequence,
         cursor: Point,
-        canvas: &CCanvas,
+        shell: &mut CShell,
         state: &mut Box<dyn Any + Send + Sync>,
     ) {
         let state = state
             .downcast_mut::<T::State>()
             .expect("CanvasAction state has incorrect type");
-        <T as CanvasAction>::end(self, shortcut, cursor, canvas, state);
+        <T as ActionFunction>::end(self, shortcut, cursor, shell, state);
     }
 
     fn deactivate(
         &self,
         shortcut: KeySequence,
-        canvas: &CCanvas,
+        shell: &mut CShell,
         state: &mut Box<dyn Any + Send + Sync>,
     ) {
         let state = state
             .downcast_mut::<T::State>()
             .expect("CanvasAction state has incorrect type");
-        <T as CanvasAction>::deactivate(self, shortcut, canvas, state);
+        <T as ActionFunction>::deactivate(self, shortcut, shell, state);
     }
 }
 
-pub struct StatefulCanvasAction {
-    action: Box<dyn ErasedCanvasAction>,
+pub struct StatefulActionFunction {
+    action: Box<dyn ErasedActionFunction>,
     state: RwLock<Box<dyn Any + Send + Sync>>,
 }
 
-impl StatefulCanvasAction {
+impl StatefulActionFunction {
     pub fn id(&self) -> Id<Action> {
         self.action.id()
     }
 
-    pub fn prepare(&self, shortcut: KeySequence, canvas: &CCanvas) {
+    pub fn activate(&self, shortcut: KeySequence, shell: &mut CShell) {
         self.action
-            .prepare(shortcut, canvas, &mut self.state.write());
+            .activate(shortcut, shell, &mut self.state.write());
     }
 
-    pub fn begin(&self, shortcut: KeySequence, cursor: Point, canvas: &CCanvas) {
+    pub fn begin(&self, shortcut: KeySequence, cursor: Point, shell: &mut CShell) {
         self.action
-            .begin(shortcut, cursor, canvas, &mut self.state.write());
+            .begin(shortcut, cursor, shell, &mut self.state.write());
     }
 
-    pub fn update(&self, shortcut: KeySequence, cursor: Point, canvas: &CCanvas) {
+    pub fn update(&self, shortcut: KeySequence, cursor: Point, shell: &mut CShell) {
         self.action
-            .update(shortcut, cursor, canvas, &mut self.state.write());
+            .update(shortcut, cursor, shell, &mut self.state.write());
     }
 
-    pub fn end(&self, shortcut: KeySequence, cursor: Point, canvas: &CCanvas) {
+    pub fn end(&self, shortcut: KeySequence, cursor: Point, shell: &mut CShell) {
         self.action
-            .end(shortcut, cursor, canvas, &mut self.state.write());
+            .end(shortcut, cursor, shell, &mut self.state.write());
     }
 
-    pub fn deactivate(&self, shortcut: KeySequence, canvas: &CCanvas) {
+    pub fn deactivate(&self, shortcut: KeySequence, shell: &mut CShell) {
         self.action
-            .deactivate(shortcut, canvas, &mut self.state.write());
+            .deactivate(shortcut, shell, &mut self.state.write());
     }
 }
 
-pub struct CanvasActionCollection {
-    actions: HashMap<Id<Action>, StatefulCanvasAction>,
+pub struct ActionFunctionCollection {
+    actions: HashMap<Id<Action>, StatefulActionFunction>,
 }
 
-impl CanvasActionCollection {
+impl ActionFunctionCollection {
     pub fn new() -> Self {
         Self {
             actions: HashMap::new(),
         }
     }
 
-    pub fn register<A: CanvasAction + Default>(&mut self) {
+    pub fn register<A: ActionFunction + Default>(&mut self) {
         let action = A::default();
         self.actions.insert(
             action.id(),
-            StatefulCanvasAction {
+            StatefulActionFunction {
                 state: RwLock::new(Box::new(action.default_state())),
                 action: Box::new(action),
             },
         );
     }
 
-    pub fn get(&self, id: &Id<Action>) -> Option<&StatefulCanvasAction> {
+    pub fn get(&self, id: &Id<Action>) -> Option<&StatefulActionFunction> {
         self.actions.get(id)
     }
 }

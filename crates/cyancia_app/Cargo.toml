@@ -18,3 +18,4 @@ glam.workspace = true
 iced_wgpu.workspace = true
 wgpu.workspace = true
 cyancia_render.workspace = true
+cyancia_actions.workspace = true
