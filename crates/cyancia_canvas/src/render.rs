@@ -6,7 +6,7 @@ use cyancia_image::{
     tile::{GpuTileStorage, TileId},
 };
 use cyancia_math::iced_rect::{RectangleConversion, RectangleTransform};
-use cyancia_render::buffer::DynamicBuffer;
+use cyancia_render::{buffer::DynamicBuffer, resources::GLOBAL_SAMPLERS};
 use cyancia_utils::include_shader;
 use encase::ShaderType;
 use glam::{Mat3, UVec2};
@@ -167,7 +167,7 @@ impl CanvasRenderPipeline {
                     binding: 0,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Texture {
-                        sample_type: TextureSampleType::Float { filterable: false },
+                        sample_type: TextureSampleType::Float { filterable: true },
                         view_dimension: TextureViewDimension::D2Array,
                         multisampled: false,
                     },
@@ -177,7 +177,7 @@ impl CanvasRenderPipeline {
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Sampler(SamplerBindingType::NonFiltering),
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
                     count: None,
                 },
                 // canvas uniform
@@ -277,15 +277,6 @@ impl CanvasRenderPipeline {
             uniform.total_tile_count,
             root_layer_id,
         );
-        let sampler = device.create_sampler(&SamplerDescriptor {
-            address_mode_u: AddressMode::ClampToEdge,
-            address_mode_v: AddressMode::ClampToEdge,
-            address_mode_w: AddressMode::ClampToEdge,
-            min_filter: FilterMode::Nearest,
-            mag_filter: FilterMode::Nearest,
-            mipmap_filter: FilterMode::Nearest,
-            ..Default::default()
-        });
         for group in visible_tiles {
             // dbg!(group.pile_texture.texture());
             let mut mapper_data =
@@ -317,7 +308,7 @@ impl CanvasRenderPipeline {
                     },
                     BindGroupEntry {
                         binding: 1,
-                        resource: BindingResource::Sampler(&sampler),
+                        resource: BindingResource::Sampler(&GLOBAL_SAMPLERS.linear_clamp()),
                     },
                     BindGroupEntry {
                         binding: 2,
@@ -354,7 +345,6 @@ impl CanvasRenderPipeline {
 pub struct CanvasPresentPipeline {
     pipeline: RenderPipeline,
     layout: BindGroupLayout,
-    sampler: Sampler,
 }
 
 impl CanvasPresentPipeline {
@@ -376,7 +366,7 @@ impl CanvasPresentPipeline {
                     binding: 0,
                     visibility: ShaderStages::FRAGMENT,
                     ty: BindingType::Texture {
-                        sample_type: TextureSampleType::Float { filterable: false },
+                        sample_type: TextureSampleType::Float { filterable: true },
                         view_dimension: TextureViewDimension::D2,
                         multisampled: false,
                     },
@@ -385,7 +375,7 @@ impl CanvasPresentPipeline {
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Sampler(SamplerBindingType::NonFiltering),
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
                     count: None,
                 },
             ],
@@ -423,20 +413,9 @@ impl CanvasPresentPipeline {
             cache: None,
         });
 
-        let sampler = device.create_sampler(&SamplerDescriptor {
-            address_mode_u: AddressMode::ClampToEdge,
-            address_mode_v: AddressMode::ClampToEdge,
-            address_mode_w: AddressMode::ClampToEdge,
-            min_filter: FilterMode::Nearest,
-            mag_filter: FilterMode::Nearest,
-            mipmap_filter: FilterMode::Nearest,
-            ..Default::default()
-        });
-
         Self {
             pipeline,
             layout,
-            sampler,
         }
     }
 
@@ -458,7 +437,7 @@ impl CanvasPresentPipeline {
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: BindingResource::Sampler(&self.sampler),
+                    resource: BindingResource::Sampler(&GLOBAL_SAMPLERS.linear_clamp()),
                 },
             ],
         });
