@@ -25,6 +25,8 @@ macro_rules! canvas_tool_action {
     };
 }
 canvas_tool_action!(PanToolAction, "pan_tool", "pan_tool");
+canvas_tool_action!(RotateToolAction, "rotate_tool", "rotate_tool");
+canvas_tool_action!(ZoomToolAction, "zoom_tool", "zoom_tool");
 canvas_tool_action!(BrushToolAction, "brush_tool", "brush_tool");
 
 pub struct CanvasToolSwitch<T: CanvasToolAction> {

@@ -2,7 +2,9 @@ use std::{fmt::Debug, sync::Arc};
 
 use cyancia_actions::{
     ActionFunctionCollection,
-    canvas_control::{BrushToolAction, CanvasToolSwitch, PanToolAction},
+    canvas_control::{
+        BrushToolAction, CanvasToolSwitch, PanToolAction, RotateToolAction, ZoomToolAction,
+    },
     file::OpenFileAction,
     shell::{CShell, DestructedShell},
     task::ActionTask,
@@ -23,7 +25,10 @@ use cyancia_render::{
     renderer_acquire::RendererAcquire,
     resources::{GLOBAL_SAMPLERS, GlobalSamplers},
 };
-use cyancia_tools::{CanvasToolFunctionCollection, ToolProxy, brush::BrushTool, pan::PanTool};
+use cyancia_tools::{
+    CanvasToolFunctionCollection, ToolProxy, brush::BrushTool, pan::PanTool, rotate::RotateTool,
+    zoom::ZoomTool,
+};
 use glam::UVec2;
 use iced::{
     Element, Point, Renderer, Subscription, Task, Theme, event,
@@ -77,6 +82,8 @@ impl MainView {
             ));
             collection.register::<OpenFileAction>();
             collection.register::<CanvasToolSwitch<PanToolAction>>();
+            collection.register::<CanvasToolSwitch<RotateToolAction>>();
+            collection.register::<CanvasToolSwitch<ZoomToolAction>>();
             collection.register::<CanvasToolSwitch<BrushToolAction>>();
             collection
         };
@@ -84,6 +91,8 @@ impl MainView {
             let mut c = CanvasToolFunctionCollection::new();
             c.register::<BrushTool>();
             c.register::<PanTool>();
+            c.register::<RotateTool>();
+            c.register::<ZoomTool>();
             c
         };
         let tools = { ToolProxy::new(Id::from_str("brush_tool"), tool_functions) };

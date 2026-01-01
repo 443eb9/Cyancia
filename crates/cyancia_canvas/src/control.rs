@@ -1,7 +1,8 @@
-use glam::{Mat3, Vec2};
+use glam::{Mat3, UVec2, Vec2};
 
 #[derive(Default, Debug, Clone)]
 pub struct CanvasTransform {
+    pub widget_size: Vec2,
     pub pixel_to_widget: Mat3,
 }
 

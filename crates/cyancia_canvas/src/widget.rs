@@ -3,6 +3,7 @@ use std::sync::Arc;
 use cyancia_assets::store::AssetRegistry;
 use cyancia_image::tile::GpuTileStorage;
 use cyancia_input::action::{ActionCollection, ActionManifest};
+use glam::{UVec2, Vec2};
 use iced_core::{
     Clipboard, Element, Event, Layout, Length, Rectangle, Shell, Size, Widget,
     keyboard::{self, key},
@@ -45,6 +46,8 @@ impl<Message, Theme> Widget<Message, Theme, iced_wgpu::Renderer> for CanvasWidge
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
+        self.canvas.transform.write().widget_size =
+            Vec2::new(layout.bounds().width, layout.bounds().height);
     }
 
     fn draw(
