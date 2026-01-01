@@ -3,16 +3,21 @@ use std::sync::Arc;
 use cyancia_canvas::CCanvas;
 use cyancia_id::Id;
 use cyancia_tools::{CanvasTool, ToolProxy};
+use iced_runtime::Task;
+
+use crate::task::ActionTask;
 
 pub struct DestructedShell {
     pub current_canvas: Arc<CCanvas>,
     pub canvases: Vec<Arc<CCanvas>>,
+    pub tasks: Vec<Task<Option<Box<dyn ActionTask>>>>,
 }
 
 pub struct CShell<'a> {
     current_canvas: Arc<CCanvas>,
     canvas_creation: Vec<Arc<CCanvas>>,
     tool_proxy: &'a mut ToolProxy,
+    tasks: Vec<Task<Option<Box<dyn ActionTask>>>>,
 }
 
 impl<'a> CShell<'a> {
@@ -21,6 +26,7 @@ impl<'a> CShell<'a> {
             current_canvas,
             canvas_creation: Vec::new(),
             tool_proxy,
+            tasks: Vec::new(),
         }
     }
 
@@ -45,10 +51,16 @@ impl<'a> CShell<'a> {
         DestructedShell {
             current_canvas: self.current_canvas,
             canvases: self.canvas_creation,
+            tasks: self.tasks,
         }
     }
 
     pub fn tool_proxy(&mut self) -> &mut ToolProxy {
         self.tool_proxy
+    }
+
+    pub fn queue_task<T: ActionTask>(&mut self, task: Task<Option<T>>) {
+        self.tasks
+            .push(task.map(|t| t.map(|t| Box::new(t) as Box<dyn ActionTask>)));
     }
 }

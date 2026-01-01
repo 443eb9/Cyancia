@@ -1,10 +1,11 @@
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use cyancia_actions::{
     ActionFunctionCollection,
     canvas_control::{BrushToolAction, CanvasToolSwitch, PanToolAction},
     file::OpenFileAction,
-    shell::CShell,
+    shell::{CShell, DestructedShell},
+    task::ActionTask,
 };
 use cyancia_assets::store::{AssetLoaderRegistry, AssetRegistry};
 use cyancia_canvas::{CCanvas, widget::CanvasWidget};
@@ -40,12 +41,28 @@ pub struct MainView {
     pub renderer_acquired: bool,
 }
 
-#[derive(Debug)]
 pub enum MainViewMessage {
     RendererAcquired(Arc<wgpu::Device>, Arc<wgpu::Queue>),
     WindowOpened(window::Id),
     KeyboardEvent(keyboard::Event),
     MouseEvent(mouse::Event),
+    ActionTaskCompleted(Option<Box<dyn ActionTask>>),
+}
+
+impl Debug for MainViewMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RendererAcquired(arg0, arg1) => f
+                .debug_tuple("RendererAcquired")
+                .field(arg0)
+                .field(arg1)
+                .finish(),
+            Self::WindowOpened(arg0) => f.debug_tuple("WindowOpened").field(arg0).finish(),
+            Self::KeyboardEvent(arg0) => f.debug_tuple("KeyboardEvent").field(arg0).finish(),
+            Self::MouseEvent(arg0) => f.debug_tuple("MouseEvent").field(arg0).finish(),
+            Self::ActionTaskCompleted(arg0) => f.debug_tuple("ActionTaskCompleted").finish(),
+        }
+    }
 }
 
 impl MainView {
@@ -75,6 +92,7 @@ impl MainView {
             assets,
             canvas: Arc::new(CCanvas {
                 image: Arc::new(CImage::new(UVec2 { x: 1024, y: 768 })),
+                transform: Default::default(),
             }),
             input_manager: InputManager::new(actions, tools),
 
@@ -120,15 +138,22 @@ impl MainView {
                     .input_manager
                     .on_keyboard_event(event, self.canvas.clone());
 
-                // TODO
-                self.canvas = shell.current_canvas;
-                for canvas in shell.canvases {
-                    log::info!("Canvas created: {:?}", canvas);
-                    self.canvas = canvas;
-                }
+                return self
+                    .apply_shell(shell)
+                    .map(|x| MainViewMessage::ActionTaskCompleted(x));
             }
             MainViewMessage::MouseEvent(event) => {
                 self.input_manager.on_mouse_event(event, &self.canvas);
+            }
+            MainViewMessage::ActionTaskCompleted(action_task) => {
+                if let Some(action_task) = action_task {
+                    let mut shell = CShell::new(self.canvas.clone(), &mut self.input_manager.tools);
+                    action_task.apply(&mut shell);
+                    let shell = shell.destruct();
+                    return self
+                        .apply_shell(shell)
+                        .map(|x| MainViewMessage::ActionTaskCompleted(x));
+                }
             }
         }
 
@@ -147,12 +172,13 @@ impl MainView {
     //     CShell::new(self.canvas.clone())
     // }
 
-    // fn apply_shell(&mut self, shell: CShell) {
-    //     let shell = shell.destruct();
-    //     self.canvas = shell.current_canvas;
-    //     for canvas in shell.canvases {
-    //         log::info!("Canvas created: {:?}", canvas);
-    //         self.canvas = canvas;
-    //     }
-    // }
+    // TODO
+    fn apply_shell(&mut self, shell: DestructedShell) -> Task<Option<Box<dyn ActionTask>>> {
+        self.canvas = shell.current_canvas;
+        for canvas in shell.canvases {
+            log::info!("Canvas created: {:?}", canvas);
+            self.canvas = canvas;
+        }
+        Task::batch(shell.tasks)
+    }
 }

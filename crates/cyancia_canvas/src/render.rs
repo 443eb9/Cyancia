@@ -101,12 +101,13 @@ impl shader::Primitive for CanvasPrimitive {
     ) {
         let size = UVec2::new(bounds.width as u32, bounds.height as u32);
         renderer.resize_buffer(size);
+        let transform = self.canvas.transform.read();
 
         renderer.render_pipeline.prepare(
             &renderer.device,
             CanvasUniform {
-                transform: Default::default(),
-                inv_transform: Default::default(),
+                transform: transform.pixel_to_widget,
+                inv_transform: transform.pixel_to_widget.inverse(),
                 size: self.canvas.image.size(),
                 total_tile_count: GpuTileStorage::calc_tile_count(self.canvas.image.size()),
                 tile_size: GpuTileStorage::TILE_SIZE,

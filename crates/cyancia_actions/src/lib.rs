@@ -14,6 +14,7 @@ use crate::shell::CShell;
 pub mod canvas_control;
 pub mod file;
 pub mod shell;
+pub mod task;
 
 pub trait ActionFunction: Send + Sync + 'static {
     fn id(&self) -> Id<Action>;

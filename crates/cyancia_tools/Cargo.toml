@@ -9,3 +9,4 @@ iced_core.workspace = true
 cyancia_id.workspace = true
 cyancia_input.workspace = true
 cyancia_canvas.workspace = true
+glam.workspace = true

@@ -958,6 +958,7 @@ dependencies = [
  "futures",
  "glam 0.30.9",
  "iced_core",
+ "iced_runtime",
  "image",
  "log",
  "parking_lot",
@@ -1108,6 +1109,7 @@ dependencies = [
  "cyancia_canvas",
  "cyancia_id",
  "cyancia_input",
+ "glam 0.30.9",
  "iced_core",
  "parking_lot",
 ]

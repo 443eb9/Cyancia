@@ -16,3 +16,4 @@ image.workspace = true
 glam.workspace = true
 log.workspace = true
 cyancia_tools.workspace = true
+iced_runtime.workspace = true
