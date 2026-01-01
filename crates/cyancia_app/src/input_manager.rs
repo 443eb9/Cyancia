@@ -136,6 +136,12 @@ impl InputManager {
                     );
                 }
             }
+            mouse::Event::CursorLeft => {
+                // FIXME
+                // This is a workaround. When we pressed ctrl+o to open a file dialog,
+                // the release event failed to be captured, causing the keyboard state to be stuck.
+                self.keyboard_state = KeyboardState::default();
+            }
             _ => {}
         }
     }
