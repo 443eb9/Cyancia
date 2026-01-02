@@ -87,31 +87,33 @@ impl GlobalSamplers {
     }
 }
 
-// #[derive(Debug)]
-// pub struct GlobalShaders {
-//     fullscreen_vertex: ShaderModule,
-// }
+pub static FULLSCREEN_VERTEX: GlobalInstance<FullscreenVertex> = GlobalInstance::new();
 
-// impl GlobalShaders {
-//     pub fn new(device: &Device) -> Self {
-//         let fullscreen_vertex = device.create_shader_module(ShaderModuleDescriptor {
-//             label: Some("fullscreen vertex shader"),
-//             source: ShaderSource::Wgsl(include_shader!("fullscreen_vertex.wgsl").into()),
-//         });
+#[derive(Debug)]
+pub struct FullscreenVertex {
+    shader: ShaderModule,
+}
 
-//         Self { fullscreen_vertex }
-//     }
+impl FullscreenVertex {
+    pub fn new(device: &Device) -> Self {
+        let fullscreen_vertex = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("fullscreen vertex shader"),
+            source: ShaderSource::Wgsl(include_shader!("fullscreen_vertex.wgsl").into()),
+        });
 
-//     pub fn fullscreen_vertex(&self) -> &ShaderModule {
-//         &self.fullscreen_vertex
-//     }
+        Self { shader: fullscreen_vertex }
+    }
 
-//     pub fn fullscreen_vertex_state(&self) -> VertexState<'_> {
-//         VertexState {
-//             module: &self.fullscreen_vertex,
-//             entry_point: Some("vertex"),
-//             compilation_options: Default::default(),
-//             buffers: &[],
-//         }
-//     }
-// }
+    pub fn fullscreen_vertex(&self) -> &ShaderModule {
+        &self.shader
+    }
+
+    pub fn fullscreen_vertex_state(&self) -> VertexState<'_> {
+        VertexState {
+            module: &self.shader,
+            entry_point: Some("vertex"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        }
+    }
+}

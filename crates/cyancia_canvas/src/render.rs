@@ -6,7 +6,10 @@ use cyancia_image::{
     tile::{GpuTileStorage, TileId},
 };
 use cyancia_math::iced_rect::{RectangleConversion, RectangleTransform};
-use cyancia_render::{buffer::DynamicBuffer, resources::GLOBAL_SAMPLERS};
+use cyancia_render::{
+    buffer::DynamicBuffer,
+    resources::{FULLSCREEN_VERTEX, GLOBAL_SAMPLERS},
+};
 use cyancia_utils::include_shader;
 use encase::ShaderType;
 use glam::{Mat3, UVec2};
@@ -354,11 +357,6 @@ impl CanvasPresentPipeline {
             source: ShaderSource::Wgsl(include_shader!("canvas_present.wgsl").into()),
         });
 
-        let fullscreen_vertex = device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("fullscreen vertex shader"),
-            source: ShaderSource::Wgsl(include_shader!("fullscreen_vertex.wgsl").into()),
-        });
-
         let layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: None,
             entries: &[
@@ -390,12 +388,7 @@ impl CanvasPresentPipeline {
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: Some("canvas present pipeline"),
             layout: Some(&pipeline_layout),
-            vertex: VertexState {
-                module: &fullscreen_vertex,
-                entry_point: Some("vertex"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
+            vertex: FULLSCREEN_VERTEX.fullscreen_vertex_state(),
             fragment: Some(FragmentState {
                 module: &shader,
                 entry_point: Some("fragment"),
@@ -413,10 +406,7 @@ impl CanvasPresentPipeline {
             cache: None,
         });
 
-        Self {
-            pipeline,
-            layout,
-        }
+        Self { pipeline, layout }
     }
 
     pub fn present(

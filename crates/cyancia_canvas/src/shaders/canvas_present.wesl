@@ -1,4 +1,4 @@
-import super::fullscreen_vertex::FullscreenVertexOutput;
+import render::fullscreen_vertex::FullscreenVertexOutput;
 
 @group(0) @binding(0) var input_texture: texture_2d<f32>;
 @group(0) @binding(1) var input_sampler: sampler;

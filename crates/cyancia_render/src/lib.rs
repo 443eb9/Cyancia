@@ -1,3 +1,5 @@
+wesl::wesl_pkg!(pub render);
+
 use std::sync::Arc;
 
 use cyancia_utils::global_instance::GlobalInstance;

@@ -10,3 +10,6 @@ wesl.workspace = true
 encase.workspace = true
 iced_wgpu.workspace = true
 iced_widget.workspace = true
+
+[build-dependencies]
+wesl.workspace = true

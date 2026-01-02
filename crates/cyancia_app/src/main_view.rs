@@ -23,7 +23,7 @@ use cyancia_input::{
 use cyancia_render::{
     RENDER_CONTEXT, RenderContext,
     renderer_acquire::RendererAcquire,
-    resources::{GLOBAL_SAMPLERS, GlobalSamplers},
+    resources::{FULLSCREEN_VERTEX, FullscreenVertex, GLOBAL_SAMPLERS, GlobalSamplers},
 };
 use cyancia_tools::{
     CanvasToolFunctionCollection, ToolProxy, brush::BrushTool, pan::PanTool, rotate::RotateTool,
@@ -140,6 +140,7 @@ impl MainView {
                     self.renderer_acquired = true;
 
                     GLOBAL_SAMPLERS.init(GlobalSamplers::new(&device));
+                    FULLSCREEN_VERTEX.init(FullscreenVertex::new(&device));
                     GPU_TILE_STORAGE.init(GpuTileStorage::new(device.clone(), queue.clone()));
                     RENDER_CONTEXT.init(RenderContext { device, queue });
                 }
