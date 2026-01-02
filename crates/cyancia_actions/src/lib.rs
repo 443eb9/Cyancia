@@ -9,7 +9,7 @@ use cyancia_input::{
 use iced_core::Point;
 use parking_lot::RwLock;
 
-use crate::shell::CShell;
+use crate::shell::ActionShell;
 
 pub mod canvas_control;
 pub mod file;
@@ -18,7 +18,7 @@ pub mod task;
 
 pub trait ActionFunction: Send + Sync + 'static {
     fn id(&self) -> Id<Action>;
-    fn trigger(&self, shell: &mut CShell);
+    fn trigger(&self, shell: &mut ActionShell);
 }
 
 pub struct ActionFunctionCollection {
@@ -39,7 +39,7 @@ impl ActionFunctionCollection {
         self.functions.insert(action.id(), Box::new(action));
     }
 
-    pub fn trigger(&self, keys: KeySequence, shell: &mut CShell) {
+    pub fn trigger(&self, keys: KeySequence, shell: &mut ActionShell) {
         let Some(id) = self.actions.get_action_id(keys) else {
             return;
         };

@@ -8,7 +8,7 @@ use glam::UVec2;
 use iced_runtime::Task;
 use rfd::{AsyncFileDialog, FileDialog};
 
-use crate::{ActionFunction, shell::CShell, task::ActionTask};
+use crate::{ActionFunction, shell::ActionShell, task::ActionTask};
 
 #[derive(Default)]
 pub struct OpenFileAction {}
@@ -18,7 +18,7 @@ impl ActionFunction for OpenFileAction {
         Id::from_str("open_file_action")
     }
 
-    fn trigger(&self, shell: &mut CShell) {
+    fn trigger(&self, shell: &mut ActionShell) {
         shell.queue_task(Task::future(load_image()));
     }
 }
@@ -28,8 +28,8 @@ pub struct OpenFileTask {
 }
 
 impl ActionTask for OpenFileTask {
-    fn apply(self: Box<Self>, shell: &mut CShell) {
-        shell.request_canvas_creation(Arc::new(self.canvas));
+    fn apply(self: Box<Self>, shell: &mut ActionShell) {
+        shell.set_current_canvas(Arc::new(self.canvas));
     }
 }
 

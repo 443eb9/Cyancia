@@ -6,7 +6,7 @@ use cyancia_actions::{
         BrushToolAction, CanvasToolSwitch, PanToolAction, RotateToolAction, ZoomToolAction,
     },
     file::OpenFileAction,
-    shell::{CShell, DestructedShell},
+    shell::{ActionShell, DestructedShell},
     task::ActionTask,
 };
 use cyancia_assets::store::{AssetLoaderRegistry, AssetRegistry};
@@ -51,7 +51,7 @@ pub enum MainViewMessage {
     WindowOpened(window::Id),
     KeyboardEvent(keyboard::Event),
     MouseEvent(mouse::Event),
-    ActionTaskCompleted(Option<Box<dyn ActionTask>>),
+    ActionTaskCompleted(Box<dyn ActionTask>),
 }
 
 impl Debug for MainViewMessage {
@@ -131,6 +131,8 @@ impl MainView {
     }
 
     pub fn update(&mut self, message: MainViewMessage) -> Task<MainViewMessage> {
+        let mut shell = ActionShell::new(self.canvas.clone(), self.input_manager.tools.clone());
+
         match message {
             MainViewMessage::WindowOpened(id) => {}
             MainViewMessage::RendererAcquired(device, queue) => {
@@ -143,30 +145,18 @@ impl MainView {
                 }
             }
             MainViewMessage::KeyboardEvent(event) => {
-                let shell = self
-                    .input_manager
-                    .on_keyboard_event(event, self.canvas.clone());
-
-                return self
-                    .apply_shell(shell)
-                    .map(|x| MainViewMessage::ActionTaskCompleted(x));
+                self.input_manager
+                    .on_keyboard_event(event, self.canvas.clone(), &mut shell);
             }
             MainViewMessage::MouseEvent(event) => {
                 self.input_manager.on_mouse_event(event, &self.canvas);
             }
             MainViewMessage::ActionTaskCompleted(action_task) => {
-                if let Some(action_task) = action_task {
-                    let mut shell = CShell::new(self.canvas.clone(), &mut self.input_manager.tools);
-                    action_task.apply(&mut shell);
-                    let shell = shell.destruct();
-                    return self
-                        .apply_shell(shell)
-                        .map(|x| MainViewMessage::ActionTaskCompleted(x));
-                }
+                action_task.apply(&mut shell);
             }
         }
 
-        Task::none()
+        self.apply_shell(shell.destruct())
     }
 
     pub fn subscription(&self) -> Subscription<MainViewMessage> {
@@ -177,17 +167,8 @@ impl MainView {
         })
     }
 
-    // fn create_shell(&self) -> CShell {
-    //     CShell::new(self.canvas.clone())
-    // }
-
-    // TODO
-    fn apply_shell(&mut self, shell: DestructedShell) -> Task<Option<Box<dyn ActionTask>>> {
+    fn apply_shell(&mut self, shell: DestructedShell) -> Task<MainViewMessage> {
         self.canvas = shell.current_canvas;
-        for canvas in shell.canvases {
-            log::info!("Canvas created: {:?}", canvas);
-            self.canvas = canvas;
-        }
-        Task::batch(shell.tasks)
+        Task::batch(shell.tasks).map(|t| MainViewMessage::ActionTaskCompleted(t))
     }
 }

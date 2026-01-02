@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use cyancia_actions::{
     ActionFunctionCollection,
-    shell::{CShell, DestructedShell},
+    shell::{ActionShell, DestructedShell},
 };
 use cyancia_canvas::CCanvas;
 use cyancia_input::{
@@ -18,7 +18,7 @@ use iced::{
 
 pub struct InputManager {
     pub actions: ActionFunctionCollection,
-    pub tools: ToolProxy,
+    pub tools: Arc<ToolProxy>,
 
     keyboard_state: KeyboardState,
 
@@ -30,7 +30,7 @@ impl InputManager {
     pub fn new(actions: ActionFunctionCollection, tools: ToolProxy) -> Self {
         Self {
             actions,
-            tools,
+            tools: Arc::new(tools),
             keyboard_state: KeyboardState::default(),
             is_pressed: false,
             cursor_position: Point::default(),
@@ -41,48 +41,41 @@ impl InputManager {
         &mut self,
         event: keyboard::Event,
         canvas: Arc<CCanvas>,
-    ) -> DestructedShell {
-        let mut shell = CShell::new(canvas, &mut self.tools);
-
-        loop {
-            match event {
-                keyboard::Event::KeyPressed {
-                    physical_key,
-                    repeat,
-                    ..
-                } => {
-                    if repeat {
-                        break;
-                    }
-
-                    match physical_key {
-                        key::Physical::Code(code) => {
-                            self.keyboard_state.press(code);
-
-                            if let Ok(keys) = self.keyboard_state.get_sequence() {
-                                self.actions.trigger(keys, &mut shell);
-                            }
-                        }
-                        key::Physical::Unidentified(native_code) => {
-                            log::error!("Unidentified key pressed: {:?}", native_code);
-                        }
-                    }
+        shell: &mut ActionShell,
+    ) {
+        match event {
+            keyboard::Event::KeyPressed {
+                physical_key,
+                repeat,
+                ..
+            } => {
+                if repeat {
+                    return;
                 }
-                keyboard::Event::KeyReleased { physical_key, .. } => match physical_key {
+
+                match physical_key {
                     key::Physical::Code(code) => {
-                        self.keyboard_state.release(code);
+                        self.keyboard_state.press(code);
+
+                        if let Ok(keys) = self.keyboard_state.get_sequence() {
+                            self.actions.trigger(keys, shell);
+                        }
                     }
                     key::Physical::Unidentified(native_code) => {
-                        log::error!("Unidentified key released: {:?}", native_code);
+                        log::error!("Unidentified key pressed: {:?}", native_code);
                     }
-                },
-                _ => {}
+                }
             }
-
-            break;
+            keyboard::Event::KeyReleased { physical_key, .. } => match physical_key {
+                key::Physical::Code(code) => {
+                    self.keyboard_state.release(code);
+                }
+                key::Physical::Unidentified(native_code) => {
+                    log::error!("Unidentified key released: {:?}", native_code);
+                }
+            },
+            _ => {}
         }
-
-        shell.destruct()
     }
 
     pub fn on_mouse_event(&mut self, event: mouse::Event, canvas: &CCanvas) {

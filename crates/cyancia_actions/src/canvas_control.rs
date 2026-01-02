@@ -4,7 +4,7 @@ use cyancia_id::Id;
 use cyancia_input::action::Action;
 use cyancia_tools::CanvasTool;
 
-use crate::{ActionFunction, shell::CShell};
+use crate::{ActionFunction, shell::ActionShell};
 
 pub trait CanvasToolAction: Send + Sync + 'static {
     fn action() -> Id<Action>;
@@ -48,7 +48,7 @@ impl<T: CanvasToolAction> ActionFunction for CanvasToolSwitch<T> {
         T::action()
     }
 
-    fn trigger(&self, shell: &mut CShell) {
+    fn trigger(&self, shell: &mut ActionShell) {
         let canvas = shell.canvas();
         shell.tool_proxy().switch_tool(T::tool(), &canvas);
     }
