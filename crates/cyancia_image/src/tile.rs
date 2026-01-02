@@ -5,15 +5,19 @@ use cyancia_utils::global_instance::GlobalInstance;
 use dashmap::DashMap;
 use glam::{Mat3, UVec2};
 use iced_core::Rectangle;
-use image::{DynamicImage, RgbaImage};
+use image::{DynamicImage, GenericImageView, RgbaImage};
 use palette::{LinSrgba, Srgb, Srgba};
 use parking_lot::RwLock;
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelRefIterator, ParallelBridge, ParallelIterator,
+};
 use uuid::Uuid;
 use wgpu::{
-    Device, Extent3d, Origin3d, Queue, TexelCopyTextureInfo, Texture, TextureAspect,
-    TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
-    TextureViewDescriptor, util::DeviceExt, wgt::TextureDataOrder,
+    BufferUsages, Device, Extent3d, Origin3d, Queue, TexelCopyBufferInfo, TexelCopyBufferLayout,
+    TexelCopyTextureInfo, Texture, TextureAspect, TextureDescriptor, TextureDimension,
+    TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
+    util::{BufferInitDescriptor, DeviceExt},
+    wgt::TextureDataOrder,
 };
 
 use crate::layer::Layer;
@@ -242,31 +246,6 @@ impl GpuTileStorage {
         let height = img.height();
 
         let img = img.into_rgba32f();
-        let data = img
-            .into_raw()
-            .par_iter()
-            .map(|x| half::f16::from_f32(*x).to_bits())
-            .collect::<Vec<_>>();
-
-        let texture = self.device.create_texture_with_data(
-            &self.queue,
-            &TextureDescriptor {
-                label: Some("temp texture"),
-                size: Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: Self::TILE_FORMAT,
-                usage: TextureUsages::COPY_SRC | TextureUsages::COPY_DST,
-                view_formats: &[],
-            },
-            Default::default(),
-            bytemuck::cast_slice(&data),
-        );
 
         let required_tile_count = Self::calc_tile_count(UVec2::new(width, height));
         let target_tiles = (0..required_tile_count.x)
@@ -283,18 +262,42 @@ impl GpuTileStorage {
             });
 
         for tile in target_tiles {
+            log::info!("Uploading tile: {:?}", tile.id.index);
             let origin = tile.id.index * Self::TILE_SIZE;
-            ec.copy_texture_to_texture(
-                TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: Origin3d {
-                        x: origin.x,
-                        y: origin.y,
-                        z: 0,
+
+            let sub_img = img.view(
+                origin.x,
+                origin.y,
+                Self::TILE_SIZE.min(width - origin.x),
+                Self::TILE_SIZE.min(height - origin.y),
+            );
+            let data = sub_img
+                .pixels()
+                .flat_map(|(_, _, px)| px.0.map(|x| half::f16::from_f32(x).to_bits()))
+                .collect::<Vec<_>>();
+
+            let texture = self.device.create_texture_with_data(
+                &self.queue,
+                &TextureDescriptor {
+                    label: Some("temp tile texture"),
+                    size: Extent3d {
+                        width: sub_img.width(),
+                        height: sub_img.height(),
+                        depth_or_array_layers: 1,
                     },
-                    aspect: TextureAspect::All,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format: TextureFormat::Rgba16Float,
+                    usage: TextureUsages::COPY_SRC | TextureUsages::COPY_DST,
+                    view_formats: &[],
                 },
+                Default::default(),
+                bytemuck::cast_slice(&data),
+            );
+
+            ec.copy_texture_to_texture(
+                texture.as_image_copy(),
                 TexelCopyTextureInfo {
                     texture: tile.view.texture(),
                     mip_level: 0,
@@ -306,8 +309,8 @@ impl GpuTileStorage {
                     aspect: TextureAspect::All,
                 },
                 Extent3d {
-                    width: Self::TILE_SIZE.min(width - origin.x),
-                    height: Self::TILE_SIZE.min(height - origin.y),
+                    width: sub_img.width(),
+                    height: sub_img.height(),
                     depth_or_array_layers: 1,
                 },
             );

@@ -6,10 +6,7 @@ use cyancia_image::{
     tile::{GpuTileStorage, TileId},
 };
 use cyancia_math::iced_rect::{RectangleConversion, RectangleTransform};
-use cyancia_render::{
-    buffer::DynamicBuffer,
-    resources::{FULLSCREEN_VERTEX, GLOBAL_SAMPLERS},
-};
+use cyancia_render::{buffer::DynamicBuffer, resources::{FULLSCREEN_VERTEX, GLOBAL_SAMPLERS}};
 use cyancia_utils::include_shader;
 use encase::ShaderType;
 use glam::{Mat3, UVec2};
@@ -406,7 +403,10 @@ impl CanvasPresentPipeline {
             cache: None,
         });
 
-        Self { pipeline, layout }
+        Self {
+            pipeline,
+            layout,
+        }
     }
 
     pub fn present(
