@@ -16,10 +16,12 @@ cyancia_image = { version = "0.1.0", path = "crates/cyancia_image" }
 cyancia_render = { version = "0.1.0", path = "crates/cyancia_render" }
 cyancia_math = { version = "0.1.0", path = "crates/cyancia_math" }
 cyancia_actions = { version = "0.1.0", path = "crates/cyancia_actions" }
+cyancia_shader_graph = { version = "0.1.0", path = "crates/cyancia_shader_graph" }
 
 iced = { version = "0.14", features = [
     "debug",
     "canvas",
+    "selector",
 ], git = "https://github.com/443eb9/iced.git", branch = "0.14" }
 iced_beacon = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
 iced_core = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
@@ -48,7 +50,7 @@ proc-macro2 = "1"
 thiserror = "2"
 num-traits = "0.2"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 smallvec = "1"
 toml = "0.9"
 log = "0.4"
@@ -59,7 +61,7 @@ parking_lot = "0.12"
 futures = "0.3"
 bitflags = "2"
 wgpu = "27"
-glam = { version = "0.30", features = ["encase"] }
+glam = { version = "0.30", features = ["encase", "serde"] }
 dashmap = "6"
 wesl = { version = "0.3", features = ["package"] }
 encase = "0.12"
@@ -69,3 +71,22 @@ palette = "0.7"
 rayon = "1"
 half = "2"
 rfd = "0.16"
+anyhow = "1"
+dyn-clone = "1"
+
+# [patch."https://github.com/443eb9/iced.git"]
+# iced = { path = "D:/iced_fork", features = ["debug", "canvas"] }
+# iced_beacon = { path = "D:/iced_fork/beacon" }
+# iced_core = { path = "D:/iced_fork/core" }
+# iced_debug = { path = "D:/iced_fork/debug" }
+# iced_devtools = { path = "D:/iced_fork/devtools" }
+# iced_futures = { path = "D:/iced_fork/futures" }
+# iced_graphics = { path = "D:/iced_fork/graphics", features = ["geometry"] }
+# iced_highlighter = { path = "D:/iced_fork/highlighter" }
+# iced_program = { path = "D:/iced_fork/program" }
+# iced_renderer = { path = "D:/iced_fork/renderer" }
+# iced_runtime = { path = "D:/iced_fork/runtime" }
+# iced_selector = { path = "D:/iced_fork/selector" }
+# iced_wgpu = { path = "D:/iced_fork/wgpu", features = ["geometry"] }
+# iced_widget = { path = "D:/iced_fork/widget", features = ["wgpu"] }
+# iced_winit = { path = "D:/iced_fork/winit" }
