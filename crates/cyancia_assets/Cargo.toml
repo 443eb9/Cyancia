@@ -4,10 +4,22 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cyancia_id.workspace = true
 cyancia_utils.workspace = true
 serde.workspace = true
 log.workspace = true
 thiserror.workspace = true
 downcast-rs.workspace = true
 parking_lot.workspace = true
+sqlx.workspace = true
+xxhash-rust.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+md5.workspace = true
+zip.workspace = true
+toml.workspace = true
+parse-display.workspace = true
+path-clean.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+env_logger.workspace = true

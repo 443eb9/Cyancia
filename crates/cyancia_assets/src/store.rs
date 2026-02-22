@@ -1,208 +1,195 @@
 use std::{
     any::{Any, TypeId},
     collections::{HashMap, hash_map::Entry},
-    path::Path,
+    fs::metadata,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
-use cyancia_id::Id;
+use chrono::{DateTime, Utc};
 
 use crate::{
-    asset::Asset,
-    loader::{AssetLoader, ErasedAssetLoader},
+    asset::{Asset, AssetHandle, AssetId, AssetMetadata, ErasedAsset},
+    bundle::{
+        AssetBundle, AssetBundleCache, AssetBundleMetadata, BundleId, ErasedAssetBundle,
+        modified_bundle_absolute_path, scan_bundle_assets,
+    },
+    error::{AssetError, AssetResult},
+    index_db::{AssetFilter, AssetIndexDb, ItemStatus, UntypedAssetFilter},
+    loader::{AssetSerializer, AssetSerializerRegistry, ErasedAssetSerializer},
+    tag::{Tag, TagId},
 };
 
-pub struct AssetLoaderRegistry {
-    loaders: HashMap<&'static str, Arc<dyn ErasedAssetLoader>>,
-}
-
-impl AssetLoaderRegistry {
-    pub fn new() -> Self {
-        Self {
-            loaders: HashMap::new(),
-        }
-    }
-
-    pub fn register<L: AssetLoader + Default>(&mut self) {
-        let loader = Arc::new(L::default());
-        for &ext in L::file_extensions() {
-            self.loaders.insert(ext, loader.clone());
-        }
-    }
-
-    pub fn get(&self, ext: &str) -> Option<Arc<dyn ErasedAssetLoader>> {
-        self.loaders.get(ext).cloned()
-    }
-}
-
 pub struct AssetRegistry {
-    stores: HashMap<TypeId, Box<dyn Any + Send + Sync + 'static>>,
+    root: PathBuf,
+    bundles: HashMap<BundleId, Arc<AssetBundleCache>>,
+    serializers: Arc<AssetSerializerRegistry>,
+    index_db: Arc<AssetIndexDb>,
 }
 
 impl AssetRegistry {
-    pub fn new(root: impl AsRef<Path>, loaders: &AssetLoaderRegistry) -> Self {
-        let mut assets = Self {
-            stores: HashMap::new(),
+    pub async fn new(
+        root: impl AsRef<Path>,
+        serializers: Arc<AssetSerializerRegistry>,
+    ) -> AssetResult<Self> {
+        let root = root.as_ref();
+        let bundles = HashMap::new();
+        let index_db = AssetIndexDb::connect(root.join("index.sqlite3")).await?;
+
+        Ok(Self {
+            root: root.to_path_buf(),
+            bundles,
+            index_db: Arc::new(index_db),
+            serializers,
+        })
+    }
+
+    pub fn index_db(&self) -> &AssetIndexDb {
+        &self.index_db
+    }
+
+    pub fn bundles(&self) -> impl Iterator<Item = &Arc<AssetBundleCache>> {
+        self.bundles.values()
+    }
+
+    pub async fn add_asset<T: Asset>(
+        &self,
+        bundle_id: BundleId,
+        path: impl AsRef<Path>,
+        asset: Arc<T>,
+    ) -> AssetResult<AssetId> {
+        let bundle = self
+            .bundles
+            .get(&bundle_id)
+            .ok_or_else(|| AssetError::BundleNotFound(bundle_id))?;
+        let asset_id = bundle.add(&path, asset.clone())?;
+        self.index_db
+            .add_asset(&AssetMetadata {
+                asset_id,
+                ty: asset.type_name().to_string(),
+                bundle_id,
+                relative_path: path.as_ref().to_path_buf().to_string_lossy().to_string(),
+                revision: 0,
+                // TODO: This can be different from that in fs. But this field is only used for tags to determine if they are outdated.
+                //       Probably fix it?
+                last_modified: Utc::now(),
+                in_memory: false,
+            })
+            .await?;
+        Ok(asset_id)
+    }
+
+    pub async fn add_bundle<B: AssetBundle>(&mut self, bundle: B) -> AssetResult<()> {
+        let bundle = Arc::new(bundle) as Arc<dyn ErasedAssetBundle>;
+        let mut bundle_meta = bundle.metadata().map_err(AssetError::BundleError)?;
+        let modified = modified_bundle_absolute_path(&self.root, &bundle_meta.bundle_id);
+        if modified.exists() {
+            let t = DateTime::from(metadata(modified)?.modified()?);
+            if t != bundle_meta.last_modified {
+                bundle_meta.last_modified = t;
+            }
+        }
+
+        let status = self.index_db.upsert_bundle(&bundle_meta).await?;
+        let manifest = match status {
+            ItemStatus::UpToDate => {
+                self.index_db
+                    .get_assets(UntypedAssetFilter {
+                        bundle: Some(bundle_meta.bundle_id),
+                        ..Default::default()
+                    })
+                    .await?
+            }
+            ItemStatus::Outdated => {
+                let manifest = scan_bundle_assets(&self.root, bundle.as_ref(), &self.serializers)?;
+                self.index_db
+                    .replace_assets(&bundle_meta.bundle_id, &manifest)
+                    .await?;
+                manifest
+            }
         };
 
-        asset_loading::load_all_assets(&mut assets, loaders, root.as_ref());
+        let tags = manifest
+            .iter()
+            .filter(|a| a.ty == Tag::TYPE_NAME)
+            .cloned()
+            .collect::<Vec<_>>();
 
-        assets
-    }
+        let cache = AssetBundleCache::new(
+            self.root.clone(),
+            bundle,
+            manifest
+                .into_iter()
+                .map(|a| (a.asset_id, a.relative_path.into()))
+                .collect(),
+            self.serializers.clone(),
+        )?;
+        let cache = Arc::new(cache);
 
-    pub fn store<T: Asset>(&self) -> &AssetStore<T> {
-        self.stores
-            .get(&TypeId::of::<T>())
-            .expect(&format!(
-                "Store of type {} doesn't exist.",
-                std::any::type_name::<T>()
-            ))
-            .downcast_ref::<AssetStore<T>>()
-            .unwrap()
-    }
-
-    pub fn store_mut<T: Asset>(&mut self) -> &mut AssetStore<T> {
-        self.stores
-            .get_mut(&TypeId::of::<T>())
-            .expect(&format!(
-                "Store of type {} doesn't exist.",
-                std::any::type_name::<T>()
-            ))
-            .downcast_mut::<AssetStore<T>>()
-            .unwrap()
-    }
-
-    pub fn asset<T: Asset>(&self, id: Id<T>) -> Option<Arc<T>> {
-        self.store::<T>().get(id)
-    }
-
-    pub fn init_store<T: Asset>(&mut self) {
-        match self.stores.entry(TypeId::of::<T>()) {
-            Entry::Occupied(_) => {}
-            Entry::Vacant(e) => {
-                e.insert(Box::new(AssetStore::<T>::new()));
-            }
-        }
-    }
-}
-
-mod asset_loading {
-    use std::{fs::read_dir, path::PathBuf};
-
-    use cyancia_id::UntypedId;
-
-    use super::*;
-
-    pub(super) fn load_all_assets(
-        assets: &mut AssetRegistry,
-        loaders: &AssetLoaderRegistry,
-        root: &Path,
-    ) {
-        let mut counter = 0;
-        match load_folder(assets, loaders, root, &mut counter) {
-            Ok(_) => {
-                log::info!(
-                    "Successfully loaded {} assets from {}",
-                    counter,
-                    root.display()
-                );
-            }
-            Err(e) => {
-                log::error!("Error loading assets from root {}: {}", root.display(), e);
-            }
-        }
-    }
-
-    fn load_folder(
-        assets: &mut AssetRegistry,
-        loaders: &AssetLoaderRegistry,
-        path: &Path,
-        counter: &mut u32,
-    ) -> Result<(), std::io::Error> {
-        for entry in read_dir(path)? {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(e) => {
-                    log::error!("Error reading directory entry {}: {}", e, path.display());
-                    continue;
+        match status {
+            ItemStatus::UpToDate => {}
+            ItemStatus::Outdated => {
+                for tag in tags {
+                    let handle =
+                        AssetHandle::<Tag>::new(tag.asset_id, cache.clone(), self.index_db.clone());
+                    let tag_asset = handle.get().await?;
+                    self.index_db
+                        .upsert_tag(&tag_asset, tag.last_modified)
+                        .await?;
                 }
-            };
-
-            let path = entry.path();
-            if path.is_dir() {
-                match load_folder(assets, loaders, &path, counter) {
-                    Ok(_) => {}
-                    Err(e) => log::error!("Error loading directory {}: {}", path.display(), e),
-                };
-            } else if path.is_file() {
-                match load_file(assets, loaders, &path) {
-                    Ok(_) => {
-                        log::info!("Loaded file: {}", path.display());
-                        *counter += 1;
-                    }
-                    Err(e) => log::error!("Error loading file {}: {}", path.display(), e),
-                };
-            } else {
-                log::warn!("Skipping non-file, non-directory: {}", path.display());
             }
         }
 
+        self.bundles.insert(cache.metadata().bundle_id, cache);
         Ok(())
     }
 
-    #[derive(Debug, thiserror::Error)]
-    enum LoadFileError {
-        #[error(transparent)]
-        Io(#[from] std::io::Error),
-        #[error("Unknown file extension for path: {0}")]
-        UnknownExtension(PathBuf),
-        #[error("Error loading asset {0}: {1}")]
-        Loader(PathBuf, Box<dyn std::error::Error>),
+    pub fn handle<T: Asset>(
+        &self,
+        bundle_id: BundleId,
+        asset_id: AssetId,
+    ) -> Option<AssetHandle<T>> {
+        let bundle = self.bundles.get(&bundle_id)?;
+
+        Some(AssetHandle::new(
+            asset_id,
+            bundle.clone(),
+            self.index_db.clone(),
+        ))
     }
 
-    fn load_file(
-        assets: &mut AssetRegistry,
-        loaders: &AssetLoaderRegistry,
-        path: &Path,
-    ) -> Result<(), LoadFileError> {
-        let ext = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .ok_or_else(|| LoadFileError::UnknownExtension(path.to_path_buf()))?;
-        let loader = loaders
-            .get(ext)
-            .ok_or_else(|| LoadFileError::UnknownExtension(path.to_path_buf()))?;
-        let mut file = std::fs::File::open(path)?;
-        let asset = loader
-            .read(&mut file)
-            .map_err(|e| LoadFileError::Loader(path.to_path_buf(), e))?;
-        loader.insert_asset(UntypedId::random((*asset).type_id()), asset, assets);
-
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct AssetStore<T: Asset> {
-    assets: HashMap<Id<T>, Arc<T>>,
-}
-
-impl<T: Asset> AssetStore<T> {
-    pub fn new() -> Self {
-        Self {
-            assets: HashMap::new(),
-        }
+    pub async fn all_handles_of<T: Asset>(&self) -> AssetResult<Vec<AssetHandle<T>>> {
+        Ok(self.metadata_to_handles(
+            self.index_db
+                .get_assets(UntypedAssetFilter {
+                    ty: Some(T::TYPE_NAME.to_string()),
+                    ..Default::default()
+                })
+                .await?,
+        ))
     }
 
-    pub fn get(&self, id: Id<T>) -> Option<Arc<T>> {
-        self.assets.get(&id).cloned()
+    pub async fn all_handles_of_filtered<T: Asset>(
+        &self,
+        filter: AssetFilter<T>,
+    ) -> AssetResult<Vec<AssetHandle<T>>> {
+        Ok(self.metadata_to_handles(self.index_db.get_assets(filter.into_untyped()).await?))
     }
 
-    pub fn insert(&mut self, id: Id<T>, asset: Arc<T>) {
-        self.assets.insert(id, asset);
+    pub fn serializers(&self) -> &AssetSerializerRegistry {
+        &self.serializers
     }
 
-    pub fn into_map(self) -> HashMap<Id<T>, Arc<T>> {
-        self.assets
+    fn metadata_to_handles<T: Asset>(&self, metadata: Vec<AssetMetadata>) -> Vec<AssetHandle<T>> {
+        metadata
+            .into_iter()
+            .filter_map(|meta| {
+                Some(AssetHandle::new(
+                    meta.asset_id,
+                    self.bundles.get(&meta.bundle_id)?.clone(),
+                    self.index_db.clone(),
+                ))
+            })
+            .collect()
     }
 }
