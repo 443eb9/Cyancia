@@ -6,12 +6,13 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
+use cyancia_runtime::service::Service;
 
 use crate::{
-    asset::{Asset, AssetHandle, AssetId, AssetMetadata, ErasedAsset},
+    asset::{Asset, AssetHandle, AssetId, AssetMetadata, ErasedAsset, UntypedAssetId},
     bundle::{
-        AssetBundle, AssetBundleCache, BundleId, ErasedAssetBundle,
-        modified_bundle_absolute_path, scan_bundle_assets,
+        AssetBundle, AssetBundleCache, BundleId, ErasedAssetBundle, modified_bundle_absolute_path,
+        scan_bundle_assets,
     },
     error::{AssetError, AssetResult},
     index_db::{AssetFilter, AssetIndexDb, ItemStatus, UntypedAssetFilter},
@@ -25,6 +26,8 @@ pub struct AssetRegistry {
     serializers: Arc<AssetSerializerRegistry>,
     index_db: Arc<AssetIndexDb>,
 }
+
+impl Service for AssetRegistry {}
 
 impl AssetRegistry {
     pub fn new(
@@ -56,29 +59,27 @@ impl AssetRegistry {
         bundle_id: BundleId,
         path: impl AsRef<Path>,
         asset: Arc<T>,
-    ) -> AssetResult<AssetId> {
+    ) -> AssetResult<AssetId<T>> {
         let bundle = self
             .bundles
             .get(&bundle_id)
             .ok_or_else(|| AssetError::BundleNotFound(bundle_id))?;
         let asset_id = bundle.add(&path, asset.clone())?;
-        self.index_db
-            .add_asset(&AssetMetadata {
-                asset_id,
-                ty: asset.type_name().to_string(),
-                bundle_id,
-                relative_path: path.as_ref().to_path_buf().to_string_lossy().to_string(),
-                revision: 0,
-                // TODO: This can be different from that in fs. But this field is only used for tags to determine if they are outdated.
-                //       Probably fix it?
-                last_modified: Utc::now(),
-                in_memory: false,
-            })?;
-        Ok(asset_id)
+        self.index_db.add_asset(&AssetMetadata {
+            asset_id,
+            ty: asset.type_name().to_string(),
+            bundle_id,
+            relative_path: path.as_ref().to_path_buf().to_string_lossy().to_string(),
+            revision: 0,
+            // TODO: This can be different from that in fs. But this field is only used for tags to determine if they are outdated.
+            //       Probably fix it?
+            last_modified: Utc::now(),
+            in_memory: false,
+        })?;
+        Ok(asset_id.into_typed())
     }
 
-    pub fn add_bundle<B: AssetBundle>(&mut self, bundle: B) -> AssetResult<()> {
-        let bundle = Arc::new(bundle) as Arc<dyn ErasedAssetBundle>;
+    pub fn add_erased_bundle(&mut self, bundle: Arc<dyn ErasedAssetBundle>) -> AssetResult<()> {
         let mut bundle_meta = bundle.metadata().map_err(AssetError::BundleError)?;
         let modified = modified_bundle_absolute_path(&self.root, &bundle_meta.bundle_id);
         if modified.exists() {
@@ -90,13 +91,10 @@ impl AssetRegistry {
 
         let status = self.index_db.upsert_bundle(&bundle_meta)?;
         let manifest = match status {
-            ItemStatus::UpToDate => {
-                self.index_db
-                    .get_assets(UntypedAssetFilter {
-                        bundle: Some(bundle_meta.bundle_id),
-                        ..Default::default()
-                    })?
-            }
+            ItemStatus::UpToDate => self.index_db.get_assets(UntypedAssetFilter {
+                bundle: Some(bundle_meta.bundle_id),
+                ..Default::default()
+            })?,
             ItemStatus::Outdated => {
                 let manifest = scan_bundle_assets(&self.root, bundle.as_ref(), &self.serializers)?;
                 self.index_db
@@ -126,8 +124,18 @@ impl AssetRegistry {
             ItemStatus::UpToDate => {}
             ItemStatus::Outdated => {
                 for tag in tags {
-                    let handle =
-                        AssetHandle::<Tag>::new(tag.asset_id, cache.clone(), self.index_db.clone());
+                    let handle = AssetHandle::<Tag>::new(
+                        tag.asset_id.into_typed(),
+                        cache.clone(),
+                        self.index_db.clone(),
+                    );
+                    let tag_asset = handle.get()?;
+                    self.index_db.upsert_tag(&tag_asset, tag.last_modified)?;
+                    let handle = AssetHandle::<Tag>::new(
+                        tag.asset_id.into_typed(),
+                        cache.clone(),
+                        self.index_db.clone(),
+                    );
                     let tag_asset = handle.get()?;
                     self.index_db.upsert_tag(&tag_asset, tag.last_modified)?;
                 }
@@ -138,10 +146,14 @@ impl AssetRegistry {
         Ok(())
     }
 
+    pub fn add_bundle<B: AssetBundle>(&mut self, bundle: B) -> AssetResult<()> {
+        self.add_erased_bundle(Arc::new(bundle))
+    }
+
     pub fn handle<T: Asset>(
         &self,
         bundle_id: BundleId,
-        asset_id: AssetId,
+        asset_id: AssetId<T>,
     ) -> Option<AssetHandle<T>> {
         let bundle = self.bundles.get(&bundle_id)?;
 
@@ -153,13 +165,12 @@ impl AssetRegistry {
     }
 
     pub fn all_handles_of<T: Asset>(&self) -> AssetResult<Vec<AssetHandle<T>>> {
-        Ok(self.metadata_to_handles(
-            self.index_db
-                .get_assets(UntypedAssetFilter {
-                    ty: Some(T::TYPE_NAME.to_string()),
-                    ..Default::default()
-                })?,
-        ))
+        Ok(
+            self.metadata_to_handles(self.index_db.get_assets(UntypedAssetFilter {
+                ty: Some(T::TYPE_NAME.to_string()),
+                ..Default::default()
+            })?),
+        )
     }
 
     pub fn all_handles_of_filtered<T: Asset>(
@@ -178,7 +189,7 @@ impl AssetRegistry {
             .into_iter()
             .filter_map(|meta| {
                 Some(AssetHandle::new(
-                    meta.asset_id,
+                    meta.asset_id.into_typed(),
                     self.bundles.get(&meta.bundle_id)?.clone(),
                     self.index_db.clone(),
                 ))

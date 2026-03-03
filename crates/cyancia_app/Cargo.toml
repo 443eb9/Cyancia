@@ -18,3 +18,5 @@ wgpu.workspace = true
 cyancia_render.workspace = true
 cyancia_actions.workspace = true
 cyancia_tools.workspace = true
+cyancia_runtime.workspace = true
+uuid.workspace = true

@@ -1,25 +1,28 @@
-use std::{marker::PhantomData, time::Instant};
+use std::{marker::PhantomData, sync::Arc, time::Instant};
 
-use cyancia_id::Id;
-use cyancia_input::action::Action;
-use cyancia_tools::CanvasTool;
+use async_trait::async_trait;
+use cyancia_canvas::CanvasManager;
+use cyancia_input::action::{Action, ActionId};
+use cyancia_runtime::Services;
+use cyancia_tools::{CanvasTool, CanvasToolId, CanvasToolProxies};
 
-use crate::{ActionFunction, shell::ActionShell};
+use crate::{ActionFunction};
 
 pub trait CanvasToolAction: Send + Sync + 'static {
-    fn action() -> Id<Action>;
-    fn tool() -> Id<CanvasTool>;
+    fn action() -> ActionId;
+    fn tool() -> CanvasToolId;
 }
 
 macro_rules! canvas_tool_action {
     ($name:ident, $action:literal, $tool: literal) => {
+        #[derive(Default)]
         pub struct $name;
         impl CanvasToolAction for $name {
-            fn action() -> Id<Action> {
-                Id::from_str($action)
+            fn action() -> ActionId {
+                ActionId::new($action.into())
             }
-            fn tool() -> Id<CanvasTool> {
-                Id::from_str($tool)
+            fn tool() -> CanvasToolId {
+                CanvasToolId::new($tool.into())
             }
         }
     };
@@ -43,13 +46,20 @@ impl<T: CanvasToolAction> Default for CanvasToolSwitch<T> {
     }
 }
 
+#[async_trait]
 impl<T: CanvasToolAction> ActionFunction for CanvasToolSwitch<T> {
-    fn id(&self) -> Id<Action> {
+    fn id(&self) -> ActionId {
         T::action()
     }
 
-    fn trigger(&self, shell: &mut ActionShell) {
-        let canvas = shell.canvas();
-        shell.tool_proxy().switch_tool(T::tool(), &canvas);
+    async fn trigger(&self, services: Arc<Services>) {
+        let canvases = services.service::<CanvasManager>();
+        let (Some(canvas_id), Some(canvas)) = (canvases.current_id(), canvases.current()) else {
+            return;
+        };
+
+        let mut tool_proxies = services.service_mut::<CanvasToolProxies>();
+        let tool_proxy = tool_proxies.get_mut(&canvas_id);
+        tool_proxy.switch_tool(T::tool(), &canvas);
     }
 }

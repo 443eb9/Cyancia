@@ -1,11 +1,12 @@
 use std::{fs::File, marker::PhantomData, path::Path};
 
 use chrono::{DateTime, Utc};
+use parking_lot::Mutex;
 use rusqlite::{Connection, params};
 use uuid::Uuid;
 
 use crate::{
-    asset::{Asset, AssetId, AssetMetadata},
+    asset::{Asset, AssetMetadata, UntypedAssetId},
     bundle::{AssetBundleMetadata, BundleId},
     error::AssetResult,
     tag::{Tag, TagId},
@@ -65,7 +66,7 @@ pub struct UntypedAssetFilter {
 }
 
 pub struct AssetIndexDb {
-    conn: Connection,
+    conn: Mutex<Connection>,
 }
 
 impl AssetIndexDb {
@@ -77,14 +78,15 @@ impl AssetIndexDb {
 
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-        let db = Self { conn };
+        let db = Self { conn: conn.into() };
         db.initialize_tables()?;
         db.revert_all_assets()?;
         Ok(db)
     }
 
     fn initialize_tables(&self) -> AssetResult<()> {
-        self.conn.execute_batch(
+        let conn = self.conn.lock();
+        conn.execute_batch(
             r#"
 CREATE TABLE IF NOT EXISTS bundles (
     bundle_id TEXT PRIMARY KEY,
@@ -137,7 +139,8 @@ CREATE TABLE IF NOT EXISTS asset_tags (
     }
 
     pub fn upsert_bundle(&self, bundle: &AssetBundleMetadata) -> AssetResult<ItemStatus> {
-        let result = self.conn.query_row(
+        let conn = self.conn.lock();
+        let result = conn.query_row(
             r#"
 INSERT INTO bundles (bundle_id, name, last_modified)
 VALUES (?1, ?2, ?3)
@@ -159,7 +162,8 @@ RETURNING 0;
     }
 
     pub fn replace_assets(&self, bundle: &BundleId, assets: &[AssetMetadata]) -> AssetResult<()> {
-        let tx = self.conn.unchecked_transaction()?;
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
 
         tx.execute("DELETE FROM assets WHERE bundle_id = ?1", params![bundle])?;
 
@@ -192,8 +196,10 @@ VALUES (?1, ?2, ?3, ?4, ?5);
     }
 
     pub fn upsert_tag(&self, tag: &Tag, last_modified: DateTime<Utc>) -> AssetResult<()> {
+        let mut conn = self.conn.lock();
+
         let needs_update = {
-            let result = self.conn.query_row(
+            let result = conn.query_row(
                 r#"
 INSERT INTO tags (tag_id, name, last_modified)
 VALUES (?1, ?2, ?3)
@@ -217,7 +223,7 @@ RETURNING 0;
             return Ok(());
         }
 
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = conn.transaction()?;
 
         tx.execute(
             "DELETE FROM asset_tags WHERE tag_id = ?1",
@@ -236,9 +242,10 @@ RETURNING 0;
         Ok(())
     }
 
-    pub fn add_asset(&self, asset: &AssetMetadata) -> AssetResult<AssetId> {
+    pub fn add_asset(&self, asset: &AssetMetadata) -> AssetResult<UntypedAssetId> {
         let asset_id = asset.asset_id;
-        let tx = self.conn.unchecked_transaction()?;
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
 
         tx.execute(
             r#"
@@ -267,8 +274,9 @@ VALUES (?1, ?2, ?3, ?4, ?5);
         Ok(asset_id)
     }
 
-    pub fn get_asset(&self, id: &AssetId) -> AssetResult<AssetMetadata> {
-        let asset = self.conn.query_row(
+    pub fn get_asset(&self, id: &UntypedAssetId) -> AssetResult<AssetMetadata> {
+        let conn = self.conn.lock();
+        let asset = conn.query_row(
             r#"
 SELECT
     r.asset_id,
@@ -302,7 +310,8 @@ LIMIT 1;
     }
 
     pub fn get_assets(&self, filter: UntypedAssetFilter) -> AssetResult<Vec<AssetMetadata>> {
-        let mut stmt = self.conn.prepare(
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
             r#"
 WITH latest AS (
     SELECT
@@ -354,8 +363,9 @@ ORDER BY l.relative_path ASC;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
-    pub fn update_asset(&self, id: &AssetId) -> AssetResult<u32> {
-        let revision = self.conn.query_row(
+    pub fn update_asset(&self, id: &UntypedAssetId) -> AssetResult<u32> {
+        let conn = self.conn.lock();
+        let revision = conn.query_one(
             r#"
 WITH latest AS (
     SELECT asset_id, revision
@@ -389,11 +399,12 @@ RETURNING revision;
 
     pub fn write_asset(
         &self,
-        id: &AssetId,
+        id: &UntypedAssetId,
         new_path: &str,
         last_modified: DateTime<Utc>,
     ) -> AssetResult<u32> {
-        let revision = self.conn.query_row(
+        let conn = self.conn.lock();
+        let revision = conn.query_row(
             r#"
 WITH latest AS (
     SELECT revision
@@ -417,7 +428,8 @@ RETURNING revision;
     }
 
     pub fn revert_asset(&self, id: &Uuid) -> AssetResult<()> {
-        self.conn.execute(
+        let conn = self.conn.lock();
+        conn.execute(
             "DELETE FROM asset_revisions WHERE in_memory = 1 AND asset_id = ?1",
             params![id],
         )?;
@@ -425,13 +437,14 @@ RETURNING revision;
     }
 
     pub fn revert_all_assets(&self) -> AssetResult<()> {
-        self.conn
-            .execute("DELETE FROM asset_revisions WHERE in_memory = 1", [])?;
+        let conn = self.conn.lock();
+        conn.execute("DELETE FROM asset_revisions WHERE in_memory = 1", [])?;
         Ok(())
     }
 
     pub fn get_bundle(&self, id: &BundleId) -> AssetResult<AssetBundleMetadata> {
-        let bundle = self.conn.query_row(
+        let conn = self.conn.lock();
+        let bundle = conn.query_row(
             r#"
 SELECT bundle_id, name, last_modified
 FROM bundles

@@ -1,33 +1,34 @@
 use std::{fmt::Debug, sync::Arc};
 
 use cyancia_actions::{
-    ActionFunctionCollection,
+    ActionFunctionRegistry,
     canvas_control::{
         BrushToolAction, CanvasToolSwitch, PanToolAction, RotateToolAction, ZoomToolAction,
     },
     file::OpenFileAction,
-    shell::{ActionShell, DestructedShell},
-    task::ActionTask,
 };
-use cyancia_assets::store::{AssetLoaderRegistry, AssetRegistry};
-use cyancia_canvas::{CCanvas, widget::CanvasWidget};
-use cyancia_id::Id;
+use cyancia_assets::{loader::AssetSerializerRegistry, store::AssetRegistry};
+use cyancia_canvas::{
+    CCanvas, CanvasId, CanvasManager,
+    render::{CanvasRenderer, CanvasRenderers},
+    widget::CanvasWidget,
+};
 use cyancia_image::{
     CImage,
-    tile::{GPU_TILE_STORAGE, GpuTileStorage},
+    tile::{GpuTileStorage, GpuTileStorageInner},
 };
 use cyancia_input::{
-    action::{Action, ActionCollection, ActionManifest},
+    action::{Action, ActionManifest, ActionManifestCollection},
     key::{KeySequence, KeyboardState},
 };
-use cyancia_render::{
-    RENDER_CONTEXT, RenderContext,
-    renderer_acquire::RendererAcquire,
-    resources::{FULLSCREEN_VERTEX, FullscreenVertex, GLOBAL_SAMPLERS, GlobalSamplers},
+use cyancia_runtime::{
+    Services,
+    service::FromRuntime,
+    windows::{WindowView, WindowViewId},
 };
 use cyancia_tools::{
-    CanvasToolFunctionCollection, ToolProxy, brush::BrushTool, pan::PanTool, rotate::RotateTool,
-    zoom::ZoomTool,
+    CanvasToolFunctionRegistry, CanvasToolId, CanvasToolProxies, ToolProxy, brush::BrushTool,
+    pan::PanTool, rotate::RotateTool, zoom::ZoomTool,
 };
 use glam::UVec2;
 use iced::{
@@ -35,140 +36,99 @@ use iced::{
     keyboard::{self, key},
     mouse, window,
 };
+use uuid::Uuid;
 
 use crate::input_manager::InputManager;
 
 pub struct MainView {
-    pub assets: AssetRegistry,
     pub input_manager: InputManager,
-    pub canvas: Arc<CCanvas>,
-
-    pub renderer_acquired: bool,
 }
 
+#[derive(Debug)]
 pub enum MainViewMessage {
-    RendererAcquired(Arc<wgpu::Device>, Arc<wgpu::Queue>),
-    WindowOpened(window::Id),
     KeyboardEvent(keyboard::Event),
     MouseEvent(mouse::Event),
-    ActionTaskCompleted(Box<dyn ActionTask>),
-}
-
-impl Debug for MainViewMessage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::RendererAcquired(arg0, arg1) => f
-                .debug_tuple("RendererAcquired")
-                .field(arg0)
-                .field(arg1)
-                .finish(),
-            Self::WindowOpened(arg0) => f.debug_tuple("WindowOpened").field(arg0).finish(),
-            Self::KeyboardEvent(arg0) => f.debug_tuple("KeyboardEvent").field(arg0).finish(),
-            Self::MouseEvent(arg0) => f.debug_tuple("MouseEvent").field(arg0).finish(),
-            Self::ActionTaskCompleted(arg0) => f.debug_tuple("ActionTaskCompleted").finish(),
-        }
-    }
 }
 
 impl MainView {
-    pub fn new() -> Self {
-        let mut loaders = AssetLoaderRegistry::new();
-        cyancia_input::register_loaders(&mut loaders);
-        let assets = AssetRegistry::new("assets", &loaders);
-
-        let actions = {
-            let mut collection = ActionFunctionCollection::new(ActionCollection::new(
-                assets.store::<ActionManifest>().clone(),
-            ));
-            collection.register::<OpenFileAction>();
-            collection.register::<CanvasToolSwitch<PanToolAction>>();
-            collection.register::<CanvasToolSwitch<RotateToolAction>>();
-            collection.register::<CanvasToolSwitch<ZoomToolAction>>();
-            collection.register::<CanvasToolSwitch<BrushToolAction>>();
-            collection
+    pub fn new(services: &Services) -> Self {
+        let actions = services
+            .service::<ActionManifestCollection>()
+            .subset_for_view("main_view");
+        let canvas = CCanvas {
+            id: CanvasId::new(Uuid::new_v4()),
+            image: Arc::new(CImage::new(UVec2 { x: 1024, y: 768 })),
+            transform: Default::default(),
         };
-        let tool_functions = {
-            let mut c = CanvasToolFunctionCollection::new();
-            c.register::<BrushTool>();
-            c.register::<PanTool>();
-            c.register::<RotateTool>();
-            c.register::<ZoomTool>();
-            c
-        };
-        let tools = { ToolProxy::new(Id::from_str("brush_tool"), tool_functions) };
+        services.service_mut::<CanvasToolProxies>().add(
+            &canvas.id,
+            &services.service::<CanvasToolFunctionRegistry>(),
+        );
+        services
+            .service_mut::<CanvasRenderers>()
+            .insert(canvas.id, CanvasRenderer::from_runtime(services));
+        services.service_mut::<CanvasManager>().add_canvas(canvas);
 
         Self {
-            assets,
-            canvas: Arc::new(CCanvas {
-                image: Arc::new(CImage::new(UVec2 { x: 1024, y: 768 })),
-                transform: Default::default(),
-            }),
-            input_manager: InputManager::new(actions, tools),
-
-            renderer_acquired: false,
+            input_manager: InputManager::new(actions),
         }
     }
+}
 
-    pub fn view(&self) -> Element<'_, MainViewMessage, Theme, iced_wgpu::Renderer> {
-        if self.renderer_acquired {
-            self.view_internal()
-        } else {
-            Element::new(RendererAcquire {
-                on_acquire: Box::new(|device, queue| {
-                    log::info!("Renderer acquired!");
-                    MainViewMessage::RendererAcquired(Arc::new(device), Arc::new(queue))
-                }),
-            })
-        }
+impl WindowView for MainView {
+    type Message = MainViewMessage;
+
+    fn id(&self) -> WindowViewId {
+        WindowViewId::new("main_view")
     }
 
-    fn view_internal(&self) -> Element<'_, MainViewMessage, Theme, iced_wgpu::Renderer> {
-        CanvasWidget {
-            canvas: self.canvas.clone(),
-            gpu_tile_storage: GPU_TILE_STORAGE.clone_arc(),
-        }
-        .into()
-    }
+    fn view<'a>(
+        &'a self,
+        runtime: Arc<Services>,
+    ) -> impl Into<Element<'a, Self::Message, Theme, iced_wgpu::Renderer>> {
+        let canvas_manager = runtime.service::<CanvasManager>();
+        let renderers = runtime.service::<CanvasRenderers>();
+        let current_canvas = canvas_manager.current().unwrap();
+        let renderer = renderers.get(&current_canvas.id).unwrap();
 
-    pub fn update(&mut self, message: MainViewMessage) -> Task<MainViewMessage> {
-        let mut shell = ActionShell::new(self.canvas.clone(), self.input_manager.tools.clone());
-
-        match message {
-            MainViewMessage::WindowOpened(id) => {}
-            MainViewMessage::RendererAcquired(device, queue) => {
-                if !self.renderer_acquired {
-                    self.renderer_acquired = true;
-
-                    GLOBAL_SAMPLERS.init(GlobalSamplers::new(&device));
-                    FULLSCREEN_VERTEX.init(FullscreenVertex::new(&device));
-                    GPU_TILE_STORAGE.init(GpuTileStorage::new(device.clone(), queue.clone()));
-                    RENDER_CONTEXT.init(RenderContext { device, queue });
-                }
-            }
-            MainViewMessage::KeyboardEvent(event) => {
-                self.input_manager.on_keyboard_event(event, &mut shell);
-            }
-            MainViewMessage::MouseEvent(event) => {
-                self.input_manager.on_mouse_event(event, &self.canvas);
-            }
-            MainViewMessage::ActionTaskCompleted(action_task) => {
-                action_task.apply(&mut shell);
-            }
-        }
-
-        self.apply_shell(shell.destruct())
-    }
-
-    pub fn subscription(&self) -> Subscription<MainViewMessage> {
-        event::listen().filter_map(|event| match event {
-            iced::Event::Keyboard(event) => Some(MainViewMessage::KeyboardEvent(event)),
-            iced::Event::Mouse(event) => Some(MainViewMessage::MouseEvent(event)),
-            _ => None,
+        Some(CanvasWidget {
+            canvas: current_canvas,
+            renderer,
+            tile_storage: runtime.service::<GpuTileStorage>().clone(),
         })
     }
 
-    fn apply_shell(&mut self, shell: DestructedShell) -> Task<MainViewMessage> {
-        self.canvas = shell.current_canvas;
-        Task::batch(shell.tasks).map(|t| MainViewMessage::ActionTaskCompleted(t))
+    fn update(
+        &mut self,
+        message: Self::Message,
+        runtime: Arc<Services>,
+    ) -> impl Into<Task<Self::Message>> {
+        match message {
+            MainViewMessage::KeyboardEvent(event) => {
+                return self
+                    .input_manager
+                    .on_keyboard_event(event, runtime)
+                    .discard();
+            }
+            MainViewMessage::MouseEvent(event) => {
+                let mut tool_proxies = runtime.service_mut::<CanvasToolProxies>();
+                let canvas_manager = runtime.service::<CanvasManager>();
+                let current_canvas = canvas_manager.current().unwrap();
+                let tool_proxy = tool_proxies.get_mut(&current_canvas.id);
+
+                self.input_manager
+                    .on_mouse_event(event, &current_canvas, tool_proxy);
+            }
+        }
+
+        Task::none()
+    }
+
+    fn subscription(&self) -> Subscription<(window::Id, MainViewMessage)> {
+        event::listen_with(|event, _, window| match event {
+            iced::Event::Keyboard(event) => Some((window, MainViewMessage::KeyboardEvent(event))),
+            iced::Event::Mouse(event) => Some((window, MainViewMessage::MouseEvent(event))),
+            _ => None,
+        })
     }
 }

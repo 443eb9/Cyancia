@@ -13,3 +13,6 @@ toml.workspace = true
 indexmap.workspace = true
 bitflags.workspace = true
 log.workspace = true
+cyancia_utils.workspace = true
+cyancia_runtime.workspace = true
+futures.workspace = true
