@@ -62,8 +62,9 @@ pub mod pipelines;
 
 const EXTERNAL_VARIABLE_BASE_BINDING: u32 = 32;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct BrushStrokeSessionInfo {
+    pub brush_runtime_revision: u64,
     pub target_layer_texture: Option<TextureView>,
 }
 
@@ -74,6 +75,7 @@ pub struct BrushPresetOperator {
     renderer: Option<BrushPresetRenderer>,
     last_session: Option<BrushStrokeSessionInfo>,
     input_processor: InputProcessor,
+    cached_brush: Option<CompiledBrushPreset>,
 }
 
 impl BrushPresetOperator {
@@ -90,6 +92,7 @@ impl BrushPresetOperator {
             queue,
             last_session: None,
             input_processor,
+            cached_brush: None,
         }
     }
 
@@ -100,39 +103,47 @@ impl BrushPresetOperator {
         assets: &AssetRegistry,
         target_layer: LayerId,
     ) {
+        let instance = self.instance.read();
+
         let session = BrushStrokeSessionInfo {
+            brush_runtime_revision: instance.runtime_revision(),
             target_layer_texture: tiles
                 .get_layer(target_layer)
                 .and_then(|l| l.texture().as_deref().cloned()),
         };
         match self.last_session.as_mut() {
             Some(last_session) => {
-                if *last_session != session {
-                    self.last_session = Some(session);
+                if last_session.brush_runtime_revision != session.brush_runtime_revision {
+                    self.cached_brush = None;
                     self.renderer = None;
                 }
+
+                if last_session.target_layer_texture.as_ref()
+                    != session.target_layer_texture.as_ref()
+                {
+                    self.renderer = None;
+                }
+
+                self.last_session = Some(session);
             }
             None => {
                 self.last_session = Some(session);
             }
         }
 
-        {
-            let mut instance = self.instance.write();
-            if instance.is_dirty() {
-                self.renderer = None;
-                instance.mark_undirty();
-            }
-        }
-
-        let instance = self.instance.read();
+        let compiled_brush = self.cached_brush.get_or_insert_with(|| {
+            let now = std::time::Instant::now();
+            let compiled = instance.compile(EXTERNAL_VARIABLE_BASE_BINDING).unwrap();
+            log::info!("Brush preset compilation: {:?}", now.elapsed());
+            compiled
+        });
 
         let renderer = self.renderer.get_or_insert_with(|| {
             let now = std::time::Instant::now();
             let renderer = BrushPresetRenderer::new(
                 &self.device,
                 &self.queue,
-                &instance,
+                &compiled_brush,
                 tiles,
                 target_layer,
                 assets,
@@ -195,48 +206,39 @@ impl BrushPresetRenderer {
     pub fn new(
         device: &Device,
         queue: &Queue,
-        brush: &BrushPresetInstance,
+        brush: &CompiledBrushPreset,
         tiles: &GpuTileStorage,
         target_layer_id: LayerId,
         assets: &AssetRegistry,
     ) -> Self {
-        let compiled_brush = brush.compile(EXTERNAL_VARIABLE_BASE_BINDING).unwrap();
-        println!("Compiled brush preset:\n{}", compiled_brush);
-        let resources = StrokeResources::new(
-            device,
-            queue,
-            &compiled_brush,
-            target_layer_id,
-            tiles,
-            assets,
-        );
+        let resources = StrokeResources::new(device, queue, &brush, target_layer_id, tiles, assets);
 
         let input_sampling = BrushInputSamplingPipeline::new(
             device,
             &resources,
-            compiled_brush.input_sampling.into(),
+            brush.input_sampling.clone().into(),
         );
         let tile_allocation = BrushTileAllocationPipeline::new(device, &resources, false);
         let estimate = BrushEstimatePipeline::new(
             device,
             &resources,
-            compiled_brush.main_graph.size_estimation.into(),
+            brush.main_graph.size_estimation.clone().into(),
         );
-        let main =
-            BrushMainPipeline::new(device, &resources, compiled_brush.main_graph.main.into());
+        let main = BrushMainPipeline::new(device, &resources, brush.main_graph.main.clone().into());
         let stroke_pp_estimate = BrushEstimatePipeline::new(
             device,
             &resources,
-            compiled_brush
+            brush
                 .stroke_postprocess_graphs
                 .size_estimation
+                .clone()
                 .into(),
         );
         let stroke_pp_tile_allocation = BrushTileAllocationPipeline::new(device, &resources, true);
         let stroke_pp_main = BrushMainPipeline::new(
             device,
             &resources,
-            compiled_brush.stroke_postprocess_graphs.main.into(),
+            brush.stroke_postprocess_graphs.main.clone().into(),
         );
 
         Self {
@@ -372,12 +374,8 @@ impl BrushPresetRenderer {
 
         let mut target_layer = tiles.get_layer_mut(target_layer_id).unwrap();
 
-        for tile in &tile_info.buf {
-            if *tile == GpuTileInfo::NULL {
-                break;
-            }
-
-            target_layer.get_tile_or_allocate(tile.index);
+        for i in 0..tile_info.n_tiles as usize {
+            target_layer.get_tile_or_allocate(tile_info.buf[i].index);
         }
 
         let result_layer = if (stroke_info.total_dabs + self.resources.n_stroke_pp) % 2 == 0 {
@@ -388,13 +386,12 @@ impl BrushPresetRenderer {
 
         let mut ec = device.create_command_encoder(&Default::default());
         ec.push_debug_group("copy brush preset result to target layer");
-        let mut n_copied = 0;
-        for (src, tile) in tile_info.buf.iter().enumerate() {
-            if *tile == GpuTileInfo::NULL {
-                break;
-            }
-            n_copied += 1;
-
+        for (src, tile) in tile_info
+            .buf
+            .iter()
+            .take(tile_info.n_tiles as usize)
+            .enumerate()
+        {
             let dst = target_layer.get_tile_layer(tile.index).unwrap();
 
             ec.copy_texture_to_texture(
@@ -426,7 +423,7 @@ impl BrushPresetRenderer {
 
         log::info!(
             "Copied {} tiles to target layer, affected tiles aabb: [{}, {})",
-            n_copied,
+            tile_info.n_tiles,
             stroke_info.accumulated_bound_min,
             stroke_info.accumulated_bound_max
         );
@@ -550,7 +547,7 @@ pub struct StrokeResources {
 }
 
 impl StrokeResources {
-    pub fn new(
+    fn new(
         device: &Device,
         queue: &Queue,
         brush: &CompiledBrushPreset,
@@ -615,7 +612,7 @@ impl StrokeResources {
         }
 
         let empty_texture = device.create_texture(&TextureDescriptor {
-            label: None,
+            label: Some("empty texture"),
             size: Extent3d {
                 width: 1,
                 height: 1,
@@ -625,7 +622,9 @@ impl StrokeResources {
             sample_count: 1,
             dimension: TextureDimension::D2,
             format: TextureFormat::Rgba8Unorm,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::STORAGE_BINDING,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::STORAGE_BINDING
+                | TextureUsages::COPY_SRC,
             view_formats: &[],
         });
         let mut referenced_textures_builder =
@@ -712,7 +711,7 @@ impl StrokeResources {
         }
     }
 
-    pub fn reset(&mut self, device: &Device, queue: &Queue) {
+    fn reset(&mut self, device: &Device, queue: &Queue) {
         self.input_sampler.clear();
         self.input_sampler.push(&PenInputSampler::default());
         self.input_sampler.write_buffer(device, queue);
@@ -738,7 +737,7 @@ impl StrokeResources {
         queue.submit([]);
     }
 
-    pub fn external_var_bindings(&self) -> Vec<BindGroupEntry<'_>> {
+    fn external_var_bindings(&self) -> Vec<BindGroupEntry<'_>> {
         self.external_var_buffers
             .iter()
             .enumerate()
