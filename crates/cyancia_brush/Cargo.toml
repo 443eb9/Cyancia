@@ -1,0 +1,45 @@
+[package]
+name = "cyancia_brush"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cyancia_shader_graph.workspace = true
+iced_widget.workspace = true
+iced_core.workspace = true
+iced_runtime.workspace = true
+glam.workspace = true
+wesl.workspace = true
+iced_futures.workspace = true
+rfd.workspace = true
+cyancia_assets.workspace = true
+thiserror.workspace = true
+zip.workspace = true
+image.workspace = true
+toml.workspace = true
+wgpu.workspace = true
+bytemuck.workspace = true
+iced_wgpu.workspace = true
+serde.workspace = true
+cyancia_render.workspace = true
+log.workspace = true
+cyancia_runtime.workspace = true
+cyancia_input.workspace = true
+cyancia_actions.workspace = true
+encase.workspace = true
+cyancia_image.workspace = true
+uuid.workspace = true
+indexmap.workspace = true
+anyhow.workspace = true
+parking_lot.workspace = true
+cyancia_tools.workspace = true
+cyancia_canvas.workspace = true
+bevy_math.workspace = true
+cyancia_utils.workspace = true
+cyancia_widgets.workspace = true
+ringbuffer.workspace = true
+cyancia_math.workspace = true
+
+[build-dependencies]
+wesl.workspace = true
+cyancia_image.workspace = true

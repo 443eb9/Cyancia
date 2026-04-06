@@ -1,22 +1,25 @@
-use std::{any::Any, cell::UnsafeCell, collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
-use async_trait::async_trait;
 use cyancia_input::{
     action::{Action, ActionId, ActionManifestCollection},
     key::{KeySequence, KeyboardState},
     mouse::PressedMouseState,
 };
-use cyancia_runtime::{Application, Runtime, Services, plugin::Plugin, service::Service};
-use iced_core::Point;
-use parking_lot::RwLock;
+use cyancia_runtime::{Application, Services, plugin::Plugin, service::Service};
+use iced_runtime::Task;
 
 use crate::{
-    canvas_control::{CanvasToolSwitch, PanToolAction, RotateToolAction, ZoomToolAction},
+    brush::OpenBrushEditorAction,
+    canvas_control::{
+        BrushToolAction, CanvasToolSwitch, PanToolAction, RotateToolAction, ZoomToolAction,
+    },
     file::OpenFileAction,
 };
 
+pub mod brush;
 pub mod canvas_control;
 pub mod file;
+pub mod input_manager;
 
 pub struct ActionPlugin;
 
@@ -26,7 +29,9 @@ impl Plugin for ActionPlugin {
             .add_action_function::<CanvasToolSwitch<PanToolAction>>()
             .add_action_function::<CanvasToolSwitch<RotateToolAction>>()
             .add_action_function::<CanvasToolSwitch<ZoomToolAction>>()
-            .add_action_function::<OpenFileAction>();
+            .add_action_function::<CanvasToolSwitch<BrushToolAction>>()
+            .add_action_function::<OpenFileAction>()
+            .add_action_function::<OpenBrushEditorAction>();
     }
 }
 
@@ -44,10 +49,9 @@ impl ActionAppExt for Application {
     }
 }
 
-#[async_trait]
 pub trait ActionFunction: Send + Sync + 'static {
     fn id(&self) -> ActionId;
-    async fn trigger(&self, services: Arc<Services>);
+    fn trigger(&self, services: Arc<Services>) -> Task<()>;
 }
 
 #[derive(Default)]

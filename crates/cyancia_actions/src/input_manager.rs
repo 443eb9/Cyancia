@@ -1,19 +1,21 @@
 use std::sync::Arc;
 
-use cyancia_actions::ActionFunctionRegistry;
-use cyancia_canvas::CCanvas;
+use cyancia_canvas::{CCanvas, CanvasManager};
 use cyancia_input::{
     action::ActionCollection,
     key::KeyboardState,
     mouse::{HoverMouseState, PressedMouseState},
 };
 use cyancia_runtime::Services;
-use cyancia_tools::ToolProxy;
-use iced::{
-    Point, Task,
+use cyancia_tools::{ToolProxies, ToolProxy};
+use iced_core::{
+    Point,
     keyboard::{self, key},
     mouse,
 };
+use iced_runtime::Task;
+
+use crate::ActionFunctionRegistry;
 
 pub struct InputManager {
     actions: ActionCollection,
@@ -33,7 +35,11 @@ impl InputManager {
         }
     }
 
-    pub fn on_keyboard_event(&mut self, event: keyboard::Event, runtime: Arc<Services>) -> Task<()> {
+    pub fn on_keyboard_event(
+        &mut self,
+        event: keyboard::Event,
+        runtime: Arc<Services>,
+    ) -> Task<()> {
         match event {
             keyboard::Event::KeyPressed {
                 physical_key,
@@ -55,7 +61,8 @@ impl InputManager {
                             .and_then(|k| self.actions.get_action_id(k))
                             .and_then(|id| runtime.service::<ActionFunctionRegistry>().get(id))
                         {
-                            return Task::future(async move { action.trigger(runtime).await });
+                            log::info!("Triggering action: {}", action.id());
+                            return action.trigger(runtime);
                         }
                     }
                     key::Physical::Unidentified(native_code) => {
@@ -77,12 +84,15 @@ impl InputManager {
         Task::none()
     }
 
-    pub fn on_mouse_event(
-        &mut self,
-        event: mouse::Event,
-        canvas: &CCanvas,
-        tool_proxy: &mut ToolProxy,
-    ) {
+    pub fn on_mouse_event(&mut self, event: mouse::Event, services: &Services) {
+        let mut tool_proxies = services.service_mut::<ToolProxies>();
+        let canvas_manager = services.service::<CanvasManager>();
+        let Some(canvas) = canvas_manager.current() else {
+            return;
+        };
+        let canvas = canvas.as_ref();
+        let tool_proxy = tool_proxies.get_mut(&canvas.tool_proxy_id);
+
         match event {
             mouse::Event::ButtonPressed(button) => {
                 if button != mouse::Button::Left {
@@ -95,7 +105,6 @@ impl InputManager {
                     &PressedMouseState {
                         position: self.cursor_position,
                     },
-                    canvas,
                 );
             }
             mouse::Event::ButtonReleased(button) => {
@@ -109,7 +118,6 @@ impl InputManager {
                     &PressedMouseState {
                         position: self.cursor_position,
                     },
-                    canvas,
                 );
             }
             mouse::Event::CursorMoved { position } => {
@@ -121,7 +129,6 @@ impl InputManager {
                         &PressedMouseState {
                             position: self.cursor_position,
                         },
-                        canvas,
                     );
                 } else {
                     tool_proxy.mouse_moved_hovering(
@@ -129,7 +136,6 @@ impl InputManager {
                         &HoverMouseState {
                             position: self.cursor_position,
                         },
-                        canvas,
                     );
                 }
             }

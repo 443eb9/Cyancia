@@ -17,7 +17,7 @@ use parking_lot::RwLock;
 use crate::{
     plugin::Plugin,
     service::{FromRuntime, RenderContext, Service, ServiceMut, ServiceRef},
-    windows::{ErasedWindowMessage, WindowManager, WindowViewId},
+    windows::{ErasedWindowMessage, WindowCommandBuffer, WindowManager, WindowViewId},
 };
 
 pub mod plugin;
@@ -127,18 +127,45 @@ impl Program for Application {
             panic!("Root view needs to be set.")
         };
 
-        let task = rt.wm.open_window(root_view);
-        (rt, task.discard())
+        let window_task = rt.wm.open_window(root_view);
+        let deadlock_detect_task = Task::future(async {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                let deadlocks = parking_lot::deadlock::check_deadlock();
+                for (i_dl, threads) in deadlocks.into_iter().enumerate() {
+                    log::error!("#{} Deadlock detected", i_dl);
+
+                    for (it, t) in threads.into_iter().enumerate() {
+                        log::error!("Thread {}:", it);
+                        log::error!("{:#?}", t.backtrace());
+                    }
+                }
+            }
+        });
+        (
+            rt,
+            Task::batch([window_task.discard(), deadlock_detect_task.discard()]),
+        )
     }
 
     fn update(&self, state: &mut Self::State, message: Self::Message) -> Task<Self::Message> {
-        match message {
+        let mut task = match message {
             ApplicationMessage::Window(m) => state
                 .wm
                 .update(m, state.services.clone())
                 .map(ApplicationMessage::Window),
             ApplicationMessage::WindowClosed(id) => state.wm.window_closed(id).discard(),
-        }
+        };
+
+        task = task.chain(
+            state
+                .services
+                .service_mut::<WindowCommandBuffer>()
+                .execute(&mut state.wm, state.services.clone())
+                .discard(),
+        );
+
+        task
     }
 
     fn view<'a>(
@@ -198,7 +225,7 @@ impl Runtime {
         self
     }
 
-    pub fn services(&self) -> &Services {
+    pub fn services(&self) -> &Arc<Services> {
         &self.services
     }
 
@@ -246,5 +273,25 @@ impl Services {
             ))
             .clone();
         ServiceMut::from_arc(arc)
+    }
+
+    pub fn get_service<T: Service>(&self) -> Option<ServiceRef<T>> {
+        self.services
+            .read()
+            .get(&TypeId::of::<T>())
+            .map(|arc| ServiceRef::from_arc(arc.clone()))
+    }
+
+    pub fn get_service_mut<T: Service>(&self) -> Option<ServiceMut<T>> {
+        self.services
+            .read()
+            .get(&TypeId::of::<T>())
+            .map(|arc| ServiceMut::from_arc(arc.clone()))
+    }
+
+    pub fn insert_service<T: Service>(&self, service: T) {
+        self.services
+            .write()
+            .insert(TypeId::of::<T>(), Arc::new(RwLock::new(service)));
     }
 }

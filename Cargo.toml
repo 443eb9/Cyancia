@@ -34,17 +34,21 @@ cyancia_math = { version = "0.1.0", path = "crates/cyancia_math" }
 cyancia_actions = { version = "0.1.0", path = "crates/cyancia_actions" }
 cyancia_shader_graph = { version = "0.1.0", path = "crates/cyancia_shader_graph" }
 cyancia_runtime = { version = "0.1.0", path = "crates/cyancia_runtime" }
+cyancia_brush = { version = "0.1.0", path = "crates/cyancia_brush" }
 
 iced = { version = "0.14", features = [
     "debug",
     "canvas",
     "selector",
+    "tokio",
 ], git = "https://github.com/443eb9/iced.git", branch = "0.14" }
 iced_beacon = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
 iced_core = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
 iced_debug = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
 iced_devtools = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
-iced_futures = { version = "0.14", git = "https://github.com/443eb9/iced.git", branch = "0.14" }
+iced_futures = { version = "0.14", features = [
+    "tokio",
+], git = "https://github.com/443eb9/iced.git", branch = "0.14" }
 iced_graphics = { version = "0.14", features = [
     "geometry",
 ], git = "https://github.com/443eb9/iced.git", branch = "0.14" }
@@ -73,16 +77,16 @@ toml = "0.9"
 log = "0.4"
 downcast-rs = "2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-indexmap = "2"
-parking_lot = "0.12"
+indexmap = { version = "2", features = ["serde"] }
+parking_lot = { version = "0.12", features = ["deadlock_detection"] }
 futures = "0.3"
 bitflags = "2"
 wgpu = "27"
-glam = { version = "0.30", features = ["encase", "serde"] }
+glam = { version = "0.30", features = ["encase", "serde", "bytemuck"] }
 dashmap = "6"
-wesl = { version = "0.3", features = ["package"] }
+wesl = { version = "0.3", features = ["package", "naga-ext"] }
 encase = "0.12"
-bytemuck = "1"
+bytemuck = { version = "1", features = ["derive"] }
 image = "0.25"
 palette = "0.7"
 rayon = "1"
@@ -100,10 +104,16 @@ env_logger = "0.11"
 path-clean = "1"
 winit = "0.30"
 rustc-hash = "1"
-rusqlite = { version = "0.38", features = [
-    "bundled-full",
-] }
+rusqlite = { version = "0.38", features = ["bundled-full"] }
 async-trait = "0.1"
+bevy_math = { version = "0.18", git = "https://github.com/443eb9/bevy.git", branch = "release-0.18.1", features = [
+    "serialize",
+    "std",
+    "curve",
+    "encase",
+] }
+ringbuffer = "0.16"
+fs_extra = "1"
 
 # [patch."https://github.com/443eb9/iced.git"]
 # iced = { path = "D:/iced_fork", features = ["debug", "canvas"] }
@@ -121,3 +131,6 @@ async-trait = "0.1"
 # iced_wgpu = { path = "D:/iced_fork/wgpu", features = ["geometry"] }
 # iced_widget = { path = "D:/iced_fork/widget", features = ["wgpu"] }
 # iced_winit = { path = "D:/iced_fork/winit" }
+
+[patch.crates-io]
+naga = { git = "https://github.com/gfx-rs/wgpu", rev = "7a2afeb014cb30a976059717c4ae7c85f01d858e", package = "naga" }

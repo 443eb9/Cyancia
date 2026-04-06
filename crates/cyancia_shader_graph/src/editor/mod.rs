@@ -35,22 +35,26 @@ use crate::{
         GraphSlotId, GraphSlotPinPositionCollection, SlotSide, empty_slot, output_slot, valued_slot,
     },
     graph::{
-        Graph, GraphDynamicInstancesStorage,
-        node::{ErasedGraphNode, ErasedGraphNodeMessage, GraphNodeData, GraphNodeId},
+        Graph, GraphResources,
+        node::{
+            ErasedGraphNode, ErasedGraphNodeMessage, GraphNodeData, GraphNodeId, GraphNodeRegistry,
+        },
         slot::{
             GraphInputSlotData, GraphInputSlotId, GraphOutputSlotData, GraphOutputSlotId,
             GraphSlots,
         },
+        variable::GraphTypeRegistry,
     },
 };
 
 pub mod slot;
 
-const NODE_WIDTH: f32 = 170.0;
+pub const NODE_WIDTH: f32 = 170.0;
 const NODE_BORDER_RADIUS: f32 = 5.0;
 
+#[derive(Clone)]
 pub enum GraphViewMessage {
-    NodeCreateRequest(Point, Box<dyn ErasedGraphNode>),
+    NodeCreateRequest(Point, &'static str),
     NodeMoveRequest(Point, GraphNodeId),
     NodeDeleteRequest(GraphNodeId),
     EdgeCreateRequest(GraphOutputSlotId, GraphInputSlotId),
@@ -133,25 +137,19 @@ impl std::fmt::Debug for GraphViewMessage {
 // }
 
 pub struct GraphView<'a> {
-    graph: DrawableGraph<'a>,
-    storage: Arc<GraphDynamicInstancesStorage>,
+    graph: DrawableGraph,
     node_creation_menu_items: Vec<NodeCreationMenuItem>,
     node_creation_menu_class: <GraphTheme as menu::Catalog>::Class<'a>,
 }
 
 impl<'a> GraphView<'a> {
-    pub fn new(graph: &'a Graph) -> Self {
+    pub fn new(graph: &Graph, node_registry: &GraphNodeRegistry) -> Self {
         Self {
             graph: DrawableGraph::new(graph),
-            storage: graph.storage().clone(),
-            node_creation_menu_items: graph
-                .storage()
-                .nodes
+            node_creation_menu_items: node_registry
                 .all()
                 .keys()
-                .map(|title| NodeCreationMenuItem {
-                    node_title: title.to_string(),
-                })
+                .map(|title| NodeCreationMenuItem { node_title: title })
                 .collect(),
             node_creation_menu_class: <GraphTheme as menu::Catalog>::default(),
         }
@@ -160,12 +158,12 @@ impl<'a> GraphView<'a> {
 
 #[derive(Clone)]
 pub struct NodeCreationMenuItem {
-    pub node_title: String,
+    pub node_title: &'static str,
 }
 
 impl ToString for NodeCreationMenuItem {
     fn to_string(&self) -> String {
-        self.node_title.clone()
+        self.node_title.to_string()
     }
 }
 
@@ -176,21 +174,27 @@ pub struct GraphNodeStyle {
     pub line_spacing: f32,
 }
 
-pub struct DrawableGraph<'a> {
-    pub nodes: IndexMap<GraphNodeId, DrawableNode<'a>>,
+pub struct DrawableGraph {
+    pub nodes: IndexMap<GraphNodeId, DrawableNode>,
     pub slots: HashMap<GraphSlotId, SlotData>,
     pub edges: HashMap<GraphInputSlotId, DrawableEdge>,
     pub vert_in_loop: HashSet<GraphNodeId>,
 }
 
-impl<'a> DrawableGraph<'a> {
-    pub fn new(graph: &'a Graph) -> Self {
+impl DrawableGraph {
+    pub fn new(graph: &Graph) -> Self {
         let mut nodes = IndexMap::with_capacity(graph.nodes.len());
         let mut node_indices = HashMap::with_capacity(graph.nodes.len());
         for (index, (id, node)) in graph.nodes.iter().enumerate() {
             nodes.insert(
                 *id,
-                DrawableNode::new(*id, node, &graph.slots, graph.storage()),
+                DrawableNode::new(
+                    *id,
+                    node,
+                    &graph.slots,
+                    graph.resources(),
+                    graph.type_registry(),
+                ),
             );
             node_indices.insert(*id, index);
         }
@@ -266,20 +270,21 @@ pub struct DrawableEdge {
     style: geometry::Style,
 }
 
-pub struct DrawableNode<'a> {
+pub struct DrawableNode {
     pub node_id: GraphNodeId,
     pub position: Point,
-    pub widget: Element<'a, GraphViewMessage, GraphTheme, GraphRenderer>,
+    pub widget: Element<'static, GraphViewMessage, GraphTheme, GraphRenderer>,
     pub input_slots: Arc<[GraphInputSlotId]>,
     pub output_slots: Arc<[GraphOutputSlotId]>,
 }
 
-impl<'a> DrawableNode<'a> {
+impl DrawableNode {
     pub fn new(
         node_id: GraphNodeId,
-        node: &'a GraphNodeData,
+        node: &GraphNodeData,
         slots: &GraphSlots,
-        storage: &GraphDynamicInstancesStorage,
+        resources: &GraphResources,
+        type_registry: &GraphTypeRegistry,
     ) -> Self {
         // let inputs = node
         //     .inputs
@@ -328,11 +333,11 @@ impl<'a> DrawableNode<'a> {
             column![
                 header,
                 column!(
-                    node.view_inputs(node_id, slots, storage)
+                    node.view_inputs(node_id, slots, resources, type_registry)
                         .map(GraphViewMessage::NodeUpdate),
                     row![
                         space().width(Length::Fill),
-                        node.view_outputs(node_id, slots, storage)
+                        node.view_outputs(node_id, slots, resources, type_registry)
                             .map(GraphViewMessage::NodeUpdate)
                     ],
                 )
@@ -449,20 +454,20 @@ impl<'a> Widget<GraphViewMessage, GraphTheme, GraphRenderer> for GraphView<'a> {
         viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_mut::<State>();
-        match event {
-            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                // We need to handle it before children, otherwise, if the drag is started on a interactable child,
-                // the event will get captured and unable to be identified below, and will stuck.
-                if let DragNodeState::Dragging { .. } = state.node_drag {
-                    state.node_drag = DragNodeState::Idle;
-                    shell.capture_event();
-                    return;
-                }
+        // match event {
+        //     Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+        //         // We need to handle it before children, otherwise, if the drag is started on a interactable child,
+        //         // the event will get captured and unable to be identified below, and will stuck.
+        //         if let DragNodeState::Dragging { .. } = state.node_drag {
+        //             state.node_drag = DragNodeState::Idle;
+        //             shell.capture_event();
+        //             return;
+        //         }
 
-                state.node_creation_menu.position = None;
-            }
-            _ => {}
-        }
+        //         state.node_creation_menu.position = None;
+        //     }
+        //     _ => {}
+        // }
 
         state.slot_pins.clear();
         let mut messages = Vec::new();
@@ -493,13 +498,14 @@ impl<'a> Widget<GraphViewMessage, GraphTheme, GraphRenderer> for GraphView<'a> {
         shell.merge(children_shell, |m| m);
 
         if shell.is_event_captured() {
+            dbg!();
             return;
         }
 
         const SLOT_PIN_SNAP: f32 = 3.0 * 3.0;
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Middle)) => {
-                let Some(cursor) = cursor.position() else {
+                let Some(cursor) = cursor.position_over(layout.bounds()) else {
                     return;
                 };
 
@@ -518,7 +524,7 @@ impl<'a> Widget<GraphViewMessage, GraphTheme, GraphRenderer> for GraphView<'a> {
                 }
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                let Some(cursor) = cursor.position() else {
+                let Some(cursor) = cursor.position_over(layout.bounds()) else {
                     return;
                 };
 
@@ -960,7 +966,7 @@ impl<'a> Widget<GraphViewMessage, GraphTheme, GraphRenderer> for GraphView<'a> {
                     state.node_creation_menu.position = None;
                     GraphViewMessage::NodeCreateRequest(
                         position - state.view_translation,
-                        self.storage.nodes.get_cloned(&name.node_title).unwrap(),
+                        name.node_title,
                     )
                 },
                 None,

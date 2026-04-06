@@ -5,7 +5,9 @@ use std::{
 
 use downcast_rs::DowncastSync;
 use futures::executor::block_on;
-use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use parking_lot::{
+    MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
+};
 use wgpu::{Adapter, Backends, Device, Features, Instance, Limits, Queue};
 
 use crate::Services;
@@ -24,7 +26,7 @@ impl<T: Default> FromRuntime for T {
     }
 }
 
-/// A read guard for a service held in an `Arc<RwLock<dyn Service>>`.  
+/// A read guard for a service held in an `Arc<RwLock<dyn Service>>`.
 /// SAFETY: `guard` is declared before `_arc` so it is dropped first, releasing
 /// the read lock before the Arc (and thus the RwLock) is freed.
 pub struct ServiceRef<T: Service> {
@@ -42,10 +44,8 @@ impl<T: Service> ServiceRef<T> {
             // `arc` lives on the heap and will be stored in the struct alongside
             // this guard. Because `guard` is declared before `_arc`, it is
             // dropped first, so the RwLock is always valid while the guard lives.
-            let raw: MappedRwLockReadGuard<'_, T> = RwLockReadGuard::map(
-                arc.read(),
-                |x: &dyn Service| x.downcast_ref::<T>().unwrap(),
-            );
+            let raw: MappedRwLockReadGuard<'_, T> =
+                RwLockReadGuard::map(arc.read(), |x: &dyn Service| x.downcast_ref::<T>().unwrap());
             std::mem::transmute::<MappedRwLockReadGuard<'_, T>, MappedRwLockReadGuard<'static, T>>(
                 raw,
             )
@@ -77,14 +77,13 @@ pub struct ServiceMut<T: Service> {
 impl<T: Service> ServiceMut<T> {
     pub(crate) fn from_arc(arc: Arc<RwLock<dyn Service>>) -> Self {
         let guard = unsafe {
-            let raw: MappedRwLockWriteGuard<'_, T> = RwLockWriteGuard::map(
-                arc.write(),
-                |x: &mut dyn Service| x.downcast_mut::<T>().unwrap(),
-            );
-            std::mem::transmute::<
-                MappedRwLockWriteGuard<'_, T>,
-                MappedRwLockWriteGuard<'static, T>,
-            >(raw)
+            let raw: MappedRwLockWriteGuard<'_, T> =
+                RwLockWriteGuard::map(arc.write(), |x: &mut dyn Service| {
+                    x.downcast_mut::<T>().unwrap()
+                });
+            std::mem::transmute::<MappedRwLockWriteGuard<'_, T>, MappedRwLockWriteGuard<'static, T>>(
+                raw,
+            )
         };
         ServiceMut { guard, _arc: arc }
     }
@@ -138,14 +137,23 @@ impl Default for RenderContext {
                 })
                 .await
                 .unwrap();
+            log::info!("Adapter limits: {:#?}", adapter.limits());
+            log::info!("Adapter features: {:#?}", adapter.features());
             let (device, queue) = adapter
                 .request_device(&wgpu::DeviceDescriptor {
-                    required_features: Features::empty(),
-                    required_limits: Limits::downlevel_defaults(),
+                    required_features: Features::CLEAR_TEXTURE,
+                    required_limits: adapter.limits(),
                     ..Default::default()
                 })
                 .await
                 .unwrap();
+
+            device.on_uncaptured_error(Arc::new(|err| {
+                log::error!("WGPU device error:\n{err}");
+            }));
+            device.set_device_lost_callback(|reason, err| {
+                log::error!("WGPU device lost: {reason:?} {err}");
+            });
 
             RenderContext {
                 instance: instance.into(),

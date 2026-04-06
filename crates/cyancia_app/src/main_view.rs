@@ -1,13 +1,6 @@
 use std::{fmt::Debug, sync::Arc};
 
-use cyancia_actions::{
-    ActionFunctionRegistry,
-    canvas_control::{
-        BrushToolAction, CanvasToolSwitch, PanToolAction, RotateToolAction, ZoomToolAction,
-    },
-    file::OpenFileAction,
-};
-use cyancia_assets::{loader::AssetSerializerRegistry, store::AssetRegistry};
+use cyancia_actions::input_manager::InputManager;
 use cyancia_canvas::{
     CCanvas, CanvasId, CanvasManager,
     render::{CanvasRenderer, CanvasRenderers},
@@ -15,30 +8,24 @@ use cyancia_canvas::{
 };
 use cyancia_image::{
     CImage,
-    tile::{GpuTileStorage, GpuTileStorageInner},
+    texel::TexelType,
+    tile::{GpuLayerInfo, GpuTileStorage, GpuTileStorageInner},
 };
-use cyancia_input::{
-    action::{Action, ActionManifest, ActionManifestCollection},
-    key::{KeySequence, KeyboardState},
-};
+use cyancia_input::action::ActionManifestCollection;
 use cyancia_runtime::{
     Services,
     service::FromRuntime,
-    windows::{WindowView, WindowViewId},
+    windows::{WindowCommandBuffer, WindowView, WindowViewId},
 };
-use cyancia_tools::{
-    CanvasToolFunctionRegistry, CanvasToolId, CanvasToolProxies, ToolProxy, brush::BrushTool,
-    pan::PanTool, rotate::RotateTool, zoom::ZoomTool,
-};
+use cyancia_tools::{ToolId, ToolProxies, ToolProxy};
+
 use glam::UVec2;
 use iced::{
-    Element, Point, Renderer, Subscription, Task, Theme, event,
-    keyboard::{self, key},
+    Element, Subscription, Task, Theme, event,
+    keyboard::{self},
     mouse, window,
 };
 use uuid::Uuid;
-
-use crate::input_manager::InputManager;
 
 pub struct MainView {
     pub input_manager: InputManager,
@@ -51,22 +38,27 @@ pub enum MainViewMessage {
 }
 
 impl MainView {
-    pub fn new(services: &Services) -> Self {
+    pub fn new(services: Arc<Services>) -> Self {
         let actions = services
             .service::<ActionManifestCollection>()
             .subset_for_view("main_view");
+
         let canvas = CCanvas {
             id: CanvasId::new(Uuid::new_v4()),
+            tool_proxy_id: services.service_mut::<ToolProxies>().add(ToolProxy::new()),
             image: Arc::new(CImage::new(UVec2 { x: 1024, y: 768 })),
             transform: Default::default(),
         };
-        services.service_mut::<CanvasToolProxies>().add(
-            &canvas.id,
-            &services.service::<CanvasToolFunctionRegistry>(),
-        );
         services
             .service_mut::<CanvasRenderers>()
-            .insert(canvas.id, CanvasRenderer::from_runtime(services));
+            .insert(canvas.id, CanvasRenderer::from_runtime(&services));
+        // TODO this should not be done here
+        services.service::<GpuTileStorage>().declare_layer(
+            canvas.image.root().id(),
+            GpuLayerInfo {
+                texel_type: TexelType::RGBA8,
+            },
+        );
         services.service_mut::<CanvasManager>().add_canvas(canvas);
 
         Self {
@@ -111,13 +103,7 @@ impl WindowView for MainView {
                     .discard();
             }
             MainViewMessage::MouseEvent(event) => {
-                let mut tool_proxies = runtime.service_mut::<CanvasToolProxies>();
-                let canvas_manager = runtime.service::<CanvasManager>();
-                let current_canvas = canvas_manager.current().unwrap();
-                let tool_proxy = tool_proxies.get_mut(&current_canvas.id);
-
-                self.input_manager
-                    .on_mouse_event(event, &current_canvas, tool_proxy);
+                self.input_manager.on_mouse_event(event, &runtime);
             }
         }
 

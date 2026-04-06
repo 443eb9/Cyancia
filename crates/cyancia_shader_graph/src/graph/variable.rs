@@ -1,44 +1,27 @@
 use std::{any::Any, collections::HashMap};
 
+use downcast_rs::Downcast;
+use dyn_clone::DynClone;
+
 use crate::graph::slot::{ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphValueType};
 
-#[derive(Default)]
-pub struct GraphValueTypeStorage {
+#[derive(Default, Clone)]
+pub struct GraphTypeRegistry {
     types: HashMap<&'static str, Box<dyn ErasedGraphValueType>>,
+    casters: HashMap<&'static str, HashMap<&'static str, Box<dyn ErasedGraphVariableCaster>>>,
 }
 
-impl GraphValueTypeStorage {
-    pub fn register<T: GraphValueType + Default>(&mut self) {
+impl GraphTypeRegistry {
+    pub fn register_type<T: GraphValueType + Default>(&mut self) {
         let ty = T::default();
         self.types.insert(ty.name(), Box::new(ty));
     }
 
-    pub fn register_non_default<T: GraphValueType>(&mut self, ty: T) {
-        self.types.insert(ty.name(), Box::new(ty));
-    }
-
-    pub fn get(&self, name: &str) -> Option<&Box<dyn ErasedGraphValueType>> {
+    pub fn get_type(&self, name: &str) -> Option<&Box<dyn ErasedGraphValueType>> {
         self.types.get(name)
     }
 
-    pub fn all(&self) -> &HashMap<&'static str, Box<dyn ErasedGraphValueType>> {
-        &self.types
-    }
-
-    pub fn merge(&mut self, other: Self) {
-        for (name, ty) in other.types {
-            self.types.insert(name, ty);
-        }
-    }
-}
-
-#[derive(Default)]
-pub struct GraphTypeCastersStorage {
-    casters: HashMap<&'static str, HashMap<&'static str, Box<dyn ErasedGraphVariableCaster>>>,
-}
-
-impl GraphTypeCastersStorage {
-    pub fn register<T: GraphVariableCaster + Default>(&mut self) {
+    pub fn register_caster<T: GraphVariableCaster + Default>(&mut self) {
         let from = T::FromType::default();
         let to = T::ToType::default();
         let from_name = <T::FromType as GraphValueType>::name(&from);
@@ -73,31 +56,35 @@ impl GraphTypeCastersStorage {
             .is_some()
     }
 
-    pub fn all(
+    pub fn all_types(&self) -> &HashMap<&'static str, Box<dyn ErasedGraphValueType>> {
+        &self.types
+    }
+
+    pub fn all_casters(
         &self,
     ) -> &HashMap<&'static str, HashMap<&'static str, Box<dyn ErasedGraphVariableCaster>>> {
         &self.casters
     }
 
-    pub fn merge(&mut self, other: Self) {
-        for (from_name, to_map) in other.casters {
-            let entry = self.casters.entry(from_name).or_default();
-            for (to_name, caster) in to_map {
-                entry.insert(to_name, caster);
-            }
+    pub fn merge(&mut self, other: GraphTypeRegistry) {
+        self.types.extend(other.types);
+        for (from, casters) in other.casters {
+            self.casters.entry(from).or_default().extend(casters);
         }
     }
 }
 
-pub trait GraphVariableCaster: Send + Sync + 'static {
+pub trait GraphVariableCaster: Send + Sync + 'static + Clone {
     type FromType: GraphValueType + Default;
     type ToType: GraphValueType + Default;
     fn cast(&self, variable: &String) -> String;
 }
 
-pub trait ErasedGraphVariableCaster: Send + Sync + 'static {
+pub trait ErasedGraphVariableCaster: Send + Sync + 'static + DynClone {
     fn cast(&self, variable: &String) -> String;
 }
+
+dyn_clone::clone_trait_object!(ErasedGraphVariableCaster);
 
 impl<T: GraphVariableCaster> ErasedGraphVariableCaster for T {
     fn cast(&self, variable: &String) -> String {
@@ -105,8 +92,16 @@ impl<T: GraphVariableCaster> ErasedGraphVariableCaster for T {
     }
 }
 
+pub trait GraphLiteralValue: DynClone + Send + Sync + 'static + Downcast {}
+
+downcast_rs::impl_downcast!(GraphLiteralValue);
+dyn_clone::clone_trait_object!(GraphLiteralValue);
+
+impl<T: Send + Sync + 'static + DynClone> GraphLiteralValue for T {}
+
+#[derive(Clone)]
 pub struct GraphLiteral {
-    value: Box<dyn Any + Send + Sync>,
+    value: Box<dyn GraphLiteralValue>,
     ty: Box<dyn ErasedGraphValueType>,
 }
 
@@ -125,34 +120,39 @@ impl GraphLiteral {
         }
     }
 
-    pub(crate) fn new_boxed(
-        value: Box<dyn Any + Send + Sync>,
-        ty: Box<dyn ErasedGraphValueType>,
-    ) -> Self {
+    pub fn new_boxed(value: Box<dyn GraphLiteralValue>, ty: Box<dyn ErasedGraphValueType>) -> Self {
         Self { value, ty }
     }
 
-    pub fn as_ref<T: 'static>(&self) -> &T {
+    pub fn as_ref<T: GraphLiteralValue>(&self) -> &T {
         self.value
             .downcast_ref::<T>()
             .expect("Failed to downcast Literal")
     }
 
-    pub fn as_mut<T: 'static>(&mut self) -> &mut T {
+    pub fn as_mut<T: GraphLiteralValue>(&mut self) -> &mut T {
         self.value
             .downcast_mut::<T>()
             .expect("Failed to downcast Literal")
     }
 
-    pub fn ty(&self) -> &dyn ErasedGraphValueType {
-        self.ty.as_ref()
+    pub fn try_as_ref<T: GraphLiteralValue>(&self) -> Option<&T> {
+        self.value.downcast_ref::<T>()
     }
 
-    pub fn value(&self) -> &Box<dyn Any + Send + Sync> {
+    pub fn try_as_mut<T: GraphLiteralValue>(&mut self) -> Option<&mut T> {
+        self.value.downcast_mut::<T>()
+    }
+
+    pub fn ty(&self) -> &Box<dyn ErasedGraphValueType> {
+        &self.ty
+    }
+
+    pub fn value(&self) -> &Box<dyn GraphLiteralValue> {
         &self.value
     }
 
-    pub fn set<T: 'static>(&mut self, value: T) {
+    pub fn set<T: GraphLiteralValue>(&mut self, value: T) {
         if let Some(x) = self.value.downcast_mut() {
             *x = value;
         } else {
@@ -167,8 +167,13 @@ impl GraphLiteral {
     pub fn update(&mut self, message: ErasedGraphLiteralUpdateMessage) {
         self.ty.update_literal(&mut self.value, message);
     }
+
+    pub fn try_write_into_shader_buffer(&self) -> Option<Vec<u8>> {
+        self.ty.try_write_into_shader_buffer(&self.value)
+    }
 }
 
+#[derive(Clone)]
 pub struct GraphVariable {
     identifier: String,
     ty: Box<dyn ErasedGraphValueType>,
@@ -190,7 +195,7 @@ impl GraphVariable {
         &self.identifier
     }
 
-    pub fn ty(&self) -> &dyn ErasedGraphValueType {
-        self.ty.as_ref()
+    pub fn ty(&self) -> &Box<dyn ErasedGraphValueType> {
+        &self.ty
     }
 }

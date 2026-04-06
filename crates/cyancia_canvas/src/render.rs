@@ -1,10 +1,12 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, num::NonZeroU32, sync::Arc};
 
+use bevy_math::IRect;
 use cyancia_image::{
     layer::{Layer, LayerId},
-    tile::{GpuTileStorage, GpuTileStorageInner, TileId},
+    texel::TexelType,
+    tile::{GpuTileInfo, GpuTileStorage, GpuTileStorageInner},
 };
-use cyancia_math::iced_rect::{RectangleConversion, RectangleTransform};
+use cyancia_math::{iced_rect::IntoRect, rect_transform::RectTransform};
 use cyancia_render::{
     buffer::DynamicBuffer,
     resources::{FullscreenVertex, GlobalSamplers},
@@ -15,7 +17,7 @@ use cyancia_runtime::{
 };
 use cyancia_utils::include_shader;
 use encase::ShaderType;
-use glam::{Mat3, UVec2};
+use glam::{IVec2, Mat3, UVec2};
 use iced_core::Rectangle;
 use iced_widget::shader;
 use parking_lot::{Mutex, RwLock};
@@ -47,7 +49,9 @@ impl CanvasRenderers {
     }
 
     pub fn insert(&self, canvas_id: CanvasId, renderer: CanvasRenderer) {
-        self.instances.write().insert(canvas_id, Arc::new(Mutex::new(renderer)));
+        self.instances
+            .write()
+            .insert(canvas_id, Arc::new(Mutex::new(renderer)));
     }
 
     pub fn remove(&self, canvas_id: &CanvasId) {
@@ -55,9 +59,14 @@ impl CanvasRenderers {
     }
 }
 
+/// When rendering canvas, we need to first compose all tiles onto a temporary surface.
+/// This surface will be used as storage texture and float sampled texture.
+pub const INTERMEDIATE_BUFFER_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
+
 #[derive(Debug)]
 pub struct CanvasRenderer {
     device: Arc<Device>,
+    queue: Arc<Queue>,
     buffer: Option<TextureView>,
     render_pipeline: CanvasRenderPipeline,
     present_pipeline: CanvasPresentPipeline,
@@ -68,11 +77,7 @@ impl Service for CanvasRenderer {}
 impl FromRuntime for CanvasRenderer {
     fn from_runtime(runtime: &Services) -> Self {
         let render_context = runtime.service::<RenderContext>();
-        let render_pipeline = CanvasRenderPipeline::new(
-            &render_context.device,
-            GpuTileStorageInner::TILE_FORMAT,
-            runtime.service::<GlobalSamplers>().as_ref(),
-        );
+        let render_pipeline = CanvasRenderPipeline::new();
         let present_pipeline = CanvasPresentPipeline::new(
             &render_context.device,
             // TODO: this format varies based on platforms and hdr settings.
@@ -82,6 +87,7 @@ impl FromRuntime for CanvasRenderer {
         );
         Self {
             device: render_context.device.clone(),
+            queue: render_context.queue.clone(),
             buffer: Default::default(),
             render_pipeline,
             present_pipeline,
@@ -90,13 +96,7 @@ impl FromRuntime for CanvasRenderer {
 }
 
 impl CanvasRenderer {
-    pub fn resize_buffer(&mut self, size: UVec2) {
-        if let Some(buffer) = &self.buffer {
-            if buffer.texture().width() == size.x && buffer.texture().height() == size.y {
-                return;
-            }
-        }
-
+    pub fn resize_output_buffer(&mut self, size: UVec2) {
         let texture = self.device.create_texture(&TextureDescriptor {
             label: Some("canvas render buffer"),
             size: Extent3d {
@@ -107,7 +107,7 @@ impl CanvasRenderer {
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
-            format: GpuTileStorageInner::TILE_FORMAT,
+            format: INTERMEDIATE_BUFFER_FORMAT,
             usage: TextureUsages::RENDER_ATTACHMENT
                 | TextureUsages::STORAGE_BINDING
                 | TextureUsages::TEXTURE_BINDING,
@@ -120,7 +120,8 @@ impl CanvasRenderer {
     }
 
     pub fn prepare(&mut self, canvas: CanvasUniform) {
-        self.render_pipeline.prepare(&self.device, canvas);
+        self.render_pipeline
+            .prepare(&self.device, &self.queue, canvas);
     }
 
     pub fn draw(
@@ -139,7 +140,6 @@ impl CanvasRenderer {
             &self.device,
             encoder,
             tile_storage,
-            clip_bounds,
             buffer,
             canvas.image.root().id(),
         );
@@ -186,15 +186,36 @@ impl shader::Primitive for CanvasPrimitive {
         viewport: &shader::Viewport,
     ) {
         let mut renderer = self.renderer.lock();
-        let size = UVec2::new(bounds.width as u32, bounds.height as u32);
-        renderer.resize_buffer(size);
+        let output_buffer_size = UVec2::new(bounds.width as u32, bounds.height as u32);
+
+        if renderer.buffer.as_ref().is_none_or(|b| {
+            b.texture().width() != output_buffer_size.x
+                || b.texture().height() != output_buffer_size.y
+        }) {
+            renderer.resize_output_buffer(output_buffer_size);
+        }
+
+        let tile_count = GpuTileStorageInner::calc_tile_count(self.canvas.image.size());
+        if renderer.render_pipeline.max_tile_count.x < tile_count.x
+            || renderer.render_pipeline.max_tile_count.y < tile_count.y
+        {
+            renderer.render_pipeline.resize_canvas(
+                device,
+                self.canvas.image.size(),
+                self.tile_storage
+                    .get_layer_info(self.canvas.image.root().id())
+                    .unwrap()
+                    .texel_type,
+            );
+        }
+
         let transform = self.canvas.transform.read();
 
         renderer.prepare(CanvasUniform {
             transform: transform.pixel_to_widget,
             inv_transform: transform.pixel_to_widget.inverse(),
             size: self.canvas.image.size(),
-            total_tile_count: GpuTileStorageInner::calc_tile_count(self.canvas.image.size()),
+            total_tile_count: tile_count,
             tile_size: GpuTileStorageInner::TILE_SIZE,
         });
     }
@@ -218,11 +239,11 @@ impl shader::Primitive for CanvasPrimitive {
 
 #[derive(Debug)]
 pub struct CanvasRenderPipeline {
-    pipeline: ComputePipeline,
-    main_layout: BindGroupLayout,
+    max_tile_count: UVec2,
+    pipeline: Option<ComputePipeline>,
+    main_layout: Option<BindGroupLayout>,
     uniform_buffer: DynamicBuffer<CanvasUniform>,
     uniform: Option<CanvasUniform>,
-    sampler: Sampler,
 }
 
 #[derive(Debug, Clone, Copy, ShaderType)]
@@ -235,26 +256,45 @@ pub struct CanvasUniform {
 }
 
 impl CanvasRenderPipeline {
-    fn new(device: &Device, format: TextureFormat, samplers: &GlobalSamplers) -> Self {
+    fn new() -> Self {
+        Self {
+            max_tile_count: UVec2::ZERO,
+            main_layout: None,
+            pipeline: None,
+            uniform_buffer: DynamicBuffer::new(
+                Some("canvas uniform buffer"),
+                BufferUsages::UNIFORM,
+            ),
+            uniform: None,
+        }
+    }
+
+    pub fn resize_canvas(&mut self, device: &Device, size: UVec2, layer_texel_type: TexelType) {
+        self.max_tile_count = GpuTileStorageInner::calc_tile_count(size);
+        let max_tiles = self.max_tile_count.element_product();
         let main_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("canvas main layout"),
             entries: &[
-                // tiles pile
+                // tiles
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Texture {
-                        sample_type: TextureSampleType::Float { filterable: true },
+                    ty: BindingType::StorageTexture {
+                        access: StorageTextureAccess::ReadOnly,
+                        format: layer_texel_type.wgpu_format(),
                         view_dimension: TextureViewDimension::D2Array,
-                        multisampled: false,
                     },
                     count: None,
                 },
-                // tile sampler
+                // tile info
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(GpuTileInfo::min_size()),
+                    },
                     count: None,
                 },
                 // canvas uniform
@@ -268,24 +308,13 @@ impl CanvasRenderPipeline {
                     },
                     count: None,
                 },
-                // tile mapper, mapping tile coords to layer indices
+                // output
                 BindGroupLayoutEntry {
                     binding: 3,
                     visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(<u32 as ShaderType>::min_size()),
-                    },
-                    count: None,
-                },
-                // output
-                BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: ShaderStages::COMPUTE,
                     ty: BindingType::StorageTexture {
                         access: StorageTextureAccess::WriteOnly,
-                        format: format,
+                        format: INTERMEDIATE_BUFFER_FORMAT,
                         view_dimension: TextureViewDimension::D2,
                     },
                     count: None,
@@ -313,22 +342,14 @@ impl CanvasRenderPipeline {
             cache: None,
         });
 
-        Self {
-            main_layout,
-            pipeline,
-            uniform_buffer: DynamicBuffer::new(
-                Some("canvas uniform buffer"),
-                BufferUsages::UNIFORM,
-            ),
-            uniform: None,
-            sampler: samplers.linear_clamp().clone(),
-        }
+        self.pipeline = Some(pipeline);
+        self.main_layout = Some(main_layout);
     }
 
-    pub fn prepare(&mut self, device: &Device, uniform: CanvasUniform) {
+    pub fn prepare(&mut self, device: &Device, queue: &Queue, uniform: CanvasUniform) {
         self.uniform_buffer.clear();
         self.uniform_buffer.push(&uniform);
-        self.uniform_buffer.write_buffer(device);
+        self.uniform_buffer.write_buffer(device, queue);
         self.uniform = Some(uniform);
     }
 
@@ -337,85 +358,57 @@ impl CanvasRenderPipeline {
         device: &Device,
         encoder: &mut CommandEncoder,
         tile_storage: &GpuTileStorageInner,
-        clip_bounds: &Rectangle<u32>,
         target: &TextureView,
         root_layer_id: LayerId,
     ) {
-        let Some(uniform) = &self.uniform else {
+        let (Some(pipeline), Some(main_layout), Some(uniform_buffer)) = (
+            &self.pipeline,
+            &self.main_layout,
+            self.uniform_buffer.binding(),
+        ) else {
             return;
         };
-        let Some(uniform_buffer) = self.uniform_buffer.entire_binding() else {
-            return;
-        };
+
         let target_size = target.texture().size();
+        let root_layer = tile_storage
+            .get_layer_binding_or_empty(root_layer_id)
+            .unwrap();
 
-        let rect_cs = clip_bounds.transform(&uniform.inv_transform);
-        let visible_tiles = tile_storage.get_tile_views(
-            rect_cs.as_urect(),
-            uniform.total_tile_count,
-            root_layer_id,
+        let bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("canvas render bind group"),
+            layout: &main_layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureView(&root_layer.texture),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: root_layer.tile_info_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: uniform_buffer,
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: BindingResource::TextureView(&target),
+                },
+            ],
+        });
+
+        let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+            label: Some("canvas render pass"),
+            timestamp_writes: None,
+        });
+
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.dispatch_workgroups(
+            target_size.width.div_ceil(16),
+            target_size.height.div_ceil(16),
+            1,
         );
-        for group in visible_tiles {
-            // dbg!(group.pile_texture.texture());
-            let mut mapper_data =
-                vec![u32::MAX; uniform.total_tile_count.element_product() as usize];
-            for TileId {
-                image_layer,
-                index,
-                pile_index,
-                pile_layer,
-            } in group.tiles
-            {
-                mapper_data
-                    [index.y as usize * uniform.total_tile_count.x as usize + index.x as usize] =
-                    pile_layer;
-            }
-            let mapper_buffer = device.create_buffer_init(&BufferInitDescriptor {
-                label: Some("mapper buffer"),
-                contents: bytemuck::cast_slice(&mapper_data),
-                usage: BufferUsages::STORAGE,
-            });
-
-            let bind_group = device.create_bind_group(&BindGroupDescriptor {
-                label: Some("canvas render bind group"),
-                layout: &self.main_layout,
-                entries: &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: BindingResource::TextureView(&group.pile),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: BindingResource::Sampler(&self.sampler),
-                    },
-                    BindGroupEntry {
-                        binding: 2,
-                        resource: uniform_buffer.clone(),
-                    },
-                    BindGroupEntry {
-                        binding: 3,
-                        resource: mapper_buffer.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 4,
-                        resource: BindingResource::TextureView(&target),
-                    },
-                ],
-            });
-
-            let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-                label: Some("canvas render pass"),
-                timestamp_writes: None,
-            });
-
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.dispatch_workgroups(
-                target_size.width.div_ceil(16),
-                target_size.height.div_ceil(16),
-                1,
-            );
-        }
     }
 }
 
