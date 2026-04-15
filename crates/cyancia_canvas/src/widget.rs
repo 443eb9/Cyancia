@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
+use bevy_math::Rect;
 use cyancia_assets::store::AssetRegistry;
 use cyancia_image::tile::{GpuTileStorage, GpuTileStorageInner};
 use cyancia_render::resources::{FullscreenVertex, GlobalSamplers};
 use cyancia_runtime::Services;
 use glam::{UVec2, Vec2};
 use iced_core::{
-    Clipboard, Element, Event, Layout, Length, Rectangle, Shell, Size, Widget,
+    Clipboard, Element, Event, Layout, Length, Point, Rectangle, Shell, Size, Widget,
     keyboard::{self, key},
     layout::{self, Limits},
     mouse, renderer,
@@ -21,13 +22,16 @@ use crate::{
     render::{CanvasPrimitive, CanvasRenderer},
 };
 
-pub struct CanvasWidget {
+pub struct CanvasWidget<Message> {
+    pub is_focusing: bool,
     pub canvas: Arc<CCanvas>,
     pub renderer: Arc<Mutex<CanvasRenderer>>,
     pub tile_storage: GpuTileStorage,
+    pub on_focus: Box<dyn Fn(Point) -> Message>,
+    pub on_mouse_event: Box<dyn Fn(mouse::Event) -> Message>,
 }
 
-impl<Message, Theme> Widget<Message, Theme, iced_wgpu::Renderer> for CanvasWidget {
+impl<Message, Theme> Widget<Message, Theme, iced_wgpu::Renderer> for CanvasWidget<Message> {
     fn size(&self) -> Size<Length> {
         Size::new(Length::Fill, Length::Fill)
     }
@@ -52,8 +56,27 @@ impl<Message, Theme> Widget<Message, Theme, iced_wgpu::Renderer> for CanvasWidge
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        self.canvas.transform.write().widget_size =
-            Vec2::new(layout.bounds().width, layout.bounds().height);
+        let bounds = layout.bounds();
+        self.canvas.transform.write().widget_bounds = Rect {
+            min: Vec2::new(bounds.x, bounds.y),
+            max: Vec2::new(bounds.x + bounds.width, bounds.y + bounds.height),
+        };
+
+        match event {
+            Event::Mouse(event) => {
+                if self.is_focusing {
+                    shell.publish((self.on_mouse_event)(event.clone()));
+                    shell.capture_event();
+                } else if let mouse::Event::ButtonPressed(mouse::Button::Left) = event
+                    && let Some(cursor_pos) = cursor.position_over(bounds)
+                {
+                    shell.publish((self.on_focus)(cursor_pos));
+                    shell.publish((self.on_mouse_event)(event.clone()));
+                    shell.capture_event();
+                }
+            }
+            _ => {}
+        }
     }
 
     fn draw(
@@ -77,8 +100,12 @@ impl<Message, Theme> Widget<Message, Theme, iced_wgpu::Renderer> for CanvasWidge
     }
 }
 
-impl<'a, Message, Theme> From<CanvasWidget> for Element<'a, Message, Theme, iced_wgpu::Renderer> {
-    fn from(canvas: CanvasWidget) -> Self {
+impl<'a, Message, Theme> From<CanvasWidget<Message>>
+    for Element<'a, Message, Theme, iced_wgpu::Renderer>
+where
+    Message: 'a,
+{
+    fn from(canvas: CanvasWidget<Message>) -> Self {
         Element::new(canvas)
     }
 }

@@ -6,10 +6,10 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
-use iced_core::Theme;
 use iced_core::{Element, window};
+use iced_core::{Length, Theme, Widget};
 use iced_futures::{Subscription, backend::native};
-use iced_runtime::Task;
+use iced_runtime::{Task, window::close_events};
 use iced_wgpu::window::compositor::WgpuContext;
 use iced_winit::program::Program;
 use parking_lot::RwLock;
@@ -17,9 +17,15 @@ use parking_lot::RwLock;
 use crate::{
     plugin::Plugin,
     service::{FromRuntime, RenderContext, Service, ServiceMut, ServiceRef},
-    windows::{ErasedWindowMessage, WindowCommandBuffer, WindowManager, WindowViewId},
+    windows::{
+        ErasedWindowViewMessage, WindowCommandBuffer, WindowViewId, WindowViewManager,
+        WindowViewManagerMessage,
+    },
 };
 
+pub mod event;
+#[doc(hidden)]
+pub use event::__private;
 pub mod plugin;
 pub mod service;
 pub mod windows;
@@ -107,7 +113,7 @@ impl Program for Application {
 
     type Renderer = iced_wgpu::Renderer;
 
-    type Executor = native::tokio::Executor;
+    type Executor = native::smol::Executor;
 
     fn name() -> &'static str {
         "Cyancia Runtime"
@@ -123,14 +129,14 @@ impl Program for Application {
 
     fn boot(&self) -> (Self::State, Task<Self::Message>) {
         let mut rt = std::mem::take::<Runtime>(&mut self.runtime.borrow_mut());
-        let Some(root_view) = rt.window_manager().root_view() else {
-            panic!("Root view needs to be set.")
-        };
 
-        let window_task = rt.wm.open_window(root_view);
+        let window_task = rt
+            .wm
+            .boot(rt.services.clone())
+            .map(ApplicationMessage::Window);
         let deadlock_detect_task = Task::future(async {
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                smol::Timer::after(std::time::Duration::from_secs(5)).await;
                 let deadlocks = parking_lot::deadlock::check_deadlock();
                 for (i_dl, threads) in deadlocks.into_iter().enumerate() {
                     log::error!("#{} Deadlock detected", i_dl);
@@ -144,7 +150,7 @@ impl Program for Application {
         });
         (
             rt,
-            Task::batch([window_task.discard(), deadlock_detect_task.discard()]),
+            Task::batch([window_task, deadlock_detect_task.discard()]),
         )
     }
 
@@ -154,7 +160,10 @@ impl Program for Application {
                 .wm
                 .update(m, state.services.clone())
                 .map(ApplicationMessage::Window),
-            ApplicationMessage::WindowClosed(id) => state.wm.window_closed(id).discard(),
+            ApplicationMessage::WindowClosed(id) => state
+                .wm
+                .on_window_closed(id, state.services.clone())
+                .discard(),
         };
 
         task = task.chain(
@@ -173,23 +182,48 @@ impl Program for Application {
         state: &'a Self::State,
         window: window::Id,
     ) -> Element<'a, Self::Message, Self::Theme, Self::Renderer> {
+        struct DummyWidget;
+        impl<Message, Theme, Renderer: iced_core::Renderer> Widget<Message, Theme, Renderer>
+            for DummyWidget
+        {
+            fn size(&self) -> iced_core::Size<iced_core::Length> {
+                iced_core::Size::new(iced_core::Length::Fill, iced_core::Length::Fill)
+            }
+
+            fn layout(
+                &mut self,
+                tree: &mut iced_core::widget::Tree,
+                renderer: &Renderer,
+                limits: &iced_core::layout::Limits,
+            ) -> iced_core::layout::Node {
+                iced_core::layout::atomic(limits, Length::Fill, Length::Fill)
+            }
+
+            fn draw(
+                &self,
+                tree: &iced_core::widget::Tree,
+                renderer: &mut Renderer,
+                theme: &Theme,
+                style: &iced_core::renderer::Style,
+                layout: iced_core::Layout<'_>,
+                cursor: iced_core::mouse::Cursor,
+                viewport: &iced_core::Rectangle,
+            ) {
+            }
+        }
+
         state
             .wm
             .view(window, state.services.clone())
+            .unwrap_or_else(|| Element::new(DummyWidget))
             .map(ApplicationMessage::Window)
     }
 
     fn subscription(&self, state: &Self::State) -> Subscription<Self::Message> {
         let windows = state.wm.subscription().map(ApplicationMessage::Window);
-        let closed = iced_futures::event::listen_with(|e, _, window| {
-            if let iced_core::Event::Window(window::Event::Closed) = e {
-                Some(ApplicationMessage::WindowClosed(window))
-            } else {
-                None
-            }
-        });
+        let window_closed = close_events().map(ApplicationMessage::WindowClosed);
 
-        Subscription::batch([windows, closed])
+        Subscription::batch([windows, window_closed])
     }
 
     fn compositor_context(&self, state: &Self::State) -> Option<WgpuContext> {
@@ -207,7 +241,7 @@ impl Program for Application {
 #[derive(Default)]
 pub struct Runtime {
     services: Arc<Services>,
-    wm: WindowManager,
+    wm: WindowViewManager,
 }
 
 impl Runtime {
@@ -229,17 +263,17 @@ impl Runtime {
         &self.services
     }
 
-    pub fn window_manager(&self) -> &WindowManager {
+    pub fn window_manager(&self) -> &WindowViewManager {
         &self.wm
     }
 
-    pub fn window_manager_mut(&mut self) -> &mut WindowManager {
+    pub fn window_manager_mut(&mut self) -> &mut WindowViewManager {
         &mut self.wm
     }
 }
 
 pub enum ApplicationMessage {
-    Window(ErasedWindowMessage),
+    Window(WindowViewManagerMessage),
     WindowClosed(window::Id),
 }
 

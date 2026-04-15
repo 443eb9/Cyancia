@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-use cyancia_actions::input_manager::InputManager;
+use cyancia_actions::actions_matcher::ActionsMatcher;
 use cyancia_assets::{
     asset::{AssetHandle, AssetId},
     bundle::BundleId,
@@ -78,7 +78,10 @@ const FUNCTION_GRAPH_TYPE_REGISTRY: LazyLock<Arc<GraphTypeRegistry>> = LazyLock:
 });
 
 pub struct BrushEditorView {
-    input_manager: InputManager,
+    windows: Arc<[window::Id]>,
+    main_window: window::Id,
+
+    input_manager: ActionsMatcher,
     texture_storage: Arc<GraphTextureStorage>,
     function_storage: Arc<GraphFunctionStorage>,
 
@@ -91,69 +94,6 @@ pub struct BrushEditorView {
     create_new_type: Option<&'static str>,
     editing_name: bool,
     name_buffer: String,
-}
-
-impl FromRuntime for BrushEditorView {
-    fn from_runtime(runtime: &Services) -> Self {
-        let function_assets = runtime
-            .service::<AssetRegistry>()
-            .all_handles_of::<SerializableGraphFunction>()
-            .unwrap();
-        let functions = function_assets
-            .iter()
-            .map(|handle| {
-                let func = handle.get().unwrap();
-                // TODO err handling
-                (
-                    func.id,
-                    func.deserialize_func(
-                        FUNCTION_GRAPH_TYPE_REGISTRY.clone(),
-                        FUNCTION_GRAPH_NODE_REGISTRY.as_ref(),
-                    )
-                    .0
-                    .unwrap(),
-                )
-            })
-            .collect();
-        let function_storage = Arc::new(GraphFunctionStorage::new(functions));
-        let function_id_to_asset = function_assets
-            .into_iter()
-            .map(|handle| (handle.get().unwrap().id, handle))
-            .collect();
-
-        // TODO: Update this storage when asset changes.
-        let textures = runtime
-            .service::<AssetRegistry>()
-            .all_handles_of::<Image>()
-            .unwrap()
-            .into_iter()
-            .map(|h| TextureObject {
-                external_id: TextureId::new(*h.id()),
-                name: h.get().unwrap().metadata.name.clone(),
-            })
-            .collect();
-        let texture_storage = Arc::new(GraphTextureStorage::new(textures));
-
-        let actions = runtime
-            .service::<ActionManifestCollection>()
-            .subset_for_view("brush_editor");
-
-        Self {
-            input_manager: InputManager::new(actions),
-
-            selected: None,
-            texture_storage,
-            function_storage,
-            function_id_to_asset,
-
-            saved_runtime_revision: 0,
-
-            create_new_name: String::new(),
-            create_new_type: None,
-            editing_name: false,
-            name_buffer: String::new(),
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -260,12 +200,81 @@ pub enum BrushEditorMessage {
 impl WindowView for BrushEditorView {
     type Message = BrushEditorMessage;
 
-    fn id(&self) -> WindowViewId {
+    fn id() -> WindowViewId {
         WindowViewId::new("brush_editor")
+    }
+
+    fn boot(runtime: Arc<Services>) -> (Self, Task<Self::Message>) {
+        let function_assets = runtime
+            .service::<AssetRegistry>()
+            .all_handles_of::<SerializableGraphFunction>()
+            .unwrap();
+        let functions = function_assets
+            .iter()
+            .map(|handle| {
+                let func = handle.get().unwrap();
+                // TODO err handling
+                (
+                    func.id,
+                    func.deserialize_func(
+                        FUNCTION_GRAPH_TYPE_REGISTRY.clone(),
+                        FUNCTION_GRAPH_NODE_REGISTRY.as_ref(),
+                    )
+                    .0
+                    .unwrap(),
+                )
+            })
+            .collect();
+        let function_storage = Arc::new(GraphFunctionStorage::new(functions));
+        let function_id_to_asset = function_assets
+            .into_iter()
+            .map(|handle| (handle.get().unwrap().id, handle))
+            .collect();
+
+        // TODO: Update this storage when asset changes.
+        let textures = runtime
+            .service::<AssetRegistry>()
+            .all_handles_of::<Image>()
+            .unwrap()
+            .into_iter()
+            .map(|h| TextureObject {
+                external_id: TextureId::new(*h.id()),
+                name: h.get().unwrap().metadata.name.clone(),
+            })
+            .collect();
+        let texture_storage = Arc::new(GraphTextureStorage::new(textures));
+
+        let actions = runtime
+            .service::<ActionManifestCollection>()
+            .subset_for_view("brush_editor");
+
+        let (main_window, task) = iced_runtime::window::open(Default::default());
+
+        (
+            Self {
+                windows: [main_window].into(),
+                main_window,
+                input_manager: ActionsMatcher::new(actions),
+
+                selected: None,
+                texture_storage,
+                function_storage,
+                function_id_to_asset,
+
+                saved_runtime_revision: 0,
+
+                create_new_name: String::new(),
+                create_new_type: None,
+                editing_name: false,
+                name_buffer: String::new(),
+            },
+            task.discard(),
+        )
     }
 
     fn view<'a>(
         &'a self,
+        window: window::Id,
         runtime: Arc<Services>,
     ) -> impl Into<Element<'a, Self::Message, iced_core::Theme, iced_wgpu::Renderer>> {
         let assets = runtime.service::<AssetRegistry>();
@@ -535,10 +544,10 @@ impl WindowView for BrushEditorView {
                     _ => {}
                 }
 
-                return self
-                    .input_manager
-                    .on_keyboard_event(event, runtime)
-                    .discard();
+                // return self
+                //     .input_manager
+                //     .on_keyboard_event(event, runtime)
+                //     .discard();
             }
             BrushEditorMessage::MouseEvent(event) => {
                 // self.input_manager.on_mouse_event(event, &runtime);
@@ -750,14 +759,35 @@ impl WindowView for BrushEditorView {
         Task::none()
     }
 
-    fn subscription(&self) -> Subscription<(window::Id, BrushEditorMessage)> {
-        iced_futures::event::listen_with(|event, _, window| match event {
-            iced_core::Event::Keyboard(event) => {
-                Some((window, BrushEditorMessage::KeyboardEvent(event)))
+    fn subscription(&self) -> Subscription<Self::Message> {
+        iced_futures::event::listen_with(|event, _, window| {
+            match event {
+                iced_core::Event::Keyboard(event) => Some(BrushEditorMessage::KeyboardEvent(event)),
+                iced_core::Event::Mouse(event) => Some(BrushEditorMessage::MouseEvent(event)),
+                _ => None,
             }
-            iced_core::Event::Mouse(event) => Some((window, BrushEditorMessage::MouseEvent(event))),
-            _ => None,
+            .map(|msg| (msg, window))
         })
+        .with(self.main_window)
+        .filter_map(|(main_window_id, (msg, window))| {
+            if window == main_window_id {
+                Some(msg)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn close(self, runtime: Arc<Services>) -> Task<()> {
+        iced_runtime::window::close(self.main_window)
+    }
+
+    fn windows(&self) -> Arc<[window::Id]> {
+        self.windows.clone()
+    }
+
+    fn root_window(&self) -> Option<window::Id> {
+        Some(self.main_window)
     }
 }
 

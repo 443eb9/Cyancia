@@ -1234,6 +1234,7 @@ dependencies = [
  "cyancia_assets",
  "cyancia_brush",
  "cyancia_canvas",
+ "cyancia_dock",
  "cyancia_image",
  "cyancia_input",
  "cyancia_render",
@@ -1275,7 +1276,6 @@ dependencies = [
  "rusqlite",
  "serde",
  "thiserror 2.0.18",
- "tokio",
  "toml",
  "uuid",
  "xxhash-rust",
@@ -1331,6 +1331,7 @@ dependencies = [
  "bevy_math",
  "bytemuck",
  "cyancia_assets",
+ "cyancia_dock",
  "cyancia_image",
  "cyancia_input",
  "cyancia_math",
@@ -1341,14 +1342,35 @@ dependencies = [
  "encase",
  "glam 0.30.10",
  "iced_core",
+ "iced_runtime",
  "iced_wgpu",
  "iced_widget",
  "log",
  "parking_lot",
+ "parse-display",
  "serde",
  "uuid",
  "wesl",
  "wgpu",
+]
+
+[[package]]
+name = "cyancia_dock"
+version = "0.1.0"
+dependencies = [
+ "cyancia_platform",
+ "cyancia_utils",
+ "iced",
+ "iced_aw",
+ "iced_core",
+ "iced_runtime",
+ "iced_widget",
+ "indexmap",
+ "log",
+ "parse-display",
+ "serde",
+ "thiserror 2.0.18",
+ "uuid",
 ]
 
 [[package]]
@@ -1420,6 +1442,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cyancia_platform"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "windows 0.62.2",
+]
+
+[[package]]
 name = "cyancia_render"
 version = "0.1.0"
 dependencies = [
@@ -1442,6 +1472,7 @@ dependencies = [
 name = "cyancia_runtime"
 version = "0.1.0"
 dependencies = [
+ "cyancia_runtime_derive",
  "cyancia_utils",
  "downcast-rs 2.0.2",
  "futures",
@@ -1453,10 +1484,20 @@ dependencies = [
  "iced_winit",
  "log",
  "parking_lot",
+ "parse-display",
  "rustc-hash 1.1.0",
- "tokio",
+ "smol",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "cyancia_runtime_derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -2572,7 +2613,7 @@ dependencies = [
  "iced_core",
  "log",
  "rustc-hash 2.1.1",
- "tokio",
+ "smol",
  "wasm-bindgen-futures",
  "wasmtimer",
 ]
@@ -5119,6 +5160,23 @@ dependencies = [
  "libc",
  "smithay-client-toolkit 0.20.0",
  "wayland-backend",
+]
+
+[[package]]
+name = "smol"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a33bd3e260892199c3ccfc487c88b2da2265080acb316cd920da72fdfd7c599f"
+dependencies = [
+ "async-channel",
+ "async-executor",
+ "async-fs",
+ "async-io",
+ "async-lock",
+ "async-net",
+ "async-process",
+ "blocking",
+ "futures-lite",
 ]
 
 [[package]]

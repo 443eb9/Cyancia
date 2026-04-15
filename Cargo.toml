@@ -4,6 +4,7 @@ members = [
     "crates/cyancia_app",
     "crates/cyancia_assets",
     "crates/cyancia_runtime",
+    "crates/cyancia_runtime_derive",
     "crates/cyancia_canvas",
     "crates/cyancia_graph",
     "crates/cyancia_image",
@@ -15,12 +16,14 @@ members = [
     "crates/cyancia_utils",
     "crates/cyancia_utils_derive",
     "crates/cyancia_widgets",
-    # "examples/*",
+    "crates/cyancia_dock",
+    "crates/cyancia_platform",
 ]
 resolver = "2"
 
 [workspace.dependencies]
 cyancia_graph = { version = "0.1.0", path = "crates/cyancia_graph" }
+cyancia_runtime_derive = { version = "0.1.0", path = "crates/cyancia_runtime_derive" }
 cyancia_utils = { version = "0.1.0", path = "crates/cyancia_utils" }
 cyancia_utils_derive = { version = "0.1.0", path = "crates/cyancia_utils_derive" }
 cyancia_widgets = { version = "0.1.0", path = "crates/cyancia_widgets" }
@@ -35,18 +38,20 @@ cyancia_actions = { version = "0.1.0", path = "crates/cyancia_actions" }
 cyancia_shader_graph = { version = "0.1.0", path = "crates/cyancia_shader_graph" }
 cyancia_runtime = { version = "0.1.0", path = "crates/cyancia_runtime" }
 cyancia_brush = { version = "0.1.0", path = "crates/cyancia_brush" }
+cyancia_dock = { version = "0.1.0", path = "crates/cyancia_dock" }
+cyancia_platform = { version = "0.1.0", path = "crates/cyancia_platform" }
 
 iced = { version = "0.14", features = [
     "debug",
     "canvas",
     "selector",
-    "tokio",
+    "smol",
 ] }
 iced_beacon = { version = "0.14" }
 iced_core = { version = "0.14" }
 iced_debug = { version = "0.14" }
 iced_devtools = { version = "0.14" }
-iced_futures = { version = "0.14", features = ["tokio"] }
+iced_futures = { version = "0.14", features = ["smol"] }
 iced_graphics = { version = "0.14", features = ["geometry"] }
 iced_highlighter = { version = "0.14" }
 iced_program = { version = "0.14" }
@@ -89,9 +94,9 @@ anyhow = "1"
 dyn-clone = "1"
 chrono = { version = "0.4", features = ["serde"] }
 atomicow = "1"
-tokio = { version = "1", default-features = false }
 md5 = "0.8"
 zip = "8"
+taffy = { path = "D:/taffy", features = ["detailed_layout_info"] }
 parse-display = "0.10"
 env_logger = "0.11"
 path-clean = "1"
@@ -107,22 +112,8 @@ bevy_math = { version = "0.18", git = "https://github.com/443eb9/bevy.git", bran
 ] }
 ringbuffer = "0.16"
 fs_extra = "1"
-
-# iced = { path = "D:/iced_fork", features = ["debug", "canvas"] }
-# iced_beacon = { path = "D:/iced_fork/beacon" }
-# iced_core = { path = "D:/iced_fork/core" }
-# iced_debug = { path = "D:/iced_fork/debug" }
-# iced_devtools = { path = "D:/iced_fork/devtools" }
-# iced_futures = { path = "D:/iced_fork/futures" }
-# iced_graphics = { path = "D:/iced_fork/graphics", features = ["geometry"] }
-# iced_highlighter = { path = "D:/iced_fork/highlighter" }
-# iced_program = { path = "D:/iced_fork/program" }
-# iced_renderer = { path = "D:/iced_fork/renderer" }
-# iced_runtime = { path = "D:/iced_fork/runtime" }
-# iced_selector = { path = "D:/iced_fork/selector" }
-# iced_wgpu = { path = "D:/iced_fork/wgpu", features = ["geometry"] }
-# iced_widget = { path = "D:/iced_fork/widget", features = ["wgpu"] }
-# iced_winit = { path = "D:/iced_fork/winit" }
+smol = "2"
+windows = "0.62"
 
 [patch.crates-io]
 naga = { git = "https://github.com/gfx-rs/wgpu", rev = "7a2afeb014cb30a976059717c4ae7c85f01d858e", package = "naga" }
@@ -141,3 +132,19 @@ iced_selector = { git = "https://github.com/443eb9/iced.git", branch = "0.14" }
 iced_wgpu = { git = "https://github.com/443eb9/iced.git", branch = "0.14" }
 iced_widget = { git = "https://github.com/443eb9/iced.git", branch = "0.14" }
 iced_winit = { git = "https://github.com/443eb9/iced.git", branch = "0.14" }
+
+# iced = { path = "D:/iced_fork" }
+# iced_beacon = { path = "D:/iced_fork/beacon" }
+# iced_core = { path = "D:/iced_fork/core" }
+# iced_debug = { path = "D:/iced_fork/debug" }
+# iced_devtools = { path = "D:/iced_fork/devtools" }
+# iced_futures = { path = "D:/iced_fork/futures" }
+# iced_graphics = { path = "D:/iced_fork/graphics" }
+# iced_highlighter = { path = "D:/iced_fork/highlighter" }
+# iced_program = { path = "D:/iced_fork/program" }
+# iced_renderer = { path = "D:/iced_fork/renderer" }
+# iced_runtime = { path = "D:/iced_fork/runtime" }
+# iced_selector = { path = "D:/iced_fork/selector" }
+# iced_wgpu = { path = "D:/iced_fork/wgpu" }
+# iced_widget = { path = "D:/iced_fork/widget" }
+# iced_winit = { path = "D:/iced_fork/winit" }
