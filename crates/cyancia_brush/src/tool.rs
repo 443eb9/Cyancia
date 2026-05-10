@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use chrono::{DateTime, Utc};
 use cyancia_assets::store::AssetRegistry;
 use cyancia_canvas::{CCanvas, CanvasManager};
 use cyancia_image::tile::GpuTileStorage;
@@ -12,11 +13,17 @@ use glam::{FloatExt, Vec2};
 use ringbuffer::{AllocRingBuffer, RingBuffer};
 
 use crate::{
-    input_processing::RawPenInput, instance::BrushPresetInstance, render::BrushPresetOperator,
+    input_processing::RawPenInput,
+    instance::BrushPresetInstance,
+    render::{BrushPresetOperator, Time},
 };
 
+const TIMESTAMP_MOD: i64 = 1_000_000;
+
 #[derive(Default)]
-pub struct BrushTool;
+pub struct BrushTool {
+    stroke_begin: Option<DateTime<Utc>>,
+}
 
 impl ToolFunction for BrushTool {
     fn id(&self) -> ToolId {
@@ -40,7 +47,15 @@ impl ToolFunction for BrushTool {
             return;
         };
         let root_layer = canvas.image.root().id();
-        let params = RawPenInput { position };
+        let now = Utc::now();
+        self.stroke_begin = Some(now);
+        let params = RawPenInput {
+            position,
+            time: Time {
+                now: (Utc::now().timestamp_micros() % TIMESTAMP_MOD) as f32,
+                stroke_begin: (now.timestamp_micros() % TIMESTAMP_MOD) as f32,
+            },
+        };
 
         services.try_service_scope::<CurrentBrushPresetOperator>(
             |brush, services| {
@@ -69,16 +84,30 @@ impl ToolFunction for BrushTool {
         else {
             return;
         };
-        let params = RawPenInput { position };
-
-        let Some(brush) = services.get_service_mut::<CurrentBrushPresetOperator>() else {
-            log::error!("No current brush preset operator found.");
+        let Some(stroke_begin) = self.stroke_begin else {
+            log::error!("Stroke update called without a stroke begin time.");
             return;
         };
 
-        let now = std::time::Instant::now();
-        brush.update_stroke(params);
-        log::info!("Brush update took: {:?}", now.elapsed());
+        let params = RawPenInput {
+            position,
+            time: Time {
+                now: (Utc::now().timestamp_micros() % TIMESTAMP_MOD) as f32,
+                stroke_begin: (stroke_begin.timestamp_micros() % TIMESTAMP_MOD) as f32,
+            },
+        };
+
+        services.try_service_scope::<CurrentBrushPresetOperator>(
+            |brush, services| {
+                let tiles = services.service::<GpuTileStorage>();
+                let now = std::time::Instant::now();
+                brush.update_stroke(params, tiles);
+                log::info!("Brush update took: {:?}", now.elapsed());
+            },
+            || {
+                log::error!("No current brush preset operator found.");
+            },
+        );
     }
 
     fn end(
@@ -96,8 +125,19 @@ impl ToolFunction for BrushTool {
         else {
             return;
         };
+        let Some(stroke_begin) = self.stroke_begin else {
+            log::error!("Stroke end called without a stroke begin time.");
+            return;
+        };
+
         let root_layer = canvas.image.root().id();
-        let final_input = RawPenInput { position };
+        let final_input = RawPenInput {
+            position,
+            time: Time {
+                now: (Utc::now().timestamp_micros() % TIMESTAMP_MOD) as f32,
+                stroke_begin: (stroke_begin.timestamp_micros() % TIMESTAMP_MOD) as f32,
+            },
+        };
 
         services.try_service_scope::<CurrentBrushPresetOperator>(
             |brush, services| {
