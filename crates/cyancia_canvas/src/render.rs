@@ -2,7 +2,7 @@ use std::{collections::HashMap, num::NonZeroU32, sync::Arc};
 
 use bevy_math::IRect;
 use cyancia_image::{
-    layer::{Layer, LayerId},
+    layer::{LayerData, LayerId},
     texel::TexelType,
     tile::{GpuTileInfo, GpuTileStorage, GpuTileStorageInner},
 };
@@ -103,6 +103,10 @@ impl CanvasRenderer {
         clip_bounds: &Rectangle<u32>,
         target: &TextureView,
     ) {
+        let Some(buffer) = &self.buffer else {
+            return;
+        };
+
         self.render_pipeline.draw(encoder);
         self.present_pipeline.present(encoder, &target, clip_bounds);
     }

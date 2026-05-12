@@ -5,7 +5,8 @@ use cyancia_canvas::{
 };
 use cyancia_image::{
     CImage,
-    layer::Layer,
+    blend_modes::BlendMode,
+    layer::LayerData,
     texel::TexelType,
     tile::{GpuLayerInfo, GpuTileStorage},
 };
@@ -44,7 +45,12 @@ async fn open_file(tiles: GpuTileStorage) -> OpenFileMessage {
 
     let width = img.width();
     let height = img.height();
-    let layer = Layer::from_image(img, &tiles);
+    let layer = LayerData::from_image(
+        "Background".into(),
+        img,
+        &tiles,
+        Box::new(BlendMode::Normal),
+    );
 
     OpenFileMessage::ImageCreated(CImage::from_layer(UVec2::new(width, height), layer))
 }
@@ -72,21 +78,20 @@ impl ActionFunction for OpenFileAction {
                 let mut tool_proxy = ToolProxy::new();
                 tool_proxy.switch_tool(ToolId::new("pan_tool".into()), services);
                 let tool_proxy_id = services.service_mut::<ToolProxies>().add(tool_proxy);
-                let canvas = CCanvas {
-                    id: CanvasId::new(Uuid::new_v4()),
-                    tool_proxy_id,
-                    image,
-                    transform: Default::default(),
-                };
+                let canvas = CCanvas::new(image, tool_proxy_id);
 
                 // TODO this should not be done here
-                services.service::<GpuTileStorage>().declare_layer(
-                    canvas.image.root().id(),
-                    GpuLayerInfo {
-                        texel_type: TexelType::RGBA8,
-                    },
-                );
-                let id = canvas.id;
+                let tiles = services.service::<GpuTileStorage>();
+                for layer in canvas.image.layer_stack().iter_layers() {
+                    tiles.declare_layer(
+                        layer.id(),
+                        GpuLayerInfo {
+                            // TODO
+                            texel_type: TexelType::RGBA8,
+                        },
+                    );
+                }
+                let id = canvas.id();
                 services.service_mut::<CanvasManager>().add_canvas(canvas);
 
                 CanvasCreated::broadcast(CanvasCreated { id });

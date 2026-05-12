@@ -35,7 +35,7 @@ use iced_wgpu::Renderer;
 use parking_lot::Mutex;
 use uuid::Uuid;
 
-use crate::dock::{CanvasDock, construct_canvas_dock_id};
+use crate::dock::{CanvasDock, CurrentCanvasLayersDock, construct_canvas_dock_id};
 
 pub struct MainView {
     dock_manager: DockManager<Theme, Renderer>,
@@ -65,31 +65,40 @@ impl WindowView for MainView {
             .subset_for_view("main_view");
         let actions_matcher = Arc::new(Mutex::new(ActionsMatcher::new(actions)));
 
-        let canvas = CCanvas {
-            id: CanvasId::new(Uuid::new_v4()),
-            tool_proxy_id: services.service_mut::<ToolProxies>().add(ToolProxy::new()),
-            image: CImage::new(UVec2 { x: 1024, y: 768 }),
-            transform: Default::default(),
-        };
-        // TODO this should not be done here
-        services.service::<GpuTileStorage>().declare_layer(
-            canvas.image.root().id(),
-            GpuLayerInfo {
-                texel_type: TexelType::RGBA8,
-            },
+        let img = CImage::new(UVec2 { x: 1024, y: 768 });
+        let root_layer = img.root_id();
+        let canvas = CCanvas::new(
+            img,
+            services.service_mut::<ToolProxies>().add(ToolProxy::new()),
         );
+        // TODO this should not be done here
+        let tiles = services.service::<GpuTileStorage>();
+        for layer in canvas.image.layer_stack().iter_layers() {
+            tiles.declare_layer(
+                layer.id(),
+                GpuLayerInfo {
+                    // TODO
+                    texel_type: TexelType::RGBA8,
+                },
+            );
+        }
 
         let (main_window, task) = window::open(Default::default());
         let (mut dock_manager, dock_manager_task) = DockManager::new(main_window);
-        let canvas_dock = CanvasDock::new(canvas.id, actions_matcher.clone());
+        let canvas_dock = CanvasDock::new(canvas.id(), actions_matcher.clone());
         let canvas_dock_id = <CanvasDock as Dock<Theme, Renderer>>::id(&canvas_dock);
+        let current_canvas_layers_dock = CurrentCanvasLayersDock::new();
+        let current_canvas_layers_dock_id =
+            <CurrentCanvasLayersDock as Dock<Theme, Renderer>>::id(&current_canvas_layers_dock);
         dock_manager.register_dock(canvas_dock);
+        dock_manager.register_dock(current_canvas_layers_dock);
         dock_manager.register_dock(crate::dock::LayerDock);
         dock_manager.register_dock(crate::dock::ToolDock);
         dock_manager.register_dock(crate::dock::HistoryDock);
 
         let dock_tasks = Task::batch([
             dock_manager.open_dock(canvas_dock_id),
+            dock_manager.open_dock(current_canvas_layers_dock_id),
             dock_manager.open_dock(DockId::new(crate::dock::LAYER_DOCK_ID.into())),
             dock_manager.open_dock(DockId::new(crate::dock::TOOL_DOCK_ID.into())),
             dock_manager.open_dock(DockId::new(crate::dock::HISTORY_DOCK_ID.into())),
@@ -145,18 +154,20 @@ impl WindowView for MainView {
             }
 
             MainViewMessage::KeyboardEvent(window, event) => {
-                if let Some(action) = self.actions_matcher.lock().on_keyboard_event(event)
-                    && let Some(action_func) = services
+                if let Some(action) = self.actions_matcher.lock().on_keyboard_event(event) {
+                    if let Some(action_func) = services
                         .service_mut::<ActionFunctionRegistry>()
                         .get(action.clone())
-                {
-                    log::info!("Triggering action: {}", action);
-                    action_func
-                        .trigger(services)
-                        .map(move |message| MainViewMessage::ActionMessage(action.clone(), message))
-                } else {
-                    Task::none()
+                    {
+                        log::info!("Triggering action: {}", action);
+                        return action_func.trigger(services).map(move |message| {
+                            MainViewMessage::ActionMessage(action.clone(), message)
+                        });
+                    } else {
+                        log::warn!("No action function found for action: {}", action);
+                    }
                 }
+                Task::none()
             }
             MainViewMessage::MouseEvent(window, event) => {
                 match event {
