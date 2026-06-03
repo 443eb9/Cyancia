@@ -5,10 +5,10 @@ use std::{
 };
 
 use bevy_math::IRect;
-use cyancia_runtime::{Services, service::Service};
 use dyn_clone::DynClone;
 use encase::ShaderType;
 use glam::{IVec2, UVec2, UVec3};
+use gpui::Global;
 use wesl::{VirtualResolver, Wesl};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
@@ -64,7 +64,7 @@ impl ImageCompositor {
             device,
             queue,
         );
-        log::info!("Blend cache created in {:?}", now.elapsed());
+        log::debug!("Blend cache created in {:?}", now.elapsed());
     }
 
     pub fn composite(
@@ -105,7 +105,7 @@ impl ImageCompositor {
             device,
             queue,
         );
-        log::info!("Blend cache prepared in {:?}", now.elapsed());
+        log::debug!("Blend cache prepared in {:?}", now.elapsed());
 
         let now = std::time::Instant::now();
         root_data.dispatch_blend(
@@ -115,13 +115,11 @@ impl ImageCompositor {
             image.layer_stack().root_node(),
             tiles,
         );
-        log::info!("Blend dispatched in {:?}", now.elapsed());
+        log::debug!("Blend dispatched in {:?}", now.elapsed());
 
         drop(pass);
 
-        unsafe { device.start_graphics_debugger_capture() };
         queue.submit([ec.finish()]);
-        unsafe { device.stop_graphics_debugger_capture() };
     }
 
     pub fn get_blend_cache<T: Send + Sync + 'static>(&self, layer_id: &LayerId) -> Option<&T> {
@@ -166,7 +164,7 @@ impl LayerPreviewOverriders {
     }
 }
 
-impl Service for LayerPreviewOverriders {}
+impl Global for LayerPreviewOverriders {}
 
 pub struct PixelPreviewOverrider {
     pub texture: TextureView,

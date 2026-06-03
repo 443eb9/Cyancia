@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{ItemImpl, parse_macro_input};
+use syn::{parse_macro_input, ItemImpl};
 
 #[proc_macro_attribute]
 pub fn stateless(_attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -54,7 +54,6 @@ fn generate_graph_node_impl(impl_block: &ItemImpl, crate_path: &TokenStream2) ->
             #where_clause
         {
             type State = #crate_path::graph::node::StatelessState;
-            type Message = #crate_path::graph::slot::ErasedGraphLiteralUpdateMessage;
 
             fn name(&self) -> &'static str {
                 <Self as #crate_path::graph::node::StatelessCommonGraphNode<#data_ty>>::name(self)
@@ -64,8 +63,8 @@ fn generate_graph_node_impl(impl_block: &ItemImpl, crate_path: &TokenStream2) ->
                 #crate_path::graph::node::StatelessState::default()
             }
 
-            fn header_color(&self) -> ::iced_core::Color {
-                <Self as #crate_path::graph::node::StatelessCommonGraphNode<#data_ty>>::header_color(self)
+            fn header_color(&self, cx: &::gpui::App) -> gpui::Rgba {
+                <Self as #crate_path::graph::node::StatelessCommonGraphNode<#data_ty>>::header_color(self, cx)
             }
 
             fn create_inputs(
@@ -84,48 +83,12 @@ fn generate_graph_node_impl(impl_block: &ItemImpl, crate_path: &TokenStream2) ->
                 <Self as #crate_path::graph::node::StatelessCommonGraphNode<#data_ty>>::create_outputs(self, ctx)
             }
 
-            fn view_inputs(
+            fn render(
                 &self,
                 _state: &Self::State,
-                ctx: #crate_path::graph::node::GraphNodeInputsViewContext<'_, #data_ty>,
-            ) -> ::iced_core::Element<
-                'static,
-                Self::Message,
-                #crate_path::GraphTheme,
-                #crate_path::GraphRenderer,
-            > {
-                ::iced_widget::Column::with_children(ctx.view_all_inputs(
-                    <Self as #crate_path::graph::node::StatelessCommonGraphNode<#data_ty>>::input_slot_names(self),
-                    ::std::convert::identity,
-                ))
-                .spacing(2)
-                .into()
-            }
-
-            fn view_outputs(
-                &self,
-                _state: &Self::State,
-                ctx: #crate_path::graph::node::GraphNodeOutputsViewContext<'_, #data_ty>,
-            ) -> ::iced_core::Element<
-                'static,
-                Self::Message,
-                #crate_path::GraphTheme,
-                #crate_path::GraphRenderer,
-            > {
-                ::iced_widget::Column::with_children(ctx.view_all_outputs(
-                    <Self as #crate_path::graph::node::StatelessCommonGraphNode<#data_ty>>::output_slot_names(self),
-                ))
-                .spacing(2)
-                .into()
-            }
-
-            fn update(
-                &self,
-                _state: &mut Self::State,
-                message: Self::Message,
-                mut ctx: #crate_path::graph::node::GraphNodeUpdateContext<'_, #data_ty>,
-            ) {
-                ctx.update_literal(message);
+                mut ctx: #crate_path::graph::node::GraphNodeRenderContext<'_, '_, #data_ty>,
+            ) -> gpui::AnyElement {
+                ctx.render_all_slots()
             }
 
             fn generate_code(

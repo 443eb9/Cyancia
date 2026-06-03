@@ -2,8 +2,8 @@ wesl::wesl_pkg!(pub image);
 
 use std::path::Path;
 
-use cyancia_runtime::{Application, Runtime, plugin::Plugin};
 use glam::UVec2;
+use gpui::App;
 // TODO move CImage to another place to avoid this.
 extern crate image as imagers;
 
@@ -21,15 +21,10 @@ pub mod dynamic_intermediate_buffer;
 pub mod layer;
 pub mod texel;
 pub mod tile;
-pub mod widget;
 
-pub struct ImagePlugin;
-
-impl Plugin for ImagePlugin {
-    fn build(&self, app: &mut Application) {
-        app.add_service::<GpuTileStorage>()
-            .add_service::<LayerPreviewOverriders>();
-    }
+pub fn init(cx: &mut App) {
+    cx.set_global(GpuTileStorage::from_app(cx));
+    cx.set_global(LayerPreviewOverriders::default());
 }
 
 #[derive(Debug)]

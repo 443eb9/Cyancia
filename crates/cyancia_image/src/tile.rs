@@ -6,15 +6,11 @@ use std::{
 };
 
 use bevy_math::IRect;
-use cyancia_render::buffer::BufferVec;
-use cyancia_runtime::{
-    Services,
-    service::{FromServices, RenderContext, Service},
-};
+use cyancia_render::{buffer::BufferVec, render_context::RenderContext};
 use dashmap::{DashMap, DashSet, Entry};
 use encase::ShaderType;
 use glam::{IVec2, Mat3, UVec2};
-use iced_core::Rectangle;
+use gpui::{App, Global};
 use image::{DynamicImage, GenericImageView, RgbaImage};
 use indexmap::{IndexMap, IndexSet};
 use palette::{LinSrgba, Srgb, Srgba};
@@ -49,12 +45,20 @@ impl std::fmt::Debug for GpuTileStorage {
     }
 }
 
-impl Service for GpuTileStorage {}
+impl Global for GpuTileStorage {}
 
-impl FromServices for GpuTileStorage {
-    fn from_services(services: &Services) -> Self {
+impl GpuTileStorage {
+    pub fn from_app(cx: &App) -> Self {
+        let render_context = cx.global::<RenderContext>();
+        Self::new(&render_context.device, &render_context.queue)
+    }
+
+    pub fn new(device: &Device, queue: &Queue) -> Self {
         Self {
-            inner: Arc::new(GpuTileStorageInner::from_services(services)),
+            inner: Arc::new(GpuTileStorageInner::new(
+                device.clone().into(),
+                queue.clone().into(),
+            )),
         }
     }
 }
@@ -114,15 +118,6 @@ pub struct GpuTileStorageInner {
 
     dummy_layers: HashMap<TexelType, DynamicLayerStorage>,
     layers: DashMap<LayerId, DynamicLayerStorage>,
-}
-
-// impl Service for GpuTileStorageInner {}
-
-impl FromServices for GpuTileStorageInner {
-    fn from_services(services: &Services) -> Self {
-        let render_context = services.service::<RenderContext>();
-        Self::new(render_context.device.clone(), render_context.queue.clone())
-    }
 }
 
 impl GpuTileStorageInner {
@@ -241,7 +236,7 @@ impl GpuTileStorageInner {
                 };
                 let tile = layer.get_tile_or_allocate(tile_index.coord);
                 let tile_layer = layer.get_tile_layer(tile_index.coord).unwrap();
-                log::info!("Uploading tile: {:?}", tile_index);
+                log::debug!("Uploading tile: {:?}", tile_index);
                 let origin = UVec2::new(x, y) * Self::TILE_SIZE;
 
                 let sub_img = img.view(

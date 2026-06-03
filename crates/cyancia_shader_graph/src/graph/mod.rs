@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use iced_core::Point;
+use gpui::{App, Context, Point};
 use indexmap::IndexMap;
 use parking_lot::{RwLock, RwLockReadGuard};
 use uuid::Uuid;
@@ -22,7 +22,7 @@ use crate::graph::{
         GraphInputSlotId, GraphOutputSlotData, GraphOutputSlotId, GraphSlots,
     },
     texture::{GraphTextureStorage, GraphTextureUsageRecorder},
-    variable::{GraphLiteral, GraphTypeRegistry, GraphVariable},
+    variable::{GraphLiteral, GraphLiteralValue, GraphTypeRegistry, GraphVariable},
 };
 
 pub mod external;
@@ -55,17 +55,30 @@ impl<Data: GraphData> Graph<Data> {
 
     pub fn add_boxed_node(
         &mut self,
-        position: Point,
+        position: Point<f32>,
         node: Box<dyn ErasedGraphNode<Data>>,
+        cx: &mut App,
     ) -> GraphNodeId {
-        let node = StatefulGraphNode::new(node);
         let node_id = GraphNodeId::new(Uuid::new_v4());
+        self.insert_boxed_node(node_id, position, node, cx);
+        node_id
+    }
+
+    pub fn insert_boxed_node(
+        &mut self,
+        node_id: GraphNodeId,
+        position: Point<f32>,
+        node: Box<dyn ErasedGraphNode<Data>>,
+        cx: &mut App,
+    ) {
+        let node = StatefulGraphNode::new(node);
         let inputs = create_input_slots(
             &mut self.slots,
             node_id,
             node.create_inputs(GraphNodeCreateSlotsContext {
                 resources: &self.resources,
                 type_registry: &self.type_registry,
+                cx,
             }),
         )
         .into();
@@ -75,6 +88,7 @@ impl<Data: GraphData> Graph<Data> {
             node.create_outputs(GraphNodeCreateSlotsContext {
                 resources: &self.resources,
                 type_registry: &self.type_registry,
+                cx,
             }),
         )
         .into();
@@ -89,11 +103,15 @@ impl<Data: GraphData> Graph<Data> {
             },
         );
         self.invalidate_cache();
-        node_id
     }
 
-    pub fn add_node<T: GraphNode<Data>>(&mut self, position: Point, node: T) -> GraphNodeId {
-        self.add_boxed_node(position, Box::new(node))
+    pub fn add_node<T: GraphNode<Data>>(
+        &mut self,
+        position: Point<f32>,
+        node: T,
+        cx: &mut App,
+    ) -> GraphNodeId {
+        self.add_boxed_node(position, Box::new(node), cx)
     }
 
     pub fn delete_node(&mut self, id: &GraphNodeId) {
@@ -186,6 +204,28 @@ impl<Data: GraphData> Graph<Data> {
         if let Some(to) = to_slot {
             self.disconnect_slot(to);
             self.invalidate_cache();
+        }
+    }
+
+    pub fn update_node_state<T: GraphNode<Data>>(
+        &mut self,
+        cx: &mut App,
+        node_id: GraphNodeId,
+        f: impl FnOnce(&mut T::State),
+    ) {
+        if let Some(state) = self
+            .nodes
+            .get_mut(&node_id)
+            .and_then(|n| n.data.state_mut::<T>())
+        {
+            f(state);
+            self.reconcile_node_slots(node_id, cx);
+        }
+    }
+
+    pub fn set_slot_value(&mut self, slot_id: GraphInputSlotId, value: Box<dyn GraphLiteralValue>) {
+        if let Some(slot) = self.slots.inputs.get_mut(&slot_id) {
+            slot.data.set_boxed(value);
         }
     }
 
@@ -339,73 +379,120 @@ impl<Data: GraphData> Graph<Data> {
         self.cached_signature.write().replace(signature);
     }
 
-    pub fn update_node(&mut self, message: ErasedGraphNodeMessage) {
-        let Some(node) = self.nodes.get_mut(&message.id) else {
+    pub fn reconcile_node_slots(&mut self, node_id: GraphNodeId, cx: &mut App) {
+        let Some(node) = self.nodes.get_mut(&node_id) else {
             return;
         };
 
-        let node_id = message.id;
-        node.update(
-            message,
-            &mut self.slots,
-            &self.resources,
-            &self.type_registry,
-        );
-
-        let new_inputs = node.data.create_inputs(GraphNodeCreateSlotsContext {
+        let new_input_defs = node.data.create_inputs(GraphNodeCreateSlotsContext {
             resources: &self.resources,
             type_registry: &self.type_registry,
+            cx,
         });
-        let new_outputs = node.data.create_outputs(GraphNodeCreateSlotsContext {
-            resources: &self.resources,
-            type_registry: &self.type_registry,
-        });
+        let mut new_input_ids = Vec::with_capacity(new_input_defs.len());
+        let mut old_input_ids = node.inputs.to_vec();
+        for new_input_def in new_input_defs {
+            let mut inherited = false;
 
-        if new_inputs.len() == node.inputs.len() {
-            let mut inputs_changed = false;
-            for (input_slot_id, new_input_slot) in node.inputs.iter().zip(new_inputs) {
-                let Some(input_slot) = self.slots.inputs.get_mut(input_slot_id) else {
+            for i in 0..old_input_ids.len() {
+                let old_input_id = old_input_ids[i];
+                let Some(old_input_slot) = self.slots.inputs.get_mut(&old_input_id) else {
                     continue;
                 };
 
-                if input_slot.data.ty().name() != new_input_slot.value.ty().name() {
-                    input_slot.data = new_input_slot.value;
-                    inputs_changed = true;
+                if old_input_slot.name == new_input_def.name
+                    && old_input_slot.data.ty().name() == new_input_def.value.ty().name()
+                {
+                    new_input_ids.push(old_input_id);
+                    old_input_ids.swap_remove(i);
+                    inherited = true;
+                    break;
                 }
             }
 
-            if inputs_changed {
-                disconnect_all_inputs(&mut self.slots, &node.inputs);
-                self.cached_run_order.write().take();
+            if inherited {
+                continue;
             }
-        } else {
-            delete_all_inputs(&mut self.slots, &node.inputs);
-            node.inputs = create_input_slots(&mut self.slots, node_id, new_inputs).into();
-            self.cached_run_order.write().take();
+
+            let new_input_id = GraphInputSlotId::new(Uuid::new_v4());
+            let new_input_slot = GraphInputSlotData {
+                node_id,
+                name: new_input_def.name,
+                data: new_input_def.value,
+                connected: None,
+            };
+            self.slots.inputs.insert(new_input_id, new_input_slot);
+            new_input_ids.push(new_input_id);
         }
 
-        if new_outputs.len() == node.outputs.len() {
-            let mut outputs_changed = false;
-            for (output_slot_id, new_output_slot) in node.outputs.iter().zip(new_outputs) {
-                let Some(output_slot) = self.slots.outputs.get_mut(output_slot_id) else {
+        for old_input_id in old_input_ids {
+            let Some(old_input) = self.slots.inputs.remove(&old_input_id) else {
+                continue;
+            };
+
+            if let Some(connected) = old_input
+                .connected
+                .and_then(|id| self.slots.outputs.get_mut(&id))
+            {
+                connected.connected.remove(&old_input_id);
+            }
+        }
+
+        let new_output_defs = node.data.create_outputs(GraphNodeCreateSlotsContext {
+            resources: &self.resources,
+            type_registry: &self.type_registry,
+            cx,
+        });
+        let mut new_output_ids = Vec::with_capacity(new_output_defs.len());
+        let mut old_output_ids = node.outputs.to_vec();
+        for new_output_def in new_output_defs {
+            let mut inherited = false;
+
+            for i in 0..old_output_ids.len() {
+                let old_output_id = old_output_ids[i];
+                let Some(old_output_slot) = self.slots.outputs.get_mut(&old_output_id) else {
                     continue;
                 };
 
-                if output_slot.data_ty.name() != new_output_slot.ty.name() {
-                    output_slot.data_ty = new_output_slot.ty;
-                    outputs_changed = true;
+                if old_output_slot.name == new_output_def.name
+                    && old_output_slot.data_ty.name() == new_output_def.ty.name()
+                {
+                    new_output_ids.push(old_output_id);
+                    old_output_ids.swap_remove(i);
+                    inherited = true;
+                    break;
                 }
             }
 
-            if outputs_changed {
-                disconnect_all_outputs(&mut self.slots, &node.outputs);
-                self.cached_run_order.write().take();
+            if inherited {
+                continue;
             }
-        } else {
-            delete_all_outputs(&mut self.slots, &node.outputs);
-            node.outputs = create_output_slots(&mut self.slots, node_id, new_outputs).into();
-            self.cached_run_order.write().take();
+
+            let new_output_id = GraphOutputSlotId::new(Uuid::new_v4());
+            let new_output_slot = GraphOutputSlotData {
+                node_id,
+                name: new_output_def.name,
+                data_ty: new_output_def.ty,
+                connected: HashSet::new(),
+            };
+            self.slots.outputs.insert(new_output_id, new_output_slot);
+            new_output_ids.push(new_output_id);
         }
+
+        for old_output_id in old_output_ids {
+            let Some(old_output) = self.slots.outputs.remove(&old_output_id) else {
+                continue;
+            };
+
+            for connected_id in old_output.connected {
+                if let Some(connected) = self.slots.inputs.get_mut(&connected_id) {
+                    connected.connected = None;
+                }
+            }
+        }
+
+        node.inputs = new_input_ids.into();
+        node.outputs = new_output_ids.into();
     }
 
     pub fn signature(&self) -> GraphSignature {
@@ -420,6 +507,7 @@ impl<Data: GraphData> Graph<Data> {
         graph_input_idents: Vec<String>,
         mut ident_generator: GraphVarIdentGenerator,
         texture_usage: &mut GraphTextureUsageRecorder,
+        cx: &App,
     ) -> Result<(Vec<String>, String), GraphCompileError> {
         if self.cached_run_order.read().is_none() {
             self.update_run_order_cache();
@@ -458,6 +546,7 @@ impl<Data: GraphData> Graph<Data> {
                 resources: &self.resources,
                 type_registry: &self.type_registry,
                 texture_usage,
+                cx,
             };
 
             match node.data.generate_code(context) {
@@ -500,6 +589,7 @@ impl<Data: GraphData> Graph<Data> {
         &self,
         data: &Data,
         graph_input_values: Vec<GraphLiteral>,
+        cx: &App,
     ) -> Result<Vec<GraphLiteral>, GraphRunError> {
         if self.cached_run_order.read().is_none() {
             self.update_run_order_cache();
@@ -536,6 +626,7 @@ impl<Data: GraphData> Graph<Data> {
                 output_storage: &mut output_storage,
                 resources: &self.resources,
                 type_registry: &self.type_registry,
+                cx,
             };
 
             match node.data.run(context) {
@@ -599,6 +690,7 @@ fn create_input_slots(
             slot_id,
             GraphInputSlotData {
                 node_id,
+                name: slot.name,
                 data: slot.value,
                 connected: None,
             },
@@ -620,6 +712,7 @@ fn create_output_slots(
             slot_id,
             GraphOutputSlotData {
                 node_id,
+                name: slot.name,
                 data_ty: slot.ty,
                 connected: HashSet::new(),
             },

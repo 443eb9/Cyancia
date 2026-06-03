@@ -8,6 +8,7 @@ use cyancia_utils::wrapper;
 use dyn_clone::DynClone;
 use glam::UVec2;
 use image::DynamicImage;
+use parse_display::Display;
 use uuid::Uuid;
 use wgpu::{Buffer, ComputePass, Device, Queue, TextureFormat, TextureView};
 
@@ -37,7 +38,7 @@ impl LayerNameGenerator {
 }
 
 wrapper! {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display)]
     pub LayerId : Uuid
 }
 
@@ -248,6 +249,10 @@ impl LayerStack {
 
     pub fn insert_isolated_layer(&mut self, layer: LayerData) {
         self.layers.insert(layer.id, layer);
+    }
+
+    pub fn len(&self) -> usize {
+        self.layers.len()
     }
 
     pub fn remove_layer(&mut self, layer_id: LayerId) -> Option<(LayerData, LayerStackNode)> {
