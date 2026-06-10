@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, rc::Rc};
 
 use bevy_math::IRect;
 use chrono::{DateTime, Utc};
@@ -10,12 +10,14 @@ use cyancia_image::{
     tile::{GpuTileStorage, GpuTileStorageInner},
 };
 use cyancia_math::number::LerpAngle;
+use cyancia_shader_graph::graph::slot::GraphInlineLiteralRenderContext;
 use cyancia_tools::{ToolFunction, ToolId};
 use cyancia_utils::wrapper;
 use glam::{FloatExt, Vec2};
 use gpui::{
-    App, BorrowAppContext, Global, MouseDownEvent, MouseMoveEvent, MouseUpEvent, WeakEntity,
+    AnyElement, App, BorrowAppContext, Context, Global, IntoElement, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Styled, WeakEntity, Window
 };
+use gpui_component::{scroll::ScrollableElement, v_flex};
 use ringbuffer::{AllocRingBuffer, RingBuffer};
 
 use crate::{
@@ -33,11 +35,15 @@ pub struct BrushTool {
 }
 
 impl ToolFunction for BrushTool {
+    fn new(cx: &mut Context<Self>) -> Self {
+        Self::default()
+    }
+
     fn id() -> ToolId {
         ToolId::new("brush_tool")
     }
 
-    fn begin(&mut self, mouse: &MouseDownEvent, cx: &mut App) {
+    fn begin(&mut self, mouse: &MouseDownEvent, cx: &mut Context<Self>) {
         let Some(canvas_entity) = cx.current_canvas() else {
             return;
         };
@@ -82,7 +88,7 @@ impl ToolFunction for BrushTool {
         });
     }
 
-    fn update(&mut self, mouse: &MouseMoveEvent, cx: &mut App) {
+    fn update(&mut self, mouse: &MouseMoveEvent, cx: &mut Context<Self>) {
         let Some((canvas_entity, active_layer)) = &self.target_layer else {
             return;
         };
@@ -141,7 +147,7 @@ impl ToolFunction for BrushTool {
         }
     }
 
-    fn end(&mut self, mouse: &MouseUpEvent, cx: &mut App) {
+    fn end(&mut self, mouse: &MouseUpEvent, cx: &mut Context<Self>) {
         let Some((canvas_entity, active_layer)) = self.target_layer.take() else {
             return;
         };
@@ -187,6 +193,45 @@ impl ToolFunction for BrushTool {
                 cx.emit(CanvasUpdated { dirty_tiles });
             });
         }
+    }
+
+    fn tool_option_widget(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        cx.update_global::<CurrentBrushPresetOperator, _>(|brush, cx| {
+            let Some(brush) = brush.as_ref() else {
+                return "No brush selected".into_any_element();
+            };
+
+            let ext_vars = brush.instance().iter_external_vars().map(|(id, var)| {
+                v_flex()
+                    .gap_1()
+                    .child(var.name.clone())
+                    .child(var.value.ty().render_inline(
+                        var.value.value(),
+                        GraphInlineLiteralRenderContext {
+                            slot_id: (*id).into(),
+                            window,
+                            cx,
+                            on_update: Rc::new(move |value, cx| {
+                                let Some(op) =
+                                    cx.global_mut::<CurrentBrushPresetOperator>().as_mut()
+                                else {
+                                    return;
+                                };
+                                op.instance_mut().update_external_var(&id, value);
+                            }),
+                        },
+                    ))
+            });
+
+            v_flex()
+                .p_2()
+                .size_full()
+                .overflow_y_scrollbar()
+                .gap_2()
+                .child("Variables")
+                .child(v_flex().gap_1().children(ext_vars))
+                .into_any_element()
+        })
     }
 }
 
