@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use zip::ZipArchive;
 
 use crate::{
-    asset::{UntypedAssetId, AssetMetadata, ErasedAsset},
+    asset::{ErasedAsset, UntypedAssetId},
     bundle::{AssetBundle, AssetBundleMetadata, BundleId},
     loader::ErasedAssetSerializer,
 };
@@ -33,9 +33,7 @@ impl StandardAssetBundle {
         })
     }
 
-    pub fn scan_bundles(
-        root: impl AsRef<Path>,
-    ) -> (Vec<Self>, Vec<StandardAssetBundleError>) {
+    pub fn scan_bundles(root: impl AsRef<Path>) -> (Vec<Self>, Vec<StandardAssetBundleError>) {
         let mut bundles = Vec::new();
         let mut errors = Vec::new();
         scan_bundles(root, &mut bundles, &mut errors);
@@ -143,9 +141,9 @@ impl AssetBundle for StandardAssetBundle {
 
     fn add(
         &self,
-        path: &Path,
-        asset: &dyn ErasedAsset,
-        serializer: &dyn ErasedAssetSerializer,
+        _: &Path,
+        _: &dyn ErasedAsset,
+        _: &dyn ErasedAssetSerializer,
     ) -> Result<UntypedAssetId, StandardAssetBundleError> {
         Err(StandardAssetBundleError::UnsupportedWriting)
     }

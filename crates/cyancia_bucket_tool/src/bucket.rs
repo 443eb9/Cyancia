@@ -1,30 +1,22 @@
-use std::{
-    collections::HashSet,
-    sync::{Arc, mpsc},
-};
-
 use cyancia_image::{
     texel::TexelType,
-    tile::{DynamicLayerStorage, GpuTileInfo, GpuTileStorageInner, LayerBindingData, TileIndex},
+    tile::{DynamicLayerStorage, GpuTileInfo, GpuTileStorageInner, LayerBindingData},
 };
 use cyancia_render::{
     buffer::{BufferVec, DynamicBuffer},
-    readback::{
-        create_readback_buffer_and_schedule_copy, readback_buffer_async,
-        readback_buffer_on_submit_async,
-    },
+    readback::{create_readback_buffer_and_schedule_copy, readback_buffer_on_submit_async},
     util::DevicePollExt,
 };
 use encase::ShaderType;
 use glam::{IVec2, UVec2, Vec4};
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexSet;
 use tracing::info;
 use wesl::include_wesl;
 use wgpu::{
     BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType, BufferUsages,
-    ComputePassDescriptor, ComputePipeline, ComputePipelineDescriptor, Device, Extent3d, MapMode,
-    PipelineLayoutDescriptor, PollType, Queue, ShaderModuleDescriptor, ShaderSource, ShaderStages,
+    ComputePassDescriptor, ComputePipeline, ComputePipelineDescriptor, Device, Extent3d,
+    PipelineLayoutDescriptor, Queue, ShaderModuleDescriptor, ShaderSource, ShaderStages,
     StorageTextureAccess, TextureDimension, TextureFormat, TextureUsages, TextureViewDimension,
     wgt::{BufferDescriptor, TextureDescriptor, TextureViewDescriptor},
 };
@@ -208,8 +200,8 @@ impl Bucket {
 
         let seed_mode_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("seed_mode_pipeline_layout"),
-            bind_group_layouts: &[&seed_mode_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&seed_mode_layout)],
+            ..Default::default()
         });
         let seed_mode_shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("seed_mode_shader_module"),
@@ -283,8 +275,8 @@ impl Bucket {
         let thresholding_pipeline_layout =
             device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("thresholding_pipeline_layout"),
-                bind_group_layouts: &[&thresholding_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&thresholding_layout)],
+                ..Default::default()
             });
         let thresholding_shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("thresholding_shader_module"),
@@ -337,8 +329,8 @@ impl Bucket {
         let scan_pixels_pipeline_layout =
             device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("scan_pixels_pipeline_layout"),
-                bind_group_layouts: &[&scan_pixels_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&scan_pixels_layout)],
+                ..Default::default()
             });
         let scan_pixels_shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("scan_pixels_shader"),
@@ -401,8 +393,8 @@ impl Bucket {
 
         let ccl_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("ccl_pipeline_layout"),
-            bind_group_layouts: &[&ccl_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&ccl_layout)],
+            ..Default::default()
         });
 
         let ccl_shader = device.create_shader_module(ShaderModuleDescriptor {
@@ -499,8 +491,8 @@ impl Bucket {
 
         let grow_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("grow_pipeline_layout"),
-            bind_group_layouts: &[&grow_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&grow_layout)],
+            ..Default::default()
         });
 
         let grow_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
@@ -560,8 +552,8 @@ impl Bucket {
 
         let fxaa_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("fxaa_pipeline_layout"),
-            bind_group_layouts: &[&fxaa_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&fxaa_layout)],
+            ..Default::default()
         });
         let fxaa_shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("fxaa_shader"),
@@ -646,8 +638,8 @@ impl Bucket {
         let close_gap_and_feather_pipeline_layout =
             device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("close_gap_and_feather_pipeline_layout"),
-                bind_group_layouts: &[&close_gap_and_feather_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&close_gap_and_feather_layout)],
+                ..Default::default()
             });
         let close_gap_and_feather_shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("close_gap_and_feather_shader"),
@@ -747,8 +739,8 @@ impl Bucket {
 
         let composite_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("composite_pipeline_layout"),
-            bind_group_layouts: &[&composite_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&composite_layout)],
+            ..Default::default()
         });
         let composite_shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("composite_shader"),
@@ -941,7 +933,7 @@ impl Bucket {
             );
             for index in mask_tile_indices.iter().copied() {
                 b.push(&GpuTileInfo {
-                    index: index,
+                    index,
                     origin: GpuTileStorageInner::TILE_SIZE as i32 * index,
                 });
             }
@@ -1308,7 +1300,7 @@ impl Bucket {
 
                 let max_jump = radius.next_power_of_two();
                 let (jump_params_buffer, jump_params_offsets) =
-                    create_jfa_params(&device, &queue, max_jump, "feather_jump_params");
+                    create_jfa_params(device, queue, max_jump, "feather_jump_params");
                 let jump_iterations = jump_params_offsets.len();
 
                 let common_entries = vec![
@@ -1462,7 +1454,7 @@ impl Bucket {
                 },
                 BindGroupEntry {
                     binding: 3,
-                    resource: BindingResource::TextureView(&output_texture),
+                    resource: BindingResource::TextureView(output_texture),
                 },
                 BindGroupEntry {
                     binding: 4,

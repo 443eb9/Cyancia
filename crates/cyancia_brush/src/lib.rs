@@ -1,12 +1,11 @@
-use std::sync::Arc;
-
-use cyancia_actions::ActionAppExt;
 use cyancia_assets::AssetAppExt;
 use cyancia_tools::ToolsAppExt;
 use gpui::App;
-use parking_lot::Mutex;
 
-use crate::{asset::{BrushPreset, BrushPresetSerializer}, instance::BrushPresetInstance, render::BrushPresetOperator, tool::{BrushTool, CurrentBrushPresetOperator}};
+use crate::{
+    asset::BrushPresetSerializer,
+    tool::{BrushTool, CurrentBrushPresetOperator},
+};
 
 pub mod asset;
 pub mod editor;

@@ -1,11 +1,9 @@
 use std::sync::Arc;
 
-use cyancia_utils::include_shader;
-use futures::executor::block_on;
 use gpui::{App, Global};
 use wgpu::{
-    Adapter, AddressMode, Backends, Device, Features, FilterMode, Instance, Limits, Queue, Sampler,
-    SamplerDescriptor, ShaderModule, ShaderModuleDescriptor, ShaderSource, VertexState,
+    AddressMode, Device, FilterMode, MipmapFilterMode, Sampler, SamplerDescriptor, ShaderModule,
+    ShaderModuleDescriptor, ShaderSource, VertexState,
 };
 
 use crate::render_context::RenderContext;
@@ -34,7 +32,7 @@ impl GlobalSamplers {
             address_mode_w: AddressMode::ClampToEdge,
             mag_filter: FilterMode::Nearest,
             min_filter: FilterMode::Nearest,
-            mipmap_filter: FilterMode::Nearest,
+            mipmap_filter: MipmapFilterMode::Nearest,
             ..Default::default()
         });
 
@@ -45,7 +43,7 @@ impl GlobalSamplers {
             address_mode_w: AddressMode::ClampToEdge,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: FilterMode::Linear,
+            mipmap_filter: MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -56,7 +54,7 @@ impl GlobalSamplers {
             address_mode_w: AddressMode::Repeat,
             mag_filter: FilterMode::Nearest,
             min_filter: FilterMode::Nearest,
-            mipmap_filter: FilterMode::Nearest,
+            mipmap_filter: MipmapFilterMode::Nearest,
             ..Default::default()
         });
 
@@ -67,7 +65,7 @@ impl GlobalSamplers {
             address_mode_w: AddressMode::Repeat,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: FilterMode::Linear,
+            mipmap_filter: MipmapFilterMode::Linear,
             ..Default::default()
         });
 
