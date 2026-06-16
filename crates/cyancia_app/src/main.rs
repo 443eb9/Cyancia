@@ -8,6 +8,7 @@ use cyancia_assets::{
 use cyancia_view::{View, ViewAppExt, ViewManager};
 use gpui::{AppContext, WindowOptions};
 use gpui_component::Root;
+use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::{brush_editor_view::BrushEditorView, main_view::MainView};
 
@@ -26,6 +27,7 @@ fn main() {
 
     tracing_subscriber::fmt()
         .with_env_filter("info,wgpu_hal=warn,iced_winit=warn,iced_wgpu=warn")
+        .with_span_events(FmtSpan::CLOSE)
         .init();
 
     log::info!("Running at {}", std::env::current_dir().unwrap().display());
@@ -47,6 +49,7 @@ fn main() {
             cyancia_shader_graph::init(cx);
             cyancia_theme::init(cx);
             cyancia_view::init(cx);
+            cyancia_bucket_tool::init(cx);
 
             {
                 cx.add_asset_bundle(Arc::new(AssetDirectory::new("assets/builtin_assets")));
