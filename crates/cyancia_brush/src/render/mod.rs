@@ -16,9 +16,8 @@ use glam::{IVec2, Vec2};
 use gpui::App;
 use wgpu::{
     BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
-    BufferUsages, ComputePassDescriptor, Device, Extent3d, Origin3d, Queue, ShaderStages,
-    TexelCopyTextureInfo, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat,
-    TextureUsages,
+    BufferUsages, ComputePassDescriptor, Device, Extent3d, Queue, ShaderStages, Texture,
+    TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
     util::{BufferInitDescriptor, DeviceExt},
 };
 
@@ -123,6 +122,8 @@ impl BrushPresetOperator {
 
         let renderer = self.renderer.get_or_insert_with(|| {
             let now = std::time::Instant::now();
+            // FIXME target layer is initialize once, so strokes on other layers
+            //       with the same texel type will be composited with the wrong layer.
             let renderer = BrushPresetRenderer::new(
                 &self.device,
                 &self.queue,
@@ -191,9 +192,8 @@ impl BrushPresetOperator {
     pub fn end_stroke(
         &mut self,
         final_input: RawPenInput,
-        target_layer: LayerId,
         cx: &mut App,
-    ) -> Option<IRect> {
+    ) -> Option<(Texture, Vec<IVec2>)> {
         let renderer = self.renderer.as_mut()?;
         let intermediate_buffers = self.intermediate_buffers.as_mut()?;
 
@@ -213,7 +213,6 @@ impl BrushPresetOperator {
             cx,
         );
 
-        let now = std::time::Instant::now();
         renderer.postprocess_stroke(
             &self.device,
             &self.queue,
@@ -228,17 +227,7 @@ impl BrushPresetOperator {
             &mut self.accumulated_pixel_bounds,
             cx,
         );
-        renderer.copy_last_surface_to_layer(
-            &self.device,
-            &self.queue,
-            cx.global::<GpuTileStorage>(),
-            target_layer,
-            intermediate_buffers,
-            self.round,
-        );
-        log::info!("Brush stroke postprocess and copy: {:?}", now.elapsed());
-
-        Some(self.accumulated_pixel_bounds)
+        renderer.last_surface(intermediate_buffers, self.round)
     }
 
     pub fn generate_preview(&mut self, cx: &mut App) -> Option<(IRect, DynamicLayerStorage)> {
@@ -494,57 +483,18 @@ impl BrushPresetRenderer {
         queue.submit([ec.finish()]);
     }
 
-    pub fn copy_last_surface_to_layer(
+    pub fn last_surface(
         &self,
-        device: &Device,
-        queue: &Queue,
-        tiles: &GpuTileStorage,
-        target_layer_id: LayerId,
         intermediate_buffers: &[DynamicLayerStorage; 2],
         round: u32,
-    ) {
-        let mut target_layer = tiles.get_layer_mut(target_layer_id).unwrap();
+    ) -> Option<(Texture, Vec<IVec2>)> {
         let result_buffer = &intermediate_buffers[round as usize % 2];
+        let result_texture = result_buffer.texture()?;
 
-        for (coord, _, _) in result_buffer.iter_tiles() {
-            target_layer.get_tile_or_allocate(coord);
-        }
-
-        let mut ec = device.create_command_encoder(&Default::default());
-        ec.push_debug_group("copy brush preset result to target layer");
-        for (coord, src, _) in result_buffer.iter_tiles() {
-            let dst = target_layer.get_tile_layer(coord).unwrap();
-
-            ec.copy_texture_to_texture(
-                TexelCopyTextureInfo {
-                    texture: result_buffer.texture().unwrap().texture(),
-                    mip_level: 0,
-                    origin: Origin3d { x: 0, y: 0, z: src },
-                    aspect: TextureAspect::All,
-                },
-                TexelCopyTextureInfo {
-                    texture: target_layer.texture().unwrap().texture(),
-                    mip_level: 0,
-                    origin: Origin3d { x: 0, y: 0, z: dst },
-                    aspect: TextureAspect::All,
-                },
-                Extent3d {
-                    width: GpuTileStorageInner::TILE_SIZE,
-                    height: GpuTileStorageInner::TILE_SIZE,
-                    depth_or_array_layers: 1,
-                },
-            );
-        }
-        ec.pop_debug_group();
-        queue.submit([ec.finish()]);
-
-        log::info!(
-            "Copied tiles {:?} from intermediate buffer to target layer",
-            result_buffer
-                .iter_tiles()
-                .map(|(index, _, _)| index)
-                .collect::<Vec<_>>()
-        );
+        Some((
+            result_texture.texture().clone(),
+            result_buffer.iter_tiles().map(|(i, _, _)| i).collect(),
+        ))
     }
 }
 
