@@ -1,11 +1,15 @@
+use cyancia_bucket_tool::{
+    BucketTool,
+    bucket::{Bucket, BucketAntialiasApproach, BucketParams},
+};
 use cyancia_canvas::{CanvasAppExt, CanvasUndoStackAppExt, command::TileReplaceCommand};
 use cyancia_image::tile::GpuTileStorage;
 use cyancia_render::render_context::RenderContext;
-use cyancia_tools::{ToolFunction, ToolId, ToolsAppExt};
+use cyancia_tools::{ToolFunction, ToolId};
 use cyancia_utils::log_err::LogErr;
 use glam::{Vec2, Vec4};
 use gpui::{
-    AnyElement, App, AppContext, Context, IntoElement, MouseUpEvent, ParentElement, Styled, Window,
+    AnyElement, AppContext, Context, IntoElement, MouseDownEvent, ParentElement, Styled, Window,
     prelude::FluentBuilder,
 };
 use gpui_component::{
@@ -16,52 +20,44 @@ use gpui_component::{
     v_flex,
 };
 
-use crate::bucket::{Bucket, BucketAntialiasApproach, BucketParams};
+use crate::render::{SelectionOperation, SelectionPipeline};
 
-pub mod bucket;
-
-pub fn init(cx: &mut App) {
-    cx.add_tool_function::<BucketTool>();
+pub struct MagicWandSelectionTool {
+    threshold: f32,
+    alpha_threshold: f32,
+    grow: i32,
+    close_gap: u32,
+    cached_feather: u32,
+    aa_approach: BucketAntialiasApproach,
 }
 
-// TODO Blending mode and contiguous
-//      Hold shift to disable contiguous
-pub struct BucketTool {
-    pub threshold: f32,
-    pub alpha_threshold: f32,
-    pub grow: i32,
-    pub close_gap: u32,
-    pub cached_feather: u32,
-    pub aa_approach: BucketAntialiasApproach,
-}
-
-impl Default for BucketTool {
+impl Default for MagicWandSelectionTool {
     fn default() -> Self {
+        let b = BucketTool::default();
         Self {
-            threshold: 0.08,
-            alpha_threshold: 0.02,
-            grow: 0,
-            close_gap: 0,
-            cached_feather: 0,
-            aa_approach: BucketAntialiasApproach::Fxaa,
+            threshold: b.threshold,
+            alpha_threshold: b.alpha_threshold,
+            grow: b.grow,
+            close_gap: b.close_gap,
+            cached_feather: b.cached_feather,
+            aa_approach: b.aa_approach,
         }
     }
 }
 
-impl ToolFunction for BucketTool {
-    fn new(_: &mut Context<Self>) -> Self {
+impl ToolFunction for MagicWandSelectionTool {
+    fn new(_cx: &mut Context<Self>) -> Self {
         Self::default()
     }
 
     fn id() -> ToolId {
-        ToolId::new("bucket_tool")
+        ToolId::new("magic_wand_selection_tool")
     }
 
-    fn end(&mut self, mouse: &MouseUpEvent, cx: &mut Context<Self>) {
-        let Some(canvas_entity) = cx.current_canvas().and_then(|e| e.upgrade()) else {
+    fn begin(&mut self, mouse: &MouseDownEvent, cx: &mut Context<Self>) {
+        let Some(canvas) = cx.read_current_canvas() else {
             return;
         };
-        let canvas = canvas_entity.read(cx);
         let canvas_id = canvas.id();
 
         let position_ws = Vec2::new(mouse.position.x.into(), mouse.position.y.into());
@@ -84,18 +80,10 @@ impl ToolFunction for BucketTool {
         let ref_layer_info_buffer = tiles.get_layer_info(ref_layer_id).unwrap();
         let ref_layer = tiles.get_layer_binding_or_empty(ref_layer_id).unwrap();
 
-        let output_layer_id = canvas.image.active_layer;
-        let output_layer_info = tiles.get_layer_info(output_layer_id).unwrap();
-        let output_layer = tiles.get_layer_binding_or_empty(output_layer_id).unwrap();
-
-        let selection_layer = canvas.image.selection_layer();
-        let selection_layer = tiles.get_layer_binding_or_empty(selection_layer).unwrap();
-
         let image_size = canvas.image.size();
         let params = BucketParams {
             seed: position_ps.as_uvec2(),
-            // TODO Connect this to foreground color.
-            fill_color: Vec4::new(0.5, 0.5, 0.0, 1.0),
+            fill_color: Vec4::ZERO,
             threshold: self.threshold,
             alpha_threshold: self.alpha_threshold,
             close_gap: self.close_gap,
@@ -112,33 +100,60 @@ impl ToolFunction for BucketTool {
         let bucket = Bucket::new(
             &render_context.device,
             ref_layer_info_buffer.texel_type,
-            output_layer_info.texel_type,
+            // This won't be used
+            ref_layer_info_buffer.texel_type,
         );
-        let result = bucket.dispatch_composite(
+        let Some(mask) = bucket.dispatch_mask(
             &render_context.device,
             &render_context.queue,
             &params,
             &ref_layer,
             ref_layer_info.into_iter().collect(),
-            &output_layer,
+        ) else {
+            return;
+        };
+
+        let selection_layer_id = canvas.image.selection_layer();
+        let selection_layer = tiles.get_layer(selection_layer_id).unwrap();
+        let selection_layer_info = selection_layer.layer_info();
+        let selection_layer_binding = tiles
+            .get_layer_binding_or_empty(selection_layer_id)
+            .unwrap();
+
+        let selection_pipeline =
+            SelectionPipeline::new(&render_context.device, selection_layer_info.texel_type);
+        let selection = selection_pipeline.composite_with_tight_input(
+            &render_context.device,
+            &render_context.queue,
+            SelectionOperation::from_modifiers(mouse.modifiers),
+            &mask,
             &selection_layer,
+            &selection_layer_binding,
         );
 
-        if let Some(new_tiles) = result {
-            let output_layer = tiles.get_layer(output_layer_id).unwrap();
-            let cmd = TileReplaceCommand::new(
-                "Bucket Fill".into(),
+        let cmd = if let Some(selection) = selection {
+            TileReplaceCommand::new(
+                "Magic Wand".into(),
                 canvas_id,
                 &render_context.device,
                 &render_context.queue,
-                output_layer_id,
-                &output_layer,
-                new_tiles.iter_tiles().map(|(i, _, _)| i).collect(),
-                new_tiles.texture().unwrap().texture().clone(),
-            );
-            drop(output_layer);
-            cx.push_undo_command_to_current(cmd).log_err();
-        }
+                selection_layer_id,
+                &selection_layer,
+                selection.iter_tiles().map(|(i, _, _)| i).collect(),
+                selection.texture().unwrap().texture().clone(),
+            )
+        } else {
+            TileReplaceCommand::new_clear(
+                "Magic Wand".into(),
+                canvas_id,
+                &render_context.device,
+                &render_context.queue,
+                selection_layer_id,
+                &selection_layer,
+            )
+        };
+        drop(selection_layer);
+        cx.push_undo_command_to_current(cmd).log_err();
     }
 
     fn tool_option_widget(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {

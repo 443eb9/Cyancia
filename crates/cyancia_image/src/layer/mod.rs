@@ -566,3 +566,24 @@ impl LayerStackNode {
         }
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct SpecialLayers {
+    selection_layer: LayerId,
+}
+
+impl SpecialLayers {
+    #[allow(
+        clippy::new_without_default,
+        reason = "Default doesn't has the semantic of creating a new set of special layers."
+    )]
+    pub fn new() -> Self {
+        Self {
+            selection_layer: LayerId::new(Uuid::new_v4()),
+        }
+    }
+
+    pub fn selection_layer(&self) -> LayerId {
+        self.selection_layer
+    }
+}

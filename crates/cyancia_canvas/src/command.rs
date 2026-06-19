@@ -35,6 +35,7 @@ impl TileReplaceCommand {
         queue: &Queue,
         layer_id: LayerId,
         layer_storage: &DynamicLayerStorage,
+        // TODO accept Option
         new_tile_indices: Vec<IVec2>,
         new_tiles: Texture,
     ) -> Self {
@@ -64,6 +65,7 @@ impl TileReplaceCommand {
 
             let mut ec = device.create_command_encoder(&Default::default());
 
+            ec.push_debug_group("copy_old_tiles");
             for (dst_layer, index) in old_tile_indices.iter().enumerate() {
                 let src_layer = layer_storage.get_tile_layer(*index).unwrap();
                 ec.copy_texture_to_texture(
@@ -90,6 +92,7 @@ impl TileReplaceCommand {
                     GpuTileStorageInner::TILE_COPY_SIZE,
                 );
             }
+            ec.pop_debug_group();
 
             queue.submit([ec.finish()]);
 
@@ -104,6 +107,53 @@ impl TileReplaceCommand {
             new_tiles: Some((new_tiles, new_tile_indices)),
         }
     }
+
+    pub fn new_clear(
+        reason: Cow<'static, str>,
+        canvas: CanvasId,
+        device: &Device,
+        queue: &Queue,
+        layer_id: LayerId,
+        layer_storage: &DynamicLayerStorage,
+    ) -> Self {
+        let old_tiles = layer_storage.texture().map(|layer_texture| {
+            let old_texture = device.create_texture(&TextureDescriptor {
+                label: Some("old_texture"),
+                size: layer_texture.texture().size(),
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: layer_texture.texture().format(),
+                usage: TextureUsages::COPY_DST | TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+
+            let mut ec = device.create_command_encoder(&Default::default());
+
+            ec.push_debug_group("copy_old_tiles");
+            ec.copy_texture_to_texture(
+                layer_texture.texture().as_image_copy(),
+                old_texture.as_image_copy(),
+                old_texture.size(),
+            );
+            ec.pop_debug_group();
+
+            queue.submit([ec.finish()]);
+
+            (
+                old_texture,
+                layer_storage.iter_tiles().map(|(i, _, _)| i).collect(),
+            )
+        });
+
+        Self {
+            reason,
+            canvas,
+            layer: layer_id,
+            old_tiles,
+            new_tiles: None,
+        }
+    }
 }
 
 fn apply_tile_replace(
@@ -116,6 +166,9 @@ fn apply_tile_replace(
     let render_context = cx.global::<RenderContext>();
     let device = render_context.device.clone();
     let queue = render_context.queue.clone();
+    unsafe {
+        device.start_graphics_debugger_capture();
+    };
 
     let mut dirty_min = IVec2::MAX;
     let mut dirty_max = IVec2::MIN;
@@ -132,6 +185,7 @@ fn apply_tile_replace(
 
         let layer_texture = layer.texture().unwrap().texture();
 
+        ec.push_debug_group("replace_old_with_new");
         for (src_layer, tile_index) in tile_indices.iter().enumerate() {
             let dst_layer = layer.get_tile_layer(*tile_index).unwrap();
             ec.copy_texture_to_texture(
@@ -161,8 +215,10 @@ fn apply_tile_replace(
             dirty_min = dirty_min.min(*tile_index);
             dirty_max = dirty_max.max(*tile_index);
         }
+        ec.pop_debug_group();
     }
 
+    ec.push_debug_group("clear_old_without_new");
     for tile_index in clear_tile_indices {
         let Some(dst_layer) = layer.get_tile_layer(tile_index) else {
             continue;
@@ -182,10 +238,14 @@ fn apply_tile_replace(
         dirty_min = dirty_min.min(tile_index);
         dirty_max = dirty_max.max(tile_index);
     }
+    ec.pop_debug_group();
 
     queue.submit([ec.finish()]);
 
     drop(layer);
+    unsafe {
+        device.stop_graphics_debugger_capture();
+    };
 
     cx.update_canvas(&canvas, |_, cx| {
         cx.emit(CanvasUpdated {
@@ -202,6 +262,7 @@ impl UndoCommand for TileReplaceCommand {
         self.reason.clone()
     }
 
+    #[tracing::instrument(skip_all)]
     fn redo(&mut self, cx: &mut App) -> anyhow::Result<()> {
         let to_clear = self
             .old_tiles
@@ -220,6 +281,7 @@ impl UndoCommand for TileReplaceCommand {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all)]
     fn undo(&mut self, cx: &mut App) -> anyhow::Result<()> {
         let to_clear = self
             .new_tiles

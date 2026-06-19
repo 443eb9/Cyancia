@@ -64,6 +64,36 @@
       "shortcut": "ctrl-shift-z",
       "action_name": "RedoAction",
       "context": "main_view"
+    },
+    {
+      "shortcut": "m",
+      "action_name": "SwitchToRectangularSelectionToolAction",
+      "context": "main_view"
+    },
+    {
+      "shortcut": "l",
+      "action_name": "SwitchToFreehandSelectionToolAction",
+      "context": "main_view"
+    },
+    {
+      "shortcut": "shift-m",
+      "action_name": "SwitchToEllipticalSelectionToolAction",
+      "context": "main_view"
+    },
+    {
+      "shortcut": "shift-l",
+      "action_name": "SwitchToPolygonSelectionToolAction",
+      "context": "main_view"
+    },
+    {
+      "shortcut": "ctrl-d",
+      "action_name": "DeleteSelectionAction",
+      "context": "main_view"
+    },
+    {
+      "shortcut": "w",
+      "action_name": "SwitchToMagicWandSelectionToolAction",
+      "context": "main_view"
     }
   ]
 }

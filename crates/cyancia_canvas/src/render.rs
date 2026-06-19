@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    sync::{Arc, OnceLock},
+    time::Instant,
+};
 
 use bevy_math::IRect;
 use cyancia_image::{
@@ -33,16 +36,18 @@ pub const INTERMEDIATE_BUFFER_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
 pub struct CanvasRenderer {
     buffer: Option<(TextureView, Buffer)>,
     render_pipeline: CanvasRenderPipeline,
-    // present_pipeline: CanvasPresentPipeline,
 }
 
 impl Global for CanvasRenderer {}
 
 impl CanvasRenderer {
-    pub fn new(device: &Device, root_texel_type: TexelType) -> Self {
-        let render_pipeline = CanvasRenderPipeline::new(device, root_texel_type);
-        // let present_pipeline =
-        //     CanvasPresentPipeline::new(device, format, &fullscreen_vertex, &global_samplers);
+    pub fn new(
+        device: &Device,
+        root_texel_type: TexelType,
+        selection_texel_type: TexelType,
+    ) -> Self {
+        let render_pipeline =
+            CanvasRenderPipeline::new(device, root_texel_type, selection_texel_type);
         Self {
             buffer: Default::default(),
             render_pipeline,
@@ -103,6 +108,7 @@ impl CanvasRenderer {
         image_size: UVec2,
         tile_storage: &GpuTileStorage,
         root_layer_id: LayerId,
+        selection_layer_id: LayerId,
     ) {
         let Some((buffer, _)) = &self.buffer else {
             return;
@@ -113,6 +119,7 @@ impl CanvasRenderer {
             max: image_size.as_ivec2(),
         });
 
+        static FIRST_DRAW: OnceLock<Instant> = OnceLock::new();
         self.render_pipeline.prepare(
             device,
             queue,
@@ -122,10 +129,12 @@ impl CanvasRenderer {
                 size: image_size,
                 total_tile_count: tile_rect.size().as_uvec2(),
                 tile_size: GpuTileStorageInner::TILE_SIZE,
+                time: FIRST_DRAW.get_or_init(Instant::now).elapsed().as_secs_f32(),
             },
             buffer,
             tile_storage,
             root_layer_id,
+            selection_layer_id,
         );
         // self.present_pipeline.prepare(&device, buffer);
     }
@@ -134,16 +143,24 @@ impl CanvasRenderer {
         &self,
         device: &Device,
         queue: &Queue,
+        post_draw: impl FnOnce(&TextureView),
     ) -> (
         SubmissionIndex,
         futures::channel::oneshot::Receiver<Arc<RenderImage>>,
     ) {
         let mut ec = device.create_command_encoder(&Default::default());
         self.render_pipeline.draw(&mut ec);
+        queue.submit([ec.finish()]);
+
+        // TODO Dirty workaround. Remove this once gpui supports wgpu backend on all platforms.
+        post_draw(&self.buffer.as_ref().unwrap().0);
+
         let (texture, buffer) = self.buffer.as_ref().expect("buffer not initialized");
         let buffer = buffer.clone();
         let texture_size = texture.texture().size();
         let texel_size = texture.texture().format().block_copy_size(None).unwrap();
+
+        let mut ec = device.create_command_encoder(&Default::default());
 
         ec.copy_texture_to_buffer(
             texture.texture().as_image_copy(),
@@ -199,10 +216,11 @@ pub struct CanvasUniform {
     pub size: UVec2,
     pub total_tile_count: UVec2,
     pub tile_size: u32,
+    pub time: f32,
 }
 
 impl CanvasRenderPipeline {
-    fn new(device: &Device, root_texel_type: TexelType) -> Self {
+    fn new(device: &Device, root_texel_type: TexelType, selection_texel_type: TexelType) -> Self {
         let main_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("canvas main layout"),
             entries: &[
@@ -250,6 +268,26 @@ impl CanvasRenderPipeline {
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::StorageTexture {
+                        access: StorageTextureAccess::ReadOnly,
+                        format: selection_texel_type.wgpu_format(),
+                        view_dimension: TextureViewDimension::D2Array,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(GpuTileInfo::min_size()),
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -293,6 +331,7 @@ impl CanvasRenderPipeline {
         target: &TextureView,
         tile_storage: &GpuTileStorage,
         root_layer_id: LayerId,
+        selection_layer_id: LayerId,
     ) {
         self.uniform_buffer.clear();
         self.uniform_buffer.push(&uniform);
@@ -306,6 +345,10 @@ impl CanvasRenderPipeline {
         let root_layer = tile_storage
             .get_layer_binding_or_empty(root_layer_id)
             .unwrap();
+        let selection_layer = tile_storage
+            .get_layer_binding_or_empty(selection_layer_id)
+            .unwrap();
+
         let bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: Some("canvas render bind group"),
             layout: &self.main_layout,
@@ -325,6 +368,14 @@ impl CanvasRenderPipeline {
                 BindGroupEntry {
                     binding: 3,
                     resource: BindingResource::TextureView(target),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: BindingResource::TextureView(&selection_layer.texture),
+                },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: selection_layer.tile_info_buffer.as_entire_binding(),
                 },
             ],
         });

@@ -6,12 +6,15 @@ use gpui::{Action, App, DummyKeyboardMapper, Global, KeyBinding, KeyBindingConte
 use crate::{
     brush::OpenBrushEditorAction,
     canvas_control::{
-        SwitchToBrushToolAction, SwitchToBucketToolAction, SwitchToPanToolAction,
-        SwitchToRotateToolAction, SwitchToZoomToolAction,
+        SwitchToBrushToolAction, SwitchToBucketToolAction, SwitchToEllipticalSelectionToolAction,
+        SwitchToFreehandSelectionToolAction, SwitchToMagicWandSelectionToolAction,
+        SwitchToPanToolAction, SwitchToPolygonSelectionToolAction,
+        SwitchToRectangularSelectionToolAction, SwitchToRotateToolAction, SwitchToZoomToolAction,
     },
     file::OpenFileAction,
     layer::{CreateNewLayerAction, GroupActiveLayerAction, MoveLayerDownAction, MoveLayerUpAction},
     manifest::{KeyBindingDefManifest, KeyBindingDefManifestLoader},
+    selection::DeleteSelectionAction,
     undo::{RedoAction, UndoAction},
 };
 
@@ -20,6 +23,7 @@ pub mod canvas_control;
 pub mod file;
 pub mod layer;
 pub mod manifest;
+pub mod selection;
 pub mod undo;
 
 // pub struct ActionPlugin;
@@ -48,6 +52,12 @@ pub fn init(cx: &mut App) {
     cx.add_action_function::<SwitchToZoomToolAction>();
     cx.add_action_function::<SwitchToBrushToolAction>();
     cx.add_action_function::<SwitchToBucketToolAction>();
+    cx.add_action_function::<SwitchToRectangularSelectionToolAction>();
+    cx.add_action_function::<SwitchToEllipticalSelectionToolAction>();
+    cx.add_action_function::<SwitchToFreehandSelectionToolAction>();
+    cx.add_action_function::<SwitchToPolygonSelectionToolAction>();
+    cx.add_action_function::<SwitchToMagicWandSelectionToolAction>();
+    cx.add_action_function::<DeleteSelectionAction>();
     cx.add_action_function::<OpenFileAction>();
     cx.add_action_function::<CreateNewLayerAction>();
     cx.add_action_function::<MoveLayerUpAction>();

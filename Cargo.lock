@@ -1646,6 +1646,7 @@ dependencies = [
  "cyancia_bucket_tool",
  "cyancia_canvas",
  "cyancia_image",
+ "cyancia_render",
  "cyancia_tools",
  "cyancia_undo",
  "cyancia_utils",
@@ -1679,6 +1680,7 @@ dependencies = [
  "cyancia_canvas",
  "cyancia_image",
  "cyancia_render",
+ "cyancia_selection_tool",
  "cyancia_shader_graph",
  "cyancia_theme",
  "cyancia_tools",
@@ -1811,6 +1813,7 @@ dependencies = [
  "parking_lot",
  "parse-display",
  "serde",
+ "tracing",
  "uuid",
  "wesl",
  "wgpu 29.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1879,6 +1882,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "cyancia_selection_tool"
+version = "0.1.0"
+dependencies = [
+ "bevy_math 0.18.1 (git+https://github.com/443eb9/bevy.git?branch=release-0.18.1)",
+ "bytemuck",
+ "cyancia_bucket_tool",
+ "cyancia_canvas",
+ "cyancia_image",
+ "cyancia_render",
+ "cyancia_tools",
+ "cyancia_utils",
+ "encase",
+ "glam",
+ "gpui",
+ "gpui-component",
+ "indexmap",
+ "lyon",
+ "tracing",
+ "wesl",
+ "wgpu 29.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "cyancia_shader_graph"
 version = "0.1.0"
 dependencies = [
@@ -1942,6 +1968,7 @@ dependencies = [
  "log",
  "parking_lot",
  "uuid",
+ "wgpu 29.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

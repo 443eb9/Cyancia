@@ -6,6 +6,7 @@ use gpui::{
     MouseMoveEvent, MouseUpEvent, Window, div,
 };
 use uuid::Uuid;
+use wgpu::TextureView;
 
 pub fn init(cx: &mut App) {
     cx.set_global(ToolFunctionRegistry::default());
@@ -39,14 +40,23 @@ wrapper! {
 pub trait ToolFunction: Send + Sync + 'static + Sized {
     fn new(cx: &mut Context<Self>) -> Self;
     fn id() -> ToolId;
-    fn activate(&mut self, _: &mut Context<Self>) {}
-    fn hover(&mut self, _: &MouseMoveEvent, _: &mut Context<Self>) {}
-    fn begin(&mut self, _: &MouseDownEvent, _: &mut Context<Self>) {}
-    fn update(&mut self, _: &MouseMoveEvent, _: &mut Context<Self>) {}
-    fn end(&mut self, _: &MouseUpEvent, _: &mut Context<Self>) {}
-    fn deactivate(&mut self, _: &mut Context<Self>) {}
-    fn tool_option_widget(&mut self, _: &mut Window, _: &mut Context<Self>) -> AnyElement {
+    fn activate(&mut self, _cx: &mut Context<Self>) {}
+    fn hover(&mut self, _mouse: &MouseMoveEvent, _cx: &mut Context<Self>) {}
+    fn begin(&mut self, _mouse: &MouseDownEvent, _cx: &mut Context<Self>) {}
+    fn update(&mut self, _mouse: &MouseMoveEvent, _cx: &mut Context<Self>) {}
+    fn end(&mut self, _mouse: &MouseUpEvent, _cx: &mut Context<Self>) {}
+    fn deactivate(&mut self, _cx: &mut Context<Self>) {}
+    fn tool_option_widget(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> AnyElement {
         div().into_any_element()
+    }
+    // TODO This should return gpui element and take canvas bounds + window + cx as parameter only,
+    //      once gpui supports wgpu backend and allow custom shaders.
+    fn canvas_overlay(
+        &mut self,
+        _canvas_surface: &TextureView,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) {
     }
 }
 
@@ -63,6 +73,7 @@ pub trait ErasedToolFunction {
     fn end(&mut self, mouse: &MouseUpEvent, cx: &mut App);
     fn deactivate(&mut self, cx: &mut App);
     fn tool_option_widget(&mut self, window: &mut Window, cx: &mut App) -> AnyElement;
+    fn canvas_overlay(&mut self, canvas_surface: &TextureView, window: &mut Window, cx: &mut App);
 }
 
 impl<T: ToolFunction> ErasedToolFunction for ToolFunctionEntity<T> {
@@ -98,6 +109,12 @@ impl<T: ToolFunction> ErasedToolFunction for ToolFunctionEntity<T> {
     fn tool_option_widget(&mut self, window: &mut Window, cx: &mut App) -> AnyElement {
         self.entity
             .update(cx, |entity, cx| entity.tool_option_widget(window, cx))
+    }
+
+    fn canvas_overlay(&mut self, canvas_surface: &TextureView, window: &mut Window, cx: &mut App) {
+        self.entity.update(cx, |entity, cx| {
+            entity.canvas_overlay(canvas_surface, window, cx)
+        });
     }
 }
 
@@ -194,6 +211,19 @@ impl ToolProxy {
     pub fn tool_option_widget(&mut self, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
         let state = self.state.as_mut()?;
         Some(state.current_function.tool_option_widget(window, cx))
+    }
+
+    pub fn canvas_overlay(
+        &mut self,
+        canvas_surface: &TextureView,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if let Some(state) = self.state.as_mut() {
+            state
+                .current_function
+                .canvas_overlay(canvas_surface, window, cx);
+        }
     }
 }
 
