@@ -3,9 +3,9 @@ use std::borrow::Cow;
 use bevy_math::IRect;
 use cyancia_image::{
     layer::{LayerData, LayerId},
-    tile::{DynamicLayerStorage, GpuTileStorage, GpuTileStorageInner},
+    tile::{DynamicLayerStorage, GpuTileStorage, TileStorageAppExt},
 };
-use cyancia_render::render_context::RenderContext;
+use cyancia_render::render_context::RenderContextAppExt;
 use cyancia_undo::UndoCommand;
 use cyancia_utils::log_err::LogErr;
 use glam::IVec2;
@@ -51,8 +51,8 @@ impl TileReplaceCommand {
             let old_texture = device.create_texture(&TextureDescriptor {
                 label: Some("old_texture"),
                 size: Extent3d {
-                    width: GpuTileStorageInner::TILE_SIZE,
-                    height: GpuTileStorageInner::TILE_SIZE,
+                    width: GpuTileStorage::TILE_SIZE,
+                    height: GpuTileStorage::TILE_SIZE,
                     depth_or_array_layers: old_tile_indices.len() as u32,
                 },
                 mip_level_count: 1,
@@ -70,7 +70,7 @@ impl TileReplaceCommand {
                 let src_layer = layer_storage.get_tile_layer(*index).unwrap();
                 ec.copy_texture_to_texture(
                     TexelCopyTextureInfo {
-                        texture: layer_texture.texture(),
+                        texture: layer_texture,
                         mip_level: 0,
                         origin: Origin3d {
                             x: 0,
@@ -89,7 +89,7 @@ impl TileReplaceCommand {
                         },
                         aspect: TextureAspect::All,
                     },
-                    GpuTileStorageInner::TILE_COPY_SIZE,
+                    GpuTileStorage::TILE_COPY_SIZE,
                 );
             }
             ec.pop_debug_group();
@@ -119,11 +119,11 @@ impl TileReplaceCommand {
         let old_tiles = layer_storage.texture().map(|layer_texture| {
             let old_texture = device.create_texture(&TextureDescriptor {
                 label: Some("old_texture"),
-                size: layer_texture.texture().size(),
+                size: layer_texture.size(),
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: TextureDimension::D2,
-                format: layer_texture.texture().format(),
+                format: layer_texture.format(),
                 usage: TextureUsages::COPY_DST | TextureUsages::COPY_SRC,
                 view_formats: &[],
             });
@@ -132,7 +132,7 @@ impl TileReplaceCommand {
 
             ec.push_debug_group("copy_old_tiles");
             ec.copy_texture_to_texture(
-                layer_texture.texture().as_image_copy(),
+                layer_texture.as_image_copy(),
                 old_texture.as_image_copy(),
                 old_texture.size(),
             );
@@ -163,27 +163,21 @@ fn apply_tile_replace(
     replace_tile: &Option<(Texture, Vec<IVec2>)>,
     clear_tile_indices: Vec<IVec2>,
 ) {
-    let render_context = cx.global::<RenderContext>();
-    let device = render_context.device.clone();
-    let queue = render_context.queue.clone();
-    unsafe {
-        device.start_graphics_debugger_capture();
-    };
-
     let mut dirty_min = IVec2::MAX;
     let mut dirty_max = IVec2::MIN;
 
-    let tile_storage = cx.global_mut::<GpuTileStorage>();
+    let device = cx.render_device();
+    let queue = cx.render_queue();
+
+    let tile_storage = cx.tile_storage();
     let mut layer = tile_storage.get_layer_mut(layer).unwrap();
 
     let mut ec = device.create_command_encoder(&Default::default());
 
     if let Some((tiles, tile_indices)) = replace_tile {
-        for index in tile_indices {
-            layer.get_tile_or_allocate(*index);
-        }
+        layer.allocate_tiles_batch(tile_indices);
 
-        let layer_texture = layer.texture().unwrap().texture();
+        let layer_texture = layer.texture().unwrap();
 
         ec.push_debug_group("replace_old_with_new");
         for (src_layer, tile_index) in tile_indices.iter().enumerate() {
@@ -209,7 +203,7 @@ fn apply_tile_replace(
                     },
                     aspect: TextureAspect::All,
                 },
-                GpuTileStorageInner::TILE_COPY_SIZE,
+                GpuTileStorage::TILE_COPY_SIZE,
             );
 
             dirty_min = dirty_min.min(*tile_index);
@@ -225,7 +219,7 @@ fn apply_tile_replace(
         };
 
         ec.clear_texture(
-            layer.texture().unwrap().texture(),
+            layer.texture_view().unwrap().texture(),
             &ImageSubresourceRange {
                 aspect: TextureAspect::All,
                 base_mip_level: 0,
@@ -243,9 +237,6 @@ fn apply_tile_replace(
     queue.submit([ec.finish()]);
 
     drop(layer);
-    unsafe {
-        device.stop_graphics_debugger_capture();
-    };
 
     cx.update_canvas(&canvas, |_, cx| {
         cx.emit(CanvasUpdated {

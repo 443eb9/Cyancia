@@ -4,9 +4,9 @@ use bevy_math::{IRect, Rect};
 use cyancia_image::{
     composite::{ImageCompositor, LayerPreviewOverriders},
     texel::{TexelFormat, TexelType},
-    tile::{GpuTileStorage, GpuTileStorageInner},
+    tile::{GpuTileStorage, TileStorageAppExt},
 };
-use cyancia_render::render_context::RenderContext;
+use cyancia_render::render_context::RenderContextAppExt;
 use cyancia_tools::{ToolProxies, ToolProxy, ToolProxyId};
 use glam::{IVec2, UVec2, Vec2};
 use gpui::{
@@ -51,9 +51,9 @@ impl CanvasWidget {
     ) -> Option<Self> {
         let canvas_entity = cx.canvas(&canvas_id)?.upgrade()?;
         let canvas = canvas_entity.read(cx);
-        let render_context = cx.global::<RenderContext>();
+        let device = cx.render_device();
         let renderer = CanvasRenderer::new(
-            &render_context.device,
+            device,
             canvas.image.texel_type(),
             // TODO probably fetch from selection layer directly?
             TexelType {
@@ -61,7 +61,7 @@ impl CanvasWidget {
                 depth: canvas.image.texel_type().depth,
             },
         );
-        let dirty_tiles = GpuTileStorageInner::pixel_rect_to_tile(IRect {
+        let dirty_tiles = GpuTileStorage::pixel_rect_to_tile(IRect {
             min: IVec2::ZERO,
             max: canvas.image.size().as_ivec2(),
         });
@@ -98,22 +98,19 @@ impl CanvasWidget {
         cx.update_global::<LayerPreviewOverriders, _>(|overriders, cx| {
             self.canvas
                 .update(cx, |canvas, cx| {
-                    let tiles = cx.global::<GpuTileStorage>();
-                    let render_context = cx.global::<RenderContext>();
-                    self.compositor.create_cache(
-                        overriders,
-                        &canvas.image,
-                        tiles,
-                        &render_context.device,
-                        &render_context.queue,
-                    );
+                    let tiles = cx.tile_storage();
+                    let device = cx.render_device();
+                    let queue = cx.render_queue();
+
+                    self.compositor
+                        .create_cache(overriders, &canvas.image, tiles, device, queue);
                     self.compositor.composite(
                         overriders,
                         dirty_tiles,
                         &canvas.image,
                         tiles,
-                        &render_context.device,
-                        &render_context.queue,
+                        device,
+                        queue,
                     );
                 })
                 .ok();
@@ -136,14 +133,15 @@ impl CanvasWidget {
         self.recomposite(cx);
 
         let canvas = canvas_entity.read(cx);
-        let render_context = cx.global::<RenderContext>();
-        let tiles = cx.global::<GpuTileStorage>();
+        let tiles = cx.tile_storage();
+        let device = cx.render_device().clone();
+        let queue = cx.render_queue().clone();
 
         self.renderer
-            .resize_output_buffer(&render_context.device, self.output_size);
+            .resize_output_buffer(&device, self.output_size);
         self.renderer.prepare(
-            &render_context.device,
-            &render_context.queue,
+            &device,
+            &queue,
             &canvas.transform,
             canvas.image.size(),
             tiles,
@@ -151,8 +149,6 @@ impl CanvasWidget {
             canvas.image.selection_layer(),
         );
 
-        let device = render_context.device.clone();
-        let queue = render_context.queue.clone();
         let tool_proxy_id = canvas.tool_proxy_id();
 
         let (submission_index, rx) = cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {

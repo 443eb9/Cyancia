@@ -9,7 +9,7 @@ use wgpu::{
 
 use crate::{
     texel::TexelType,
-    tile::{GpuTileInfo, GpuTileStorageInner},
+    tile::{GpuTileInfo, GpuTileStorage},
 };
 
 #[derive(ShaderType)]
@@ -32,8 +32,8 @@ impl DynamicIntermediateBuffer {
         let desc = TextureDescriptor {
             label: Some("dynamic intermediate buffer texture"),
             size: Extent3d {
-                width: GpuTileStorageInner::TILE_SIZE,
-                height: GpuTileStorageInner::TILE_SIZE,
+                width: GpuTileStorage::TILE_SIZE,
+                height: GpuTileStorage::TILE_SIZE,
                 depth_or_array_layers: initial,
             },
             mip_level_count: 1,
@@ -60,7 +60,7 @@ impl DynamicIntermediateBuffer {
             });
 
         let mut info = DynamicBuffer::new(
-            Some("dynamic intermediate buffer"),
+            Some("dynamic intermediate buffer".into()),
             BufferUsages::STORAGE | BufferUsages::COPY_SRC,
         );
         info.push(&DynamicGpuTileInfoBuffer {
@@ -116,8 +116,8 @@ impl IntermediateBuffer {
         let desc = TextureDescriptor {
             label: Some("intermediate buffer texture"),
             size: Extent3d {
-                width: GpuTileStorageInner::TILE_SIZE,
-                height: GpuTileStorageInner::TILE_SIZE,
+                width: GpuTileStorage::TILE_SIZE,
+                height: GpuTileStorage::TILE_SIZE,
                 depth_or_array_layers: tiles,
             },
             mip_level_count: 1,
@@ -149,10 +149,7 @@ impl IntermediateBuffer {
         );
         for y in tile_rect.min.y..tile_rect.max.y {
             for x in tile_rect.min.x..tile_rect.max.x {
-                tile_info_buffer.push(&GpuTileInfo {
-                    index: IVec2 { x, y },
-                    origin: IVec2 { x, y } * GpuTileStorageInner::TILE_SIZE as i32,
-                });
+                tile_info_buffer.push(&GpuTileInfo::new(IVec2::new(x, y)));
             }
         }
         tile_info_buffer.write_buffer(device, queue);

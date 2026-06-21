@@ -1,7 +1,12 @@
-use std::{collections::HashMap, ops::Deref, sync::Arc};
+use std::{
+    borrow::{Borrow, Cow},
+    collections::{HashMap, HashSet},
+    sync::{Arc, OnceLock},
+};
 
 use bevy_math::IRect;
-use cyancia_render::{buffer::BufferVec, render_context::RenderContext};
+use cyancia_render::{buffer::BufferVec, render_context::RenderContextAppExt};
+use cyancia_utils::Deref;
 use dashmap::{DashMap, Entry};
 use encase::ShaderType;
 use glam::{IVec2, UVec2};
@@ -9,9 +14,9 @@ use gpui::{App, Global};
 use image::{DynamicImage, GenericImageView};
 use indexmap::IndexMap;
 use wgpu::{
-    Buffer, BufferUsages, Device, Extent3d, Origin3d, Queue, TexelCopyTextureInfo, TextureAspect,
-    TextureDescriptor, TextureDimension, TextureUsages, TextureView, TextureViewDescriptor,
-    TextureViewDimension, util::DeviceExt,
+    Buffer, BufferUsages, Device, Extent3d, Origin3d, Queue, TexelCopyTextureInfo, Texture,
+    TextureAspect, TextureDescriptor, TextureDimension, TextureUsages, TextureView,
+    TextureViewDescriptor, TextureViewDimension, util::DeviceExt,
 };
 
 use crate::{
@@ -19,9 +24,33 @@ use crate::{
     texel::{TexelDepth, TexelFormat, TexelType},
 };
 
-// TODO: We are having this wrapper because rendering iced primitives doesn't allow bring external context
-//       with lifetime.
-#[derive(Clone)]
+pub trait TileStorageAppExt {
+    fn tile_storage(&self) -> &GpuTileStorage;
+}
+
+impl TileStorageAppExt for App {
+    fn tile_storage(&self) -> &GpuTileStorage {
+        self.global::<GpuTileStorage>()
+    }
+}
+
+static EMPTY_LAYER_BINDINGS: OnceLock<HashMap<TexelType, LayerBinding>> = OnceLock::new();
+
+pub fn init(cx: &mut App) {
+    let device = cx.render_device();
+    let queue = cx.render_queue();
+
+    let mut dummy_layers = HashMap::new();
+    for texel_type in TexelType::ALL_POSSIBLE_FORMATS {
+        let mut st =
+            DynamicLayerStorage::new(device.clone(), queue.clone(), GpuLayerInfo { texel_type });
+        st.get_tile_or_allocate(GpuTileInfo::NULL.index);
+        dummy_layers.insert(texel_type, st.binding().unwrap());
+    }
+    EMPTY_LAYER_BINDINGS.set(dummy_layers).unwrap();
+}
+
+#[derive(Clone, Deref)]
 pub struct GpuTileStorage {
     inner: Arc<GpuTileStorageInner>,
 }
@@ -35,39 +64,69 @@ impl std::fmt::Debug for GpuTileStorage {
 impl Global for GpuTileStorage {}
 
 impl GpuTileStorage {
+    pub const TILE_SIZE: u32 = 256;
+    pub const TILE_COPY_SIZE: Extent3d = Extent3d {
+        width: Self::TILE_SIZE,
+        height: Self::TILE_SIZE,
+        depth_or_array_layers: 1,
+    };
+
     pub fn from_app(cx: &App) -> Self {
-        let render_context = cx.global::<RenderContext>();
-        Self::new(&render_context.device, &render_context.queue)
+        let device = cx.render_device().clone();
+        let queue = cx.render_queue().clone();
+        Self::new(device, queue)
     }
 
-    pub fn new(device: &Device, queue: &Queue) -> Self {
+    pub fn new(device: Device, queue: Queue) -> Self {
         Self {
-            inner: Arc::new(GpuTileStorageInner::new(
-                device.clone().into(),
-                queue.clone().into(),
-            )),
+            inner: Arc::new(GpuTileStorageInner::new(device, queue)),
         }
     }
-}
 
-impl Deref for GpuTileStorage {
-    type Target = GpuTileStorageInner;
-
-    fn deref(&self) -> &Self::Target {
-        self.inner.as_ref()
+    pub fn pixel_rect_to_tile(pixel_rect: IRect) -> IRect {
+        IRect {
+            min: pixel_rect.min / IVec2::splat(Self::TILE_SIZE as i32),
+            max: (pixel_rect.max - 1) / IVec2::splat(Self::TILE_SIZE as i32) + 1,
+        }
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TileIndex {
-    pub layer: LayerId,
-    pub coord: IVec2,
-}
+    pub fn tile_rect_to_pixel(tile_rect: IRect) -> IRect {
+        IRect {
+            min: tile_rect.min * IVec2::splat(Self::TILE_SIZE as i32),
+            max: tile_rect.max * IVec2::splat(Self::TILE_SIZE as i32),
+        }
+    }
 
-#[derive(Clone)]
-pub struct Tile {
-    pub index: TileIndex,
-    pub texture: Arc<TextureView>,
+    pub fn tile_to_pixel_rect(tile: IVec2) -> IRect {
+        IRect {
+            min: tile * IVec2::splat(Self::TILE_SIZE as i32),
+            max: (tile + IVec2::ONE) * IVec2::splat(Self::TILE_SIZE as i32),
+        }
+    }
+
+    pub fn snap_to_tile_grid(pixel_rect: IRect) -> IRect {
+        let tile_rect = Self::pixel_rect_to_tile(pixel_rect);
+        IRect {
+            min: tile_rect.min * IVec2::splat(Self::TILE_SIZE as i32),
+            max: tile_rect.max * IVec2::splat(Self::TILE_SIZE as i32),
+        }
+    }
+
+    pub fn calc_tile_count(image_size: UVec2) -> UVec2 {
+        UVec2::new(
+            image_size.x.div_ceil(Self::TILE_SIZE),
+            image_size.y.div_ceil(Self::TILE_SIZE),
+        )
+    }
+
+    pub fn get_empty_layer_binding(texel_type: TexelType) -> LayerBinding {
+        EMPTY_LAYER_BINDINGS
+            .get()
+            .unwrap()
+            .get(&texel_type)
+            .unwrap()
+            .clone()
+    }
 }
 
 #[derive(ShaderType, Clone, Copy, PartialEq, Eq)]
@@ -84,9 +143,18 @@ impl Default for GpuTileInfo {
 
 impl GpuTileInfo {
     pub const NULL: Self = Self {
-        index: IVec2::splat(i32::MIN),
-        origin: IVec2::splat(i32::MIN),
+        index: IVec2::splat(i32::MIN / GpuTileStorage::TILE_SIZE as i32),
+        origin: IVec2::splat(
+            (i32::MIN / GpuTileStorage::TILE_SIZE as i32) * GpuTileStorage::TILE_SIZE as i32,
+        ),
     };
+
+    pub fn new(index: IVec2) -> Self {
+        Self {
+            index,
+            origin: index * GpuTileStorage::TILE_SIZE as i32,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,47 +162,24 @@ pub struct GpuLayerInfo {
     pub texel_type: TexelType,
 }
 
-pub struct LayerBindingData {
-    pub texture: Arc<TextureView>,
+#[derive(Debug, Clone)]
+pub struct LayerBinding {
+    pub texture: TextureView,
     pub tile_info_buffer: Buffer,
 }
 
 pub struct GpuTileStorageInner {
-    device: Arc<Device>,
-    queue: Arc<Queue>,
+    device: Device,
+    queue: Queue,
 
-    dummy_layers: HashMap<TexelType, DynamicLayerStorage>,
     layers: DashMap<LayerId, DynamicLayerStorage>,
 }
 
 impl GpuTileStorageInner {
-    pub const TILE_SIZE: u32 = 256;
-    pub const EMPTY_TILE_COORD: IVec2 = IVec2::new(
-        i32::MAX / Self::TILE_SIZE as i32,
-        i32::MAX / Self::TILE_SIZE as i32,
-    );
-    pub const TILE_COPY_SIZE: Extent3d = Extent3d {
-        width: Self::TILE_SIZE,
-        height: Self::TILE_SIZE,
-        depth_or_array_layers: 1,
-    };
-
-    pub fn new(device: Arc<Device>, queue: Arc<Queue>) -> Self {
-        let mut dummy_layers = HashMap::new();
-        for texel_type in TexelType::ALL_POSSIBLE_FORMATS {
-            let mut st = DynamicLayerStorage::new(
-                device.clone(),
-                queue.clone(),
-                GpuLayerInfo { texel_type },
-            );
-            st.get_tile_or_allocate(Self::EMPTY_TILE_COORD);
-            dummy_layers.insert(texel_type, st);
-        }
-
+    pub fn new(device: Device, queue: Queue) -> Self {
         Self {
             device,
             queue,
-            dummy_layers,
             layers: DashMap::new(),
         }
     }
@@ -184,24 +229,8 @@ impl GpuTileStorageInner {
         self.layers.get_mut(&layer_id)
     }
 
-    pub fn get_layer_binding_or_empty(&self, layer_id: LayerId) -> Option<LayerBindingData> {
-        let layer = self.layers.get(&layer_id)?;
-
-        Some(layer.binding_data().unwrap_or_else(|| {
-            self.dummy_layers
-                .get(&layer.layer_info.texel_type)
-                .unwrap()
-                .binding_data()
-                .unwrap()
-        }))
-    }
-
-    pub fn empty_layer_binding(&self, texel_type: TexelType) -> LayerBindingData {
-        self.dummy_layers
-            .get(&texel_type)
-            .unwrap()
-            .binding_data()
-            .unwrap()
+    pub fn get_layer_binding_or_empty(&self, layer_id: LayerId) -> Option<LayerBinding> {
+        Some(self.layers.get(&layer_id)?.binding_or_empty())
     }
 
     pub fn upload_image(&self, layer_id: LayerId, img: DynamicImage) {
@@ -218,137 +247,133 @@ impl GpuTileStorageInner {
         let mut layer = self.layers.get_mut(&layer_id).unwrap();
 
         let mut ec = self.device.create_command_encoder(&Default::default());
-        let n_tiles = Self::calc_tile_count(UVec2::new(width, height));
-        layer.reserve(n_tiles.element_product());
+        let n_tiles = GpuTileStorage::calc_tile_count(UVec2::new(width, height));
+        let tiles = (0..n_tiles.y)
+            .flat_map(|y| (0..n_tiles.x).map(move |x| IVec2::new(x as i32, y as i32)));
+        layer.allocate_tiles_batch(tiles.clone());
 
-        for y in 0..n_tiles.y {
-            for x in 0..n_tiles.x {
-                let tile_index = TileIndex {
-                    layer: layer_id,
-                    coord: IVec2::new(x as i32, y as i32),
-                };
-                let tile = layer.get_tile_or_allocate(tile_index.coord);
-                let tile_layer = layer.get_tile_layer(tile_index.coord).unwrap();
-                log::debug!("Uploading tile: {:?}", tile_index);
-                let origin = UVec2::new(x, y) * Self::TILE_SIZE;
+        for tile_index in tiles {
+            let tile = layer.get_tile(tile_index).unwrap();
+            let tile_layer = layer.get_tile_layer(tile_index).unwrap();
+            log::debug!("Uploading tile: {:?}", tile_index);
+            let origin = tile_index.as_uvec2() * GpuTileStorage::TILE_SIZE;
 
-                let sub_img = img.view(
-                    origin.x,
-                    origin.y,
-                    Self::TILE_SIZE.min(width - origin.x),
-                    Self::TILE_SIZE.min(height - origin.y),
-                );
-                let data = layer_info
-                    .texel_type
-                    .convert_image_to_wgpu(DynamicImage::from(sub_img.to_image()));
+            let sub_img = img.view(
+                origin.x,
+                origin.y,
+                GpuTileStorage::TILE_SIZE.min(width - origin.x),
+                GpuTileStorage::TILE_SIZE.min(height - origin.y),
+            );
+            let data = layer_info
+                .texel_type
+                .convert_image_to_wgpu(DynamicImage::from(sub_img.to_image()));
 
-                let texture = self.device.create_texture_with_data(
-                    &self.queue,
-                    &TextureDescriptor {
-                        label: Some("temp tile texture"),
-                        size: Extent3d {
-                            width: sub_img.width(),
-                            height: sub_img.height(),
-                            depth_or_array_layers: 1,
-                        },
-                        mip_level_count: 1,
-                        sample_count: 1,
-                        dimension: TextureDimension::D2,
-                        format: layer_info.texel_type.wgpu_format(),
-                        usage: TextureUsages::COPY_SRC | TextureUsages::COPY_DST,
-                        view_formats: &[],
-                    },
-                    Default::default(),
-                    bytemuck::cast_slice(&data),
-                );
-
-                ec.copy_texture_to_texture(
-                    texture.as_image_copy(),
-                    TexelCopyTextureInfo {
-                        texture: tile.texture(),
-                        mip_level: 0,
-                        origin: Origin3d {
-                            x: 0,
-                            y: 0,
-                            z: tile_layer,
-                        },
-                        aspect: TextureAspect::All,
-                    },
-                    Extent3d {
+            let texture = self.device.create_texture_with_data(
+                &self.queue,
+                &TextureDescriptor {
+                    label: Some("temp tile texture"),
+                    size: Extent3d {
                         width: sub_img.width(),
                         height: sub_img.height(),
                         depth_or_array_layers: 1,
                     },
-                );
-            }
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format: layer_info.texel_type.wgpu_format(),
+                    usage: TextureUsages::COPY_SRC | TextureUsages::COPY_DST,
+                    view_formats: &[],
+                },
+                Default::default(),
+                bytemuck::cast_slice(&data),
+            );
+
+            ec.copy_texture_to_texture(
+                texture.as_image_copy(),
+                TexelCopyTextureInfo {
+                    texture: tile.texture(),
+                    mip_level: 0,
+                    origin: Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: tile_layer,
+                    },
+                    aspect: TextureAspect::All,
+                },
+                Extent3d {
+                    width: sub_img.width(),
+                    height: sub_img.height(),
+                    depth_or_array_layers: 1,
+                },
+            );
         }
 
         self.queue.submit([ec.finish()]);
     }
-
-    pub fn pixel_rect_to_tile(pixel_rect: IRect) -> IRect {
-        IRect {
-            min: pixel_rect.min / IVec2::splat(Self::TILE_SIZE as i32),
-            max: (pixel_rect.max - 1) / IVec2::splat(Self::TILE_SIZE as i32) + 1,
-        }
-    }
-
-    pub fn tile_rect_to_pixel(tile_rect: IRect) -> IRect {
-        IRect {
-            min: tile_rect.min * IVec2::splat(Self::TILE_SIZE as i32),
-            max: tile_rect.max * IVec2::splat(Self::TILE_SIZE as i32),
-        }
-    }
-
-    pub fn tile_to_pixel_rect(tile: IVec2) -> IRect {
-        IRect {
-            min: tile * IVec2::splat(Self::TILE_SIZE as i32),
-            max: (tile + IVec2::ONE) * IVec2::splat(Self::TILE_SIZE as i32),
-        }
-    }
-
-    pub fn snap_to_tile_grid(pixel_rect: IRect) -> IRect {
-        let tile_rect = Self::pixel_rect_to_tile(pixel_rect);
-        IRect {
-            min: tile_rect.min * IVec2::splat(Self::TILE_SIZE as i32),
-            max: tile_rect.max * IVec2::splat(Self::TILE_SIZE as i32),
-        }
-    }
-
-    pub fn calc_tile_count(image_size: UVec2) -> UVec2 {
-        UVec2::new(
-            image_size.x.div_ceil(Self::TILE_SIZE),
-            image_size.y.div_ceil(Self::TILE_SIZE),
-        )
-    }
 }
 
-// TODO Remove device and queue fields, add texture label
+pub const DEFAULT_LAYER_TEXTURE_USAGES: TextureUsages = TextureUsages::from_bits_truncate(
+    TextureUsages::TEXTURE_BINDING.bits()
+        | TextureUsages::COPY_DST.bits()
+        | TextureUsages::COPY_SRC.bits()
+        | TextureUsages::STORAGE_BINDING.bits()
+        | TextureUsages::RENDER_ATTACHMENT.bits(),
+);
+
+pub const DEFAULT_LAYER_TEXTURE_LABEL: Cow<'static, str> = Cow::Borrowed("tile_texture");
+
+pub const DEFAULT_LAYER_TILE_INFO_BUFFER_USAGES: BufferUsages = BufferUsages::from_bits_truncate(
+    BufferUsages::COPY_DST.bits() | BufferUsages::COPY_SRC.bits() | BufferUsages::STORAGE.bits(),
+);
+
+pub const DEFAULT_LAYER_TILE_INFO_BUFFER_LABEL: Cow<'static, str> =
+    Cow::Borrowed("tile_info_buffer");
+
 pub struct DynamicLayerStorage {
-    device: Arc<Device>,
-    queue: Arc<Queue>,
-    texture: Option<Arc<TextureView>>,
-    tiles: IndexMap<IVec2, Arc<TextureView>>,
-    tile_info_buffer: BufferVec<GpuTileInfo>,
+    device: Device,
+    queue: Queue,
+
+    texture_usages: TextureUsages,
+    texture_label: Cow<'static, str>,
     layer_info: GpuLayerInfo,
+
+    texture: Option<TextureView>,
+    tiles: IndexMap<IVec2, TextureView>,
+    tile_info_buffer: BufferVec<GpuTileInfo>,
 }
 
 impl DynamicLayerStorage {
     pub const GROWTH_RATE: f32 = 1.5;
-    pub const TILE_SIZE: u32 = GpuTileStorageInner::TILE_SIZE;
+    pub const TILE_SIZE: u32 = GpuTileStorage::TILE_SIZE;
 
-    // TODO allow customize usage and label
-    pub fn new(device: Arc<Device>, queue: Arc<Queue>, info: GpuLayerInfo) -> Self {
+    pub fn new(device: Device, queue: Queue, info: GpuLayerInfo) -> Self {
+        Self::new_full(device, queue, None, None, None, None, info)
+    }
+
+    pub fn new_full(
+        device: Device,
+        queue: Queue,
+        texture_label: Option<Cow<'static, str>>,
+        tile_info_buffer_label: Option<Cow<'static, str>>,
+        texture_usage: Option<TextureUsages>,
+        tile_info_buffer_usage: Option<BufferUsages>,
+        info: GpuLayerInfo,
+    ) -> Self {
         Self {
             device,
             queue,
+            texture_label: texture_label.unwrap_or(DEFAULT_LAYER_TEXTURE_LABEL.clone()),
+            texture_usages: texture_usage.unwrap_or(DEFAULT_LAYER_TEXTURE_USAGES),
+            layer_info: info,
+
             texture: None,
             tiles: IndexMap::new(),
             tile_info_buffer: BufferVec::new(
-                Some("tile info buffer".into()),
-                BufferUsages::STORAGE,
+                Some(
+                    tile_info_buffer_label.unwrap_or(DEFAULT_LAYER_TILE_INFO_BUFFER_LABEL.clone()),
+                ),
+                tile_info_buffer_usage.unwrap_or(DEFAULT_LAYER_TILE_INFO_BUFFER_USAGES),
             ),
-            layer_info: info,
         }
     }
 
@@ -356,16 +381,27 @@ impl DynamicLayerStorage {
         &self.layer_info
     }
 
-    pub fn binding_data(&self) -> Option<LayerBindingData> {
-        let texture = self.texture()?.clone();
+    pub fn binding_or_empty(&self) -> LayerBinding {
+        self.binding().unwrap_or_else(|| {
+            EMPTY_LAYER_BINDINGS
+                .get()
+                .unwrap()
+                .get(&self.layer_info.texel_type)
+                .unwrap()
+                .clone()
+        })
+    }
+
+    pub fn binding(&self) -> Option<LayerBinding> {
+        let texture = self.texture_view()?.clone();
         let tile_info_buffer = self.tile_info_buffer()?.clone();
-        Some(LayerBindingData {
+        Some(LayerBinding {
             texture,
             tile_info_buffer,
         })
     }
 
-    pub fn get_tile(&self, coord: IVec2) -> Option<Arc<TextureView>> {
+    pub fn get_tile(&self, coord: IVec2) -> Option<TextureView> {
         self.tiles.get(&coord).cloned()
     }
 
@@ -377,52 +413,89 @@ impl DynamicLayerStorage {
         self.tile_info_buffer.inner_buffer()
     }
 
-    pub fn texture(&self) -> Option<&Arc<TextureView>> {
+    pub fn texture_view(&self) -> Option<&TextureView> {
         self.texture.as_ref()
     }
 
-    pub fn ensure_pixel_area(&mut self, pixel_rect: IRect) {
-        let tile_area = GpuTileStorageInner::pixel_rect_to_tile(pixel_rect);
-        self.ensure_tile_area(tile_area);
+    pub fn texture(&self) -> Option<&Texture> {
+        Some(self.texture_view()?.texture())
     }
 
-    pub fn ensure_tile_area(&mut self, tile_rect: IRect) {
-        for y in tile_rect.min.y..tile_rect.max.y {
-            for x in tile_rect.min.x..tile_rect.max.x {
-                // TODO: This may cause multiple reallocations of the main texture. Avoid this.
-                self.get_tile_or_allocate(IVec2::new(x, y));
-            }
+    pub fn allocate_pixels(&mut self, pixel_rect: IRect) {
+        let tile_area = GpuTileStorage::pixel_rect_to_tile(pixel_rect);
+        self.allocate_tiles(tile_area);
+    }
+
+    pub fn allocate_tiles(&mut self, tile_rect: IRect) {
+        self.allocate_tiles_batch(
+            (tile_rect.min.y..tile_rect.max.y)
+                .flat_map(|y| (tile_rect.min.x..tile_rect.max.x).map(move |x| IVec2::new(x, y))),
+        );
+    }
+
+    pub fn allocate_tiles_batch(&mut self, tiles: impl IntoIterator<Item = impl Borrow<IVec2>>) {
+        let tile_to_allocate = tiles
+            .into_iter()
+            .filter_map(|t| {
+                if self.tiles.contains_key(t.borrow()) {
+                    None
+                } else {
+                    Some(*t.borrow())
+                }
+            })
+            .collect::<HashSet<_>>();
+        if tile_to_allocate.is_empty() {
+            return;
         }
+
+        self.reserve(tile_to_allocate.len());
+
+        let start_index = self.tiles.len() as u32;
+        let texture = self.texture.as_ref().unwrap().texture();
+
+        self.tiles.reserve(tile_to_allocate.len());
+
+        for (i, t) in tile_to_allocate.into_iter().enumerate() {
+            self.tiles.insert(
+                t,
+                texture.create_view(&TextureViewDescriptor {
+                    base_array_layer: start_index + i as u32,
+                    array_layer_count: Some(1),
+                    ..Default::default()
+                }),
+            );
+            self.tile_info_buffer.push(&GpuTileInfo::new(t));
+        }
+        self.tile_info_buffer
+            .write_buffer(&self.device, &self.queue);
     }
 
-    // TODO Add another api allocate_tiles(tiles: impl IntoIterator<Item = IVec2>)
-
-    pub fn get_tile_or_allocate(&mut self, coord: IVec2) -> Arc<TextureView> {
+    pub fn get_tile_or_allocate(&mut self, coord: IVec2) -> TextureView {
         if let Some(tile) = self.tiles.get(&coord) {
             return tile.clone();
         }
 
-        let tile = if let Some(texture) = self.texture.as_deref()
+        let tile = if let Some(texture) = &self.texture
             && self.tiles.len() < texture.texture().depth_or_array_layers() as usize
         {
-            let tile = Arc::new(texture.texture().create_view(&TextureViewDescriptor {
+            let tile = texture.texture().create_view(&TextureViewDescriptor {
                 base_array_layer: self.tiles.len() as u32,
                 array_layer_count: Some(1),
                 ..Default::default()
-            }));
+            });
 
             self.tiles.insert(coord, tile.clone());
 
             tile
         } else {
-            let next_size = match self.texture.as_deref() {
+            let next_size = match &self.texture {
                 Some(t) => {
                     (t.texture().depth_or_array_layers() as f32 * Self::GROWTH_RATE).ceil() as u32
                 }
                 None => 1,
             };
             let new_texture = self.device.create_texture(&TextureDescriptor {
-                label: Some("tile texture"),
+                label: Some(&self.texture_label),
                 size: Extent3d {
                     width: Self::TILE_SIZE,
                     height: Self::TILE_SIZE,
@@ -432,15 +505,11 @@ impl DynamicLayerStorage {
                 sample_count: 1,
                 dimension: TextureDimension::D2,
                 format: self.layer_info.texel_type.wgpu_format(),
-                usage: TextureUsages::TEXTURE_BINDING
-                    | TextureUsages::COPY_SRC
-                    | TextureUsages::COPY_DST
-                    | TextureUsages::STORAGE_BINDING
-                    | TextureUsages::RENDER_ATTACHMENT,
+                usage: self.texture_usages,
                 view_formats: &[],
             });
 
-            if let Some(old_texture) = self.texture.as_deref() {
+            if let Some(old_texture) = &self.texture {
                 let mut ce = self.device.create_command_encoder(&Default::default());
                 ce.copy_texture_to_texture(
                     old_texture.texture().as_image_copy(),
@@ -454,69 +523,57 @@ impl DynamicLayerStorage {
                 self.queue.submit([ce.finish()]);
             }
 
-            self.texture = Some(Arc::new(new_texture.create_view(&TextureViewDescriptor {
+            self.texture = Some(new_texture.create_view(&TextureViewDescriptor {
                 dimension: Some(TextureViewDimension::D2Array),
                 ..Default::default()
-            })));
+            }));
             for (i, tile) in self.tiles.values_mut().enumerate() {
-                *tile = Arc::new(new_texture.create_view(&TextureViewDescriptor {
+                *tile = new_texture.create_view(&TextureViewDescriptor {
                     base_array_layer: i as u32,
                     array_layer_count: Some(1),
                     ..Default::default()
-                }));
+                });
             }
 
-            let tile = Arc::new(new_texture.create_view(&TextureViewDescriptor {
+            let tile = new_texture.create_view(&TextureViewDescriptor {
                 base_array_layer: self.tiles.len() as u32,
                 array_layer_count: Some(1),
                 ..Default::default()
-            }));
+            });
             self.tiles.insert(coord, tile.clone());
 
             tile
         };
 
-        self.tile_info_buffer.push(&GpuTileInfo {
-            index: coord,
-            origin: coord * IVec2::splat(Self::TILE_SIZE as i32),
-        });
+        self.tile_info_buffer.push(&GpuTileInfo::new(coord));
         self.tile_info_buffer
             .write_buffer(&self.device, &self.queue);
 
         tile
     }
 
-    pub fn reserve(&mut self, additional: u32) {
-        if additional == 0 {
+    pub fn reserve(&mut self, additional: usize) {
+        if self.len() + additional <= self.capacity() {
             return;
         }
 
-        let new_capacity = self
-            .texture
-            .as_ref()
-            .map(|t| t.texture().depth_or_array_layers())
-            .unwrap_or_default()
-            + additional;
+        let new_capacity = self.len() + additional;
         let new_texture = self.device.create_texture(&TextureDescriptor {
-            label: Some("tile texture"),
+            label: Some(&self.texture_label),
             size: Extent3d {
                 width: Self::TILE_SIZE,
                 height: Self::TILE_SIZE,
-                depth_or_array_layers: new_capacity,
+                depth_or_array_layers: new_capacity as u32,
             },
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
             format: self.layer_info.texel_type.wgpu_format(),
-            usage: TextureUsages::TEXTURE_BINDING
-                | TextureUsages::COPY_SRC
-                | TextureUsages::COPY_DST
-                | TextureUsages::STORAGE_BINDING
-                | TextureUsages::RENDER_ATTACHMENT,
+            usage: self.texture_usages,
             view_formats: &[],
         });
 
-        if let Some(old_texture) = self.texture.as_deref() {
+        if let Some(old_texture) = &self.texture {
             let mut ce = self.device.create_command_encoder(&Default::default());
             ce.copy_texture_to_texture(
                 old_texture.texture().as_image_copy(),
@@ -530,17 +587,17 @@ impl DynamicLayerStorage {
             self.queue.submit([ce.finish()]);
         }
 
-        self.texture = Some(Arc::new(new_texture.create_view(&TextureViewDescriptor {
+        self.texture = Some(new_texture.create_view(&TextureViewDescriptor {
             dimension: Some(TextureViewDimension::D2Array),
             ..Default::default()
-        })));
+        }));
 
         for (i, tile) in self.tiles.values_mut().enumerate() {
-            *tile = Arc::new(new_texture.create_view(&TextureViewDescriptor {
+            *tile = new_texture.create_view(&TextureViewDescriptor {
                 base_array_layer: i as u32,
                 array_layer_count: Some(1),
                 ..Default::default()
-            }));
+            });
         }
     }
 
@@ -561,7 +618,7 @@ impl DynamicLayerStorage {
         self.tiles.keys().copied()
     }
 
-    pub fn iter_tiles(&self) -> impl Iterator<Item = (IVec2, u32, &Arc<TextureView>)> {
+    pub fn iter_tiles(&self) -> impl Iterator<Item = (IVec2, u32, &TextureView)> {
         self.tiles.iter().map(|(coord, texture)| {
             (
                 *coord,
@@ -579,6 +636,12 @@ impl DynamicLayerStorage {
         self.tiles.is_empty()
     }
 
+    pub fn capacity(&self) -> usize {
+        self.texture()
+            .map(|t| t.depth_or_array_layers() as usize)
+            .unwrap_or_default()
+    }
+
     pub fn create_allocated_empty_sibling(&self) -> Self {
         if self.tiles.is_empty() {
             return Self::new(self.device.clone(), self.queue.clone(), self.layer_info);
@@ -586,7 +649,7 @@ impl DynamicLayerStorage {
 
         let texture = self.texture.as_ref().unwrap().texture();
         let new_texture = self.device.create_texture(&TextureDescriptor {
-            label: Some("tile texture clone"),
+            label: Some(&self.texture_label),
             size: Extent3d {
                 width: Self::TILE_SIZE,
                 height: Self::TILE_SIZE,
@@ -596,18 +659,14 @@ impl DynamicLayerStorage {
             sample_count: 1,
             dimension: TextureDimension::D2,
             format: self.layer_info.texel_type.wgpu_format(),
-            usage: TextureUsages::TEXTURE_BINDING
-                | TextureUsages::COPY_SRC
-                | TextureUsages::COPY_DST
-                | TextureUsages::STORAGE_BINDING
-                | TextureUsages::RENDER_ATTACHMENT,
+            usage: self.texture_usages,
             view_formats: &[],
         });
 
-        let new_texture_view = Arc::new(new_texture.create_view(&TextureViewDescriptor {
+        let new_texture_view = new_texture.create_view(&TextureViewDescriptor {
             dimension: Some(TextureViewDimension::D2Array),
             ..Default::default()
-        }));
+        });
 
         let mut new_tiles = IndexMap::new();
         let mut new_tile_info_buffer =
@@ -616,16 +675,13 @@ impl DynamicLayerStorage {
         for (i, (coord, _)) in self.tiles.iter().enumerate() {
             new_tiles.insert(
                 *coord,
-                Arc::new(new_texture.create_view(&TextureViewDescriptor {
+                new_texture.create_view(&TextureViewDescriptor {
                     base_array_layer: i as u32,
                     array_layer_count: Some(1),
                     ..Default::default()
-                })),
+                }),
             );
-            new_tile_info_buffer.push(&GpuTileInfo {
-                index: *coord,
-                origin: *coord * IVec2::splat(Self::TILE_SIZE as i32),
-            });
+            new_tile_info_buffer.push(&GpuTileInfo::new(*coord));
         }
 
         new_tile_info_buffer.write_buffer(&self.device, &self.queue);
@@ -633,10 +689,12 @@ impl DynamicLayerStorage {
         Self {
             device: self.device.clone(),
             queue: self.queue.clone(),
+            texture_label: self.texture_label.clone(),
+            texture_usages: self.texture_usages,
+            layer_info: self.layer_info,
             texture: Some(new_texture_view),
             tiles: new_tiles,
             tile_info_buffer: new_tile_info_buffer,
-            layer_info: self.layer_info,
         }
     }
 

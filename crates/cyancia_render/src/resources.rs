@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use gpui::{App, Global};
 use wesl::include_wesl;
 use wgpu::{
@@ -7,14 +5,14 @@ use wgpu::{
     ShaderModuleDescriptor, ShaderSource, VertexState,
 };
 
-use crate::render_context::RenderContext;
+use crate::render_context::{RenderContext, RenderContextAppExt};
 
 #[derive(Debug)]
 pub struct GlobalSamplers {
-    nearest_clamp: Arc<Sampler>,
-    linear_clamp: Arc<Sampler>,
-    nearest_wrap: Arc<Sampler>,
-    linear_wrap: Arc<Sampler>,
+    nearest_clamp: Sampler,
+    linear_clamp: Sampler,
+    nearest_wrap: Sampler,
+    linear_wrap: Sampler,
 }
 
 impl Global for GlobalSamplers {}
@@ -71,10 +69,10 @@ impl GlobalSamplers {
         });
 
         Self {
-            nearest_clamp: Arc::new(nearest_clamp),
-            linear_clamp: Arc::new(linear_clamp),
-            nearest_wrap: Arc::new(nearest_wrap),
-            linear_wrap: Arc::new(linear_wrap),
+            nearest_clamp,
+            linear_clamp,
+            nearest_wrap,
+            linear_wrap,
         }
     }
 
@@ -104,8 +102,8 @@ impl Global for FullscreenVertex {}
 
 impl FullscreenVertex {
     pub fn from_app(cx: &App) -> Self {
-        let render_context = cx.global::<RenderContext>();
-        Self::new(&render_context.device)
+        let device = cx.render_device();
+        Self::new(device)
     }
 
     pub fn new(device: &Device) -> Self {
