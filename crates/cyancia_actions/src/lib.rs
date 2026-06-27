@@ -1,16 +1,10 @@
 use std::collections::HashMap;
 
 use cyancia_assets::AssetAppExt;
-use gpui::{Action, App, DummyKeyboardMapper, Global, KeyBinding, KeyBindingContextPredicate};
+use gpui::{Action, App, Global, KeyBinding, KeyBindingContextPredicate};
 
 use crate::{
     brush::OpenBrushEditorAction,
-    canvas_control::{
-        SwitchToBrushToolAction, SwitchToBucketToolAction, SwitchToEllipticalSelectionToolAction,
-        SwitchToFreehandSelectionToolAction, SwitchToMagicWandSelectionToolAction,
-        SwitchToPanToolAction, SwitchToPolygonSelectionToolAction,
-        SwitchToRectangularSelectionToolAction, SwitchToRotateToolAction, SwitchToZoomToolAction,
-    },
     file::OpenFileAction,
     layer::{CreateNewLayerAction, GroupActiveLayerAction, MoveLayerDownAction, MoveLayerUpAction},
     manifest::{KeyBindingDefManifest, KeyBindingDefManifestLoader},
@@ -19,7 +13,6 @@ use crate::{
 };
 
 pub mod brush;
-pub mod canvas_control;
 pub mod file;
 pub mod layer;
 pub mod manifest;
@@ -47,16 +40,6 @@ pub mod undo;
 pub fn init(cx: &mut App) {
     cx.add_asset_serializer::<KeyBindingDefManifestLoader>();
     cx.set_global(ActionFunctionRegistry::default());
-    cx.add_action_function::<SwitchToPanToolAction>();
-    cx.add_action_function::<SwitchToRotateToolAction>();
-    cx.add_action_function::<SwitchToZoomToolAction>();
-    cx.add_action_function::<SwitchToBrushToolAction>();
-    cx.add_action_function::<SwitchToBucketToolAction>();
-    cx.add_action_function::<SwitchToRectangularSelectionToolAction>();
-    cx.add_action_function::<SwitchToEllipticalSelectionToolAction>();
-    cx.add_action_function::<SwitchToFreehandSelectionToolAction>();
-    cx.add_action_function::<SwitchToPolygonSelectionToolAction>();
-    cx.add_action_function::<SwitchToMagicWandSelectionToolAction>();
     cx.add_action_function::<DeleteSelectionAction>();
     cx.add_action_function::<OpenFileAction>();
     cx.add_action_function::<CreateNewLayerAction>();
@@ -101,9 +84,9 @@ pub fn finish(cx: &mut App) {
                 &def.shortcut,
                 function_parser(def.action_data.clone())?,
                 context,
-                false,
+                true,
                 None,
-                &DummyKeyboardMapper,
+                cx.keyboard_mapper().as_ref(),
             )?)
         })
         .enumerate()

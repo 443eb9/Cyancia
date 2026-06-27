@@ -7,16 +7,19 @@ use cyancia_image::{
     tile::{GpuTileStorage, TileStorageAppExt},
 };
 use cyancia_render::render_context::RenderContextAppExt;
-use cyancia_tools::{ToolProxies, ToolProxy, ToolProxyId};
+use cyancia_tools::{ToolProxies, ToolProxyId};
 use glam::{IVec2, UVec2, Vec2};
 use gpui::{
-    App, AppContext, BorrowAppContext, Context, Corners, InteractiveElement, IntoElement,
-    MouseButton, MouseMoveEvent, MouseUpEvent, ObjectFit, ParentElement, Render, RenderImage,
-    Styled, WeakEntity, Window, canvas, div, px,
+    AppContext, BorrowAppContext, Context, Corners, InteractiveElement, IntoElement, MouseButton,
+    MouseMoveEvent, MouseUpEvent, ObjectFit, ParentElement, Render, RenderImage, Styled,
+    WeakEntity, Window, canvas, div, px,
 };
 use wgpu::PollType;
 
-use crate::{CCanvas, CanvasAppExt, CanvasId, event::CanvasUpdated, render::CanvasRenderer};
+use crate::{
+    CCanvas, CanvasAppExt, CanvasId, control::CanvasTransform, event::CanvasUpdated,
+    render::CanvasRenderer,
+};
 
 // TODO: So, this is weird.
 //       For the brush tool, when a stroke is in progress, it's preview should be generated and
@@ -40,6 +43,8 @@ pub struct CanvasWidget {
     ongoing_render: bool,
     dirty_tiles: IRect,
     compositor: ImageCompositor,
+
+    middle_button_drag_start: Option<(Vec2, CanvasTransform)>,
 }
 
 impl CanvasWidget {
@@ -85,6 +90,8 @@ impl CanvasWidget {
             ongoing_render: false,
             dirty_tiles,
             compositor: ImageCompositor::new(),
+
+            middle_button_drag_start: None,
         })
     }
 
@@ -197,8 +204,9 @@ impl CanvasWidget {
 }
 
 impl Render for CanvasWidget {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tool_proxy_id = self.tool_proxy_id;
+        self.request_rerender(window, cx);
 
         div()
             .w_full()
@@ -243,6 +251,8 @@ impl Render for CanvasWidget {
                     },
                     {
                         let widget = cx.entity().downgrade();
+                        let canvas = self.canvas.clone();
+
                         move |bounds, _, window, cx| {
                             if let Some(image) = widget
                                 .read_with(cx, |widget, _| widget.latest_image.clone())
@@ -263,38 +273,54 @@ impl Render for CanvasWidget {
 
                             window.on_mouse_event({
                                 let widget = widget.clone();
-                                move |event: &MouseMoveEvent, phase, window, cx| {
+                                move |event: &MouseMoveEvent, phase, _window, cx| {
                                     if !phase.capture() {
                                         return;
                                     }
 
-                                    update_tool_proxy(
-                                        cx,
-                                        window,
-                                        &widget,
-                                        tool_proxy_id,
-                                        |tool_proxy, cx| {
+                                    if event
+                                        .pressed_button
+                                        .is_some_and(|b| b == MouseButton::Middle)
+                                    {
+                                        let position = Vec2::new(
+                                            event.position.x.into(),
+                                            event.position.y.into(),
+                                        );
+                                        let Ok(Some((start_position, original_transform))) = widget
+                                            .read_with(cx, |w, _| {
+                                                w.middle_button_drag_start.clone()
+                                            })
+                                        else {
+                                            return;
+                                        };
+                                        let delta = position - start_position;
+                                        canvas
+                                            .update(cx, |canvas, _cx| {
+                                                canvas.transform =
+                                                    original_transform.translated(delta);
+                                            })
+                                            .ok();
+                                    }
+
+                                    if event.pressed_button.is_none_or(|b| b == MouseButton::Left) {
+                                        cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
+                                            let tool_proxy = tool_proxies.get_mut(&tool_proxy_id);
                                             tool_proxy.mouse_moved(event, cx);
-                                        },
-                                    );
+                                        });
+                                    }
                                 }
                             });
 
                             window.on_mouse_event(
-                                move |event: &MouseUpEvent, phase, window, cx| {
+                                move |event: &MouseUpEvent, phase, _window, cx| {
                                     if !phase.capture() || event.button != MouseButton::Left {
                                         return;
                                     }
 
-                                    update_tool_proxy(
-                                        cx,
-                                        window,
-                                        &widget,
-                                        tool_proxy_id,
-                                        |tool_proxy, cx| {
-                                            tool_proxy.mouse_released(event, cx);
-                                        },
-                                    );
+                                    cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
+                                        let tool_proxy = tool_proxies.get_mut(&tool_proxy_id);
+                                        tool_proxy.mouse_released(event, cx);
+                                    });
                                 },
                             );
                         }
@@ -303,33 +329,72 @@ impl Render for CanvasWidget {
                 .absolute()
                 .size_full(),
             )
-            .on_mouse_down(MouseButton::Left, {
+            .on_any_mouse_down({
                 let widget = cx.entity().downgrade();
-                move |event, window, cx| {
-                    update_tool_proxy(cx, window, &widget, tool_proxy_id, |tool_proxy, cx| {
-                        tool_proxy.mouse_pressed(event, cx);
-                    });
-                    cx.stop_propagation();
+                move |event, _window, cx| match event.button {
+                    MouseButton::Left => {
+                        cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
+                            let tool_proxy = tool_proxies.get_mut(&tool_proxy_id);
+                            tool_proxy.mouse_pressed(event, cx);
+                        });
+                        cx.stop_propagation();
+                    }
+                    MouseButton::Middle => {
+                        widget
+                            .update(cx, |widget, cx| {
+                                let Ok(canvas_transform) = widget
+                                    .canvas
+                                    .read_with(cx, |canvas, _| canvas.transform.clone())
+                                else {
+                                    return;
+                                };
+                                widget.middle_button_drag_start = Some((
+                                    Vec2::new(event.position.x.into(), event.position.y.into()),
+                                    canvas_transform,
+                                ));
+                            })
+                            .ok();
+                        cx.stop_propagation();
+                    }
+                    _ => {}
+                }
+            })
+            .on_scroll_wheel({
+                let canvas = self.canvas.clone();
+                move |event, _window, cx| {
+                    canvas
+                        .update(cx, |canvas, _cx| {
+                            let line_height = if event.alt { 30.0 } else { 15.0 };
+                            let delta = event.delta.pixel_delta(px(line_height));
+                            let delta = Vec2::new(delta.x.into(), delta.y.into());
+
+                            if event.modifiers.control {
+                                let position_ss =
+                                    Vec2::new(event.position.x.into(), event.position.y.into());
+                                if let Some(center) = canvas.transform.window_to_pixel(position_ss)
+                                {
+                                    let factor = line_height / 60.0;
+                                    canvas.transform.scale_around(
+                                        if delta.y > 0.0 {
+                                            1.0 + factor
+                                        } else {
+                                            1.0 - factor
+                                        },
+                                        center,
+                                    );
+                                }
+                            } else {
+                                if delta.x > 0.0 {
+                                    canvas.transform.translate(delta);
+                                } else if event.shift {
+                                    canvas.transform.translate(Vec2::X * delta.y);
+                                } else {
+                                    canvas.transform.translate(Vec2::Y * delta.y);
+                                }
+                            }
+                        })
+                        .ok();
                 }
             })
     }
-}
-
-fn update_tool_proxy(
-    cx: &mut App,
-    window: &mut Window,
-    widget: &WeakEntity<CanvasWidget>,
-    tool_proxy_id: ToolProxyId,
-    f: impl FnOnce(&mut ToolProxy, &mut App),
-) {
-    cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
-        let tool_proxy = tool_proxies.get_mut(&tool_proxy_id);
-        f(tool_proxy, cx);
-    });
-
-    widget
-        .update(cx, |widget, cx| {
-            widget.request_rerender(window, cx);
-        })
-        .ok();
 }
