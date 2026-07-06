@@ -1,21 +1,28 @@
 use std::any::TypeId;
 
 use bevy_math::IRect;
-use cyancia_render::bind_group_layout_entries::{BindGroupLayoutEntries, binding_types};
+use cyancia_render::{
+    bind_group_entries::BindGroupEntries,
+    bind_group_layout_entries::{BindGroupLayoutEntries, binding_types},
+    buffer::DynamicBuffer,
+};
 use glam::{IVec2, UVec3};
 use wesl::{VirtualResolver, Wesl};
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
-    BindingResource, Buffer, ComputePass, ComputePipeline, ComputePipelineDescriptor, Device,
+    BindGroup, BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor, Buffer,
+    BufferUsages, ComputePass, ComputePipeline, ComputePipelineDescriptor, Device,
     PipelineLayoutDescriptor, Queue, ShaderModuleDescriptor, ShaderSource, ShaderStages,
     StorageTextureAccess, TextureView,
 };
 
 use crate::{
     CImage,
-    composite::{ImageCompositor, LayerPreviewOverriders},
+    composite::{
+        BlendFunctionId, BlendFunctionRegistry, BlendLayerParams, ImageCompositor,
+        LayerPreviewOverriders,
+    },
     dynamic_intermediate_buffer::IntermediateBuffer,
-    layer::{Layer, LayerData, LayerStackNode},
+    layer::{Layer, LayerId},
     tile::{GpuTileInfo, GpuTileStorage},
 };
 
@@ -36,16 +43,23 @@ impl Layer for GroupLayer {
         compositor: &mut ImageCompositor,
         overriders: &mut LayerPreviewOverriders,
         image: &CImage,
-        layer: &LayerData,
-        node: &LayerStackNode,
+        layer_id: LayerId,
         tiles: &GpuTileStorage,
+        blend_funcs: &BlendFunctionRegistry,
         device: &Device,
         queue: &Queue,
     ) {
-        for child_node in node.iter_children_composite_order() {
-            let child_layer = image.layer_stack().get_layer(child_node.id).unwrap();
-            child_layer.create_blend_cache(
-                compositor, overriders, image, child_node, tiles, device, queue,
+        let node = image.layer_stack().get_layer(&layer_id).unwrap();
+        for child_id in node.iter_children_composite_order() {
+            let child_layer = image.layer_stack().get_layer(child_id).unwrap();
+            child_layer.data().create_blend_cache(
+                compositor,
+                overriders,
+                image,
+                tiles,
+                blend_funcs,
+                device,
+                queue,
             );
         }
 
@@ -54,17 +68,20 @@ impl Layer for GroupLayer {
             max: image.size().as_ivec2(),
         });
 
-        if let Some(cache) = compositor.get_blend_cache::<GroupBlendCache>(&layer.id())
-            && cache.blend_func_name == layer.blend_func.name()
+        if let Some(cache) = compositor.get_blend_cache::<GroupBlendCache>(&layer_id)
+            && cache.blend_func_name == node.data().blend_func
             && cache.intermediate.texel_type() == image.texel_type()
             && cache.intermediate.tile_rect() == tile_rect
         {
             return;
         }
 
+        let blend_func = blend_funcs
+            .get(&node.data().blend_func)
+            .unwrap_or_else(|| panic!("Blend function '{}' not found", node.data().blend_func));
         let shader = include_str!("../blend_layers.wesl").replace(
             "//CODEGEN_BLEND_FUNC",
-            &layer.blend_func.wgsl_function_call("src", "dst"),
+            &blend_func.wgsl_function_call("src", "dst"),
         );
 
         let mut resolver = VirtualResolver::new();
@@ -103,6 +120,7 @@ impl Layer for GroupLayer {
             entries: &BindGroupLayoutEntries::sequential(
                 ShaderStages::COMPUTE,
                 (
+                    binding_types::uniform_buffer::<GpuTileInfo>(false),
                     binding_types::texture_storage_2d_array(
                         image.texel_type().wgpu_format(),
                         StorageTextureAccess::ReadOnly,
@@ -137,14 +155,20 @@ impl Layer for GroupLayer {
             cache: None,
         });
 
+        let params_buffer = DynamicBuffer::new(
+            Some("group layer blend params buffer".into()),
+            BufferUsages::UNIFORM,
+        );
+
         let cache = GroupBlendCache {
-            blend_func_name: layer.blend_func.name(),
+            blend_func_name: node.data().blend_func.clone(),
             intermediate: IntermediateBuffer::new(device, queue, tile_rect, image.texel_type()),
+            params_buffer,
             layout,
             pipeline,
             dispatch: None,
         };
-        compositor.insert_blend_cache(layer.id(), cache);
+        compositor.insert_blend_cache(layer_id, cache);
     }
 
     fn prepare_blend_cache(
@@ -152,8 +176,7 @@ impl Layer for GroupLayer {
         compositor: &mut ImageCompositor,
         overriders: &LayerPreviewOverriders,
         image: &CImage,
-        layer: &LayerData,
-        node: &LayerStackNode,
+        layer_id: LayerId,
         tiles: &GpuTileStorage,
         dst_buffer: &TextureView,
         dst_tile_info: &Buffer,
@@ -162,22 +185,37 @@ impl Layer for GroupLayer {
         device: &Device,
         queue: &Queue,
     ) {
-        let Some(cache) = compositor.get_blend_cache::<GroupBlendCache>(&layer.id()) else {
-            log::error!("BlendCache is not created for layer {}", layer.name);
+        let Some(cache) = compositor.get_blend_cache_mut::<GroupBlendCache>(&layer_id) else {
+            log::error!("BlendCache is not created for layer {}", layer_id);
             return;
         };
+        let node = image.layer_stack().get_layer(&layer_id).unwrap();
+
+        cache.params_buffer.clear();
+        cache.params_buffer.push(&BlendLayerParams {
+            src_opacity: node.data().opacity,
+            src_disabled_channels: node.data().disabled_channels,
+            _pad: Default::default(),
+        });
+        cache.params_buffer.write_buffer(device, queue);
+
+        cache.intermediate.clear(device, queue);
 
         let mut next_output = 1;
         let textures = cache.intermediate.textures().clone();
         let tile_info = cache.intermediate.tile_info_buffer().clone();
+        let node = image.layer_stack().get_layer(&layer_id).unwrap();
 
         for child_node in node.iter_children_composite_order() {
-            let child_layer = image.layer_stack().get_layer(child_node.id).unwrap();
-            child_layer.prepare_blend_cache(
+            let child_layer = image.layer_stack().get_layer(child_node).unwrap();
+            if !child_layer.data().is_visible {
+                continue;
+            }
+
+            child_layer.data().prepare_blend_cache(
                 compositor,
                 overriders,
                 image,
-                child_node,
                 tiles,
                 &textures[1 - next_output],
                 &tile_info,
@@ -190,40 +228,22 @@ impl Layer for GroupLayer {
         }
 
         let cache = compositor
-            .get_blend_cache_mut::<GroupBlendCache>(&layer.id())
+            .get_blend_cache_mut::<GroupBlendCache>(&layer_id)
             .unwrap();
 
         let bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: "layer blend bind group".into(),
             layout: &cache.layout,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::TextureView(
-                        &cache.intermediate.textures()[1 - next_output],
-                    ),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: cache.intermediate.tile_info_buffer().as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: BindingResource::TextureView(dst_buffer),
-                },
-                BindGroupEntry {
-                    binding: 3,
-                    resource: dst_tile_info.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 4,
-                    resource: BindingResource::TextureView(output),
-                },
-                BindGroupEntry {
-                    binding: 5,
-                    resource: output_tile_info.as_entire_binding(),
-                },
-            ],
+            entries: BindGroupEntries::sequential((
+                cache.params_buffer.binding().unwrap(),
+                &cache.intermediate.textures()[1 - next_output],
+                cache.intermediate.tile_info_buffer().as_entire_binding(),
+                dst_buffer,
+                dst_tile_info.as_entire_binding(),
+                output,
+                output_tile_info.as_entire_binding(),
+            ))
+            .as_ref(),
         });
 
         let workgroup_count =
@@ -237,17 +257,23 @@ impl Layer for GroupLayer {
         compositor: &ImageCompositor,
         pass: &mut ComputePass,
         image: &CImage,
-        layer: &LayerData,
-        node: &LayerStackNode,
+        layer_id: LayerId,
         tiles: &GpuTileStorage,
     ) {
+        let node = image.layer_stack().get_layer(&layer_id).unwrap();
         for child_node in node.iter_children_composite_order() {
-            let child_layer = image.layer_stack().get_layer(child_node.id).unwrap();
-            child_layer.dispatch_blend(compositor, pass, image, child_node, tiles);
+            let child_layer = image.layer_stack().get_layer(child_node).unwrap();
+            if !child_layer.data().is_visible {
+                continue;
+            }
+
+            child_layer
+                .data()
+                .dispatch_blend(compositor, pass, image, tiles);
         }
 
-        let Some(cache) = compositor.get_blend_cache::<GroupBlendCache>(&layer.id()) else {
-            log::error!("BlendCache is not created for layer {}", layer.name);
+        let Some(cache) = compositor.get_blend_cache::<GroupBlendCache>(&layer_id) else {
+            log::error!("BlendCache is not created for layer {}", layer_id);
             return;
         };
 
@@ -263,8 +289,9 @@ impl Layer for GroupLayer {
 }
 
 pub struct GroupBlendCache {
-    blend_func_name: String,
+    blend_func_name: BlendFunctionId,
     intermediate: IntermediateBuffer,
+    params_buffer: DynamicBuffer<BlendLayerParams>,
     layout: BindGroupLayout,
     pipeline: ComputePipeline,
     dispatch: Option<(BindGroup, UVec3)>,

@@ -17,7 +17,7 @@
     },
     {
       "shortcut": "ctrl-g",
-      "action_name": "GroupActiveLayerAction",
+      "action_name": "GroupSelectedLayersAction",
       "context": "main_view"
     },
     {
@@ -28,6 +28,11 @@
     {
       "shortcut": "ctrl-shift-down",
       "action_name": "MoveLayerDownAction",
+      "context": "main_view"
+    },
+    {
+      "shortcut": "ctrl-delete",
+      "action_name": "DeleteSelectedLayersAction",
       "context": "main_view"
     },
     {
@@ -43,6 +48,21 @@
     {
       "shortcut": "ctrl-d",
       "action_name": "DeleteSelectionAction",
+      "context": "main_view"
+    },
+    {
+      "shortcut": "ctrl-down",
+      "action_name": "SelectNextLayerAction",
+      "context": "main_view"
+    },
+    {
+      "shortcut": "ctrl-up",
+      "action_name": "SelectPreviousLayerAction",
+      "context": "main_view"
+    },
+    {
+      "shortcut": "ctrl-v",
+      "action_name": "PasteIntoNewLayerAction",
       "context": "main_view"
     }
   ]

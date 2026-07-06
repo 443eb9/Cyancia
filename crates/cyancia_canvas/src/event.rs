@@ -1,4 +1,5 @@
 use bevy_math::IRect;
+use cyancia_image::layer::{LayerData, LayerId};
 
 use crate::CanvasId;
 
@@ -24,4 +25,13 @@ pub struct CanvasUpdated {
 }
 
 #[derive(Debug, Clone)]
-pub struct CanvasLayerStackUpdated {}
+pub struct CanvasActiveLayerChanged {
+    pub from: LayerId,
+    pub to: LayerId,
+}
+
+#[derive(Debug, Clone)]
+pub struct CanvasLayerPropertyChanged {
+    pub layer_id: LayerId,
+    pub old: LayerData,
+}

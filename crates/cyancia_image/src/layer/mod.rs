@@ -6,14 +6,20 @@ use std::{
 use cyancia_utils::wrapper;
 use dyn_clone::DynClone;
 use image::DynamicImage;
+use indexmap::IndexSet;
 use parse_display::Display;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use wgpu::{Buffer, ComputePass, Device, Queue, TextureView};
 
 use crate::{
     CImage,
     blend_modes::BlendMode,
-    composite::{BlendFunction, ImageCompositor, LayerPreviewOverriders},
+    composite::{
+        BlendFunction, BlendFunctionId, BlendFunctionRegistry, ImageCompositor,
+        LayerPreviewOverriders,
+    },
     layer::{group_layer::GroupLayer, pixel_layer::PixelLayer},
     tile::GpuTileStorage,
 };
@@ -35,15 +41,23 @@ impl LayerNameGenerator {
 }
 
 wrapper! {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, Serialize, Deserialize, JsonSchema)]
     pub LayerId : Uuid
 }
 
+// TODO This should not be a fixed struct.
+//      For example, for vector layers, the locked_channels is not valid.
+//      In the future, this might be a dynamic map provided by the specific layer type?
 #[derive(Clone)]
 pub struct LayerData {
     id: LayerId,
     pub name: String,
-    pub blend_func: Box<dyn BlendFunction>,
+    pub blend_func: BlendFunctionId,
+    pub opacity: f32,
+    pub is_visible: bool,
+    pub is_locked: bool,
+    disabled_channels: u32,
+    locked_channels: u32,
     data: Box<dyn Layer>,
 }
 
@@ -52,52 +66,85 @@ impl std::fmt::Debug for LayerData {
         f.debug_struct("Layer")
             .field("id", &self.id)
             .field("name", &self.name)
-            .field("blend_func", &self.blend_func.name())
+            .field("blend_func", &self.blend_func)
+            .field("opacity", &self.opacity)
+            .field("visible", &self.is_visible)
+            .field("locked", &self.is_locked)
+            .field("disabled_channels", &self.disabled_channels)
+            .field("locked_channels", &self.locked_channels)
             .finish()
     }
 }
 
 impl LayerData {
-    pub fn new(name: String, blend_func: Box<dyn BlendFunction>, data: Box<dyn Layer>) -> Self {
+    pub fn new(name: String, blend_func: BlendFunctionId, data: Box<dyn Layer>) -> Self {
         Self {
             id: LayerId::new(Uuid::new_v4()),
             name,
             blend_func,
+            opacity: 1.0,
+            is_visible: true,
+            is_locked: false,
+            disabled_channels: 0,
+            locked_channels: 0,
             data,
         }
     }
 
     pub fn new_normal_pixel(name: String) -> Self {
-        Self::new(name, Box::new(BlendMode::Normal), Box::new(PixelLayer))
+        Self::new(name, BlendMode::Normal.id(), Box::new(PixelLayer))
     }
 
     pub fn new_normal_group(name: String) -> Self {
-        Self::new(name, Box::new(BlendMode::Normal), Box::new(GroupLayer))
+        Self::new(name, BlendMode::Normal.id(), Box::new(GroupLayer))
     }
 
-    pub fn id(&self) -> LayerId {
-        self.id
+    pub fn id(&self) -> &LayerId {
+        &self.id
+    }
+
+    pub fn ty(&self) -> &dyn Layer {
+        self.data.as_ref()
     }
 
     pub fn from_image(
         name: String,
         img: DynamicImage,
         tiles: &GpuTileStorage,
-        blend_func: Box<dyn BlendFunction>,
+        blend_func: BlendFunctionId,
     ) -> Self {
-        let id = LayerId::new(Uuid::new_v4());
-        tiles.upload_image(id, img);
+        let layer = Self::new(name, blend_func, Box::new(PixelLayer));
+        tiles.upload_image(layer.id, img);
+        layer
+    }
 
-        Self {
-            id,
-            name,
-            blend_func,
-            data: Box::new(PixelLayer),
+    pub fn set_channel_disabled(&mut self, channel: u32, locked: bool) {
+        if locked {
+            self.disabled_channels |= 1 << channel;
+        } else {
+            self.disabled_channels &= !(1 << channel);
         }
     }
 
-    pub fn can_have_children_of<T: Layer>(&self) -> bool {
-        self.data.can_have_children_of(std::any::TypeId::of::<T>())
+    pub fn is_channel_disabled(&self, channel: u32) -> bool {
+        self.disabled_channels & (1 << channel) != 0
+    }
+
+    pub fn set_channel_locked(&mut self, channel: u32, locked: bool) {
+        if locked {
+            self.locked_channels |= 1 << channel;
+        } else {
+            self.locked_channels &= !(1 << channel);
+        }
+    }
+
+    pub fn is_channel_locked(&self, channel: u32) -> bool {
+        self.locked_channels & (1 << channel) != 0
+    }
+
+    pub fn can_have_children_of(&self, maybe_child: &Self) -> bool {
+        self.data
+            .can_have_children_of(maybe_child.data.as_ref().type_id())
     }
 
     pub fn can_contain_pixels(&self) -> bool {
@@ -109,13 +156,20 @@ impl LayerData {
         compositor: &mut ImageCompositor,
         overriders: &mut LayerPreviewOverriders,
         image: &CImage,
-        node: &LayerStackNode,
         tiles: &GpuTileStorage,
+        blend_funcs: &BlendFunctionRegistry,
         device: &Device,
         queue: &Queue,
     ) {
         self.data.create_blend_cache(
-            compositor, overriders, image, self, node, tiles, device, queue,
+            compositor,
+            overriders,
+            image,
+            self.id,
+            tiles,
+            blend_funcs,
+            device,
+            queue,
         )
     }
 
@@ -124,7 +178,6 @@ impl LayerData {
         compositor: &mut ImageCompositor,
         overriders: &LayerPreviewOverriders,
         image: &CImage,
-        node: &LayerStackNode,
         tiles: &GpuTileStorage,
         dst_buffer: &TextureView,
         dst_tile_info: &Buffer,
@@ -137,8 +190,7 @@ impl LayerData {
             compositor,
             overriders,
             image,
-            self,
-            node,
+            self.id,
             tiles,
             dst_buffer,
             dst_tile_info,
@@ -154,11 +206,10 @@ impl LayerData {
         compositor: &ImageCompositor,
         pass: &mut ComputePass,
         image: &CImage,
-        node: &LayerStackNode,
         tiles: &GpuTileStorage,
     ) {
         self.data
-            .dispatch_blend(compositor, pass, image, self, node, tiles)
+            .dispatch_blend(compositor, pass, image, self.id, tiles)
     }
 }
 
@@ -171,9 +222,9 @@ pub trait Layer: Send + Sync + DynClone + 'static {
         compositor: &mut ImageCompositor,
         overriders: &mut LayerPreviewOverriders,
         image: &CImage,
-        layer: &LayerData,
-        node: &LayerStackNode,
+        layer_id: LayerId,
         tiles: &GpuTileStorage,
+        blend_funcs: &BlendFunctionRegistry,
         device: &Device,
         queue: &Queue,
     );
@@ -182,8 +233,7 @@ pub trait Layer: Send + Sync + DynClone + 'static {
         compositor: &mut ImageCompositor,
         overriders: &LayerPreviewOverriders,
         image: &CImage,
-        layer: &LayerData,
-        node: &LayerStackNode,
+        layer_id: LayerId,
         tiles: &GpuTileStorage,
         dst_buffer: &TextureView,
         dst_tile_info: &Buffer,
@@ -197,18 +247,51 @@ pub trait Layer: Send + Sync + DynClone + 'static {
         compositor: &ImageCompositor,
         pass: &mut ComputePass,
         image: &CImage,
-        layer: &LayerData,
-        node: &LayerStackNode,
+        layer_id: LayerId,
         tiles: &GpuTileStorage,
     );
 }
 dyn_clone::clone_trait_object!(Layer);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayerPosition {
+    Absolute(usize),
+    Above(Option<LayerId>),
+    Below(Option<LayerId>),
+}
+
+impl LayerPosition {
+    pub fn above(layer_id: LayerId) -> Self {
+        LayerPosition::Above(Some(layer_id))
+    }
+
+    pub fn below(layer_id: LayerId) -> Self {
+        LayerPosition::Below(Some(layer_id))
+    }
+
+    pub fn foreground() -> Self {
+        LayerPosition::Below(None)
+    }
+
+    pub fn background() -> Self {
+        LayerPosition::Above(None)
+    }
+
+    pub fn absolute(index: usize) -> Self {
+        LayerPosition::Absolute(index)
+    }
+}
+
+impl From<usize> for LayerPosition {
+    fn from(value: usize) -> Self {
+        LayerPosition::Absolute(value)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LayerStack {
-    // TODO Move layer data into node
-    root: LayerStackNode,
-    layers: HashMap<LayerId, LayerData>,
+    root: LayerId,
+    layers: HashMap<LayerId, LayerStackNode>,
 }
 
 impl Default for LayerStack {
@@ -225,34 +308,158 @@ impl LayerStack {
 
     pub fn with_background_layer(background: LayerData) -> Self {
         let root = LayerData::new_normal_group("Root".to_string());
-        let mut root_node = LayerStackNode::new(root.id);
-        let background_node = LayerStackNode::new(background.id);
-        root_node.insert_foreground_child(background_node);
+        let mut root_node = LayerStackNode::without_parent(root);
+        let background_node = LayerStackNode::new(*root_node.id(), background);
+
+        root_node.insert_foreground_child(*background_node.id());
 
         Self {
-            root: root_node,
-            layers: HashMap::from([(root.id, root), (background.id, background)]),
+            root: *root_node.id(),
+            layers: HashMap::from([
+                (*root_node.id(), root_node),
+                (*background_node.id(), background_node),
+            ]),
         }
     }
 
-    pub fn root_id(&self) -> LayerId {
-        self.root.id
-    }
-
-    pub fn root_node(&self) -> &LayerStackNode {
+    pub fn root_id(&self) -> &LayerId {
         &self.root
     }
 
-    pub fn add_layer(&mut self, parent_id: LayerId, index: usize, layer: LayerData) {
-        let parent_node = self.find_node_mut(parent_id);
-        if let Some(parent_node) = parent_node {
-            parent_node.insert_child(index, LayerStackNode::new(layer.id));
-            self.layers.insert(layer.id, layer);
-        }
+    pub fn root_node(&self) -> &LayerStackNode {
+        self.layers.get(&self.root).unwrap()
     }
 
-    pub fn insert_isolated_layer(&mut self, layer: LayerData) {
-        self.layers.insert(layer.id, layer);
+    pub fn add_layer(
+        &mut self,
+        parent_id: LayerId,
+        position: impl Into<LayerPosition>,
+        mut layer: LayerStackNode,
+    ) {
+        let Some(parent_node) = self.get_layer_mut(&parent_id) else {
+            return;
+        };
+
+        if parent_node.insert_child(position, *layer.id()).is_none() {
+            return;
+        }
+        layer.parent = Some(parent_id);
+        self.layers.insert(*layer.id(), layer);
+    }
+
+    pub fn add_layer_hierarchy(
+        &mut self,
+        parent_id: LayerId,
+        position: impl Into<LayerPosition>,
+        root: LayerId,
+        mut layers: HashMap<LayerId, LayerStackNode>,
+    ) {
+        let Some(parent_node) = self.get_layer_mut(&parent_id) else {
+            return;
+        };
+
+        let Some(root_node) = layers.get_mut(&root) else {
+            return;
+        };
+
+        if parent_node.insert_child(position, root).is_none() {
+            return;
+        }
+        root_node.parent = Some(parent_id);
+        self.layers.extend(layers);
+    }
+
+    pub fn insert_isolated_layer(&mut self, mut layer: LayerStackNode) {
+        layer.parent = None;
+        self.layers.insert(*layer.id(), layer);
+    }
+
+    pub fn sort_by_depth_and_index(
+        &self,
+        layers: impl IntoIterator<Item = LayerId>,
+    ) -> Option<Vec<LayerId>> {
+        // The deeper the closer to the front, the closer to the front in same parent, the closer to the front.
+        let mut same_parent = Vec::<HashMap<LayerId, Vec<LayerId>>>::new();
+
+        for layer in layers {
+            let parent = self.get_layer(&layer)?.parent?;
+            let depth = self.depth_of(&parent).unwrap() as usize;
+
+            if depth >= same_parent.len() {
+                same_parent.resize(depth + 1, HashMap::new());
+            }
+
+            same_parent[depth].entry(parent).or_default().push(layer);
+        }
+
+        for layers in &mut same_parent {
+            for (parent, layers) in layers.iter_mut() {
+                layers.sort_by_cached_key(|l| {
+                    self.get_layer(parent).unwrap().child_index(l).unwrap()
+                });
+            }
+        }
+
+        Some(
+            same_parent
+                .into_iter()
+                .rev()
+                .flat_map(HashMap::into_values)
+                .flatten()
+                .collect(),
+        )
+    }
+
+    pub fn sort_by_visual_index(&self, layers: &mut [LayerId]) {
+        layers.sort_by_cached_key(|l| self.visual_index(l).unwrap());
+    }
+
+    /// Returns the visual index of a layer.
+    ///
+    /// For example, the visual_index of layer E D C B A is `1 2 3 4 5`
+    ///
+    /// ```text
+    /// - A
+    ///   - B
+    ///     - C
+    ///     - D
+    ///   - E
+    /// - Background
+    /// ```
+    pub fn visual_index(&self, layer_id: &LayerId) -> Option<usize> {
+        let mut current = self.layers.get(layer_id)?;
+        let mut index = self.child_count_recursive(layer_id)?;
+        while let Some(parent) = current.parent().and_then(|p| self.layers.get(p)) {
+            index += parent.child_index(current.id()).unwrap();
+            current = parent;
+        }
+        Some(index)
+    }
+
+    pub fn child_count_recursive(&self, layer_id: &LayerId) -> Option<usize> {
+        let mut count = 0;
+        let node = self.layers.get(layer_id)?;
+        for child in &node.children {
+            count += self.child_count_recursive(child)?;
+        }
+        Some(count)
+    }
+
+    /// Returns a list of layers without overlapping ancestors.
+    pub fn reduce_ancestors(&self, layers: impl IntoIterator<Item = LayerId>) -> Vec<LayerId> {
+        let set = layers.into_iter().collect::<IndexSet<_>>();
+        set.iter()
+            .copied()
+            .filter(|l| self.ancestors(*l).all(|anc| !set.contains(&anc)))
+            .collect()
+    }
+
+    pub fn sort_by_depth_asc(&self, layers: &mut [LayerId]) {
+        layers.sort_by_cached_key(|l| self.depth_of(l));
+    }
+
+    pub fn sort_by_depth_desc(&self, layers: &mut [LayerId]) {
+        layers.sort_by_cached_key(|l| self.depth_of(l).map(|d| -(d as i32)));
     }
 
     pub fn len(&self) -> usize {
@@ -263,52 +470,121 @@ impl LayerStack {
         self.layers.is_empty()
     }
 
-    pub fn move_layer(&mut self, layer_id: LayerId, parent_id: LayerId, index: usize) {
-        let Some(node) = self.find_node(layer_id) else {
+    /// Move `layer_id` so that, after the move, it is the `new_index`-th child of
+    /// `new_parent_id`. `new_index` is the *final* index (the layer is inserted
+    /// at `new_index` once it has already been removed from its old position), so
+    /// callers never need to compensate for the index shift that removing it
+    /// causes.
+    pub fn move_layer(
+        &mut self,
+        layer_id: LayerId,
+        new_parent_id: LayerId,
+        new_position: impl Into<LayerPosition>,
+    ) {
+        if !self.layers.contains_key(&new_parent_id) {
+            return;
+        }
+
+        let Some(node) = self.layers.get(&layer_id) else {
             return;
         };
 
-        let Some(parent) = node.parent().and_then(|parent| self.find_node_mut(parent)) else {
+        let old_parent_id = node.parent().copied();
+        let old_index = old_parent_id
+            .and_then(|id| self.layers.get(&id))
+            .and_then(|n| n.child_index(&layer_id));
+
+        if new_parent_id == layer_id || self.is_ancestor(&layer_id, &new_parent_id) {
             return;
+        }
+
+        let node = self.layers.get_mut(&layer_id).unwrap();
+        node.parent = Some(new_parent_id);
+
+        if let Some(old_index) = old_index {
+            let old_parent = self
+                .layers
+                .get_mut(old_parent_id.as_ref().unwrap())
+                .unwrap();
+            old_parent.remove_child_at(old_index);
+        }
+
+        let new_parent = self.layers.get_mut(&new_parent_id).unwrap();
+        new_parent.insert_child(new_position, layer_id).unwrap();
+    }
+
+    /// Removes a layer and all its children recursively, returning the removed nodes.
+    ///
+    /// The hierarchy inside of `layer_id` is preserved.
+    pub fn remove_layer_hierarchy(
+        &mut self,
+        layer_id: &LayerId,
+    ) -> HashMap<LayerId, LayerStackNode> {
+        let Some(mut node) = self.layers.remove(layer_id) else {
+            return HashMap::new();
         };
+        if let Some(parent_node) = self.layers.get_mut(node.parent().unwrap()) {
+            parent_node.remove_child(layer_id);
+        }
+        node.parent = None;
 
-        let removed_node = parent.remove_child(layer_id).unwrap();
+        fn remove_recursive(
+            removed: &mut HashMap<LayerId, LayerStackNode>,
+            parent_id: &LayerId,
+            layer_stack: &mut LayerStack,
+        ) {
+            let node = layer_stack.layers.remove(parent_id).unwrap();
+            for child_id in node.children.iter() {
+                remove_recursive(removed, child_id, layer_stack);
+            }
+            removed.insert(*node.id(), node);
+        }
 
-        let Some(new_parent) = self.find_node_mut(parent_id) else {
-            return;
-        };
-        new_parent.insert_child(index, removed_node);
+        let mut removed = HashMap::new();
+        for child_id in node.children.iter() {
+            remove_recursive(&mut removed, child_id, self);
+        }
+        removed.insert(*node.id(), node);
+        removed
     }
 
-    pub fn remove_layer(&mut self, layer_id: LayerId) -> Option<(LayerData, LayerStackNode)> {
-        let node = self.find_node(layer_id)?;
-        let parent = self.find_node_mut(node.parent()?)?;
-        let removed_node = parent.remove_child(layer_id)?;
-
-        let layer_data = self.layers.remove(&layer_id)?;
-
-        Some((layer_data, removed_node))
+    pub fn get_layer_position(&self, layer_id: &LayerId) -> Option<(LayerId, usize)> {
+        let parent_id = self.layers.get(layer_id)?.parent()?;
+        let parent_node = self.layers.get(parent_id)?;
+        Some((*parent_id, parent_node.child_index(layer_id)?))
     }
 
-    pub fn find_node(&self, layer_id: LayerId) -> Option<&LayerStackNode> {
-        find_node_recursive(&self.root, layer_id)
+    pub fn depth_of(&self, layer_id: &LayerId) -> Option<u32> {
+        let mut depth = 0;
+        let mut current = self.layers.get(layer_id)?;
+        while let Some(parent) = current.parent() {
+            depth += 1;
+            current = self.layers.get(parent)?;
+        }
+        Some(depth)
     }
 
-    pub fn find_node_mut(&mut self, layer_id: LayerId) -> Option<&mut LayerStackNode> {
-        find_node_mut_recursive(&mut self.root, layer_id)
+    pub fn get_layer(&self, layer_id: &LayerId) -> Option<&LayerStackNode> {
+        self.layers.get(layer_id)
     }
 
-    pub fn get_layer(&self, layer_id: LayerId) -> Option<&LayerData> {
-        self.layers.get(&layer_id)
+    pub fn get_layer_mut(&mut self, layer_id: &LayerId) -> Option<&mut LayerStackNode> {
+        self.layers.get_mut(layer_id)
     }
 
-    pub fn get_layer_mut(&mut self, layer_id: LayerId) -> Option<&mut LayerData> {
-        self.layers.get_mut(&layer_id)
+    pub fn get_parent_of(&self, layer_id: &LayerId) -> Option<&LayerStackNode> {
+        self.layers.get(self.layers.get(layer_id)?.parent()?)
+    }
+
+    pub fn get_position_of(&self, layer_id: &LayerId) -> Option<(&LayerStackNode, usize)> {
+        let parent = self.get_parent_of(layer_id)?;
+        let index = parent.child_index(layer_id)?;
+        Some((parent, index))
     }
 
     pub fn iter_layers_dfs_display_order_without_root(
         &self,
-    ) -> impl Iterator<Item = (&LayerData, u32)> {
+    ) -> impl Iterator<Item = (&LayerStackNode, u32)> {
         let mut stack = self
             .root_node()
             .iter_children_display_order()
@@ -317,91 +593,94 @@ impl LayerStack {
             .map(|child| (child, 0))
             .collect::<Vec<_>>();
         std::iter::from_fn(move || {
-            let (node, depth) = stack.pop()?;
+            let (id, depth) = stack.pop()?;
+            let node = self.layers.get(id)?;
             stack.extend(
                 node.iter_children_display_order()
                     .rev()
                     .map(|child| (child, depth + 1)),
             );
-            Some((self.layers.get(&node.id())?, depth))
+            Some((node, depth))
         })
     }
 
-    pub fn iter_layers(&self) -> impl Iterator<Item = &LayerData> {
+    pub fn iter_layers(&self) -> impl Iterator<Item = &LayerStackNode> {
         self.layers.values()
     }
 
-    pub fn can_have_children_of(&self, parent_id: LayerId, child_id: LayerId) -> Option<bool> {
+    pub fn can_have_children_of(&self, parent_id: &LayerId, child_id: &LayerId) -> Option<bool> {
         let parent_layer = self.get_layer(parent_id)?;
         let child_layer = self.get_layer(child_id)?;
-        Some(
-            parent_layer
-                .data
-                .can_have_children_of(child_layer.data.as_ref().type_id()),
-        )
-    }
-}
-
-fn find_node_recursive(node: &LayerStackNode, layer_id: LayerId) -> Option<&LayerStackNode> {
-    if node.id() == layer_id {
-        return Some(node);
+        Some(parent_layer.data.can_have_children_of(&child_layer.data))
     }
 
-    for child in node.children() {
-        if let Some(found) = find_node_recursive(child, layer_id) {
-            return Some(found);
+    /// In order from target to root, excluding the target itself.
+    pub fn ancestors(&self, target: LayerId) -> impl Iterator<Item = LayerId> {
+        let mut current = target;
+        std::iter::from_fn(move || {
+            let parent = self.layers.get(&current).and_then(|n| n.parent())?;
+            current = *parent;
+            Some(current)
+        })
+    }
+
+    pub fn is_ancestor(&self, maybe_ancestor: &LayerId, descendant: &LayerId) -> bool {
+        let mut current = descendant;
+        loop {
+            match self.layers.get(current).and_then(|n| n.parent()) {
+                Some(parent) if parent == maybe_ancestor => return true,
+                Some(parent) => current = parent,
+                None => return false,
+            }
         }
     }
-
-    None
-}
-
-fn find_node_mut_recursive(
-    node: &mut LayerStackNode,
-    layer_id: LayerId,
-) -> Option<&mut LayerStackNode> {
-    if node.id() == layer_id {
-        return Some(node);
-    }
-
-    for child in node.children_mut() {
-        if let Some(found) = find_node_mut_recursive(child, layer_id) {
-            return Some(found);
-        }
-    }
-
-    None
 }
 
 #[derive(Debug, Clone)]
 pub struct LayerStackNode {
-    id: LayerId,
     parent: Option<LayerId>,
-    children: Vec<LayerStackNode>,
+    children: Vec<LayerId>,
+    data: LayerData,
 }
 
 impl LayerStackNode {
-    pub fn new(id: LayerId) -> Self {
+    pub fn new(parent: LayerId, data: LayerData) -> Self {
         Self {
-            id,
-            parent: None,
+            parent: Some(parent),
             children: Vec::new(),
+            data,
         }
     }
 
-    pub fn id(&self) -> LayerId {
-        self.id
+    pub fn without_parent(data: LayerData) -> Self {
+        Self {
+            parent: None,
+            children: Vec::new(),
+            data,
+        }
     }
 
-    pub fn parent(&self) -> Option<LayerId> {
-        self.parent
+    pub fn id(&self) -> &LayerId {
+        self.data.id()
     }
 
-    pub fn children(&self) -> &[LayerStackNode] {
+    pub fn parent(&self) -> Option<&LayerId> {
+        self.parent.as_ref()
+    }
+
+    pub fn data(&self) -> &LayerData {
+        &self.data
+    }
+
+    pub fn data_mut(&mut self) -> &mut LayerData {
+        &mut self.data
+    }
+
+    pub fn children(&self) -> &[LayerId] {
         &self.children
     }
 
-    pub fn children_mut(&mut self) -> &mut [LayerStackNode] {
+    pub fn children_mut(&mut self) -> &mut [LayerId] {
         &mut self.children
     }
 
@@ -409,160 +688,95 @@ impl LayerStackNode {
         self.children.len()
     }
 
-    pub fn swap_children(&mut self, lhs: LayerId, rhs: LayerId) {
-        let Some(lhs_index) = self.children.iter().position(|child| child.id() == lhs) else {
+    pub fn swap_children(&mut self, lhs: &LayerId, rhs: &LayerId) {
+        let Some(lhs_index) = self.child_index(lhs) else {
             return;
         };
 
-        let Some(rhs_index) = self.children.iter().position(|child| child.id() == rhs) else {
+        let Some(rhs_index) = self.child_index(rhs) else {
             return;
         };
 
         self.children.swap(lhs_index, rhs_index);
     }
 
-    pub fn iter_children_composite_order(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = &LayerStackNode> {
+    pub fn resolve_index(&self, position: LayerPosition) -> Option<usize> {
+        match position {
+            LayerPosition::Absolute(index) => Some(index),
+            LayerPosition::Above(Some(sibling_id)) => Some(self.child_index(&sibling_id)? + 1),
+            LayerPosition::Above(None) => Some(0),
+            LayerPosition::Below(Some(sibling_id)) => self.child_index(&sibling_id),
+            LayerPosition::Below(None) => Some(self.children.len()),
+        }
+    }
+
+    pub fn iter_children_composite_order(&self) -> impl DoubleEndedIterator<Item = &LayerId> {
         self.children.iter()
     }
 
-    pub fn iter_children_composite_order_mut(
-        &mut self,
-    ) -> impl DoubleEndedIterator<Item = &mut LayerStackNode> {
-        self.children.iter_mut()
-    }
-
-    pub fn iter_children_display_order(&self) -> impl DoubleEndedIterator<Item = &LayerStackNode> {
+    pub fn iter_children_display_order(&self) -> impl DoubleEndedIterator<Item = &LayerId> {
         self.children.iter().rev()
     }
 
-    pub fn iter_children_display_order_mut(
-        &mut self,
-    ) -> impl DoubleEndedIterator<Item = &mut LayerStackNode> {
-        self.children.iter_mut().rev()
-    }
-
-    pub fn insert_background_child(&mut self, mut child: LayerStackNode) {
-        child.parent = Some(self.id);
+    pub fn insert_background_child(&mut self, child: LayerId) {
         self.children.insert(0, child);
     }
 
-    pub fn insert_foreground_child(&mut self, mut child: LayerStackNode) {
-        child.parent = Some(self.id);
+    pub fn insert_foreground_child(&mut self, child: LayerId) {
         self.children.push(child);
     }
 
-    pub fn child_index(&self, child_id: LayerId) -> Option<usize> {
-        self.children
-            .iter()
-            .position(|child| child.id() == child_id)
+    pub fn child_index(&self, child_id: &LayerId) -> Option<usize> {
+        self.children.iter().position(|child| child == child_id)
     }
 
-    pub fn insert_child(&mut self, index: usize, mut child: LayerStackNode) {
-        child.parent = Some(self.id);
+    pub fn insert_child(
+        &mut self,
+        position: impl Into<LayerPosition>,
+        child: LayerId,
+    ) -> Option<usize> {
+        let i = self.resolve_index(position.into())?;
+        self.insert_child_at(i, child);
+        Some(i)
+    }
+
+    pub fn insert_child_at(&mut self, index: usize, child: LayerId) {
         self.children.insert(index, child);
     }
 
-    pub fn child_above(&self, sibling_id: LayerId) -> Option<&LayerStackNode> {
-        let index = self
-            .children
-            .iter()
-            .position(|child| child.id() == sibling_id)?;
-        if index + 1 < self.children.len() {
-            Some(&self.children[index + 1])
-        } else {
-            None
-        }
+    pub fn child_above(&self, sibling_id: &LayerId) -> Option<LayerId> {
+        self.children
+            .get(self.child_index(sibling_id)? + 1)
+            .cloned()
     }
 
-    pub fn child_above_mut(&mut self, sibling_id: LayerId) -> Option<&mut LayerStackNode> {
-        let index = self
-            .children
-            .iter()
-            .position(|child| child.id() == sibling_id)?;
-        if index + 1 < self.children.len() {
-            Some(&mut self.children[index + 1])
-        } else {
-            None
-        }
+    pub fn child_below(&self, sibling_id: &LayerId) -> Option<LayerId> {
+        self.children
+            .get(self.child_index(sibling_id)?.checked_sub(1)?)
+            .cloned()
     }
 
-    pub fn child_below(&self, sibling_id: LayerId) -> Option<&LayerStackNode> {
-        let index = self
-            .children
-            .iter()
-            .position(|child| child.id() == sibling_id)?;
-        if index >= 1 {
-            Some(&self.children[index - 1])
-        } else {
-            None
-        }
-    }
-
-    pub fn child_below_mut(&mut self, sibling_id: LayerId) -> Option<&mut LayerStackNode> {
-        let index = self
-            .children
-            .iter()
-            .position(|child| child.id() == sibling_id)?;
-        if index >= 1 {
-            Some(&mut self.children[index - 1])
-        } else {
-            None
-        }
-    }
-
-    pub fn insert_child_above(
-        &mut self,
-        sibling_id: LayerId,
-        mut child: LayerStackNode,
-    ) -> Option<LayerStackNode> {
-        if let Some(index) = self
-            .children
-            .iter()
-            .position(|child| child.id() == sibling_id)
-        {
-            child.parent = Some(self.id);
+    pub fn insert_child_above(&mut self, sibling_id: &LayerId, child: LayerId) {
+        if let Some(index) = self.child_index(sibling_id) {
             self.children.insert(index + 1, child);
-            None
-        } else {
-            Some(child)
         }
     }
 
-    pub fn insert_child_below(
-        &mut self,
-        sibling_id: LayerId,
-        mut child: LayerStackNode,
-    ) -> Option<LayerStackNode> {
-        if let Some(index) = self
-            .children
-            .iter()
-            .position(|child| child.id() == sibling_id)
-        {
-            child.parent = Some(self.id);
+    pub fn insert_child_below(&mut self, sibling_id: &LayerId, child: LayerId) {
+        if let Some(index) = self.child_index(sibling_id) {
             self.children.insert(index, child);
-            None
-        } else {
-            Some(child)
         }
     }
 
-    pub fn remove_child(&mut self, child_id: LayerId) -> Option<LayerStackNode> {
-        let index = self
-            .children
-            .iter()
-            .position(|child| child.id() == child_id)?;
-        self.remove_child_at(index)
+    pub fn remove_child(&mut self, child_id: &LayerId) {
+        if let Some(index) = self.child_index(child_id) {
+            self.children.remove(index);
+        }
     }
 
-    pub fn remove_child_at(&mut self, index: usize) -> Option<LayerStackNode> {
+    pub fn remove_child_at(&mut self, index: usize) {
         if index < self.children.len() {
-            let mut child = self.children.remove(index);
-            child.parent = None;
-            Some(child)
-        } else {
-            None
+            self.children.remove(index);
         }
     }
 }

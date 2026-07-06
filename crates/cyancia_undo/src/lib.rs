@@ -152,8 +152,68 @@ pub trait UndoCommand: 'static + Downcast {
     fn label(&self) -> Cow<'static, str>;
     fn redo(&mut self, cx: &mut App) -> anyhow::Result<()>;
     fn undo(&mut self, cx: &mut App) -> anyhow::Result<()>;
-    fn can_cancel_out(&self, _rhs: &dyn UndoCommand) -> bool {
+    fn can_cancel_out(&self, _: &dyn UndoCommand) -> bool {
         false
     }
 }
 downcast_rs::impl_downcast!(UndoCommand);
+
+pub struct BatchedUndoCommand {
+    label: Cow<'static, str>,
+    commands: Vec<Box<dyn UndoCommand>>,
+}
+
+impl BatchedUndoCommand {
+    pub fn new<T: UndoCommand>(label: Cow<'static, str>, commands: Vec<T>) -> Self {
+        Self {
+            label,
+            commands: commands.into_iter().map(|c| Box::new(c) as _).collect(),
+        }
+    }
+
+    pub fn new_boxed(label: Cow<'static, str>, commands: Vec<Box<dyn UndoCommand>>) -> Self {
+        Self { label, commands }
+    }
+}
+
+impl UndoCommand for BatchedUndoCommand {
+    fn label(&self) -> Cow<'static, str> {
+        self.label.clone()
+    }
+
+    fn redo(&mut self, cx: &mut App) -> anyhow::Result<()> {
+        let mut success = 0;
+        for i in 0..self.commands.len() {
+            match self.commands[i].redo(cx) {
+                Ok(_) => {
+                    success += 1;
+                }
+                Err(err) => {
+                    for i in 0..success {
+                        self.commands[i].undo(cx)?;
+                    }
+                    return Err(err);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn undo(&mut self, cx: &mut App) -> anyhow::Result<()> {
+        let mut success = 0;
+        for i in (0..self.commands.len()).rev() {
+            match self.commands[i].undo(cx) {
+                Ok(_) => {
+                    success += 1;
+                }
+                Err(err) => {
+                    for i in 0..success {
+                        self.commands[i].redo(cx)?;
+                    }
+                    return Err(err);
+                }
+            }
+        }
+        Ok(())
+    }
+}

@@ -1,7 +1,8 @@
-use cyancia_canvas::{CCanvas, CanvasManager};
+use cyancia_canvas::{CCanvas, CanvasManager, event::CanvasActiveLayerChanged};
 use cyancia_image::{
     CImage,
     blend_modes::BlendMode,
+    composite::BlendFunction,
     layer::LayerData,
     texel::TexelType,
     tile::{GpuLayerInfo, GpuTileStorage},
@@ -36,7 +37,7 @@ impl ActionFunction for OpenFileAction {
             let width = img.width();
             let height = img.height();
             let layer = cx.read_global::<GpuTileStorage, _>(|tiles, _| {
-                LayerData::from_image("Background".into(), img, tiles, Box::new(BlendMode::Normal))
+                LayerData::from_image("Background".into(), img, tiles, BlendMode::Normal.id())
             });
 
             let image = CImage::from_layer(UVec2::new(width, height), layer);
@@ -46,6 +47,8 @@ impl ActionFunction for OpenFileAction {
                 tool_proxies.add(ToolProxy::default())
             });
             let canvas = CCanvas::new(image, tool_proxy_id);
+            let canvas_id = canvas.id();
+
             cx.update_global::<UndoStacks, _>(|undo_stacks, _| {
                 undo_stacks.insert(*canvas.id(), UndoStack::new(200))
             });
@@ -54,7 +57,7 @@ impl ActionFunction for OpenFileAction {
             cx.read_global::<GpuTileStorage, _>(|tiles, _| {
                 for layer in canvas.image.layer_stack().iter_layers() {
                     tiles.declare_layer(
-                        layer.id(),
+                        *layer.id(),
                         GpuLayerInfo {
                             // TODO
                             texel_type: TexelType::RGBA8,
@@ -70,8 +73,16 @@ impl ActionFunction for OpenFileAction {
                 );
             });
 
-            cx.update_global::<CanvasManager, _>(|canvas_manager, cx| {
+            let canvas_entity = cx.update_global::<CanvasManager, _>(|canvas_manager, cx| {
                 canvas_manager.add_canvas(canvas, cx);
+                canvas_manager.get(&canvas_id).unwrap().upgrade().unwrap()
+            });
+
+            canvas_entity.update(cx, |canvas, cx| {
+                cx.emit(CanvasActiveLayerChanged {
+                    from: canvas.active_layer_id(),
+                    to: canvas.active_layer_id(),
+                });
             });
         })
         .detach();

@@ -6,7 +6,11 @@ use gpui::{Action, App, Global, KeyBinding, KeyBindingContextPredicate};
 use crate::{
     brush::OpenBrushEditorAction,
     file::OpenFileAction,
-    layer::{CreateNewLayerAction, GroupActiveLayerAction, MoveLayerDownAction, MoveLayerUpAction},
+    layer::{
+        CreateNewLayerAction, DeleteSelectedLayersAction, GroupSelectedLayersAction,
+        MoveLayerDownAction, MoveLayerUpAction, PasteIntoNewLayerAction, SelectNextLayerAction,
+        SelectPreviousLayerAction,
+    },
     manifest::{KeyBindingDefManifest, KeyBindingDefManifestLoader},
     selection::DeleteSelectionAction,
     undo::{RedoAction, UndoAction},
@@ -45,7 +49,11 @@ pub fn init(cx: &mut App) {
     cx.add_action_function::<CreateNewLayerAction>();
     cx.add_action_function::<MoveLayerUpAction>();
     cx.add_action_function::<MoveLayerDownAction>();
-    cx.add_action_function::<GroupActiveLayerAction>();
+    cx.add_action_function::<DeleteSelectedLayersAction>();
+    cx.add_action_function::<GroupSelectedLayersAction>();
+    cx.add_action_function::<SelectNextLayerAction>();
+    cx.add_action_function::<SelectPreviousLayerAction>();
+    cx.add_action_function::<PasteIntoNewLayerAction>();
     cx.add_action_function::<OpenBrushEditorAction>();
     cx.add_action_function::<UndoAction>();
     cx.add_action_function::<RedoAction>();
@@ -73,7 +81,7 @@ pub fn finish(cx: &mut App) {
             let function_parser = functions
                 .functions
                 .get(def.action_name.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Action {} now found.", &def.action_name))?;
+                .ok_or_else(|| anyhow::anyhow!("Action {} not found.", &def.action_name))?;
             let context = if let Some(context) = &def.context {
                 Some(KeyBindingContextPredicate::parse(context)?.into())
             } else {

@@ -1,11 +1,15 @@
 use std::collections::HashMap;
 
 use bevy_math::IRect;
-use cyancia_image::CImage;
+use cyancia_image::{
+    CImage,
+    layer::{LayerId, LayerStackNode},
+};
 use cyancia_tools::{ToolProxyId, ToolsAppExt};
 use cyancia_undo::{UndoCommand, UndoStack, UndoStacks};
 use cyancia_utils::wrapper;
 use gpui::{App, AppContext, BorrowAppContext, Context, Entity, EventEmitter, Global, WeakEntity};
+use indexmap::IndexSet;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -13,7 +17,8 @@ use uuid::Uuid;
 use crate::{
     control::CanvasTransform,
     event::{
-        CanvasCreated, CanvasLayerStackUpdated, CanvasRemoved, CanvasUpdated, CurrentCanvasChanged,
+        CanvasActiveLayerChanged, CanvasCreated, CanvasLayerPropertyChanged, CanvasRemoved,
+        CanvasUpdated, CurrentCanvasChanged,
     },
     tools::{PanTool, RotateTool, ZoomTool},
 };
@@ -38,16 +43,28 @@ pub struct CCanvas {
     tool_proxy_id: ToolProxyId,
     pub image: CImage,
     pub transform: CanvasTransform,
+    active_layer: LayerId,
+    // Also contains active_layer
+    selected_layers: IndexSet<LayerId>,
     dirty_tiles: IRect,
 }
 
 impl CCanvas {
     pub fn new(image: CImage, tool_proxy_id: ToolProxyId) -> Self {
+        let background_layer = *image
+            .layer_stack()
+            .root_node()
+            .children()
+            .first()
+            .expect("Root layer should have at least one child");
+
         Self {
             id: CanvasId(Uuid::new_v4()),
             tool_proxy_id,
             image,
             transform: CanvasTransform::default(),
+            active_layer: background_layer,
+            selected_layers: IndexSet::from([background_layer]),
             dirty_tiles: IRect::default(),
         }
     }
@@ -69,11 +86,95 @@ impl CCanvas {
         self.dirty_tiles = IRect::EMPTY;
         rect
     }
+
+    pub fn set_active_layer(&mut self, layer_id: LayerId, cx: &mut Context<Self>) {
+        if layer_id == self.active_layer || layer_id == *self.image.layer_stack().root_id() {
+            return;
+        }
+        let old = self.active_layer;
+        self.active_layer = layer_id;
+        self.selected_layers.insert(layer_id);
+
+        cx.emit(CanvasActiveLayerChanged {
+            from: old,
+            to: layer_id,
+        });
+    }
+
+    pub fn set_active_layer_and_clear_select(&mut self, layer_id: LayerId, cx: &mut Context<Self>) {
+        self.selected_layers.clear();
+        self.set_active_layer(layer_id, cx);
+    }
+
+    pub fn select_layer(&mut self, layer_id: LayerId) {
+        self.selected_layers.insert(layer_id);
+    }
+
+    pub fn deselect_layer(&mut self, layer_id: LayerId, cx: &mut Context<Self>) {
+        if self.selected_layers.contains(&layer_id) && self.selected_layers.len() == 1 {
+            return;
+        }
+
+        self.selected_layers.shift_remove(&layer_id);
+        if self.active_layer == layer_id {
+            self.set_active_layer(self.selected_layers.first().copied().unwrap(), cx);
+        }
+    }
+
+    pub fn toggle_layer_selection_and_active(&mut self, layer_id: LayerId, cx: &mut Context<Self>) {
+        if self.selected_layers.contains(&layer_id) {
+            self.deselect_layer(layer_id, cx);
+        } else {
+            self.set_active_layer(layer_id, cx);
+        }
+    }
+
+    pub fn toggle_layer_selection(&mut self, layer_id: LayerId, cx: &mut Context<Self>) {
+        if self.selected_layers.contains(&layer_id) {
+            self.deselect_layer(layer_id, cx);
+        } else {
+            self.select_layer(layer_id);
+        }
+    }
+
+    pub fn selected_layer_ids(&self) -> &IndexSet<LayerId> {
+        &self.selected_layers
+    }
+
+    pub fn active_layer_id(&self) -> LayerId {
+        self.active_layer
+    }
+
+    pub fn active_layer_node(&self) -> &LayerStackNode {
+        self.image
+            .layer_stack()
+            .get_layer(&self.active_layer)
+            .expect("Active layer should always exist")
+    }
+
+    pub fn active_layer_node_mut(&mut self) -> &mut LayerStackNode {
+        self.image
+            .layer_stack_mut()
+            .get_layer_mut(&self.active_layer)
+            .expect("Active layer should always exist")
+    }
+
+    pub fn parent_id_of_active_layer(&self) -> LayerId {
+        let l = self
+            .image
+            .layer_stack()
+            .get_layer(&self.active_layer)
+            .expect("Active layer should always exist");
+        *l.parent()
+            .expect("Active layer should always have a parent")
+    }
 }
 
 impl EventEmitter<CanvasUpdated> for CCanvas {}
 
-impl EventEmitter<CanvasLayerStackUpdated> for CCanvas {}
+impl EventEmitter<CanvasActiveLayerChanged> for CCanvas {}
+
+impl EventEmitter<CanvasLayerPropertyChanged> for CCanvas {}
 
 pub fn init(cx: &mut App) {
     let cm = CanvasManager::new(cx);

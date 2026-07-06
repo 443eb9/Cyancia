@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bevy_math::{IRect, Rect};
 use cyancia_image::{
-    composite::{ImageCompositor, LayerPreviewOverriders},
+    composite::{BlendFunctionRegistry, ImageCompositor, LayerPreviewOverriders},
     texel::{TexelFormat, TexelType},
     tile::{GpuTileStorage, TileStorageAppExt},
 };
@@ -108,9 +108,16 @@ impl CanvasWidget {
                     let tiles = cx.tile_storage();
                     let device = cx.render_device();
                     let queue = cx.render_queue();
+                    let blend_funcs = BlendFunctionRegistry::global(cx);
 
-                    self.compositor
-                        .create_cache(overriders, &canvas.image, tiles, device, queue);
+                    self.compositor.create_cache(
+                        overriders,
+                        &canvas.image,
+                        tiles,
+                        blend_funcs,
+                        device,
+                        queue,
+                    );
                     self.compositor.composite(
                         overriders,
                         dirty_tiles,
@@ -152,7 +159,7 @@ impl CanvasWidget {
             &canvas.transform,
             canvas.image.size(),
             tiles,
-            canvas.image.root_id(),
+            *canvas.image.layer_stack().root_id(),
             canvas.image.selection_layer(),
         );
 
@@ -273,7 +280,7 @@ impl Render for CanvasWidget {
 
                             window.on_mouse_event({
                                 let widget = widget.clone();
-                                move |event: &MouseMoveEvent, phase, _window, cx| {
+                                move |event: &MouseMoveEvent, phase, _, cx| {
                                     if !phase.capture() {
                                         return;
                                     }
@@ -295,7 +302,7 @@ impl Render for CanvasWidget {
                                         };
                                         let delta = position - start_position;
                                         canvas
-                                            .update(cx, |canvas, _cx| {
+                                            .update(cx, |canvas, _| {
                                                 canvas.transform =
                                                     original_transform.translated(delta);
                                             })
@@ -311,18 +318,16 @@ impl Render for CanvasWidget {
                                 }
                             });
 
-                            window.on_mouse_event(
-                                move |event: &MouseUpEvent, phase, _window, cx| {
-                                    if !phase.capture() || event.button != MouseButton::Left {
-                                        return;
-                                    }
+                            window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
+                                if !phase.capture() || event.button != MouseButton::Left {
+                                    return;
+                                }
 
-                                    cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
-                                        let tool_proxy = tool_proxies.get_mut(&tool_proxy_id);
-                                        tool_proxy.mouse_released(event, cx);
-                                    });
-                                },
-                            );
+                                cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
+                                    let tool_proxy = tool_proxies.get_mut(&tool_proxy_id);
+                                    tool_proxy.mouse_released(event, cx);
+                                });
+                            });
                         }
                     },
                 )
@@ -331,7 +336,7 @@ impl Render for CanvasWidget {
             )
             .on_any_mouse_down({
                 let widget = cx.entity().downgrade();
-                move |event, _window, cx| match event.button {
+                move |event, _, cx| match event.button {
                     MouseButton::Left => {
                         cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
                             let tool_proxy = tool_proxies.get_mut(&tool_proxy_id);
@@ -361,9 +366,9 @@ impl Render for CanvasWidget {
             })
             .on_scroll_wheel({
                 let canvas = self.canvas.clone();
-                move |event, _window, cx| {
+                move |event, _, cx| {
                     canvas
-                        .update(cx, |canvas, _cx| {
+                        .update(cx, |canvas, _| {
                             let line_height = if event.alt { 30.0 } else { 15.0 };
                             let delta = event.delta.pixel_delta(px(line_height));
                             let delta = Vec2::new(delta.x.into(), delta.y.into());
