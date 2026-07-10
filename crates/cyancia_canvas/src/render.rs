@@ -4,6 +4,7 @@ use std::{
 };
 
 use bevy_math::IRect;
+use cyancia_color::shader::IccTransformShader;
 use cyancia_image::{
     layer::LayerId,
     texel::TexelType,
@@ -13,8 +14,8 @@ use cyancia_render::{
     bind_group_entries::BindGroupEntries,
     bind_group_layout_entries::{BindGroupLayoutEntries, binding_types},
     buffer::DynamicBuffer,
+    wesl_jit::compile_wesl,
 };
-use cyancia_utils::include_shader;
 use encase::ShaderType;
 use glam::{IVec2, Mat3, UVec2, UVec3};
 use gpui::{Global, RenderImage};
@@ -35,6 +36,8 @@ use crate::control::CanvasTransform;
 /// This surface will be used as storage texture and float sampled texture.
 pub const INTERMEDIATE_BUFFER_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
 
+pub const ICC_TRANSFORM_SHADER_IDENT: &str = "calibrate_color";
+
 #[derive(Debug)]
 pub struct CanvasRenderer {
     buffer: Option<(TextureView, Buffer)>,
@@ -48,9 +51,10 @@ impl CanvasRenderer {
         device: &Device,
         root_texel_type: TexelType,
         selection_texel_type: TexelType,
+        icc_transform: &IccTransformShader,
     ) -> Self {
         let render_pipeline =
-            CanvasRenderPipeline::new(device, root_texel_type, selection_texel_type);
+            CanvasRenderPipeline::new(device, root_texel_type, selection_texel_type, icc_transform);
         Self {
             buffer: Default::default(),
             render_pipeline,
@@ -223,7 +227,12 @@ pub struct CanvasUniform {
 }
 
 impl CanvasRenderPipeline {
-    fn new(device: &Device, root_texel_type: TexelType, selection_texel_type: TexelType) -> Self {
+    fn new(
+        device: &Device,
+        root_texel_type: TexelType,
+        selection_texel_type: TexelType,
+        icc_transform: &IccTransformShader,
+    ) -> Self {
         let main_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("canvas main layout"),
             entries: BindGroupLayoutEntries::sequential(
@@ -258,9 +267,15 @@ impl CanvasRenderPipeline {
             ..Default::default()
         });
 
+        let shader = include_str!("shaders/canvas_render.wesl")
+            .replace("//CODEGEN_FLAG_CALIBRATE_COLOR", &icc_transform.function);
         let shader_module = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("canvas shader"),
-            source: ShaderSource::Wgsl(include_shader!("canvas_render.wgsl").into()),
+            source: ShaderSource::Wgsl(
+                compile_wesl(shader, &[cyancia_image::image::PACKAGE])
+                    .unwrap()
+                    .into(),
+            ),
         });
 
         let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {

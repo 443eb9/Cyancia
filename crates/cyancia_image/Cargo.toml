@@ -9,8 +9,10 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+anyhow.workspace = true
 bevy_math.workspace = true
 bytemuck.workspace = true
+cyancia_color.workspace = true
 cyancia_render.workspace = true
 cyancia_shader_graph.workspace = true
 cyancia_utils.workspace = true
@@ -25,6 +27,7 @@ half.workspace = true
 image.workspace = true
 indexmap.workspace = true
 log.workspace = true
+moxcms.workspace = true
 palette.workspace = true
 parking_lot.workspace = true
 parse-display.workspace = true

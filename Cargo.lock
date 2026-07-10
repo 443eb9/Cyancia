@@ -1797,6 +1797,7 @@ dependencies = [
  "bevy_math 0.18.1 (git+https://github.com/443eb9/bevy.git?branch=release-0.18.1)",
  "bytemuck",
  "cyancia_assets",
+ "cyancia_color",
  "cyancia_image",
  "cyancia_math",
  "cyancia_render",
@@ -1812,8 +1813,10 @@ dependencies = [
  "image",
  "indexmap",
  "log",
+ "moxcms",
  "parking_lot",
  "parse-display",
+ "raw-window-handle",
  "schemars",
  "serde",
  "tracing",
@@ -1823,11 +1826,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "cyancia_color"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cyancia_utils",
+ "glam",
+ "gpui",
+ "moxcms",
+ "parse-display",
+ "raw-window-handle",
+ "wesl",
+ "windows 0.62.2",
+]
+
+[[package]]
 name = "cyancia_image"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bevy_math 0.18.1 (git+https://github.com/443eb9/bevy.git?branch=release-0.18.1)",
  "bytemuck",
+ "cyancia_color",
  "cyancia_render",
  "cyancia_shader_graph",
  "cyancia_utils",
@@ -1842,6 +1862,7 @@ dependencies = [
  "image",
  "indexmap",
  "log",
+ "moxcms",
  "palette",
  "parking_lot",
  "parse-display",

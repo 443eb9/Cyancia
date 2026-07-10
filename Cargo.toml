@@ -6,6 +6,7 @@ members = [
     "crates/cyancia_brush",
     "crates/cyancia_bucket_tool",
     "crates/cyancia_canvas",
+    "crates/cyancia_color",
     "crates/cyancia_image",
     "crates/cyancia_math",
     "crates/cyancia_render",
@@ -38,6 +39,7 @@ cyancia_assets = { version = "0.1.0", path = "crates/cyancia_assets" }
 cyancia_brush = { version = "0.1.0", path = "crates/cyancia_brush" }
 cyancia_bucket_tool = { version = "0.1.0", path = "crates/cyancia_bucket_tool" }
 cyancia_canvas = { version = "0.1.0", path = "crates/cyancia_canvas" }
+cyancia_color = { version = "0.1.0", path = "crates/cyancia_color" }
 cyancia_image = { version = "0.1.0", path = "crates/cyancia_image" }
 cyancia_math = { version = "0.1.0", path = "crates/cyancia_math" }
 cyancia_render = { version = "0.1.0", path = "crates/cyancia_render" }
@@ -82,6 +84,7 @@ indexmap = { version = "2", features = ["serde"] }
 log = "0.4"
 lyon = "1"
 md5 = "0.8"
+moxcms = "0.8"
 num-traits = "0.2"
 palette = "0.7"
 parking_lot = { version = "0.12", features = ["deadlock_detection"] }
@@ -89,6 +92,7 @@ parse-display = "0.11"
 path-clean = "1"
 proc-macro2 = "1"
 quote = "1"
+raw-window-handle = { version = "0.6", features = ["std"] }
 rayon = "1"
 rfd = "0.17"
 ringbuffer = "0.16"
@@ -108,6 +112,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 variadics_please = "2"
 wesl = { version = "0.4", features = ["package", "naga-ext"] }
 wgpu = "29"
+windows = "0.62"
 winit = "0.30"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 zip = "8"
