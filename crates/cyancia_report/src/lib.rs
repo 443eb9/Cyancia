@@ -1,7 +1,9 @@
 use std::fmt::Write;
 
+use anyhow::anyhow;
 use chrono::Local;
 use cyancia_render::render_context::RenderContextAppExt;
+use gfxinfo::active_gpu;
 use gpui::App;
 use sysinfo::System;
 use wgpu::{AllocatorReport, Device};
@@ -32,7 +34,6 @@ fn sysinfo_report(w: &mut dyn Write) -> anyhow::Result<()> {
             cpu.cpu_usage()
         )?;
     }
-    writeln!(w)?;
 
     writeln!(
         w,
@@ -47,6 +48,18 @@ fn sysinfo_report(w: &mut dyn Write) -> anyhow::Result<()> {
         FmtBytes(sys.used_swap()),
         FmtBytes(sys.total_swap())
     )?;
+
+    let gpu = active_gpu().map_err(|e| anyhow!("{}", e))?;
+    let gpu_info = gpu.info();
+    writeln!(w, "GPU: {} {}%", gpu.model(), gpu_info.load_pct())?;
+    writeln!(
+        w,
+        "VRAM: {} / {}",
+        FmtBytes(gpu_info.used_vram()),
+        FmtBytes(gpu_info.total_vram())
+    )?;
+
+    writeln!(w)?;
 
     Ok(())
 }
@@ -77,6 +90,8 @@ fn wgpu_report(w: &mut dyn Write, device: &Device) -> anyhow::Result<()> {
     for (i, alloc) in allocations.iter().enumerate() {
         writeln!(w, "  #{} {}: {}", i, alloc.name, FmtBytes(alloc.size))?;
     }
+
+    writeln!(w)?;
 
     Ok(())
 }

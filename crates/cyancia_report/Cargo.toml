@@ -9,6 +9,7 @@ rust-version.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 cyancia_render.workspace = true
+gfxinfo.workspace = true
 gpui.workspace = true
 sysinfo.workspace = true
 wgpu.workspace = true
