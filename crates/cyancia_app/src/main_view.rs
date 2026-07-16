@@ -8,7 +8,7 @@ use cyancia_view::{View, ViewId};
 use gpui::{
     App, AppContext, BorrowAppContext, Context, Entity, FocusHandle, InteractiveElement,
     IntoElement, Menu, MenuItem, ParentElement, Render, Styled, WeakEntity, Window, WindowHandle,
-    WindowOptions, div, prelude::FluentBuilder,
+    WindowOptions, actions, div, prelude::FluentBuilder,
 };
 use gpui_component::{
     ActiveTheme, GlobalState, Root, Theme, ThemeRegistry, TitleBar,
@@ -91,6 +91,9 @@ impl MainView {
         })
         .detach();
 
+        // cx.on_action(Self::on_system_report);
+        (**cx).on_action(Self::on_system_report);
+
         let canvas_events = cx.global_canvas_events_entity();
         cx.subscribe_in(&canvas_events, window, Self::on_canvas_created)
             .detach();
@@ -133,6 +136,12 @@ impl MainView {
             );
         });
     }
+
+    fn on_system_report(_: &SystemReport, cx: &mut App) {
+        if let Ok(report) = cyancia_report::report(cx) {
+            println!("{}", report);
+        }
+    }
 }
 
 fn update_menu_bar(menu_bar: &Entity<AppMenuBar>, cx: &mut App) {
@@ -160,15 +169,22 @@ fn build_menu_bar(cx: &App) -> Vec<Menu> {
         })
         .collect::<Vec<_>>();
 
-    vec![Menu {
-        name: "Window".into(),
-        items: vec![MenuItem::Submenu(Menu {
-            name: "Themes".into(),
-            items: themes,
+    vec![
+        Menu {
+            name: "Cyancia".into(),
+            items: vec![MenuItem::action("System Report", SystemReport)],
             disabled: false,
-        })],
-        disabled: false,
-    }]
+        },
+        Menu {
+            name: "Window".into(),
+            items: vec![MenuItem::Submenu(Menu {
+                name: "Themes".into(),
+                items: themes,
+                disabled: false,
+            })],
+            disabled: false,
+        },
+    ]
 }
 
 impl Render for MainView {
@@ -188,3 +204,5 @@ impl Render for MainView {
             )
     }
 }
+
+actions!([SystemReport]);

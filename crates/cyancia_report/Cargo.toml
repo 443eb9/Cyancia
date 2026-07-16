@@ -6,6 +6,12 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+cyancia_render.workspace = true
+gpui.workspace = true
+sysinfo.workspace = true
+wgpu.workspace = true
 
 [lints]
 workspace = true

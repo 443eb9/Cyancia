@@ -1,14 +1,100 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+use std::fmt::Write;
+
+use chrono::Local;
+use cyancia_render::render_context::RenderContextAppExt;
+use gpui::App;
+use sysinfo::System;
+use wgpu::{AllocatorReport, Device};
+
+pub fn report(cx: &App) -> anyhow::Result<String> {
+    let mut buf = String::new();
+
+    let w = &mut buf;
+    writeln!(w, "Generated at {}", Local::now())?;
+
+    sysinfo_report(w)?;
+    wgpu_report(w, cx.render_device())?;
+    Ok(buf)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+fn sysinfo_report(w: &mut dyn Write) -> anyhow::Result<()> {
+    let sys = System::new_all();
+    writeln!(w, "System Info")?;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    writeln!(w, "CPUS")?;
+    for cpu in sys.cpus().iter() {
+        writeln!(
+            w,
+            "  {} {}@{}Hz {}%",
+            cpu.name(),
+            cpu.brand(),
+            cpu.frequency(),
+            cpu.cpu_usage()
+        )?;
+    }
+    writeln!(w)?;
+
+    writeln!(
+        w,
+        "Memory: {} / {}",
+        FmtBytes(sys.used_memory()),
+        FmtBytes(sys.total_memory())
+    )?;
+
+    writeln!(
+        w,
+        "Swap: {} / {}",
+        FmtBytes(sys.used_swap()),
+        FmtBytes(sys.total_swap())
+    )?;
+
+    Ok(())
+}
+
+fn wgpu_report(w: &mut dyn Write, device: &Device) -> anyhow::Result<()> {
+    let Some(AllocatorReport {
+        mut allocations,
+        blocks,
+        total_allocated_bytes,
+        total_reserved_bytes,
+    }) = device.generate_allocator_report()
+    else {
+        writeln!(w, "No WGPU report available")?;
+        return Ok(());
+    };
+    writeln!(w, "WGPU Report")?;
+
+    allocations.sort_by_key(|alloc| core::cmp::Reverse(alloc.size));
+
+    writeln!(
+        w,
+        "Summary: {} / {}",
+        FmtBytes(total_allocated_bytes),
+        FmtBytes(total_reserved_bytes)
+    )?;
+    writeln!(w, "Blocks: {}", blocks.len())?;
+    writeln!(w, "Allocations: {}", allocations.len())?;
+    for (i, alloc) in allocations.iter().enumerate() {
+        writeln!(w, "  #{} {}: {}", i, alloc.name, FmtBytes(alloc.size))?;
+    }
+
+    Ok(())
+}
+
+struct FmtBytes(u64);
+
+impl std::fmt::Display for FmtBytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        const SUFFIX: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+        let mut idx = 0;
+        let mut amount = self.0 as f64;
+        loop {
+            if amount < 1024.0 || idx == SUFFIX.len() - 1 {
+                return write!(f, "{:.2} {} ({} bytes)", amount, SUFFIX[idx], self.0);
+            }
+
+            amount /= 1024.0;
+            idx += 1;
+        }
     }
 }
