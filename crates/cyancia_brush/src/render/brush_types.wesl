@@ -1,11 +1,8 @@
 import package::image::image_tiling::{TileInfo};
 import package::render::math::{IRect};
 
-const MAX_SAMPLES_BETWEEN_INPUTS: u32 = 256;
-
-const TILE_ALLOCATION_WORKGROUP_SIZE = vec3u(1, 1, 8);
 const MAIN_WORKGROUP_SIZE = vec3u(16, 16, 1);
-const ESTIMATION_WORKGROUP_SIZE = vec3u(1, 1, 8);
+const ESTIMATION_WORKGROUP_SIZE = vec3u(1, 1, 16);
 
 struct StrokeInfo {
     // In tiles
@@ -17,6 +14,7 @@ struct StrokeInfo {
 
 struct OutputSamples {
     n_samples: u32,
+    is_overflow: u32,
     samples: array<ComputedPenInput>,
 }
 
@@ -38,8 +36,23 @@ struct ComputedPenInput {
     time: Time,
 }
 
+struct PenInputSampler {
+    last_input: PenInput,
+    last_sample: ComputedPenInput,
+    has_last_sample: u32,
+}
+
+struct PenInput {
+    position: vec2f,
+    time: Time,
+    // Inner control points of the cubic Bezier from the previous position to
+    // this one.  Computed on the CPU by BezierInputSampler.
+    bezier_control_prev: vec2f,
+    bezier_control_cur: vec2f,
+}
+
 struct StrokePostprocessData {
-    accumulated_bound: IRect,
+    accumulated_pixel_bound: IRect,
     time: Time,
 }
 
