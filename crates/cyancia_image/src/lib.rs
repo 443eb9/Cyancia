@@ -18,10 +18,11 @@ extern crate image as imagers;
 
 use crate::{
     blend_modes::BlendMode,
-    composite::{
-        BlendFunction, BlendFunctionAppExt, BlendFunctionRegistry, LayerPreviewOverriders,
+    composite::{BlendFunctionAppExt, BlendFunctionRegistry, LayerPreviewOverriders},
+    layer::{
+        LayerId, LayerNameGenerator, LayerStack, LayerStackNode, SpecialLayers,
+        pixel_layer::PixelLayer, properties::NamePropertyExt,
     },
-    layer::{LayerData, LayerId, LayerNameGenerator, LayerStack, SpecialLayers},
     texel::TexelType,
     tile::GpuTileStorage,
 };
@@ -71,7 +72,7 @@ impl CImage {
         }
     }
 
-    pub fn from_layer(size: UVec2, layer: LayerData, profile: ColorProfile) -> Self {
+    pub fn from_layer(size: UVec2, layer: LayerStackNode, profile: ColorProfile) -> Self {
         let layers = LayerStack::with_background_layer(layer);
 
         Self {
@@ -86,13 +87,8 @@ impl CImage {
 
     pub fn from_file(path: impl AsRef<Path>, tiles: &GpuTileStorage) -> Result<Self> {
         let path = path.as_ref();
-        let name = path
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
         let (img, profile) = Self::load_image_with_profile(BufReader::new(File::open(path)?))?;
-        Ok(Self::from_image(img, profile, name, tiles))
+        Ok(Self::from_image(img, profile, tiles))
     }
 
     pub fn load_image_with_profile<R: BufRead + Seek>(
@@ -110,11 +106,11 @@ impl CImage {
     pub fn from_image(
         img: imagers::DynamicImage,
         profile: ColorProfile,
-        name: String,
         tiles: &GpuTileStorage,
     ) -> Self {
         let size = UVec2::new(img.width(), img.height());
-        let layer = LayerData::from_image(name, img, tiles, BlendMode::Normal.id());
+        let mut layer = PixelLayer::from_image(img, tiles);
+        layer.properties_mut().set_name("Background".into());
         Self::from_layer(size, layer, profile)
     }
 
