@@ -6,19 +6,24 @@ use std::{
 
 use anyhow::Result;
 use bevy_math::IRect;
-use cyancia_render::{buffer::BufferVec, render_context::RenderContextAppExt};
+use cyancia_render::{
+    buffer::BufferVec, readback::readback_buffer_raw_on_submit_async,
+    render_context::RenderContextAppExt, util::DevicePollExt,
+};
 use cyancia_utils::Deref;
 use dashmap::{DashMap, Entry};
 use encase::ShaderType;
+use futures::{FutureExt, future::join_all};
 use glam::{IVec2, UVec2};
 use gpui::{App, Global};
 use image::{DynamicImage, GenericImageView};
 use indexmap::{IndexMap, IndexSet};
 use moxcms::{ColorProfile, TransformOptions};
 use wgpu::{
-    Buffer, BufferUsages, Device, Extent3d, Origin3d, Queue, TexelCopyTextureInfo, Texture,
-    TextureAspect, TextureDescriptor, TextureDimension, TextureUsages, TextureView,
-    TextureViewDescriptor, TextureViewDimension, util::DeviceExt,
+    Buffer, BufferDescriptor, BufferUsages, Device, Extent3d, Origin3d, Queue, TexelCopyBufferInfo,
+    TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect, TextureDescriptor,
+    TextureDimension, TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension,
+    util::DeviceExt,
 };
 
 use crate::{
@@ -739,5 +744,119 @@ impl DynamicLayerStorage {
         converter.convert(&self.device, &self.queue, texture);
 
         Ok(())
+    }
+
+    pub async fn readback(
+        &self,
+        device: &Device,
+        queue: &Queue,
+        tiles: impl IntoIterator<Item = IVec2>,
+    ) -> Result<HashMap<IVec2, Vec<u8>>> {
+        let Some(texture) = self.texture() else {
+            return Ok(HashMap::new());
+        };
+
+        let mut readbacks = HashMap::new();
+        let pixel_size = self
+            .layer_info
+            .texel_type
+            .wgpu_format()
+            .block_copy_size(None)
+            .unwrap();
+        let tile_size = pixel_size * GpuTileStorage::TILE_SIZE * GpuTileStorage::TILE_SIZE;
+
+        let mut ec = device.create_command_encoder(&Default::default());
+
+        for index in tiles {
+            if readbacks.contains_key(&index) {
+                continue;
+            }
+
+            let Some(layer) = self.tiles.get_index_of(&index) else {
+                continue;
+            };
+
+            let buffer = device.create_buffer(&BufferDescriptor {
+                label: Some(&format!("readback_tile_{:?}", index)),
+                size: tile_size as u64,
+                usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+
+            ec.copy_texture_to_buffer(
+                TexelCopyTextureInfo {
+                    texture,
+                    mip_level: 0,
+                    origin: Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: layer as u32,
+                    },
+                    aspect: TextureAspect::All,
+                },
+                TexelCopyBufferInfo {
+                    buffer: &buffer,
+                    layout: TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(pixel_size * GpuTileStorage::TILE_SIZE),
+                        rows_per_image: Some(GpuTileStorage::TILE_SIZE),
+                    },
+                },
+                GpuTileStorage::TILE_COPY_SIZE,
+            );
+
+            let readback = readback_buffer_raw_on_submit_async(&mut ec, &buffer, ..);
+
+            readbacks.insert(index, readback);
+        }
+
+        let si = queue.submit([ec.finish()]);
+        // TODO Don't block!!!
+        //      We should use a background task that infinitely polls.
+        device.poll_indefinitely_for(si)?;
+
+        let buffers = join_all(
+            readbacks
+                .into_iter()
+                .map(|(index, readback)| readback.into_inner().map(move |buf| (index, buf))),
+        )
+        .await;
+
+        let mut result = HashMap::with_capacity(buffers.len());
+        for (index, buf) in buffers {
+            result.insert(index, buf??);
+        }
+
+        Ok(result)
+    }
+
+    pub fn write_raw(&mut self, queue: &Queue, tile: IVec2, data: &[u8]) {
+        self.get_tile_or_allocate(tile);
+        let layer = self.tiles.get_index_of(&tile).unwrap();
+        let pixel_size = self
+            .layer_info
+            .texel_type
+            .wgpu_format()
+            .block_copy_size(None)
+            .unwrap();
+        queue.write_texture(
+            TexelCopyTextureInfo {
+                texture: self.texture().unwrap(),
+                mip_level: 0,
+                origin: Origin3d {
+                    x: 0,
+                    y: 0,
+                    z: layer as u32,
+                },
+                aspect: TextureAspect::All,
+            },
+            data,
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(pixel_size * GpuTileStorage::TILE_SIZE),
+                rows_per_image: Some(GpuTileStorage::TILE_SIZE),
+            },
+            GpuTileStorage::TILE_COPY_SIZE,
+        );
     }
 }

@@ -3,8 +3,10 @@ use std::{borrow::Cow, collections::HashMap};
 use anyhow::bail;
 use bevy_math::IRect;
 use cyancia_image::{
-    layer::{LayerId, LayerPosition, LayerStackNode, properties::LayerProperties},
-    texel::TexelType,
+    layer::{
+        LayerId, LayerPosition, LayerStackNode,
+        properties::{LayerProperties, LayerTexelTypePropertyExt},
+    },
     tile::{DynamicLayerStorage, GpuLayerInfo, GpuTileStorage, TileStorageAppExt},
 };
 use cyancia_render::render_context::RenderContextAppExt;
@@ -346,13 +348,10 @@ impl UndoCommand for InsertLayerCommand {
         .log_err();
         cx.refresh_windows();
 
-        cx.tile_storage().declare_layer(
-            *self.layer.id(),
-            GpuLayerInfo {
-                // TODO use image format
-                texel_type: TexelType::RGBA8,
-            },
-        );
+        if let Some(texel_type) = self.layer.properties().get_texel_type() {
+            cx.tile_storage()
+                .declare_layer(*self.layer.id(), GpuLayerInfo { texel_type });
+        }
 
         Ok(())
     }

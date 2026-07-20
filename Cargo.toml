@@ -9,6 +9,7 @@ members = [
     "crates/cyancia_bucket_tool",
     "crates/cyancia_canvas",
     "crates/cyancia_color",
+    "crates/cyancia_cyan",
     "crates/cyancia_image",
     "crates/cyancia_math",
     "crates/cyancia_render",
@@ -44,6 +45,7 @@ cyancia_brush = { version = "0.1.0", path = "crates/cyancia_brush" }
 cyancia_bucket_tool = { version = "0.1.0", path = "crates/cyancia_bucket_tool" }
 cyancia_canvas = { version = "0.1.0", path = "crates/cyancia_canvas" }
 cyancia_color = { version = "0.1.0", path = "crates/cyancia_color" }
+cyancia_cyan = { version = "0.1.0", path = "crates/cyancia_cyan" }
 cyancia_image = { version = "0.1.0", path = "crates/cyancia_image" }
 cyancia_math = { version = "0.1.0", path = "crates/cyancia_math" }
 cyancia_render = { version = "0.1.0", path = "crates/cyancia_render" }
@@ -75,6 +77,7 @@ downcast-rs = "2"
 dyn-clone = "1"
 encase = "0.12"
 env_logger = "0.11"
+flate2 = "1"
 fs_extra = "1"
 futures = "0.3"
 glam = { version = "0.30", features = ["encase", "serde", "bytemuck"] }
@@ -90,6 +93,7 @@ lyon = "1"
 md5 = "0.8"
 moxcms = "0.8"
 num-traits = "0.2"
+num_enum = "0.7"
 palette = "0.7"
 parking_lot = { version = "0.12", features = ["deadlock_detection"] }
 parse-display = "0.11"
@@ -100,6 +104,8 @@ quote = "1"
 raw-window-handle = { version = "0.6", features = ["std"] }
 rayon = "1"
 rfd = "0.17"
+rmp = "0.8"
+rmp-serde = "1"
 ringbuffer = "0.16"
 rusqlite = { version = "0.40", features = ["bundled-full"] }
 rustc-hash = "1"

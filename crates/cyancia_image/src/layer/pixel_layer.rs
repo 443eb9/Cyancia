@@ -28,16 +28,17 @@ use crate::{
         Layer, LayerId, LayerStackNode,
         properties::{
             BlendFunctionProp, BlendFunctionPropertyExt, DisabledChannelsProp,
-            DisabledChannelsPropertyExt, HasLayerProperties, LayerProperties,
-            LayerPropertiesDeclaration, LockedChannelsProp, LockedProp, NameProp, NamePropertyExt,
-            OpacityProp, OpacityPropertyExt, VisibleProp, VisiblePropertyExt,
+            DisabledChannelsPropertyExt, EncodedLayerProperties, HasLayerProperties,
+            LayerProperties, LayerPropertiesDeclaration, LayerTexelTypeProp, LockedChannelsProp,
+            LockedProp, NameProp, NamePropertyExt, OpacityProp, OpacityPropertyExt, VisibleProp,
+            VisiblePropertyExt,
         },
     },
     texel::TexelType,
     tile::{GpuTileInfo, GpuTileStorage},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct PixelLayer;
 
 impl Layer for PixelLayer {
@@ -45,8 +46,8 @@ impl Layer for PixelLayer {
         false
     }
 
-    fn can_contain_pixels(&self) -> bool {
-        true
+    fn layer_type(&self) -> u32 {
+        0
     }
 
     fn create_blend_cache(
@@ -309,6 +310,8 @@ impl Layer for PixelLayer {
         let props = node.properties();
 
         if !props.visible() {
+            // FIXME This is incorrect. If the layer is not visible, we still needs to copy the content
+            //       from src to output. Or the previous blending result will lost.
             return;
         }
 
@@ -377,6 +380,20 @@ impl HasLayerProperties for PixelLayer {
         decl.create_default::<LockedProp>();
         decl.create_default::<LockedChannelsProp>();
         decl.create_default::<DisabledChannelsProp>();
+        decl.create(LayerTexelTypeProp(TexelType::RGBA8));
         decl
+    }
+
+    fn decode_properties(mut data: EncodedLayerProperties) -> Result<LayerPropertiesDeclaration> {
+        let mut decl = LayerPropertiesDeclaration::default();
+        data.decode::<NameProp>(&mut decl)?;
+        data.decode::<VisibleProp>(&mut decl)?;
+        data.decode::<BlendFunctionProp>(&mut decl)?;
+        data.decode::<OpacityProp>(&mut decl)?;
+        data.decode::<LockedProp>(&mut decl)?;
+        data.decode::<LockedChannelsProp>(&mut decl)?;
+        data.decode::<DisabledChannelsProp>(&mut decl)?;
+        data.decode::<LayerTexelTypeProp>(&mut decl)?;
+        Ok(decl)
     }
 }

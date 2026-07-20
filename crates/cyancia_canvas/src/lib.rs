@@ -1,6 +1,8 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
+use anyhow::Result;
 use bevy_math::IRect;
+use cyancia_cyan::CyanArchive;
 use cyancia_image::{
     CImage,
     layer::{LayerId, LayerStackNode},
@@ -42,6 +44,8 @@ pub struct CCanvas {
     id: CanvasId,
     tool_proxy_id: ToolProxyId,
     pub image: CImage,
+    file_path: PathBuf,
+    pub archive: CyanArchive,
     pub transform: CanvasTransform,
     active_layer: LayerId,
     // Also contains active_layer
@@ -50,7 +54,12 @@ pub struct CCanvas {
 }
 
 impl CCanvas {
-    pub fn new(image: CImage, tool_proxy_id: ToolProxyId) -> Self {
+    pub fn new(
+        path: PathBuf,
+        image: CImage,
+        archive: CyanArchive,
+        tool_proxy_id: ToolProxyId,
+    ) -> Self {
         let background_layer = *image
             .layer_stack()
             .root_node()
@@ -61,7 +70,9 @@ impl CCanvas {
         Self {
             id: CanvasId(Uuid::new_v4()),
             tool_proxy_id,
+            file_path: path,
             image,
+            archive,
             transform: CanvasTransform::default(),
             active_layer: background_layer,
             selected_layers: IndexSet::from([background_layer]),
@@ -75,6 +86,16 @@ impl CCanvas {
 
     pub fn tool_proxy_id(&self) -> ToolProxyId {
         self.tool_proxy_id
+    }
+
+    pub fn file_path(&self) -> &PathBuf {
+        &self.file_path
+    }
+
+    pub fn set_file_path(&mut self, path: PathBuf) -> Result<()> {
+        self.file_path = path.clone();
+        self.archive.set_path(path)?;
+        Ok(())
     }
 
     pub fn mark_dirty(&mut self, tiles: IRect) {

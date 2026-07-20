@@ -1,5 +1,6 @@
 use std::any::TypeId;
 
+use anyhow::Result;
 use bevy_math::IRect;
 use cyancia_render::{
     bind_group_entries::BindGroupEntries,
@@ -26,14 +27,15 @@ use crate::{
         Layer, LayerId,
         properties::{
             BlendFunctionProp, BlendFunctionPropertyExt, DisabledChannelsProp,
-            DisabledChannelsPropertyExt, HasLayerProperties, LayerPropertiesDeclaration,
-            LockedProp, NameProp, OpacityProp, OpacityPropertyExt, VisibleProp, VisiblePropertyExt,
+            DisabledChannelsPropertyExt, EncodedLayerProperties, HasLayerProperties,
+            LayerPropertiesDeclaration, LockedProp, NameProp, OpacityProp, OpacityPropertyExt,
+            VisibleProp, VisiblePropertyExt,
         },
     },
     tile::{GpuTileInfo, GpuTileStorage},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct GroupLayer;
 
 impl Layer for GroupLayer {
@@ -41,8 +43,8 @@ impl Layer for GroupLayer {
         true
     }
 
-    fn can_contain_pixels(&self) -> bool {
-        false
+    fn layer_type(&self) -> u32 {
+        1
     }
 
     fn create_blend_cache(
@@ -320,5 +322,16 @@ impl HasLayerProperties for GroupLayer {
         decl.create_default::<LockedProp>();
         decl.create_default::<DisabledChannelsProp>();
         decl
+    }
+
+    fn decode_properties(mut data: EncodedLayerProperties) -> Result<LayerPropertiesDeclaration> {
+        let mut decl = LayerPropertiesDeclaration::default();
+        data.decode::<NameProp>(&mut decl)?;
+        data.decode::<VisibleProp>(&mut decl)?;
+        data.decode::<BlendFunctionProp>(&mut decl)?;
+        data.decode::<OpacityProp>(&mut decl)?;
+        data.decode::<LockedProp>(&mut decl)?;
+        data.decode::<DisabledChannelsProp>(&mut decl)?;
+        Ok(decl)
     }
 }

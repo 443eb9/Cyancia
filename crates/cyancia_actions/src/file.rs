@@ -1,4 +1,4 @@
-use cyancia_canvas::{CCanvas, CanvasManager, event::CanvasActiveLayerChanged};
+use cyancia_canvas::{CCanvas, CanvasAppExt, CanvasManager, event::CanvasActiveLayerChanged};
 use cyancia_image::{
     CImage,
     texel::TexelType,
@@ -12,7 +12,7 @@ use rfd::AsyncFileDialog;
 
 use crate::ActionFunction;
 
-actions!([OpenFileAction]);
+actions!([OpenFileAction, SaveFileAction]);
 
 impl ActionFunction for OpenFileAction {
     fn trigger(&self, cx: &mut App) {
@@ -22,10 +22,7 @@ impl ActionFunction for OpenFileAction {
                 return;
             };
 
-            let Ok(image) = cx
-                .read_global::<GpuTileStorage, _>(|tiles, _| CImage::from_file(file.path(), tiles))
-                .logged_err()
-            else {
+            let Ok((image, archive)) = cx.update(|cx| CImage::from_file(file.path(), cx)) else {
                 return;
             };
 
@@ -33,9 +30,10 @@ impl ActionFunction for OpenFileAction {
 
             let tool_proxy_id = cx.update_global::<ToolProxies, _>(|tool_proxies, _| {
                 // Tool switch is handled in canvas dock, which is outside of async environment.
+                // TODO No, just do it here.
                 tool_proxies.add(ToolProxy::default())
             });
-            let canvas = CCanvas::new(image, tool_proxy_id);
+            let canvas = CCanvas::new(file.path().into(), image, archive, tool_proxy_id);
             let canvas_id = canvas.id();
 
             cx.update_global::<UndoStacks, _>(|undo_stacks, cx| {
@@ -75,5 +73,23 @@ impl ActionFunction for OpenFileAction {
             });
         })
         .detach();
+    }
+}
+
+impl ActionFunction for SaveFileAction {
+    fn trigger(&self, cx: &mut App) {
+        cx.update_current_canvas(|canvas, cx| {
+            if canvas.archive.path().is_none()
+                && canvas
+                    .set_file_path(canvas.file_path().with_extension("cyan"))
+                    .logged_err()
+                    .is_err()
+            {
+                return;
+            }
+
+            // TODO nonononono use async
+            futures::executor::block_on(canvas.image.write_archive(&canvas.archive, cx)).log_err();
+        });
     }
 }
