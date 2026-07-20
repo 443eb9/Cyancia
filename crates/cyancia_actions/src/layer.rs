@@ -1,28 +1,20 @@
-use std::{
-    any::TypeId,
-    io::{BufReader, Cursor},
-};
+use std::any::TypeId;
 
 use cyancia_canvas::{
-    CCanvas, CanvasAppExt, CanvasUndoStackAppExt,
+    CanvasAppExt, CanvasUndoStackAppExt,
     command::{
         DeleteLayersCommand, GroupLayerCommand, InsertLayerCommand, LayerWithPosition,
         MoveLayersCommand,
     },
 };
-use cyancia_image::{
-    CImage,
-    layer::{
-        LayerId, LayerPosition, LayerStackNode,
-        group_layer::GroupLayer,
-        pixel_layer::PixelLayer,
-        properties::{LayerProperties, NameProp},
-    },
-    tile::TileStorageAppExt,
+use cyancia_image::layer::{
+    LayerId, LayerPosition, LayerStackNode,
+    group_layer::GroupLayer,
+    pixel_layer::PixelLayer,
+    properties::{LayerProperties, NameProp},
 };
-use cyancia_undo::BatchedUndoCommand;
 use cyancia_utils::log_err::LogErr;
-use gpui::{App, ClipboardEntry, actions};
+use gpui::{App, actions};
 
 use crate::ActionFunction;
 
@@ -34,33 +26,30 @@ actions!([
     DeleteSelectedLayersAction,
     SelectPreviousLayerAction,
     SelectNextLayerAction,
-    PasteIntoNewLayerAction,
 ]);
-
-fn find_proper_parent_position(canvas: &CCanvas) -> Option<(LayerId, LayerPosition)> {
-    let mut cur_parent = canvas.active_layer_node();
-    let mut cur_position = LayerPosition::foreground();
-    while !cur_parent
-        .instance()
-        .can_have_children_of(TypeId::of::<PixelLayer>())
-    {
-        let parent_id = canvas.image.layer_stack().get_layer(cur_parent.parent()?)?;
-        cur_position = LayerPosition::above(*cur_parent.id());
-        cur_parent = canvas
-            .image
-            .layer_stack()
-            .get_layer(parent_id.id())
-            .unwrap();
-    }
-
-    Some((*cur_parent.id(), cur_position))
-}
 
 impl ActionFunction for CreateNewLayerAction {
     fn trigger(&self, cx: &mut App) {
         let cmd = cx
             .update_current_canvas(|canvas, _| {
-                let (parent, position) = find_proper_parent_position(canvas)?;
+                let (parent, position) = {
+                    let mut cur_parent = canvas.active_layer_node();
+                    let mut cur_position = LayerPosition::foreground();
+                    while !cur_parent
+                        .instance()
+                        .can_have_children_of(TypeId::of::<PixelLayer>())
+                    {
+                        let parent_id =
+                            canvas.image.layer_stack().get_layer(cur_parent.parent()?)?;
+                        cur_position = LayerPosition::above(*cur_parent.id());
+                        cur_parent = canvas
+                            .image
+                            .layer_stack()
+                            .get_layer(parent_id.id())
+                            .unwrap();
+                    }
+                    (*cur_parent.id(), cur_position)
+                };
                 let name = canvas.image.next_name_of_layer("Layer".into());
 
                 let new_layer =
@@ -71,64 +60,65 @@ impl ActionFunction for CreateNewLayerAction {
                     });
                 Some(InsertLayerCommand::new(canvas, new_layer, parent, position))
             })
-            .unwrap()
-            .unwrap();
+            .flatten();
 
-        cx.push_undo_command_to_current(cmd).log_err();
+        if let Some(cmd) = cmd {
+            cx.push_undo_command_to_current(cmd).log_err();
+        }
     }
 }
 
 impl ActionFunction for GroupSelectedLayersAction {
     fn trigger(&self, cx: &mut App) {
-        let cmd = cx
-            .update_current_canvas(|canvas, _| {
-                let group_name = canvas.image.next_name_of_layer("Group".to_string());
-                let reduced_layers = canvas
-                    .image
-                    .layer_stack()
-                    .reduce_ancestors(canvas.selected_layer_ids().iter().copied());
-                let sorted_selected_layers = canvas
-                    .image
-                    .layer_stack()
-                    .sort_by_depth_and_index(reduced_layers)
-                    .unwrap();
-                let children_layers = sorted_selected_layers
-                    .into_iter()
-                    .map(|l| {
-                        let parent = canvas.image.layer_stack().get_parent_of(&l).unwrap();
-                        let above = parent.child_below(&l);
-                        LayerWithPosition {
-                            id: l,
-                            original_parent: *parent.id(),
-                            original_above: above,
-                        }
-                    })
-                    .collect();
+        let cmd = cx.update_current_canvas(|canvas, _| {
+            let group_name = canvas.image.next_name_of_layer("Group".to_string());
+            let reduced_layers = canvas
+                .image
+                .layer_stack()
+                .reduce_ancestors(canvas.selected_layer_ids().iter().copied());
+            let sorted_selected_layers = canvas
+                .image
+                .layer_stack()
+                .sort_by_depth_and_index(reduced_layers)
+                .unwrap();
+            let children_layers = sorted_selected_layers
+                .into_iter()
+                .map(|l| {
+                    let parent = canvas.image.layer_stack().get_parent_of(&l).unwrap();
+                    let above = parent.child_below(&l);
+                    LayerWithPosition {
+                        id: l,
+                        original_parent: *parent.id(),
+                        original_above: above,
+                    }
+                })
+                .collect();
 
-                let (active_layer_parent, active_layer_index) = canvas
-                    .image
-                    .layer_stack()
-                    .get_position_of(&canvas.active_layer_id())
-                    .unwrap();
+            let (active_layer_parent, active_layer_index) = canvas
+                .image
+                .layer_stack()
+                .get_position_of(&canvas.active_layer_id())
+                .unwrap();
 
-                let group_layer =
-                    LayerStackNode::without_parent(LayerId::random(), Box::new(GroupLayer), {
-                        let mut props = LayerProperties::new::<GroupLayer>();
-                        props.set(NameProp(group_name));
-                        props
-                    });
+            let group_layer =
+                LayerStackNode::without_parent(LayerId::random(), Box::new(GroupLayer), {
+                    let mut props = LayerProperties::new::<GroupLayer>();
+                    props.set(NameProp(group_name));
+                    props
+                });
 
-                GroupLayerCommand {
-                    canvas: canvas.id(),
-                    group: group_layer,
-                    children: children_layers,
-                    parent_id: *active_layer_parent.id(),
-                    index: active_layer_index,
-                }
-            })
-            .unwrap();
+            GroupLayerCommand {
+                canvas: canvas.id(),
+                group: group_layer,
+                children: children_layers,
+                parent_id: *active_layer_parent.id(),
+                index: active_layer_index,
+            }
+        });
 
-        cx.push_undo_command_to_current(cmd).log_err();
+        if let Some(cmd) = cmd {
+            cx.push_undo_command_to_current(cmd).log_err();
+        }
     }
 }
 
@@ -315,80 +305,5 @@ impl ActionFunction for SelectNextLayerAction {
             }
         });
         cx.refresh_windows();
-    }
-}
-
-impl ActionFunction for PasteIntoNewLayerAction {
-    fn trigger(&self, cx: &mut App) {
-        let Some(clipboard) = cx.read_from_clipboard() else {
-            return;
-        };
-
-        let Some(entry) = clipboard.entries().iter().find(|e| {
-            matches!(
-                e,
-                ClipboardEntry::ExternalPaths(_) | ClipboardEntry::Image(_)
-            )
-        }) else {
-            return;
-        };
-
-        let Some(canvas) = cx.read_current_canvas() else {
-            return;
-        };
-
-        let Some((parent, position)) = find_proper_parent_position(canvas) else {
-            return;
-        };
-
-        match entry {
-            ClipboardEntry::Image(image) => {
-                let Ok((image, profile)) =
-                    CImage::load_image_with_profile(BufReader::new(Cursor::new(image.bytes())))
-                        .logged_err()
-                else {
-                    return;
-                };
-
-                let mut layer = PixelLayer::from_image(image, cx.tile_storage());
-                layer.properties_mut().set(NameProp("Pasted Image".into()));
-
-                let layer_storage = cx.tile_storage().get_layer(*layer.id()).unwrap();
-                if layer_storage
-                    .convert_color_space(&profile, canvas.image.profile(), Default::default())
-                    .logged_err()
-                    .is_err()
-                {
-                    return;
-                }
-                drop(layer_storage);
-
-                let cmd = InsertLayerCommand::new(canvas, layer, parent, position);
-                cx.push_undo_command_to_current(cmd).log_err();
-            }
-            ClipboardEntry::ExternalPaths(external_paths) => {
-                let mut commands = Vec::new();
-                let mut cur_position = position;
-
-                for path in external_paths.paths() {
-                    let Ok(layer) =
-                        PixelLayer::from_path(path, cx.tile_storage(), canvas.image.profile())
-                            .logged_err()
-                    else {
-                        continue;
-                    };
-                    let layer_id = *layer.id();
-                    commands.push(InsertLayerCommand::new(canvas, layer, parent, cur_position));
-                    cur_position = LayerPosition::above(layer_id);
-                }
-
-                cx.push_undo_command_to_current(BatchedUndoCommand::new(
-                    "Paste Images".into(),
-                    commands,
-                ))
-                .log_err();
-            }
-            _ => {}
-        }
     }
 }
