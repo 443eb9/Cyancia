@@ -1,17 +1,14 @@
-use std::io::{Read, Write, read_to_string};
+use std::collections::BTreeSet;
 
 use cyancia_utils::wrapper;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{
-    asset::{Asset, UntypedAssetId},
-    loader::AssetSerializer,
-};
+use crate::bundle::BundleId;
 
 wrapper! {
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Display)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Display)]
     #[display("{0}")]
     pub TagId : Uuid
 }
@@ -28,82 +25,48 @@ impl rusqlite::types::ToSql for TagId {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Tag {
-    tag_id: TagId,
-    name: String,
-    assets: Vec<UntypedAssetId>,
+    pub id: TagId,
+    pub bundle_id: BundleId,
+    pub relative_path: String,
+    pub name: String,
+    pub asset_ty: Option<String>,
 }
 
-impl Asset for Tag {
-    const TYPE_NAME: &'static str = "tag";
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TagFile {
+    pub id: TagId,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset_ty: Option<String>,
 }
 
-impl Tag {
-    pub fn new(name: String) -> Self {
+impl TagFile {
+    pub fn new(name: String, asset_ty: Option<String>) -> Self {
         Self {
-            tag_id: TagId::new(Uuid::new_v4()),
+            id: TagId::new(Uuid::new_v4()),
             name,
-            assets: Vec::new(),
+            asset_ty,
         }
     }
+}
 
-    pub fn id(&self) -> &TagId {
-        &self.tag_id
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn set_name(&mut self, name: String) {
-        self.name = name;
-    }
-
-    pub fn assets(&self) -> &[UntypedAssetId] {
-        &self.assets
-    }
-
-    pub fn add_asset(&mut self, asset_id: UntypedAssetId) {
-        if !self.assets.contains(&asset_id) {
-            self.assets.push(asset_id);
+impl From<Tag> for TagFile {
+    fn from(tag: Tag) -> Self {
+        Self {
+            id: tag.id,
+            name: tag.name,
+            asset_ty: tag.asset_ty,
         }
     }
-
-    pub fn remove_asset(&mut self, asset_id: &UntypedAssetId) {
-        self.assets.retain(|id| id != asset_id);
-    }
 }
 
-#[derive(Default)]
-pub struct TagSerializer;
+pub const TAG_EXT: &str = "ctag";
 
-#[derive(Debug, thiserror::Error)]
-pub enum TagSerializerError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("Toml serialization error: {0}")]
-    TomlSer(#[from] toml::ser::Error),
-    #[error("Toml deserialization error: {0}")]
-    TomlDe(#[from] toml::de::Error),
+#[derive(Default, Clone, Serialize, Deserialize)]
+pub struct AssetTags {
+    pub tags: BTreeSet<TagId>,
 }
 
-impl AssetSerializer for TagSerializer {
-    type Asset = Tag;
-
-    type Error = TagSerializerError;
-
-    fn file_extension() -> &'static str {
-        "ctag"
-    }
-
-    fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset, Self::Error> {
-        Ok(toml::from_str(&read_to_string(reader)?)?)
-    }
-
-    fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<(), Self::Error> {
-        let toml_str = toml::to_string(asset)?;
-        writer.write_all(toml_str.as_bytes())?;
-        Ok(())
-    }
-}
+pub const ASSET_TAGS_EXT: &str = "tags";

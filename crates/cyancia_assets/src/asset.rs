@@ -1,4 +1,4 @@
-use std::{hash::Hash, marker::PhantomData, sync::Arc};
+use std::{collections::BTreeSet, hash::Hash, marker::PhantomData, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use cyancia_utils::wrapper;
@@ -9,12 +9,13 @@ use uuid::Uuid;
 
 use crate::{
     bundle::{AssetBundleCache, BundleId},
-    error::{AssetError, AssetResult},
+    error::{AssetErrorKind, AssetResult},
     index_db::AssetIndexDb,
+    tag::TagId,
 };
 
 wrapper! {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Display)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Display)]
     #[display("{0}")]
     pub UntypedAssetId: Uuid
 }
@@ -128,7 +129,6 @@ impl<T: Asset> ErasedAsset for T {
 #[derive(Debug, Clone)]
 pub struct AssetMetadata {
     pub asset_id: UntypedAssetId,
-    // TODO: Replace with Arc<str> when sqlx supports.
     pub ty: String,
     pub bundle_id: BundleId,
     pub relative_path: String,
@@ -193,21 +193,23 @@ impl<T: Asset> AssetHandle<T> {
     }
 
     pub fn get(&self) -> AssetResult<Arc<T>> {
-        let dynamic = match self.bundle.get_cached(&self.untyped_id()) {
+        let dynamic = match self.bundle.get_cached_asset(&self.untyped_id()) {
             Ok(cached) => cached,
             Err(_) => {
                 let metadata = self.metadata()?;
-                self.bundle.read(self.untyped_id(), metadata.revision)?
+                self.bundle
+                    .read_asset(self.untyped_id(), metadata.revision)?
             }
         };
 
         Ok(dynamic
             .downcast_arc::<T>()
-            .map_err(|_| AssetError::CastAssetError(T::TYPE_NAME.to_string()))?)
+            .map_err(|_| AssetErrorKind::CastAssetError(T::TYPE_NAME.to_string()))?)
     }
 
     pub fn update(&self, asset: T) -> AssetResult<()> {
-        self.bundle.update(self.untyped_id(), Arc::new(asset))?;
+        self.bundle
+            .update_asset(self.untyped_id(), Arc::new(asset))?;
         self.index_db.update_asset(&self.untyped_id())?;
 
         Ok(())
@@ -215,7 +217,12 @@ impl<T: Asset> AssetHandle<T> {
 
     pub fn write(&self) -> AssetResult<()> {
         let metadata = self.metadata()?;
-        let new_path = self.bundle.write(&self.untyped_id(), metadata.revision)?;
+        if !metadata.in_memory {
+            return Ok(());
+        }
+        let new_path = self
+            .bundle
+            .write_asset(&self.untyped_id(), metadata.revision)?;
         let last_modified =
             std::fs::metadata(self.bundle.absolute_modified_path(&new_path))?.modified()?;
         self.index_db.write_asset(
@@ -224,6 +231,49 @@ impl<T: Asset> AssetHandle<T> {
             last_modified.into(),
         )?;
         Ok(())
+    }
+
+    pub fn delete(&self) -> AssetResult<()> {
+        let id = self.untyped_id();
+        self.bundle.delete_cached_asset(&id)?;
+        self.index_db.delete_asset(&id)?;
+        Ok(())
+    }
+
+    pub fn read_tags(&self) -> AssetResult<BTreeSet<TagId>> {
+        Ok(self.bundle.read_asset_tags(&self.untyped_id())?.tags)
+    }
+
+    pub fn add_tag(&self, tag_id: &TagId) -> AssetResult<()> {
+        let asset_id = self.untyped_id();
+        let mut tags = self.read_tags()?;
+        if !tags.insert(*tag_id) {
+            return Err(AssetErrorKind::TagAlreadyAssigned {
+                asset_id,
+                tag_id: *tag_id,
+            }
+            .into());
+        }
+
+        let tags = tags.into_iter().collect::<Vec<_>>();
+        self.bundle.write_asset_tags(&asset_id, &tags)?;
+        self.index_db.add_tag_to_asset(&asset_id, tag_id)
+    }
+
+    pub fn remove_tag(&self, tag_id: &TagId) -> AssetResult<()> {
+        let asset_id = self.untyped_id();
+        let mut tags = self.read_tags()?;
+        if !tags.remove(tag_id) {
+            return Err(AssetErrorKind::TagNotAssigned {
+                asset_id,
+                tag_id: *tag_id,
+            }
+            .into());
+        }
+
+        let tags = tags.into_iter().collect::<Vec<_>>();
+        self.bundle.write_asset_tags(&asset_id, &tags)?;
+        self.index_db.remove_tag_from_asset(&asset_id, tag_id)
     }
 
     pub fn metadata(&self) -> AssetResult<AssetMetadata> {

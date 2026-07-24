@@ -1,14 +1,14 @@
 use std::{
     backtrace::Backtrace,
     error::Error,
-    fmt::Debug,
+    fmt::{Debug, Display},
     path::{PathBuf, StripPrefixError},
 };
 
-use crate::{asset::UntypedAssetId, bundle::BundleId};
+use crate::{asset::UntypedAssetId, bundle::BundleId, tag::TagId};
 
 #[derive(Debug, thiserror::Error)]
-pub enum AssetError {
+pub enum AssetErrorKind {
     #[error("Asset path not found for asset ID: {0}")]
     AssetPathNotFound(UntypedAssetId),
     #[error("Asset not found for asset ID: {0}")]
@@ -17,6 +17,48 @@ pub enum AssetError {
     BundleNotFound(BundleId),
     #[error("No serializer found for asset extension: {0}")]
     SerializerNotFound(String),
+    #[error("Tag not found for tag ID: {0}")]
+    TagNotFound(TagId),
+    #[error(
+        "Tag {tag_id} cannot be added to asset {asset_id} of type {asset_ty}; expected {expected_ty}"
+    )]
+    InvalidTagAssetType {
+        tag_id: TagId,
+        asset_id: UntypedAssetId,
+        asset_ty: String,
+        expected_ty: String,
+    },
+    #[error("Tag {tag_id} is already assigned to asset {asset_id}")]
+    TagAlreadyAssigned {
+        asset_id: UntypedAssetId,
+        tag_id: TagId,
+    },
+    #[error("Tag {tag_id} is not assigned to asset {asset_id}")]
+    TagNotAssigned {
+        asset_id: UntypedAssetId,
+        tag_id: TagId,
+    },
+    #[error("Tag asset {asset_id} cannot have an asset tag sidecar at {path}")]
+    TagAssetTagsNotAllowed {
+        asset_id: UntypedAssetId,
+        path: PathBuf,
+    },
+    #[error(
+        "Tag {tag_id} is defined by multiple bundles: {first_bundle_id} and {second_bundle_id}"
+    )]
+    DuplicateTagDefinition {
+        tag_id: TagId,
+        first_bundle_id: BundleId,
+        second_bundle_id: BundleId,
+    },
+    #[error(
+        "Asset type restriction for tag {tag_id} cannot be changed from {current_asset_ty:?} to {new_asset_ty:?}"
+    )]
+    TagAssetTypeChanged {
+        tag_id: TagId,
+        current_asset_ty: Option<String>,
+        new_asset_ty: Option<String>,
+    },
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
     #[error("Zip error: {0}")]
@@ -39,32 +81,62 @@ pub enum AssetError {
     SqliteError(#[from] rusqlite::Error),
 }
 
-pub struct AssetErrorWithBacktrace {
-    error: AssetError,
+pub struct AssetError {
+    kind: AssetErrorKind,
     backtrace: Box<Backtrace>,
 }
 
-impl From<AssetError> for AssetErrorWithBacktrace {
-    fn from(value: AssetError) -> Self {
+impl AssetError {
+    pub fn new(kind: AssetErrorKind) -> Self {
         Self {
-            error: value,
+            kind,
             backtrace: Box::new(Backtrace::capture()),
         }
     }
+
+    pub fn kind(&self) -> &AssetErrorKind {
+        &self.kind
+    }
+
+    pub fn into_kind(self) -> AssetErrorKind {
+        self.kind
+    }
+
+    pub fn backtrace(&self) -> &Backtrace {
+        &self.backtrace
+    }
 }
 
-impl Debug for AssetErrorWithBacktrace {
+impl From<AssetErrorKind> for AssetError {
+    fn from(kind: AssetErrorKind) -> Self {
+        Self::new(kind)
+    }
+}
+
+impl Display for AssetError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}\nBacktrace:\n{}", self.error, self.backtrace)
+        Display::fmt(&self.kind, f)
+    }
+}
+
+impl Debug for AssetError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}\nBacktrace:\n{}", self.kind, self.backtrace)
+    }
+}
+
+impl Error for AssetError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.kind.source()
     }
 }
 
 macro_rules! from_error {
     ($($error:ty),*) => {
         $(
-            impl From<$error> for AssetErrorWithBacktrace {
+            impl From<$error> for AssetError {
                 fn from(value: $error) -> Self {
-                    Self::from(AssetError::from(value))
+                    Self::from(AssetErrorKind::from(value))
                 }
             }
         )*
@@ -78,4 +150,4 @@ from_error!(
     rusqlite::Error
 );
 
-pub type AssetResult<T> = std::result::Result<T, AssetErrorWithBacktrace>;
+pub type AssetResult<T> = std::result::Result<T, AssetError>;
