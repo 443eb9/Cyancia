@@ -1,3 +1,7 @@
+use cyancia_assets::{AssetAppExt, index_db::AssetFilter};
+use cyancia_brush::{
+    asset::BrushPreset, tool::CurrentBrushPresetHandle, widget::BrushPresetListDelegate,
+};
 use cyancia_canvas::{
     CanvasAppExt, CanvasId,
     event::CurrentCanvasChanged,
@@ -7,9 +11,13 @@ use cyancia_canvas::{
 use cyancia_tools::{ToolFunction, ToolProxies, ToolProxyId};
 use gpui::{
     App, AppContext, BorrowAppContext, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    IntoElement, Render, SharedString, Window, div,
+    IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window, div,
 };
-use gpui_component::dock::{Panel, PanelEvent};
+use gpui_component::{
+    IndexPath, Sizable,
+    dock::{Panel, PanelEvent},
+    list::{List, ListEvent, ListState},
+};
 
 macro_rules! test_dummy_dock {
     ($name:ident) => {
@@ -209,5 +217,108 @@ impl Render for ToolOptionsDock {
                 .tool_option_widget(window, cx)
                 .unwrap_or_else(|| div().into_any_element())
         })
+    }
+}
+
+pub struct BrushPresetDock {
+    // TODO Use this after tag hierarchy is implemented.
+    _filter_condition: AssetFilter<BrushPreset>,
+    list_state: Entity<ListState<BrushPresetListDelegate>>,
+    focus_handle: FocusHandle,
+    _subscriptions: Vec<Subscription>,
+}
+
+impl BrushPresetDock {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let list_state = cx.new(|cx| {
+            ListState::new(
+                BrushPresetListDelegate::new(cx.assets().all_handles_of::<BrushPreset>().unwrap()),
+                window,
+                cx,
+            )
+        });
+
+        let _subscriptions = vec![
+            cx.subscribe_in(&list_state, window, Self::on_select_brush_preset),
+            cx.observe_global::<CurrentBrushPresetHandle>(Self::on_active_brush_preset_changed),
+        ];
+
+        Self {
+            _filter_condition: Default::default(),
+            list_state,
+            focus_handle: cx.focus_handle(),
+            _subscriptions,
+        }
+    }
+
+    fn on_select_brush_preset(
+        &mut self,
+        state: &Entity<ListState<BrushPresetListDelegate>>,
+        event: &ListEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            ListEvent::Confirm(ix) => {
+                let handle = state.read_with(cx, |state, _| {
+                    let item = state.delegate().get(*ix)?;
+                    Some(item.handle.clone())
+                });
+
+                if let Some(handle) = handle {
+                    cx.set_global(CurrentBrushPresetHandle::new(handle));
+                }
+            }
+            ListEvent::Select(_) | ListEvent::Cancel => {}
+        }
+    }
+
+    fn on_active_brush_preset_changed(&mut self, cx: &mut Context<Self>) {
+        let brush_preset = cx
+            .try_global::<CurrentBrushPresetHandle>()
+            .map(|h| h.0.clone());
+        self.list_state.update(cx, |state, cx| {
+            let ix = brush_preset
+                .and_then(|preset| {
+                    state
+                        .delegate()
+                        .items()
+                        .iter()
+                        .position(|i| i.handle.id() == preset.id())
+                })
+                .map(IndexPath::new);
+
+            // TODO Hacky, but the delegate is not using the window.
+            #[allow(invalid_value)]
+            let window = unsafe { std::mem::zeroed() };
+            state.set_selected_index(ix, window, cx);
+        });
+    }
+}
+
+impl EventEmitter<PanelEvent> for BrushPresetDock {}
+
+impl Focusable for BrushPresetDock {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl Panel for BrushPresetDock {
+    fn panel_name(&self) -> &'static str {
+        "brush_presets"
+    }
+
+    fn title(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        "Brush Presets"
+    }
+}
+
+impl Render for BrushPresetDock {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .p_1()
+            .size_full()
+            .child(List::new(&self.list_state).small().size_full())
     }
 }

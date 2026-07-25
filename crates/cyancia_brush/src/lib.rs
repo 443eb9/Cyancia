@@ -2,10 +2,7 @@ use cyancia_assets::AssetAppExt;
 use cyancia_tools::ToolsAppExt;
 use gpui::App;
 
-use crate::{
-    asset::BrushPresetSerializer,
-    tool::{BrushTool, CurrentBrushPresetOperator},
-};
+use crate::{asset::BrushPresetSerializer, tool::BrushTool};
 
 pub mod asset;
 pub mod editor;
@@ -18,9 +15,9 @@ pub mod widget;
 pub fn init(cx: &mut App) {
     cx.add_asset_serializer::<BrushPresetSerializer>();
     cx.add_tool_function::<BrushTool>();
-    cx.set_global(CurrentBrushPresetOperator::new(None));
 
     editor::init(cx);
+    tool::init(cx);
 }
 
 // pub struct BrushPlugin;
