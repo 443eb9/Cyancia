@@ -1,11 +1,10 @@
 use std::{
     collections::HashMap,
     rc::Rc,
-    str::FromStr,
     sync::{Arc, LazyLock},
 };
 
-use cyancia_assets::{AssetAppExt, asset::AssetId, bundle::BundleId};
+use cyancia_assets::{AssetAppExt, asset::AssetId};
 use cyancia_render::texture::Image;
 use cyancia_shader_graph::{
     editor::GraphEditor,
@@ -25,8 +24,9 @@ use cyancia_shader_graph::{
     },
 };
 use gpui::{
-    Action, App, AppContext, Axis, ClickEvent, Context, Entity, InteractiveElement, IntoElement,
-    KeyBinding, ParentElement, Render, Styled, Window, actions, div, px,
+    Action, App, AppContext, Axis, BorrowAppContext, ClickEvent, Context, Entity,
+    InteractiveElement, IntoElement, KeyBinding, ParentElement, Render, Styled, Window, actions,
+    div, px,
 };
 use gpui_component::{
     IconName, Selectable,
@@ -49,6 +49,7 @@ use crate::{
         REQUIRED_SPACING_GRAPH_NODES, STROKE_POSTPROCESS_GRAPH_NODES,
     },
     render::graph::{BrushGraphData, BrushGraphPostprocessData},
+    tool::CurrentBrushPresetHandle,
     widget::{BrushFunctionListDelegate, BrushPresetListDelegate},
 };
 
@@ -89,8 +90,6 @@ struct DeleteExternalVariable {
     id: ExternalVariableId,
 }
 
-// FIXME: Modifying preset won't take effect immediately.
-// TODO: Don't share the same brush with brush tool.
 // TODO: Tag filtering.
 pub struct BrushEditor {
     texture_storage: Arc<GraphTextureStorage>,
@@ -99,7 +98,6 @@ pub struct BrushEditor {
 
     selected: Option<Selected>,
 
-    saved_runtime_revision: u64,
     editor_state: Option<EditorState>,
     brushes: Entity<ListState<BrushPresetListDelegate>>,
     functions: Entity<ListState<BrushFunctionListDelegate>>,
@@ -148,153 +146,14 @@ impl BrushEditor {
             .new(|cx| ListState::new(BrushFunctionListDelegate::new(function_assets), window, cx));
         let name_input_state = cx.new(|cx| InputState::new(window, cx));
 
-        cx.subscribe_in(
-            &brushes,
-            window,
-            move |editor, brushes_entity, event: &ListEvent, window, cx| match event {
-                ListEvent::Select(_) => {}
-                ListEvent::Confirm(ix) => {
-                    editor.functions.update(cx, |funcs, cx| {
-                        funcs.set_selected_index(None, window, cx);
-                    });
+        cx.subscribe_in(&brushes, window, Self::on_brush_list_event)
+            .detach();
 
-                    let Some(brush) = brushes_entity.update(cx, |brushes, _| {
-                        let item = brushes.delegate().get(*ix)?;
-                        Some(item.handle.clone())
-                    }) else {
-                        return;
-                    };
+        cx.subscribe_in(&functions, window, Self::on_function_list_event)
+            .detach();
 
-                    let (maybe_instance, errs) = BrushPresetInstance::from_asset(
-                        &brush,
-                        editor.texture_storage.clone(),
-                        editor.main_function_storage.clone(),
-                        editor.stroke_pp_function_storage.clone(),
-                        cx,
-                    );
-
-                    for err in errs {
-                        log::error!("Error deserializing brush preset {}: {}", brush.id(), err);
-                    }
-
-                    let Some(instance) = maybe_instance else {
-                        log::error!("Failed to load brush preset {}", brush.id());
-                        return;
-                    };
-
-                    editor.name_input_state.update(cx, |st, cx| {
-                        st.set_value(instance.metadata().name.clone(), window, cx);
-                    });
-                    editor.editor_state = Some(EditorState::Main(cx.new(|cx| {
-                        GraphEditor::new(
-                            instance.main_graph().clone(),
-                            MAIN_GRAPH_NODES.clone(),
-                            cx,
-                        )
-                    })));
-                    editor.selected = Some(Selected::Brush(SelectedBrush {
-                        asset_id: Some(brush.id()),
-                        instance,
-                        viewing_graph: BrushPresetGraph::Main,
-                    }));
-                    editor.saved_runtime_revision = 0;
-                }
-                ListEvent::Cancel => {}
-            },
-        )
-        .detach();
-
-        cx.subscribe_in(
-            &functions,
-            window,
-            move |editor, functions_entity, event: &ListEvent, window, cx| match event {
-                ListEvent::Select(_) => {}
-                ListEvent::Confirm(ix) => {
-                    editor.brushes.update(cx, |brushes, cx| {
-                        brushes.set_selected_index(None, window, cx);
-                    });
-
-                    let Some(func) = functions_entity.update(cx, |funcs, _| {
-                        let item = funcs.delegate().get(*ix)?;
-                        Some(item.handle.clone())
-                    }) else {
-                        return;
-                    };
-
-                    let ser_func = match func.get() {
-                        Ok(ser_func) => ser_func,
-                        Err(err) => {
-                            log::error!("Failed reading function {}: {:?}", func.id(), err);
-                            return;
-                        }
-                    };
-                    let (maybe_func, errs) = ser_func.deserialize_func(
-                        Some(func.id()),
-                        FUNCTION_GRAPH_TYPE_REGISTRY.clone(),
-                        FUNCTION_GRAPH_NODE_REGISTRY.as_ref(),
-                        cx,
-                    );
-
-                    for err in errs {
-                        log::error!("Error deserializing function {:?}: {:?}", func.id(), err);
-                    }
-                    let Some(func) = maybe_func else {
-                        log::error!("Failed to load function {}", func.id());
-                        return;
-                    };
-
-                    editor.name_input_state.update(cx, |st, cx| {
-                        st.set_value(func.name.clone(), window, cx);
-                    });
-                    editor.editor_state = Some(EditorState::Main(cx.new(|cx| {
-                        GraphEditor::new(
-                            func.graph.clone(),
-                            FUNCTION_GRAPH_NODE_REGISTRY.clone(),
-                            cx,
-                        )
-                    })));
-                    editor.selected = Some(Selected::Function(SelectedFunction {
-                        asset_id: func.asset_id,
-                        id: func.id,
-                        instance: GraphFunctionInstance::new(func),
-                    }));
-                    editor.saved_runtime_revision = 0;
-                }
-                ListEvent::Cancel => {}
-            },
-        )
-        .detach();
-
-        cx.subscribe_in(
-            &name_input_state,
-            window,
-            |editor, input_state, event: &InputEvent, window, cx| match event {
-                InputEvent::PressEnter { secondary: _ } => {
-                    if let Some(selected) = &mut editor.selected {
-                        let name = input_state.read(cx).value();
-                        match selected {
-                            Selected::Brush(brush) => {
-                                brush.instance.metadata_mut().name = name.into();
-                            }
-                            Selected::Function(func) => {
-                                func.instance.graph_function_mut().name = name.into()
-                            }
-                        }
-                    }
-                }
-                InputEvent::Blur => {
-                    if let Some(selected) = &editor.selected {
-                        let name = match selected {
-                            Selected::Brush(brush) => brush.instance.metadata().name.clone(),
-                            Selected::Function(func) => func.instance.graph_function().name.clone(),
-                        };
-                        input_state.update(cx, |state, cx| state.set_value(name, window, cx));
-                    }
-                }
-                InputEvent::Change | InputEvent::Focus => {}
-            },
-        )
-        .detach();
+        cx.subscribe_in(&name_input_state, window, Self::on_name_input_event)
+            .detach();
 
         let new_ext_var_name_input_state = cx.new(|cx| InputState::new(window, cx));
         let rename_ext_var_input_state = cx.new(|cx| InputState::new(window, cx));
@@ -314,16 +173,12 @@ impl BrushEditor {
         cx.subscribe_in(
             &rename_ext_var_input_state,
             window,
-            |editor, _, event: &InputEvent, _, cx| match event {
-                InputEvent::PressEnter { secondary: _ } => {
-                    if let Some(id) = editor.renaming_ext_var {
-                        editor.confirm_external_var_rename(id, cx);
-                    }
-                }
-                InputEvent::Blur | InputEvent::Change | InputEvent::Focus => {}
-            },
+            Self::on_ext_var_input_event,
         )
         .detach();
+
+        cx.observe_window_activation(window, Self::on_window_activation_changed)
+            .detach();
 
         Self {
             selected: None,
@@ -331,7 +186,6 @@ impl BrushEditor {
             main_function_storage: function_storage,
             stroke_pp_function_storage: Arc::new(GraphFunctionStorage::new(HashMap::new())), // TODO
 
-            saved_runtime_revision: 0,
             editor_state: None,
             brushes,
             functions,
@@ -341,6 +195,170 @@ impl BrushEditor {
             rename_ext_var_input_state,
             renaming_ext_var: None,
             pane_selection: PaneSelection::Brush,
+        }
+    }
+
+    fn on_brush_list_event(
+        &mut self,
+        brushes_entity: &Entity<ListState<BrushPresetListDelegate>>,
+        event: &ListEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            ListEvent::Select(_) => {}
+            ListEvent::Confirm(ix) => {
+                self.functions.update(cx, |funcs, cx| {
+                    funcs.set_selected_index(None, window, cx);
+                });
+
+                let Some(brush) = brushes_entity.update(cx, |brushes, _| {
+                    let item = brushes.delegate().get(*ix)?;
+                    Some(item.handle.clone())
+                }) else {
+                    return;
+                };
+
+                let (maybe_instance, errs) = BrushPresetInstance::from_asset(
+                    &brush,
+                    self.texture_storage.clone(),
+                    self.main_function_storage.clone(),
+                    self.stroke_pp_function_storage.clone(),
+                    cx,
+                );
+
+                for err in errs {
+                    log::error!("Error deserializing brush preset {}: {}", brush.id(), err);
+                }
+
+                let Some(instance) = maybe_instance else {
+                    log::error!("Failed to load brush preset {}", brush.id());
+                    return;
+                };
+
+                self.name_input_state.update(cx, |st, cx| {
+                    st.set_value(instance.metadata().name.clone(), window, cx);
+                });
+                self.editor_state = Some(EditorState::Main(cx.new(|cx| {
+                    GraphEditor::new(instance.main_graph().clone(), MAIN_GRAPH_NODES.clone(), cx)
+                })));
+                self.selected = Some(Selected::Brush(SelectedBrush {
+                    asset_id: brush.id(),
+                    instance,
+                    viewing_graph: BrushPresetGraph::Main,
+                }));
+            }
+            ListEvent::Cancel => {}
+        }
+    }
+
+    fn on_function_list_event(
+        &mut self,
+        functions_entity: &Entity<ListState<BrushFunctionListDelegate>>,
+        event: &ListEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            ListEvent::Select(_) => {}
+            ListEvent::Confirm(ix) => {
+                self.brushes.update(cx, |brushes, cx| {
+                    brushes.set_selected_index(None, window, cx);
+                });
+
+                let Some(func) = functions_entity.update(cx, |funcs, _| {
+                    let item = funcs.delegate().get(*ix)?;
+                    Some(item.handle.clone())
+                }) else {
+                    return;
+                };
+
+                let ser_func = match func.get() {
+                    Ok(ser_func) => ser_func,
+                    Err(err) => {
+                        log::error!("Failed reading function {}: {:?}", func.id(), err);
+                        return;
+                    }
+                };
+                let (maybe_func, errs) = ser_func.deserialize_func(
+                    Some(func.id()),
+                    FUNCTION_GRAPH_TYPE_REGISTRY.clone(),
+                    FUNCTION_GRAPH_NODE_REGISTRY.as_ref(),
+                    cx,
+                );
+
+                for err in errs {
+                    log::error!("Error deserializing function {:?}: {:?}", func.id(), err);
+                }
+                let Some(func) = maybe_func else {
+                    log::error!("Failed to load function {}", func.id());
+                    return;
+                };
+
+                self.name_input_state.update(cx, |st, cx| {
+                    st.set_value(func.name.clone(), window, cx);
+                });
+                self.editor_state = Some(EditorState::Main(cx.new(|cx| {
+                    GraphEditor::new(func.graph.clone(), FUNCTION_GRAPH_NODE_REGISTRY.clone(), cx)
+                })));
+                self.selected = Some(Selected::Function(SelectedFunction {
+                    asset_id: func.asset_id.unwrap(),
+                    id: func.id,
+                    instance: GraphFunctionInstance::new(func),
+                }));
+            }
+            ListEvent::Cancel => {}
+        }
+    }
+
+    fn on_name_input_event(
+        &mut self,
+        input_state: &Entity<InputState>,
+        event: &InputEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            InputEvent::PressEnter { secondary: _ } => {
+                if let Some(selected) = &mut self.selected {
+                    let name = input_state.read(cx).value();
+                    match selected {
+                        Selected::Brush(brush) => {
+                            brush.instance.metadata_mut().name = name.into();
+                        }
+                        Selected::Function(func) => {
+                            func.instance.graph_function_mut().name = name.into()
+                        }
+                    }
+                }
+            }
+            InputEvent::Blur => {
+                if let Some(selected) = &self.selected {
+                    let name = match selected {
+                        Selected::Brush(brush) => brush.instance.metadata().name.clone(),
+                        Selected::Function(func) => func.instance.graph_function().name.clone(),
+                    };
+                    input_state.update(cx, |state, cx| state.set_value(name, window, cx));
+                }
+            }
+            InputEvent::Change | InputEvent::Focus => {}
+        }
+    }
+
+    fn on_ext_var_input_event(
+        &mut self,
+        _: &Entity<InputState>,
+        event: &InputEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            InputEvent::PressEnter { secondary: _ } => {
+                if let Some(id) = self.renaming_ext_var {
+                    self.confirm_external_var_rename(id, cx);
+                }
+            }
+            InputEvent::Blur | InputEvent::Change | InputEvent::Focus => {}
         }
     }
 
@@ -358,6 +376,49 @@ impl BrushEditor {
         cx.notify();
     }
 
+    fn on_window_activation_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if window.is_window_active() {
+            return;
+        }
+
+        let Some(selected) = &self.selected else {
+            return;
+        };
+
+        match selected {
+            Selected::Brush(brush) => {
+                let preset = brush.instance.as_asset(cx).unwrap();
+                let assets = cx.assets();
+
+                let handle = assets.handle(brush.asset_id).unwrap();
+                handle.update(preset).unwrap();
+
+                if let Some(cur_handle) = cx.try_global::<CurrentBrushPresetHandle>()
+                    && cur_handle.0.id() == handle.id()
+                {
+                    // To notify the tool
+                    cx.set_global(CurrentBrushPresetHandle(handle));
+                }
+            }
+            Selected::Function(func) => {
+                let assets = cx.assets();
+                let ser_func =
+                    SerializableGraphFunction::serialize_func(func.instance.graph_function(), cx)
+                        .unwrap();
+                let handle = assets.handle(func.asset_id).unwrap();
+                handle.update(ser_func).unwrap();
+
+                // We still needs to notify the tool. As user adjusting the function, the current brush is likely
+                // referencing the function. So we are refreshing the global brush.
+                if let Some(cur_handle) = cx.try_global::<CurrentBrushPresetHandle>() {
+                    let global = cur_handle.clone();
+                    // To notify the tool
+                    cx.set_global(global);
+                }
+            }
+        }
+    }
+
     pub fn on_save_current_item_action(
         &mut self,
         _: &SaveCurrentItem,
@@ -367,43 +428,23 @@ impl BrushEditor {
         let Some(selected) = &mut self.selected else {
             return;
         };
+        let assets = cx.assets();
 
         match selected {
             Selected::Brush(brush) => {
-                let Some(asset_id) = brush.asset_id else {
-                    return;
-                };
-                self.saved_runtime_revision = brush.instance.runtime_revision();
                 let preset = brush.instance.as_asset(cx).unwrap();
-                let assets = cx.assets();
 
-                let handle = assets.handle(asset_id).unwrap();
+                let handle = assets.handle(brush.asset_id).unwrap();
                 handle.update(preset).unwrap();
                 handle.write().unwrap();
             }
             Selected::Function(func) => {
-                let assets = cx.assets();
                 let ser_func =
                     SerializableGraphFunction::serialize_func(func.instance.graph_function(), cx)
                         .unwrap();
-                self.saved_runtime_revision = func.instance.runtime_revision();
-                if let Some(asset_id) = func.asset_id {
-                    let handle = assets.handle(asset_id).unwrap();
-                    handle.update(ser_func).unwrap();
-                    handle.write().unwrap();
-                } else {
-                    let new_id = assets
-                        .add_asset(
-                            // TODO
-                            BundleId::new(
-                                Uuid::from_str("b92c20f6-8cdb-42b8-efae-a92705efd029").unwrap(),
-                            ),
-                            format!("{}.csf", func.instance.graph_function().name),
-                            Arc::new(ser_func),
-                        )
-                        .unwrap();
-                    func.asset_id = Some(new_id);
-                }
+                let handle = assets.handle(func.asset_id).unwrap();
+                handle.update(ser_func).unwrap();
+                handle.write().unwrap();
             }
         }
 
@@ -411,6 +452,15 @@ impl BrushEditor {
     }
 
     fn on_new_item(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let assets = cx.assets();
+        let Some(bundle) = assets
+            .bundles()
+            .find(|b| !b.is_readonly())
+            .map(|b| b.metadata().bundle_id)
+        else {
+            return;
+        };
+
         match self.pane_selection {
             PaneSelection::Brush => {
                 let new_brush = BrushPreset {
@@ -434,16 +484,24 @@ impl BrushEditor {
                     return;
                 };
 
+                let new_id = cx
+                    .assets()
+                    .add_asset(
+                        bundle,
+                        format!("{}.cbp", instance.metadata().name),
+                        Arc::new(instance.as_asset(cx).unwrap()),
+                    )
+                    .unwrap();
+
                 self.name_input_state.update(cx, |state, cx| {
                     state.set_value(instance.metadata().name.clone(), window, cx);
                 });
                 self.editor_state = Some(EditorState::new_main(instance.main_graph().clone(), cx));
                 self.selected = Some(Selected::Brush(SelectedBrush {
-                    asset_id: None,
+                    asset_id: new_id,
                     instance,
                     viewing_graph: BrushPresetGraph::Main,
                 }));
-                self.saved_runtime_revision = 0;
             }
             PaneSelection::Function => {
                 let id = GraphFunctionId::new(Uuid::new_v4());
@@ -462,6 +520,18 @@ impl BrushEditor {
                     }),
                 });
 
+                let ser_func =
+                    SerializableGraphFunction::serialize_func(instance.graph_function(), cx)
+                        .unwrap();
+                let new_id = cx
+                    .assets()
+                    .add_asset(
+                        bundle,
+                        format!("{}.csf", instance.graph_function().name),
+                        Arc::new(ser_func),
+                    )
+                    .unwrap();
+
                 self.name_input_state.update(cx, |state, cx| {
                     state.set_value(instance.graph_function().name.clone(), window, cx)
                 });
@@ -469,12 +539,12 @@ impl BrushEditor {
                     instance.graph_function().graph.clone(),
                     cx,
                 ));
+
                 self.selected = Some(Selected::Function(SelectedFunction {
-                    asset_id: None,
+                    asset_id: new_id,
                     id,
                     instance,
                 }));
-                self.saved_runtime_revision = 0;
             }
         }
     }
@@ -930,13 +1000,13 @@ pub enum BrushPresetGraph {
 }
 
 pub struct SelectedBrush {
-    pub asset_id: Option<AssetId<BrushPreset>>,
+    pub asset_id: AssetId<BrushPreset>,
     pub instance: BrushPresetInstance,
     pub viewing_graph: BrushPresetGraph,
 }
 
 pub struct SelectedFunction {
-    pub asset_id: Option<AssetId<SerializableGraphFunction>>,
+    pub asset_id: AssetId<SerializableGraphFunction>,
     pub id: GraphFunctionId,
     pub instance: GraphFunctionInstance,
 }

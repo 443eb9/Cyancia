@@ -18,6 +18,7 @@ use gpui_component::{
     dock::{Panel, PanelEvent},
     list::{List, ListEvent, ListState},
 };
+use log::info;
 
 macro_rules! test_dummy_dock {
     ($name:ident) => {
@@ -240,7 +241,10 @@ impl BrushPresetDock {
 
         let _subscriptions = vec![
             cx.subscribe_in(&list_state, window, Self::on_select_brush_preset),
-            cx.observe_global::<CurrentBrushPresetHandle>(Self::on_active_brush_preset_changed),
+            cx.observe_global_in::<CurrentBrushPresetHandle>(
+                window,
+                Self::on_active_brush_preset_changed,
+            ),
         ];
 
         Self {
@@ -266,6 +270,14 @@ impl BrushPresetDock {
                 });
 
                 if let Some(handle) = handle {
+                    if let Ok(metadata) = handle.metadata() {
+                        info!(
+                            "Selected new brush {} at {} revision {}",
+                            handle.id(),
+                            metadata.relative_path,
+                            metadata.revision
+                        );
+                    }
                     cx.set_global(CurrentBrushPresetHandle::new(handle));
                 }
             }
@@ -273,7 +285,7 @@ impl BrushPresetDock {
         }
     }
 
-    fn on_active_brush_preset_changed(&mut self, cx: &mut Context<Self>) {
+    fn on_active_brush_preset_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let brush_preset = cx
             .try_global::<CurrentBrushPresetHandle>()
             .map(|h| h.0.clone());
@@ -288,9 +300,6 @@ impl BrushPresetDock {
                 })
                 .map(IndexPath::new);
 
-            // TODO Hacky, but the delegate is not using the window.
-            #[allow(invalid_value)]
-            let window = unsafe { std::mem::zeroed() };
             state.set_selected_index(ix, window, cx);
         });
     }

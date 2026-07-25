@@ -30,6 +30,7 @@ use crate::{
 pub(crate) fn init(cx: &mut App) {
     cx.observe_global::<CurrentBrushPresetHandle>(|cx| {
         let Some(handle) = cx.try_global::<CurrentBrushPresetHandle>().cloned() else {
+            cx.remove_global::<CurrentBrushPreset>();
             return;
         };
 
