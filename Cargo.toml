@@ -82,10 +82,11 @@ flate2 = "1"
 fs_extra = "1"
 futures = "0.3"
 glam = { version = "0.30", features = ["encase", "serde", "bytemuck"] }
-gpui = { git = "https://github.com/zed-industries/zed" }
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "ccc1e7689203d09bfc88a0aae29473d1c289fa0c" }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }
+gpui = { git = "https://github.com/443eb9/gpui-ce", rev = "3d042b1556b2e90f69ceae467c7bd2116241aa0e", features = ["wgpu"] }
+gpui_wgpu = { git = "https://github.com/443eb9/gpui-ce", rev = "3d042b1556b2e90f69ceae467c7bd2116241aa0e" }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "277f220a6196572116a8fd84fba6c36187094cab" }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "277f220a6196572116a8fd84fba6c36187094cab" }
+gpui_platform = { git = "https://github.com/443eb9/gpui-ce", rev = "3d042b1556b2e90f69ceae467c7bd2116241aa0e", features = ["font-kit", "winit"] }
 half = "2"
 image = "0.25"
 indexmap = { version = "2", features = ["serde"] }
@@ -123,8 +124,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 variadics_please = "2"
 wesl = { version = "0.4", features = ["package", "naga-ext"] }
-wgpu = "29"
+wgpu = { git = "https://github.com/zed-industries/wgpu.git", rev = "357a0c56e0070480ad9daea5d2eaa83150b79e88" }
 windows = "0.62"
 winit = "0.30"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 zip = "8"
+
+[patch."https://github.com/zed-industries/zed"]
+gpui = { git = "https://github.com/443eb9/gpui-ce", rev = "3d042b1556b2e90f69ceae467c7bd2116241aa0e" }
+gpui_macros = { git = "https://github.com/443eb9/gpui-ce", rev = "3d042b1556b2e90f69ceae467c7bd2116241aa0e" }

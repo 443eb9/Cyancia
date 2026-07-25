@@ -12,12 +12,11 @@ use cyancia_tools::{ToolProxies, ToolProxyId};
 use cyancia_utils::log_err::LogErr;
 use glam::{IVec2, UVec2, Vec2};
 use gpui::{
-    AppContext, BorrowAppContext, Context, Corners, DisplayId, InteractiveElement, IntoElement,
-    MouseButton, MouseMoveEvent, MouseUpEvent, ObjectFit, ParentElement, Render, RenderImage,
+    BorrowAppContext, Context, DisplayId, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Render, ScrollWheelEvent, Size,
     Styled, Subscription, WeakEntity, Window, canvas, div, px,
 };
 use moxcms::Layout;
-use wgpu::PollType;
 
 use crate::{
     CCanvas, CanvasAppExt, CanvasId,
@@ -47,9 +46,7 @@ pub struct CanvasWidget {
     manage_color: bool,
     renderer: CanvasRenderer,
 
-    latest_image: Option<Arc<RenderImage>>,
     output_size: UVec2,
-    ongoing_render: bool,
     dirty_tiles: IRect,
     compositor: ImageCompositor,
 
@@ -123,9 +120,7 @@ impl CanvasWidget {
             manage_color,
             renderer,
 
-            latest_image: None,
             output_size: UVec2::ZERO,
-            ongoing_render: false,
             dirty_tiles,
             compositor: ImageCompositor::new(),
 
@@ -225,14 +220,9 @@ impl CanvasWidget {
             return;
         }
 
-        if self.ongoing_render {
-            return;
-        }
-
         let Some(canvas_entity) = self.canvas.upgrade() else {
             return;
         };
-        self.ongoing_render = true;
         self.recomposite(cx);
 
         let canvas = canvas_entity.read(cx);
@@ -254,40 +244,16 @@ impl CanvasWidget {
 
         let tool_proxy_id = canvas.tool_proxy_id();
 
-        let (submission_index, rx) = cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
-            self.renderer.draw(&device, &queue, |canvas_surface| {
-                tool_proxies
-                    .get_mut(&tool_proxy_id)
-                    .canvas_overlay(canvas_surface, window, cx);
-            })
+        self.renderer.draw(&device, &queue);
+        let Some(output_texture) = self.renderer.texture() else {
+            return;
+        };
+
+        cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
+            tool_proxies
+                .get_mut(&tool_proxy_id)
+                .canvas_overlay(output_texture, window, cx);
         });
-
-        let render_task = cx.background_spawn(async move {
-            device
-                .poll(PollType::Wait {
-                    submission_index: Some(submission_index),
-                    timeout: None,
-                })
-                .unwrap();
-
-            rx.await
-        });
-
-        cx.spawn(async move |this, cx| {
-            let result = render_task.await;
-            this.update(cx, |this, cx| {
-                this.ongoing_render = false;
-                if let Ok(result) = result {
-                    this.latest_image = Some(result);
-                }
-
-                // log::info!("Image rendered");
-                cx.notify();
-            })
-            .ok();
-            cx.refresh();
-        })
-        .detach();
     }
 
     pub fn update_output_size(&mut self, size: UVec2, window: &mut Window, cx: &mut Context<Self>) {
@@ -350,22 +316,25 @@ impl Render for CanvasWidget {
                         let canvas = self.canvas.clone();
 
                         move |bounds, _, window, cx| {
-                            if let Some(image) = widget
-                                .read_with(cx, |widget, _| widget.latest_image.clone())
-                                .ok()
-                                .flatten()
-                            {
-                                let image_bounds =
-                                    ObjectFit::None.get_bounds(bounds, image.size(0));
-                                let _ = window.paint_image(
-                                    image_bounds,
-                                    Corners::all(px(0.0)),
-                                    image,
-                                    0,
-                                    false,
-                                );
-                                // log::info!("Image painted");
-                            }
+                            widget
+                                .read_with(cx, |widget, _| {
+                                    let Some(output_texture) = widget
+                                        .renderer
+                                        .texture()
+                                        .map(|view| view.texture().clone())
+                                    else {
+                                        return;
+                                    };
+                                    window.paint_surface(
+                                        bounds,
+                                        Arc::new(output_texture),
+                                        Size::new(
+                                            widget.output_size.x.into(),
+                                            widget.output_size.y.into(),
+                                        ),
+                                    );
+                                })
+                                .ok();
 
                             window.on_mouse_event({
                                 let widget = widget.clone();
@@ -373,6 +342,12 @@ impl Render for CanvasWidget {
                                     if !phase.capture() {
                                         return;
                                     }
+
+                                    widget
+                                        .update(cx, |_, cx| {
+                                            cx.notify();
+                                        })
+                                        .ok();
 
                                     if event
                                         .pressed_button
@@ -407,15 +382,24 @@ impl Render for CanvasWidget {
                                 }
                             });
 
-                            window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
-                                if !phase.capture() || event.button != MouseButton::Left {
-                                    return;
-                                }
+                            window.on_mouse_event({
+                                let widget = widget.clone();
+                                move |event: &MouseUpEvent, phase, _, cx| {
+                                    if !phase.capture() || event.button != MouseButton::Left {
+                                        return;
+                                    }
 
-                                cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
-                                    let tool_proxy = tool_proxies.get_mut(&tool_proxy_id);
-                                    tool_proxy.mouse_released(event, cx);
-                                });
+                                    cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
+                                        let tool_proxy = tool_proxies.get_mut(&tool_proxy_id);
+                                        tool_proxy.mouse_released(event, cx);
+                                    });
+
+                                    widget
+                                        .update(cx, |_, cx| {
+                                            cx.notify();
+                                        })
+                                        .ok();
+                                }
                             });
                         }
                     },
@@ -423,9 +407,8 @@ impl Render for CanvasWidget {
                 .absolute()
                 .size_full(),
             )
-            .on_any_mouse_down({
-                let widget = cx.entity().downgrade();
-                move |event, _, cx| match event.button {
+            .on_any_mouse_down(cx.listener(move |widget, event: &MouseDownEvent, _, cx| {
+                match event.button {
                     MouseButton::Left => {
                         cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
                             let tool_proxy = tool_proxies.get_mut(&tool_proxy_id);
@@ -434,61 +417,57 @@ impl Render for CanvasWidget {
                         cx.stop_propagation();
                     }
                     MouseButton::Middle => {
-                        widget
-                            .update(cx, |widget, cx| {
-                                let Ok(canvas_transform) = widget
-                                    .canvas
-                                    .read_with(cx, |canvas, _| canvas.transform.clone())
-                                else {
-                                    return;
-                                };
-                                widget.middle_button_drag_start = Some((
-                                    Vec2::new(event.position.x.into(), event.position.y.into()),
-                                    canvas_transform,
-                                ));
-                            })
-                            .ok();
+                        let Ok(canvas_transform) = widget
+                            .canvas
+                            .read_with(cx, |canvas, _| canvas.transform.clone())
+                        else {
+                            return;
+                        };
+                        widget.middle_button_drag_start = Some((
+                            Vec2::new(event.position.x.into(), event.position.y.into()),
+                            canvas_transform,
+                        ));
                         cx.stop_propagation();
                     }
                     _ => {}
                 }
-            })
-            .on_scroll_wheel({
-                let canvas = self.canvas.clone();
-                move |event, _, cx| {
-                    canvas
-                        .update(cx, |canvas, _| {
-                            let line_height = if event.alt { 30.0 } else { 15.0 };
-                            let delta = event.delta.pixel_delta(px(line_height));
-                            let delta = Vec2::new(delta.x.into(), delta.y.into());
+                cx.notify();
+            }))
+            .on_scroll_wheel(cx.listener(move |widget, event: &ScrollWheelEvent, _, cx| {
+                widget
+                    .canvas
+                    .update(cx, |canvas, _| {
+                        let line_height = if event.alt { 30.0 } else { 15.0 };
+                        let delta = event.delta.pixel_delta(px(line_height));
+                        let delta = Vec2::new(delta.x.into(), delta.y.into());
 
-                            if event.modifiers.control {
-                                let position_ss =
-                                    Vec2::new(event.position.x.into(), event.position.y.into());
-                                if let Some(center) = canvas.transform.window_to_pixel(position_ss)
-                                {
-                                    let factor = line_height / 60.0;
-                                    canvas.transform.scale_around(
-                                        if delta.y > 0.0 {
-                                            1.0 + factor
-                                        } else {
-                                            1.0 - factor
-                                        },
-                                        center,
-                                    );
-                                }
-                            } else {
-                                if delta.x > 0.0 {
-                                    canvas.transform.translate(delta);
-                                } else if event.shift {
-                                    canvas.transform.translate(Vec2::X * delta.y);
-                                } else {
-                                    canvas.transform.translate(Vec2::Y * delta.y);
-                                }
+                        if event.modifiers.control {
+                            let position_ss =
+                                Vec2::new(event.position.x.into(), event.position.y.into());
+                            if let Some(center) = canvas.transform.window_to_pixel(position_ss) {
+                                let factor = line_height / 60.0;
+                                canvas.transform.scale_around(
+                                    if delta.y > 0.0 {
+                                        1.0 + factor
+                                    } else {
+                                        1.0 - factor
+                                    },
+                                    center,
+                                );
                             }
-                        })
-                        .ok();
-                }
-            })
+                        } else {
+                            if delta.x > 0.0 {
+                                canvas.transform.translate(delta);
+                            } else if event.shift {
+                                canvas.transform.translate(Vec2::X * delta.y);
+                            } else {
+                                canvas.transform.translate(Vec2::Y * delta.y);
+                            }
+                        }
+                    })
+                    .ok();
+
+                cx.notify();
+            }))
     }
 }
