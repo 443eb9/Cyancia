@@ -30,6 +30,25 @@ fn div_ceil(lhs: u32, rhs: u32) -> u32 {
     }
 }
 
+fn rotate_mat3x3(angle: f32) -> mat3x3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    return mat3x3<f32>(
+        vec3f(c, s, 0.0),
+        vec3f(-s, c, 0.0),
+        vec3f(0.0, 0.0, 1.0)
+    );
+}
+
+fn rotate_mat2x2(angle: f32) -> mat2x2<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    return mat2x2<f32>(
+        vec2f(c, s),
+        vec2f(-s, c)
+    );
+}
+
 fn inverse_mat3x3(matrix: mat3x3<f32>) -> mat3x3<f32> {
     let tmp0 = cross(matrix[1], matrix[2]);
     let tmp1 = cross(matrix[2], matrix[0]);
@@ -192,4 +211,10 @@ fn circle_rectangle_intersect(circle_center: vec2f, circle_radius: f32, rect_min
     let yn = max(rect_min.y, min(circle_center.y, rect_max.y));
     let d = length(vec2f(xn, yn) - circle_center);
     return d < circle_radius;
+}
+
+fn mix_angle(a: f32, b: f32, t: f32) -> f32 {
+    let diff = (b - a) % TAU;
+    let shortest = (2.0 * diff) % TAU - diff;
+    return a + shortest * t;
 }

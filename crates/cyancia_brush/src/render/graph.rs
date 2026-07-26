@@ -173,6 +173,121 @@ impl StatelessCommonGraphNode<BrushGraphData> for DrawDirectionNode {
 }
 
 #[derive(Default, Clone)]
+pub struct PenPressureNode;
+
+#[stateless]
+impl StatelessCommonGraphNode<BrushGraphData> for PenPressureNode {
+    fn name(&self) -> &'static str {
+        "Pen Pressure"
+    }
+
+    fn header_color(&self, cx: &App) -> Rgba {
+        random_oklch!(PenPressureNode, cx)
+    }
+
+    fn create_inputs(
+        &self,
+        _ctx: GraphNodeCreateSlotsContext<'_, BrushGraphData>,
+    ) -> Vec<GraphDefaultInputSlot> {
+        vec![]
+    }
+
+    fn create_outputs(
+        &self,
+        _ctx: GraphNodeCreateSlotsContext<'_, BrushGraphData>,
+    ) -> Vec<GraphDefaultOutputSlot> {
+        vec![GraphDefaultOutputSlot::new::<F32Type>("Pressure".into())]
+    }
+
+    fn generate_code(
+        &self,
+        mut ctx: GraphNodeCodeGenContext<'_, BrushGraphData>,
+    ) -> Result<String, GraphNodeCodeGenError> {
+        Ok(format!(
+            "let {} = graph_input.pressure;\n",
+            ctx.get_output(0)?
+        ))
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct PenTiltNode;
+
+#[stateless]
+impl StatelessCommonGraphNode<BrushGraphData> for PenTiltNode {
+    fn name(&self) -> &'static str {
+        "Pen Tilt"
+    }
+
+    fn header_color(&self, cx: &App) -> Rgba {
+        random_oklch!(PenTiltNode, cx)
+    }
+
+    fn create_inputs(
+        &self,
+        _ctx: GraphNodeCreateSlotsContext<'_, BrushGraphData>,
+    ) -> Vec<GraphDefaultInputSlot> {
+        vec![]
+    }
+
+    fn create_outputs(
+        &self,
+        _ctx: GraphNodeCreateSlotsContext<'_, BrushGraphData>,
+    ) -> Vec<GraphDefaultOutputSlot> {
+        vec![GraphDefaultOutputSlot::new::<Vec2FType>("Tilt".into())]
+    }
+
+    fn generate_code(
+        &self,
+        mut ctx: GraphNodeCodeGenContext<'_, BrushGraphData>,
+    ) -> Result<String, GraphNodeCodeGenError> {
+        Ok(format!("let {} = graph_input.tilt;\n", ctx.get_output(0)?))
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct PenAngleNode;
+
+#[stateless]
+impl StatelessCommonGraphNode<BrushGraphData> for PenAngleNode {
+    fn name(&self) -> &'static str {
+        "Pen Angle"
+    }
+
+    fn header_color(&self, cx: &App) -> Rgba {
+        random_oklch!(PenAngleNode, cx)
+    }
+
+    fn create_inputs(
+        &self,
+        _ctx: GraphNodeCreateSlotsContext<'_, BrushGraphData>,
+    ) -> Vec<GraphDefaultInputSlot> {
+        vec![]
+    }
+
+    fn create_outputs(
+        &self,
+        _ctx: GraphNodeCreateSlotsContext<'_, BrushGraphData>,
+    ) -> Vec<GraphDefaultOutputSlot> {
+        vec![
+            GraphDefaultOutputSlot::new::<F32Type>("Altitude".into()),
+            GraphDefaultOutputSlot::new::<F32Type>("Azimuth".into()),
+        ]
+    }
+
+    fn generate_code(
+        &self,
+        mut ctx: GraphNodeCodeGenContext<'_, BrushGraphData>,
+    ) -> Result<String, GraphNodeCodeGenError> {
+        Ok(format!(
+            "let {} = graph_input.angle.x;\nlet {} = graph_input.angle.y;\n",
+            ctx.get_output(0)?,
+            ctx.get_output(1)?
+        ))
+    }
+}
+
+#[derive(Default, Clone)]
 pub struct PixelPositionNode;
 
 #[stateless]
@@ -798,6 +913,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for EllipticalMaskNode {
             GraphDefaultInputSlot::new::<Vec2FType>("Sample Position".into()),
             GraphDefaultInputSlot::new::<Vec2FType>("Center".into()),
             GraphDefaultInputSlot::new::<Vec2FType>("Radii".into()),
+            GraphDefaultInputSlot::new::<F32Type>("Rotation".into()),
         ]
     }
 
@@ -817,10 +933,11 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for EllipticalMaskNode {
     ) -> Result<String, GraphNodeCodeGenError> {
         let mask = ctx.ident_generator.next_output();
         Ok(format!(
-            "let {mask} = elliptical_mask({}, {}, {});\nlet {} = {mask}.value;\nlet {} = {mask}.bounds;\n",
+            "let {mask} = elliptical_mask({}, {}, {}, {});\nlet {} = {mask}.value;\nlet {} = {mask}.bounds;\n",
             ctx.get_input(0)?,
             ctx.get_input(1)?,
             ctx.get_input(2)?,
+            ctx.get_input(3)?,
             ctx.get_output(0)?,
             ctx.get_output(1)?
         ))

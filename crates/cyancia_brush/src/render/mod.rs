@@ -1,3 +1,8 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+
 use bevy_math::IRect;
 use chrono::{DateTime, Utc};
 use cyancia_assets::{AssetAppExt, asset::AssetId, store::AssetRegistry};
@@ -46,7 +51,6 @@ pub mod pipeline;
 
 const EXTERNAL_VARIABLE_BASE_BINDING: u32 = 32;
 pub const MAX_DABS_PER_STROKE: u32 = 256;
-const TIMESTAMP_MOD: i64 = 1_000_000;
 
 #[derive(Debug, Clone)]
 pub struct CanvasBrushStrokeSessionInfo {
@@ -142,28 +146,23 @@ impl CanvasBrushPresetOperator {
         }
 
         let compiled_brush = self.cached_brush.get_or_insert_with(|| {
-            let now = std::time::Instant::now();
             let compiled = self
                 .instance
                 .compile(EXTERNAL_VARIABLE_BASE_BINDING, cx)
                 .unwrap();
-            log::info!("Brush preset compilation: {:?}", now.elapsed());
             println!("Compiled brush preset: {}", compiled);
             compiled
         });
 
         let renderer = self.renderer.get_or_insert_with(|| {
-            let now = std::time::Instant::now();
             // FIXME target layer is initialize once, so strokes on other layers
             //       with the same texel type will be composited with the wrong layer.
-            let renderer = BrushPresetRenderer::new(
+            BrushPresetRenderer::new(
                 compiled_brush,
                 session.target_layer_format,
                 session.selection_layer_format,
                 cx,
-            );
-            log::info!("Brush preset renderer creation: {:?}", now.elapsed());
-            renderer
+            )
         });
 
         self.input_processor.reset();
@@ -187,13 +186,11 @@ impl CanvasBrushPresetOperator {
             cx,
         );
 
-        let params = RawPenInput {
+        let params = RawPenInput::new(
             position,
-            time: Time {
-                now: (now.timestamp_micros() % TIMESTAMP_MOD) as f32,
-                stroke_begin: (now.timestamp_micros() % TIMESTAMP_MOD) as f32,
-            },
-        };
+            input.tablet_tool.as_ref().map(|t| t.data.clone()),
+            session.stroke_begin,
+        );
 
         if let Some(sample) = self.input_processor.push(params) {
             renderer.update(&self.device, &self.queue, sample);
@@ -223,13 +220,11 @@ impl CanvasBrushPresetOperator {
             return;
         };
 
-        let params = RawPenInput {
+        let params = RawPenInput::new(
             position,
-            time: Time {
-                now: (Utc::now().timestamp_micros() % TIMESTAMP_MOD) as f32,
-                stroke_begin: (session.stroke_begin.timestamp_micros() % TIMESTAMP_MOD) as f32,
-            },
-        };
+            input.tablet_tool.as_ref().map(|t| t.data.clone()),
+            session.stroke_begin,
+        );
 
         if let Some(sample) = self.input_processor.push(params) {
             renderer.update(&self.device, &self.queue, sample);
@@ -257,13 +252,11 @@ impl CanvasBrushPresetOperator {
             return;
         };
 
-        let final_input = RawPenInput {
+        let final_input = RawPenInput::new(
             position,
-            time: Time {
-                now: (Utc::now().timestamp_micros() % TIMESTAMP_MOD) as f32,
-                stroke_begin: (session.stroke_begin.timestamp_micros() % TIMESTAMP_MOD) as f32,
-            },
-        };
+            input.tablet_tool.as_ref().map(|t| t.data.clone()),
+            session.stroke_begin,
+        );
 
         for sample in self.input_processor.flush(final_input) {
             renderer.update(&self.device, &self.queue, sample);
@@ -310,6 +303,7 @@ pub struct BrushPresetRenderer {
 }
 
 impl BrushPresetRenderer {
+    #[tracing::instrument(skip_all, name = "new_renderer")]
     pub fn new(
         brush: &CompiledBrushPreset,
         target_layer_format: TexelType,
@@ -330,8 +324,11 @@ impl BrushPresetRenderer {
         );
         let scan_pixels = ScanPixelsPipeline::new(device, selection_layer_format);
 
-        let input_sample =
-            BrushInputSamplingPipeline::new(device, brush.input_sampling.clone().into());
+        let input_sample = BrushInputSamplingPipeline::new(
+            device,
+            &resources,
+            brush.input_sampling.clone().into(),
+        );
 
         let main = BrushMainPipeline::new(device, &resources, brush.main_graph.main.clone().into());
         let main_bounds_eval = BrushMainBoundsEvalPipeline::new(
@@ -484,6 +481,7 @@ impl BrushPresetRenderer {
                 &self.input_sampler_buffer,
                 &output_samples,
                 &bounds_eval_dispatch,
+                &self.resources,
             );
             self.main_bounds_eval.dispatch(
                 device,
@@ -570,6 +568,8 @@ async fn brush_renderer_worker_main(
     let mut round = 0;
     let mut accumulated_tile_bounds = IRect::EMPTY;
 
+    let preview_cancelled = Arc::new(AtomicBool::new(false));
+
     while let Ok(WorkerThreadData { samples, dab_infos }) = data.recv().await {
         let samples = samples.into_inner().await;
         let dab_infos = dab_infos.into_inner().await;
@@ -577,6 +577,9 @@ async fn brush_renderer_worker_main(
         let (Ok(Ok(samples)), Ok(Ok(dab_infos))) = (samples, dab_infos) else {
             return;
         };
+
+        let dispatch_span = tracing::info_span!("main_dispatch");
+        let _span = dispatch_span.enter();
 
         let mut samples_buffer =
             DynamicBuffer::new(Some("output samples buffer".into()), BufferUsages::STORAGE);
@@ -586,8 +589,6 @@ async fn brush_renderer_worker_main(
             BufferUsages::STORAGE,
         );
         let mut dab_info_offsets = Vec::new();
-
-        dbg!(samples.n_samples);
 
         for (sample, dab_info) in samples
             .samples
@@ -644,6 +645,7 @@ async fn brush_renderer_worker_main(
                 &mut round,
             );
         }
+
         queue.submit([ec.finish()]);
 
         cx.spawn({
@@ -659,8 +661,12 @@ async fn brush_renderer_worker_main(
                 intermediate_buffers[0].deep_clone(),
                 intermediate_buffers[1].deep_clone(),
             ];
+            let preview_cancelled = preview_cancelled.clone();
 
             async move |cx| {
+                if preview_cancelled.load(Ordering::Acquire) {
+                    return;
+                }
                 // unsafe {
                 //     device.start_graphics_debugger_capture();
                 // }
@@ -682,13 +688,17 @@ async fn brush_renderer_worker_main(
                 //     device.stop_graphics_debugger_capture();
                 // }
 
-                if accumulated_tile_bounds.is_empty() {
+                if accumulated_tile_bounds.is_empty() || preview_cancelled.load(Ordering::Acquire) {
                     return;
                 }
 
                 let result = &intermediate_buffers[round as usize % 2];
 
                 cx.update_global::<LayerPreviewOverriders, _>(|overriders, cx| {
+                    if preview_cancelled.load(Ordering::Acquire) {
+                        return;
+                    }
+
                     overriders.insert_overrider(
                         target_layer_id,
                         PixelPreviewOverrider {
@@ -710,6 +720,7 @@ async fn brush_renderer_worker_main(
         .detach();
     }
 
+    preview_cancelled.store(true, Ordering::Release);
     cx.update_global::<LayerPreviewOverriders, _>(|overriders, _cx| {
         overriders.remove_overrider(&target_layer_id);
     });
@@ -915,6 +926,9 @@ pub struct InputSampler {
 #[derive(ShaderType, Debug, Default, Clone, Copy)]
 pub struct PenInput {
     pub position: Vec2,
+    pub tilt: Vec2,
+    pub angle: Vec2,
+    pub pressure: f32,
     pub time: Time,
     pub bezier_control_prev: Vec2,
     pub bezier_control_next: Vec2,
@@ -924,7 +938,10 @@ pub struct PenInput {
 pub struct ComputedPenInput {
     pub position: Vec2,
     pub draw_direction_vec: Vec2,
+    pub tilt: Vec2,
+    pub angle: Vec2,
     pub draw_direction_angle: f32,
+    pub pressure: f32,
     pub time: Time,
 }
 
@@ -950,6 +967,7 @@ pub struct DabInfo {
 // TODO This should be renamed to RendererResources
 pub struct StrokeResources {
     pub external_var_layouts: Vec<BindGroupLayoutEntry>,
+    // FIXME This should be retrieved every time updates. Or the value is never updated.
     pub external_var_buffers: Vec<Buffer>,
     pub referenced_textures: TextureAtlas,
 

@@ -26,11 +26,11 @@ use crate::{
     asset::{BrushPreset, BrushPresetMetadata},
     render::graph::{
         BlendColorNode, BlendWithInputNode, BlendWithLayerNode, BrushGraphData,
-        BrushGraphDataTuple, BrushGraphPostprocessData, CurrentPixelColorNode, DrawDirectionNode,
-        DrawDirectionsNode, EllipticalMaskNode, FilterWithinBoundsNode, FilterWithinMaskNode,
-        LayerPixelColorNode, OutputBoundsNode, OutputColorNode, OutputRequiredSpacingNode,
-        OutputSpacingNode, PasteTextureNode, PenPositionNode, PenPositionsNode, PixelPositionNode,
-        SelectionMaskNode, StrokeBoundsNode, TimesNode,
+        BrushGraphPostprocessData, CurrentPixelColorNode, DrawDirectionNode, EllipticalMaskNode,
+        FilterWithinBoundsNode, FilterWithinMaskNode, LayerPixelColorNode, OutputBoundsNode,
+        OutputColorNode, OutputRequiredSpacingNode, PasteTextureNode, PenAngleNode,
+        PenPositionNode, PenPressureNode, PenTiltNode, PixelPositionNode, SelectionMaskNode,
+        StrokeBoundsNode,
     },
 };
 
@@ -253,6 +253,7 @@ impl BrushPresetInstance {
         })
     }
 
+    #[tracing::instrument(skip_all, name = "compile_brush_preset")]
     pub fn compile(
         &self,
         mut existing_binding_count: u32,
@@ -450,14 +451,17 @@ fn compile_template(
 fn compile_template_input_sampling(
     graph: &Graph<BrushGraphData>,
     texture_usage: &mut GraphTextureUsageRecorder,
-    _external_variable_bindings: &str,
+    external_variable_bindings: &str,
     cx: &App,
 ) -> anyhow::Result<String> {
-    // TODO Support external variables
     let (_, shader) = graph.compile(Vec::new(), Default::default(), texture_usage, cx)?;
 
     let shader = include_str!("render/brush_sample.wesl")
-        .replace("//CODEGENFLAG_COMPUTED_GRAPH_REQUIRED_SPACING", &shader);
+        .replace("//CODEGENFLAG_COMPUTED_GRAPH_REQUIRED_SPACING", &shader)
+        .replace(
+            "//CODEGENFLAG_EXTERNAL_VARIABLE_BINDINGS",
+            external_variable_bindings,
+        );
 
     let mut resolver = VirtualResolver::new();
     resolver.add_module("package::template".parse().unwrap(), shader.into());
@@ -513,8 +517,6 @@ fn compile_template_stroke_postprocess<'a>(
 pub static BRUSH_GRAPH_TYPES: LazyLock<Arc<GraphTypeRegistry>> = LazyLock::new(brush_graph_types);
 pub static REQUIRED_SPACING_GRAPH_NODES: LazyLock<Arc<GraphNodeRegistry<BrushGraphData>>> =
     LazyLock::new(required_spacing_graph_nodes);
-pub static SPACING_FACTOR_GRAPH_NODES: LazyLock<Arc<GraphNodeRegistry<BrushGraphDataTuple>>> =
-    LazyLock::new(spacing_factor_graph_nodes);
 pub static MAIN_GRAPH_NODES: LazyLock<Arc<GraphNodeRegistry<BrushGraphData>>> =
     LazyLock::new(main_graph_nodes);
 pub static STROKE_POSTPROCESS_GRAPH_NODES: LazyLock<
@@ -533,21 +535,12 @@ fn required_spacing_graph_nodes() -> Arc<GraphNodeRegistry<BrushGraphData>> {
     nodes.merge(builtin_nodes());
 
     nodes.register::<PenPositionNode>();
+    nodes.register::<PenPressureNode>();
+    nodes.register::<PenAngleNode>();
+    nodes.register::<PenTiltNode>();
     nodes.register::<DrawDirectionNode>();
     nodes.register::<TimeNode>();
     nodes.register::<OutputRequiredSpacingNode>();
-
-    nodes.into()
-}
-
-fn spacing_factor_graph_nodes() -> Arc<GraphNodeRegistry<BrushGraphDataTuple>> {
-    let mut nodes = GraphNodeRegistry::default();
-    nodes.merge(builtin_nodes());
-
-    nodes.register::<PenPositionsNode>();
-    nodes.register::<DrawDirectionsNode>();
-    nodes.register::<TimesNode>();
-    nodes.register::<OutputSpacingNode>();
 
     nodes.into()
 }
@@ -557,6 +550,9 @@ fn main_graph_nodes() -> Arc<GraphNodeRegistry<BrushGraphData>> {
     nodes.merge(builtin_nodes());
 
     nodes.register::<PenPositionNode>();
+    nodes.register::<PenPressureNode>();
+    nodes.register::<PenAngleNode>();
+    nodes.register::<PenTiltNode>();
     nodes.register::<DrawDirectionNode>();
     nodes.register::<TimeNode>();
     nodes.register::<PixelPositionNode>();
