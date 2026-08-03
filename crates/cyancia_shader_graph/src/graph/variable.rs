@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use downcast_rs::Downcast;
 use dyn_clone::DynClone;
 
-use crate::graph::slot::{ErasedGraphValueType, GraphValueType};
+use crate::graph::slot::{ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphValueType};
 
 #[derive(Default, Clone)]
 pub struct GraphTypeRegistry {
@@ -204,6 +204,10 @@ impl GraphLiteral {
         } else {
             log::error!("Setting a Literal with a different type");
         }
+    }
+
+    pub fn update(&mut self, message: ErasedGraphLiteralUpdateMessage) {
+        self.ty.update_literal(self.value.as_mut(), message);
     }
 
     pub fn to_code(&self) -> Option<String> {

@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use gpui::{App, Point};
+use iced_core::Point;
 use indexmap::IndexMap;
 use parking_lot::RwLock;
 use uuid::Uuid;
@@ -13,9 +13,10 @@ use crate::graph::{
     external::GraphExternalVariableStorage,
     function::SharedGraphFunctionStorage,
     node::{
-        ContextualGraphNodeCodeGenError, ErasedGraphNode, GraphNode, GraphNodeCodeGenContext,
-        GraphNodeCreateSlotsContext, GraphNodeData, GraphNodeId, GraphNodeRegistry,
-        GraphNodeUpdateSignatureContext, StatefulGraphNode,
+        ContextualGraphNodeCodeGenError, ErasedGraphNode, ErasedGraphNodeMessage, GraphNode,
+        GraphNodeCodeGenContext, GraphNodeCreateSlotsContext, GraphNodeData, GraphNodeId,
+        GraphNodeRegistry, GraphNodeUpdateContext, GraphNodeUpdateSignatureContext,
+        StatefulGraphNode,
     },
     slot::{
         GraphDefaultInputSlot, GraphDefaultOutputSlot, GraphInputSlotData, GraphInputSlotId,
@@ -53,21 +54,19 @@ impl<Data: GraphData> Graph<Data> {
 
     pub fn add_boxed_node(
         &mut self,
-        position: Point<f32>,
+        position: Point,
         node: Box<dyn ErasedGraphNode<Data>>,
-        cx: &mut App,
     ) -> GraphNodeId {
         let node_id = GraphNodeId::new(Uuid::new_v4());
-        self.insert_boxed_node(node_id, position, node, cx);
+        self.insert_boxed_node(node_id, position, node);
         node_id
     }
 
     pub fn insert_boxed_node(
         &mut self,
         node_id: GraphNodeId,
-        position: Point<f32>,
+        position: Point,
         node: Box<dyn ErasedGraphNode<Data>>,
-        cx: &mut App,
     ) {
         let node = StatefulGraphNode::new(node);
         let inputs = create_input_slots(
@@ -75,7 +74,6 @@ impl<Data: GraphData> Graph<Data> {
             node_id,
             node.create_inputs(GraphNodeCreateSlotsContext {
                 resources: &self.resources,
-                cx,
                 _marker: PhantomData,
             }),
         )
@@ -85,7 +83,6 @@ impl<Data: GraphData> Graph<Data> {
             node_id,
             node.create_outputs(GraphNodeCreateSlotsContext {
                 resources: &self.resources,
-                cx,
                 _marker: PhantomData,
             }),
         )
@@ -103,13 +100,8 @@ impl<Data: GraphData> Graph<Data> {
         self.invalidate_cache();
     }
 
-    pub fn add_node<T: GraphNode<Data>>(
-        &mut self,
-        position: Point<f32>,
-        node: T,
-        cx: &mut App,
-    ) -> GraphNodeId {
-        self.add_boxed_node(position, Box::new(node), cx)
+    pub fn add_node<T: GraphNode<Data>>(&mut self, position: Point, node: T) -> GraphNodeId {
+        self.add_boxed_node(position, Box::new(node))
     }
 
     pub fn delete_node(&mut self, id: &GraphNodeId) {
@@ -205,7 +197,6 @@ impl<Data: GraphData> Graph<Data> {
 
     pub fn update_node_state<T: GraphNode<Data>>(
         &mut self,
-        cx: &mut App,
         node_id: GraphNodeId,
         f: impl FnOnce(&mut T::State),
     ) {
@@ -215,8 +206,26 @@ impl<Data: GraphData> Graph<Data> {
             .and_then(|n| n.data.state_mut::<T>())
         {
             f(state);
-            self.reconcile_node_slots(node_id, cx);
+            self.reconcile_node_slots(node_id);
         }
+    }
+
+    pub fn update_node(&mut self, message: ErasedGraphNodeMessage) {
+        let node_id = message.id;
+        let Some(node) = self.nodes.get_mut(&node_id) else {
+            return;
+        };
+        node.data.update(
+            message,
+            GraphNodeUpdateContext {
+                inputs: &node.inputs,
+                slots: &mut self.slots,
+                resources: &self.resources,
+                _marker: PhantomData,
+            },
+        );
+        self.reconcile_node_slots(node_id);
+        self.invalidate_cache();
     }
 
     pub fn set_slot_value(&mut self, slot_id: GraphInputSlotId, value: Box<dyn GraphLiteralValue>) {
@@ -375,14 +384,13 @@ impl<Data: GraphData> Graph<Data> {
         self.cached_signature.write().replace(signature);
     }
 
-    pub fn reconcile_node_slots(&mut self, node_id: GraphNodeId, cx: &mut App) {
+    pub fn reconcile_node_slots(&mut self, node_id: GraphNodeId) {
         let Some(node) = self.nodes.get_mut(&node_id) else {
             return;
         };
 
         let new_input_defs = node.data.create_inputs(GraphNodeCreateSlotsContext {
             resources: &self.resources,
-            cx,
             _marker: PhantomData,
         });
         let mut new_input_ids = Vec::with_capacity(new_input_defs.len());
@@ -439,7 +447,6 @@ impl<Data: GraphData> Graph<Data> {
 
         let new_output_defs = node.data.create_outputs(GraphNodeCreateSlotsContext {
             resources: &self.resources,
-            cx,
             _marker: PhantomData,
         });
         let mut new_output_ids = Vec::with_capacity(new_output_defs.len());
@@ -506,7 +513,6 @@ impl<Data: GraphData> Graph<Data> {
         graph_input_idents: Vec<String>,
         mut ident_generator: GraphVarIdentGenerator,
         texture_usage: &mut GraphTextureUsageRecorder,
-        cx: &App,
     ) -> Result<(Vec<String>, String), GraphCompileError> {
         if self.cached_run_order.read().is_none() {
             self.update_run_order_cache();
@@ -544,7 +550,6 @@ impl<Data: GraphData> Graph<Data> {
                 ident_generator: &mut ident_generator,
                 resources: &self.resources,
                 texture_usage,
-                cx,
                 _marker: PhantomData,
             };
 

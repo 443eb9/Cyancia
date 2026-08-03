@@ -1,18 +1,19 @@
-use std::{
-    collections::{HashMap, HashSet},
-    rc::Rc,
-};
+use std::collections::{HashMap, HashSet};
 
 use cyancia_utils::wrapper;
+use downcast_rs::Downcast;
 use dyn_clone::DynClone;
-use gpui::{AnyElement, App, Rgba, Window};
+use iced_core::Color;
 use parse_display::Display;
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use uuid::Uuid;
 
-use crate::graph::{
-    node::GraphNodeId,
-    variable::{GraphLiteral, GraphLiteralValue},
+use crate::{
+    GraphElement,
+    graph::{
+        node::GraphNodeId,
+        variable::{GraphLiteral, GraphLiteralValue},
+    },
 };
 
 wrapper! {
@@ -43,9 +44,8 @@ impl GraphSlots {
     }
 
     pub fn get_connected(&self, input_id: &GraphInputSlotId) -> Option<&GraphOutputSlotData> {
-        let input_node = self.inputs.get(input_id)?;
-        let connected_id = input_node.connected.as_ref()?;
-        self.outputs.get(connected_id)
+        let input = self.inputs.get(input_id)?;
+        self.outputs.get(input.connected.as_ref()?)
     }
 }
 
@@ -108,7 +108,9 @@ pub struct GraphOutputSlotData {
 
 pub trait GraphValueType: Send + Sync + 'static + DynClone {
     type AssociatedLiteralType: GraphLiteralValue + Serialize + DeserializeOwned;
-    fn color(&self, cx: &App) -> Rgba;
+    type Message: GraphLiteralUpdateMessage;
+
+    fn color(&self, is_dark: bool) -> Color;
     fn name(&self) -> &'static str;
     fn default_literal(&self) -> Self::AssociatedLiteralType;
     fn wgsl_type(&self) -> Option<&'static str>;
@@ -116,18 +118,20 @@ pub trait GraphValueType: Send + Sync + 'static + DynClone {
         &self,
         literal: &Self::AssociatedLiteralType,
     ) -> Option<Vec<u8>>;
-    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String>;
-    fn render_inline(
+    fn view_literal(
         &self,
-        literal: &Self::AssociatedLiteralType,
-        ctx: GraphInlineLiteralRenderContext<'_>,
-    ) -> AnyElement;
+        data: &Self::AssociatedLiteralType,
+    ) -> GraphElement<'static, Self::Message>;
+    fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message);
+    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String>;
+
     fn serialize_literal(
         &self,
         data: &Self::AssociatedLiteralType,
     ) -> Result<toml::Value, toml::ser::Error> {
         toml::Value::try_from(data)
     }
+
     fn deserialize_literal<'a>(
         &self,
         deserializer: toml::Value,
@@ -136,18 +140,50 @@ pub trait GraphValueType: Send + Sync + 'static + DynClone {
     }
 }
 
+pub trait GraphLiteralUpdateMessage: DynClone + Send + Sync + 'static + Downcast {}
+
+impl<T: DynClone + Send + Sync + 'static> GraphLiteralUpdateMessage for T {}
+downcast_rs::impl_downcast!(GraphLiteralUpdateMessage);
+
+pub struct ErasedGraphLiteralUpdateMessage {
+    pub inner: Box<dyn GraphLiteralUpdateMessage>,
+    pub id: GraphInputSlotId,
+}
+
+impl std::fmt::Debug for ErasedGraphLiteralUpdateMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ErasedGraphLiteralUpdateMessage")
+            .field("id", &self.id)
+            .finish()
+    }
+}
+
+impl Clone for ErasedGraphLiteralUpdateMessage {
+    fn clone(&self) -> Self {
+        Self {
+            inner: dyn_clone::clone_box(&*self.inner),
+            id: self.id,
+        }
+    }
+}
+
 pub trait ErasedGraphValueType: Send + Sync + 'static + DynClone {
-    fn color(&self, cx: &App) -> Rgba;
+    fn color(&self, is_dark: bool) -> Color;
     fn name(&self) -> &'static str;
     fn default_literal(&self) -> Box<dyn GraphLiteralValue>;
     fn wgsl_type(&self) -> Option<&'static str>;
     fn try_write_into_shader_buffer(&self, literal: &dyn GraphLiteralValue) -> Option<Vec<u8>>;
-    fn literal_to_code(&self, data: &dyn GraphLiteralValue) -> Option<String>;
-    fn render_inline(
+    fn view_literal(
         &self,
-        literal: &dyn GraphLiteralValue,
-        ctx: GraphInlineLiteralRenderContext<'_>,
-    ) -> AnyElement;
+        slot_id: GraphInputSlotId,
+        data: &dyn GraphLiteralValue,
+    ) -> GraphElement<'static, ErasedGraphLiteralUpdateMessage>;
+    fn update_literal(
+        &self,
+        data: &mut dyn GraphLiteralValue,
+        message: ErasedGraphLiteralUpdateMessage,
+    );
+    fn literal_to_code(&self, data: &dyn GraphLiteralValue) -> Option<String>;
     fn serialize_literal(
         &self,
         data: &dyn GraphLiteralValue,
@@ -161,8 +197,8 @@ pub trait ErasedGraphValueType: Send + Sync + 'static + DynClone {
 dyn_clone::clone_trait_object!(ErasedGraphValueType);
 
 impl<T: GraphValueType> ErasedGraphValueType for T {
-    fn color(&self, cx: &App) -> Rgba {
-        self.color(cx)
+    fn color(&self, is_dark: bool) -> Color {
+        self.color(is_dark)
     }
 
     fn name(&self) -> &'static str {
@@ -178,52 +214,64 @@ impl<T: GraphValueType> ErasedGraphValueType for T {
     }
 
     fn try_write_into_shader_buffer(&self, literal: &dyn GraphLiteralValue) -> Option<Vec<u8>> {
-        let literal = literal
-            .downcast_ref::<T::AssociatedLiteralType>()
-            .expect("Failed to downcast literal.");
-        self.try_write_into_shader_buffer(literal)
+        self.try_write_into_shader_buffer(
+            literal
+                .downcast_ref::<T::AssociatedLiteralType>()
+                .expect("failed to downcast graph literal"),
+        )
+    }
+
+    fn view_literal(
+        &self,
+        slot_id: GraphInputSlotId,
+        data: &dyn GraphLiteralValue,
+    ) -> GraphElement<'static, ErasedGraphLiteralUpdateMessage> {
+        self.view_literal(
+            data.downcast_ref::<T::AssociatedLiteralType>()
+                .expect("failed to downcast graph literal"),
+        )
+        .map(move |message| ErasedGraphLiteralUpdateMessage {
+            inner: Box::new(message),
+            id: slot_id,
+        })
+    }
+
+    fn update_literal(
+        &self,
+        data: &mut dyn GraphLiteralValue,
+        message: ErasedGraphLiteralUpdateMessage,
+    ) {
+        let data = data
+            .downcast_mut::<T::AssociatedLiteralType>()
+            .expect("failed to downcast graph literal");
+        let message = match message.inner.downcast::<T::Message>() {
+            Ok(message) => message,
+            Err(_) => panic!("failed to downcast graph literal message"),
+        };
+        self.update_literal(data, *message);
     }
 
     fn literal_to_code(&self, data: &dyn GraphLiteralValue) -> Option<String> {
-        let literal = data
-            .downcast_ref::<T::AssociatedLiteralType>()
-            .expect("Failed to downcast literal.");
-        self.literal_to_code(literal)
-    }
-
-    fn render_inline(
-        &self,
-        literal: &dyn GraphLiteralValue,
-        ctx: GraphInlineLiteralRenderContext<'_>,
-    ) -> AnyElement {
-        let literal = literal
-            .downcast_ref::<T::AssociatedLiteralType>()
-            .expect("Failed to downcast literal.");
-        self.render_inline(literal, ctx)
+        self.literal_to_code(
+            data.downcast_ref::<T::AssociatedLiteralType>()
+                .expect("failed to downcast graph literal"),
+        )
     }
 
     fn serialize_literal(
         &self,
         data: &dyn GraphLiteralValue,
     ) -> Result<toml::Value, toml::ser::Error> {
-        let literal = data
-            .downcast_ref::<T::AssociatedLiteralType>()
-            .expect("Failed to downcast literal.");
-        self.serialize_literal(literal)
+        self.serialize_literal(
+            data.downcast_ref::<T::AssociatedLiteralType>()
+                .expect("failed to downcast graph literal"),
+        )
     }
 
     fn deserialize_literal<'a>(
         &self,
         deserializer: toml::Value,
     ) -> Result<Box<dyn GraphLiteralValue>, <toml::Value as Deserializer<'a>>::Error> {
-        let literal = self.deserialize_literal(deserializer)?;
-        Ok(Box::new(literal))
+        Ok(Box::new(self.deserialize_literal(deserializer)?))
     }
-}
-
-pub struct GraphInlineLiteralRenderContext<'a> {
-    pub slot_id: GraphInputSlotId,
-    pub window: &'a mut Window,
-    pub cx: &'a mut App,
-    pub on_update: Rc<dyn Fn(Box<dyn GraphLiteralValue>, &mut App)>,
 }

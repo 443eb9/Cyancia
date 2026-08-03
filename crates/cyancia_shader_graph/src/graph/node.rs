@@ -2,27 +2,25 @@ use std::{
     any::Any,
     collections::{BTreeMap, HashMap, hash_map::Entry},
     marker::PhantomData,
-    rc::Rc,
     sync::Arc,
 };
 
 use cyancia_utils::{cloneable_any::ClonableAnySync, wrapper};
 use dyn_clone::DynClone;
-use gpui::{
-    AnyElement, App, Context, InteractiveElement, IntoElement, ParentElement, Pixels, Point, Rgba,
-    Styled, WeakEntity, Window, div, prelude::FluentBuilder, px,
-};
-use gpui_component::ElementExt;
+use iced_core::{Color, Length, Point};
+use iced_widget::{Column, Row};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    editor::GraphEditor,
+    GraphElement,
+    editor::slot::{input_slot, output_slot},
     graph::{
-        Graph, GraphData, GraphResources, GraphSignature, GraphVarIdentGenerator,
+        GraphData, GraphResources, GraphSignature, GraphVarIdentGenerator,
         slot::{
-            GraphDefaultInputSlot, GraphDefaultOutputSlot, GraphInlineLiteralRenderContext,
-            GraphInputSlotId, GraphOutputSlotId, GraphSlots,
+            ErasedGraphLiteralUpdateMessage, GraphDefaultInputSlot, GraphDefaultOutputSlot,
+            GraphInputSlotData, GraphInputSlotId, GraphOutputSlotData, GraphOutputSlotId,
+            GraphSlots,
         },
         texture::GraphTextureUsageRecorder,
         variable::{GraphLiteralValue, GraphVariable},
@@ -39,9 +37,11 @@ wrapper! {
 
 pub trait GraphNode<Data: GraphData>: Send + Sync + 'static + DynClone {
     type State: Send + Sync + 'static + GraphSerializable;
+    type Message: Send + Sync + 'static + Clone;
+
     fn name(&self) -> &'static str;
     fn default_state(&self) -> Self::State;
-    fn header_color(&self, cx: &App) -> Rgba;
+    fn header_color(&self, is_dark: bool) -> Color;
     fn create_inputs(
         &self,
         state: &Self::State,
@@ -53,10 +53,17 @@ pub trait GraphNode<Data: GraphData>: Send + Sync + 'static + DynClone {
         ctx: GraphNodeCreateSlotsContext<'_, Data>,
     ) -> Vec<GraphDefaultOutputSlot>;
     fn update_signature(&self, _: &Self::State, _: GraphNodeUpdateSignatureContext<'_, Data>) {}
-    fn render(&self, state: &Self::State, ctx: GraphNodeRenderContext<'_, '_, Data>) -> AnyElement;
-    // TODO Restrict the generate_code to return a function name.
-    //      In the future, every node has a corresponding function at shader side that executes the
-    //      logic the node defines. Arbitrary code is avoided to make maintenance easier.
+    fn view(
+        &self,
+        state: &Self::State,
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message>;
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        ctx: GraphNodeUpdateContext<'_, Data>,
+    );
     fn generate_code(
         &self,
         state: &Self::State,
@@ -79,7 +86,7 @@ pub struct ErasedGraphNodeMessage {
 pub trait ErasedGraphNode<Data: GraphData>: Send + Sync + 'static + DynClone {
     fn name(&self) -> &'static str;
     fn default_state(&self) -> Box<dyn Any + Send + Sync>;
-    fn header_color(&self, cx: &App) -> Rgba;
+    fn header_color(&self, is_dark: bool) -> Color;
     fn create_inputs(
         &self,
         state: &Box<dyn Any + Send + Sync>,
@@ -95,11 +102,18 @@ pub trait ErasedGraphNode<Data: GraphData>: Send + Sync + 'static + DynClone {
         state: &Box<dyn Any + Send + Sync>,
         ctx: GraphNodeUpdateSignatureContext<'_, Data>,
     );
-    fn render(
+    fn view(
         &self,
+        node_id: GraphNodeId,
         state: &Box<dyn Any + Send + Sync>,
-        ctx: GraphNodeRenderContext<'_, '_, Data>,
-    ) -> AnyElement;
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, ErasedGraphNodeMessage>;
+    fn update(
+        &self,
+        state: &mut Box<dyn Any + Send + Sync>,
+        message: ErasedGraphNodeMessage,
+        ctx: GraphNodeUpdateContext<'_, Data>,
+    );
     fn generate_code(
         &self,
         state: &Box<dyn Any + Send + Sync>,
@@ -126,8 +140,8 @@ impl<T: GraphNode<Data>, Data: GraphData> ErasedGraphNode<Data> for T {
         Box::new(self.default_state())
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        self.header_color(cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        self.header_color(is_dark)
     }
 
     fn create_inputs(
@@ -135,10 +149,12 @@ impl<T: GraphNode<Data>, Data: GraphData> ErasedGraphNode<Data> for T {
         state: &Box<dyn Any + Send + Sync>,
         ctx: GraphNodeCreateSlotsContext<'_, Data>,
     ) -> Vec<GraphDefaultInputSlot> {
-        let state = state
-            .downcast_ref::<T::State>()
-            .expect("Failed to downcast node state.");
-        self.create_inputs(state, ctx)
+        self.create_inputs(
+            state
+                .downcast_ref::<T::State>()
+                .expect("failed to downcast graph node state"),
+            ctx,
+        )
     }
 
     fn create_outputs(
@@ -146,10 +162,12 @@ impl<T: GraphNode<Data>, Data: GraphData> ErasedGraphNode<Data> for T {
         state: &Box<dyn Any + Send + Sync>,
         ctx: GraphNodeCreateSlotsContext<'_, Data>,
     ) -> Vec<GraphDefaultOutputSlot> {
-        let state = state
-            .downcast_ref::<T::State>()
-            .expect("Failed to downcast node state.");
-        self.create_outputs(state, ctx)
+        self.create_outputs(
+            state
+                .downcast_ref::<T::State>()
+                .expect("failed to downcast graph node state"),
+            ctx,
+        )
     }
 
     fn update_signature(
@@ -157,21 +175,46 @@ impl<T: GraphNode<Data>, Data: GraphData> ErasedGraphNode<Data> for T {
         state: &Box<dyn Any + Send + Sync>,
         ctx: GraphNodeUpdateSignatureContext<'_, Data>,
     ) {
-        let state = state
-            .downcast_ref::<T::State>()
-            .expect("Failed to downcast node state.");
-        self.update_signature(state, ctx);
+        self.update_signature(
+            state
+                .downcast_ref::<T::State>()
+                .expect("failed to downcast graph node state"),
+            ctx,
+        );
     }
 
-    fn render(
+    fn view(
         &self,
+        node_id: GraphNodeId,
         state: &Box<dyn Any + Send + Sync>,
-        ctx: GraphNodeRenderContext<'_, '_, Data>,
-    ) -> AnyElement {
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, ErasedGraphNodeMessage> {
+        self.view(
+            state
+                .downcast_ref::<T::State>()
+                .expect("failed to downcast graph node state"),
+            ctx,
+        )
+        .map(move |message| ErasedGraphNodeMessage {
+            inner: Box::new(message),
+            id: node_id,
+        })
+    }
+
+    fn update(
+        &self,
+        state: &mut Box<dyn Any + Send + Sync>,
+        message: ErasedGraphNodeMessage,
+        ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
         let state = state
-            .downcast_ref::<T::State>()
-            .expect("Failed to downcast node state.");
-        self.render(state, ctx)
+            .downcast_mut::<T::State>()
+            .expect("failed to downcast graph node state");
+        let message = match message.inner.downcast::<T::Message>() {
+            Ok(message) => message,
+            Err(_) => panic!("failed to downcast graph node message"),
+        };
+        self.update(state, *message, ctx);
     }
 
     fn generate_code(
@@ -179,28 +222,30 @@ impl<T: GraphNode<Data>, Data: GraphData> ErasedGraphNode<Data> for T {
         state: &Box<dyn Any + Send + Sync>,
         ctx: GraphNodeCodeGenContext<'_, Data>,
     ) -> Result<String, GraphNodeCodeGenError> {
-        let state = state
-            .downcast_ref::<T::State>()
-            .expect("Failed to downcast node state.");
-        self.generate_code(state, ctx)
+        self.generate_code(
+            state
+                .downcast_ref::<T::State>()
+                .expect("failed to downcast graph node state"),
+            ctx,
+        )
     }
 
     fn serialize_state(
         &self,
         state: &Box<dyn Any + Send + Sync>,
     ) -> Result<toml::Value, toml::ser::Error> {
-        let state = state
-            .downcast_ref::<T::State>()
-            .expect("Failed to downcast node state.");
-        self.serialize_state(state)
+        self.serialize_state(
+            state
+                .downcast_ref::<T::State>()
+                .expect("failed to downcast graph node state"),
+        )
     }
 
     fn deserialize_state(
         &self,
         value: toml::Value,
     ) -> Result<Box<dyn Any + Send + Sync>, toml::de::Error> {
-        let state = self.deserialize_state(value)?;
-        Ok(Box::new(state))
+        Ok(Box::new(self.deserialize_state(value)?))
     }
 }
 
@@ -217,24 +262,28 @@ impl<Data: GraphData> StatefulGraphNode<Data> {
         }
     }
 
-    pub fn state<T: GraphNode<Data>>(&self) -> Option<&T::State> {
-        self.state.downcast_ref()
-    }
-
-    pub fn state_mut<T: GraphNode<Data>>(&mut self) -> Option<&mut T::State> {
-        self.state.downcast_mut()
-    }
-
     pub fn name(&self) -> &'static str {
         self.data.name()
     }
 
-    pub fn header_color(&self, cx: &App) -> Rgba {
-        self.data.header_color(cx)
+    pub fn header_color(&self, is_dark: bool) -> Color {
+        self.data.header_color(is_dark)
     }
 
-    pub fn render(&self, ctx: GraphNodeRenderContext<'_, '_, Data>) -> AnyElement {
-        self.data.render(&self.state, ctx)
+    pub fn view(
+        &self,
+        node_id: GraphNodeId,
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, ErasedGraphNodeMessage> {
+        self.data.view(node_id, &self.state, ctx)
+    }
+
+    pub fn update(
+        &mut self,
+        message: ErasedGraphNodeMessage,
+        ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        self.data.update(&mut self.state, message, ctx);
     }
 
     pub fn generate_code(
@@ -249,8 +298,7 @@ impl<Data: GraphData> StatefulGraphNode<Data> {
     }
 
     pub fn deserialize_and_set_state(&mut self, value: toml::Value) -> Result<(), toml::de::Error> {
-        let state = self.data.deserialize_state(value)?;
-        self.state = state;
+        self.state = self.data.deserialize_state(value)?;
         Ok(())
     }
 
@@ -271,6 +319,14 @@ impl<Data: GraphData> StatefulGraphNode<Data> {
     pub fn update_signature(&self, ctx: GraphNodeUpdateSignatureContext<'_, Data>) {
         self.data.update_signature(&self.state, ctx);
     }
+
+    pub fn state<T: GraphNode<Data>>(&self) -> Option<&T::State> {
+        self.state.downcast_ref()
+    }
+
+    pub fn state_mut<T: GraphNode<Data>>(&mut self) -> Option<&mut T::State> {
+        self.state.downcast_mut()
+    }
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -281,7 +337,7 @@ pub struct StatelessState {
 
 pub trait StatelessCommonGraphNode<Data: GraphData>: Send + Sync + 'static + DynClone {
     fn name(&self) -> &'static str;
-    fn header_color(&self, cx: &App) -> Rgba;
+    fn header_color(&self, is_dark: bool) -> Color;
     fn create_inputs(
         &self,
         ctx: GraphNodeCreateSlotsContext<'_, Data>,
@@ -298,39 +354,159 @@ pub trait StatelessCommonGraphNode<Data: GraphData>: Send + Sync + 'static + Dyn
 }
 
 pub struct GraphNodeData<Data: GraphData> {
-    pub position: Point<f32>,
+    pub position: Point,
     pub data: StatefulGraphNode<Data>,
     pub inputs: Arc<[GraphInputSlotId]>,
     pub outputs: Arc<[GraphOutputSlotId]>,
 }
 
 impl<Data: GraphData> GraphNodeData<Data> {
-    pub fn render(
+    pub fn view(
         &self,
         node_id: GraphNodeId,
-        graph_slots: &GraphSlots,
+        slots: &GraphSlots,
         resources: &GraphResources,
-        editor: WeakEntity<GraphEditor<Data>>,
-        window: &mut Window,
-        cx: &mut Context<'_, Graph<Data>>,
-    ) -> AnyElement {
-        self.data.render(GraphNodeRenderContext {
+        is_dark: bool,
+    ) -> GraphElement<'static, ErasedGraphNodeMessage> {
+        self.data.view(
             node_id,
-            inputs: &self.inputs,
-            outputs: &self.outputs,
-            graph_slots,
-            resources,
-            editor,
-            window,
-            cx,
-        })
+            GraphNodeViewContext {
+                inputs: &self.inputs,
+                outputs: &self.outputs,
+                slots,
+                resources,
+                is_dark,
+                _marker: PhantomData,
+            },
+        )
     }
 }
 
 pub struct GraphNodeCreateSlotsContext<'a, Data: GraphData> {
     pub resources: &'a GraphResources,
-    pub cx: &'a App,
     pub _marker: PhantomData<Data>,
+}
+
+pub struct GraphNodeViewContext<'a, Data: GraphData> {
+    pub inputs: &'a [GraphInputSlotId],
+    pub outputs: &'a [GraphOutputSlotId],
+    pub slots: &'a GraphSlots,
+    pub resources: &'a GraphResources,
+    pub is_dark: bool,
+    pub _marker: PhantomData<Data>,
+}
+
+impl<Data: GraphData> GraphNodeViewContext<'_, Data> {
+    pub fn get_input(&self, index: usize) -> Option<&GraphInputSlotData> {
+        self.slots.get_input(self.inputs.get(index)?)
+    }
+
+    pub fn get_output(&self, index: usize) -> Option<&GraphOutputSlotData> {
+        self.slots.get_output(self.outputs.get(index)?)
+    }
+
+    pub fn view_input_slot<Message: 'static>(
+        &self,
+        index: usize,
+        map_literal: impl Fn(ErasedGraphLiteralUpdateMessage) -> Message + Copy + 'static,
+    ) -> Option<GraphElement<'static, Message>> {
+        let slot_id = *self.inputs.get(index)?;
+        let slot = self.slots.get_input(&slot_id)?;
+        Some(input_slot(slot_id, slot.name.clone(), slot, self.is_dark).map(map_literal))
+    }
+
+    pub fn view_output_slot<Message: 'static>(
+        &self,
+        index: usize,
+    ) -> Option<GraphElement<'static, Message>> {
+        let slot_id = *self.outputs.get(index)?;
+        let slot = self.slots.get_output(&slot_id)?;
+        Some(output_slot(slot_id, slot.name.clone(), slot, self.is_dark))
+    }
+
+    pub fn view_all_inputs<Message: 'static>(
+        &self,
+        map_literal: impl Fn(ErasedGraphLiteralUpdateMessage) -> Message + Copy + 'static,
+    ) -> Vec<GraphElement<'static, Message>> {
+        self.inputs
+            .iter()
+            .filter_map(|id| {
+                let slot = self.slots.get_input(id)?;
+                Some(input_slot(*id, slot.name.clone(), slot, self.is_dark).map(map_literal))
+            })
+            .collect()
+    }
+
+    pub fn view_all_outputs<Message: 'static>(&self) -> Vec<GraphElement<'static, Message>> {
+        self.outputs
+            .iter()
+            .filter_map(|id| {
+                let slot = self.slots.get_output(id)?;
+                Some(output_slot(*id, slot.name.clone(), slot, self.is_dark))
+            })
+            .collect()
+    }
+
+    pub fn view_all_slots<Message: 'static>(
+        &self,
+        map_literal: impl Fn(ErasedGraphLiteralUpdateMessage) -> Message + Copy + 'static,
+    ) -> GraphElement<'static, Message> {
+        Row::new()
+            .push(Column::with_children(self.view_all_inputs(map_literal)).spacing(2))
+            .push(iced_widget::space().width(Length::Fill))
+            .push(Column::with_children(self.view_all_outputs()).spacing(2))
+            .spacing(8)
+            .into()
+    }
+
+    pub fn view_all_slots_with_header<Message: 'static>(
+        &self,
+        header: impl Into<GraphElement<'static, Message>>,
+        map_literal: impl Fn(ErasedGraphLiteralUpdateMessage) -> Message + Copy + 'static,
+    ) -> GraphElement<'static, Message> {
+        Column::new()
+            .push(header)
+            .push(self.view_all_slots(map_literal))
+            .spacing(2)
+            .into()
+    }
+
+    pub fn all_inputs(&self) -> impl Iterator<Item = (&GraphInputSlotId, &GraphInputSlotData)> {
+        self.inputs
+            .iter()
+            .filter_map(move |id| self.slots.get_input(id).map(|slot| (id, slot)))
+    }
+
+    pub fn all_outputs(&self) -> impl Iterator<Item = (&GraphOutputSlotId, &GraphOutputSlotData)> {
+        self.outputs
+            .iter()
+            .filter_map(move |id| self.slots.get_output(id).map(|slot| (id, slot)))
+    }
+}
+
+pub struct GraphNodeUpdateContext<'a, Data: GraphData> {
+    pub inputs: &'a [GraphInputSlotId],
+    pub slots: &'a mut GraphSlots,
+    pub resources: &'a GraphResources,
+    pub _marker: PhantomData<Data>,
+}
+
+impl<Data: GraphData> GraphNodeUpdateContext<'_, Data> {
+    pub fn get_input(&self, index: usize) -> Option<&GraphInputSlotData> {
+        self.slots.get_input(self.inputs.get(index)?)
+    }
+
+    pub fn get_input_mut(&mut self, index: usize) -> Option<&mut GraphInputSlotData> {
+        let slot_id = self.inputs.get(index)?;
+        self.slots.inputs.get_mut(slot_id)
+    }
+
+    pub fn update_literal(&mut self, message: ErasedGraphLiteralUpdateMessage) {
+        let Some(slot) = self.slots.inputs.get_mut(&message.id) else {
+            return;
+        };
+        slot.data.update(message);
+    }
 }
 
 pub struct GraphNodeUpdateSignatureContext<'a, Data: GraphData> {
@@ -372,142 +548,6 @@ impl<Data: GraphData> GraphNodeUpdateSignatureContext<'_, Data> {
     }
 }
 
-pub struct GraphNodeRenderContext<'a, 'app, Data: GraphData> {
-    pub node_id: GraphNodeId,
-    pub inputs: &'a [GraphInputSlotId],
-    pub outputs: &'a [GraphOutputSlotId],
-    pub graph_slots: &'a GraphSlots,
-    pub resources: &'a GraphResources,
-    pub editor: WeakEntity<GraphEditor<Data>>,
-    pub window: &'a mut Window,
-    pub cx: &'a mut Context<'app, Graph<Data>>,
-}
-
-const NODE_HEADER_GAP: Pixels = px(2.0);
-const SLOT_SECTION_GAP: Pixels = px(2.0);
-const SLOT_ROW_GAP: Pixels = px(3.0);
-const SLOT_STACK_GAP: Pixels = px(1.0);
-const SLOT_DOT_SIZE: Pixels = px(10.0);
-const SLOT_DOT_RADIUS: Pixels = px(5.0);
-
-impl<Data: GraphData> GraphNodeRenderContext<'_, '_, Data> {
-    pub fn render_all_slots_with_header(&mut self, header: impl IntoElement) -> AnyElement {
-        div()
-            .flex()
-            .flex_col()
-            .gap(NODE_HEADER_GAP)
-            .child(
-                div()
-                    .w_full()
-                    .child(header)
-                    .on_any_mouse_down(|_, _, cx| cx.stop_propagation()),
-            )
-            .child(self.render_all_slots())
-            .into_any_element()
-    }
-
-    pub fn render_all_slots(&mut self) -> AnyElement {
-        div()
-            .flex()
-            .flex_col()
-            .gap(SLOT_SECTION_GAP)
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(SLOT_STACK_GAP)
-                    .children((0..self.inputs.len()).map(|i| self.render_input_slot(i).unwrap())),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(SLOT_STACK_GAP)
-                    .children((0..self.outputs.len()).map(|i| self.render_output_slot(i).unwrap())),
-            )
-            .into_any_element()
-    }
-
-    pub fn render_input_slot(&mut self, index: usize) -> Option<AnyElement> {
-        let slot_id = *self.inputs.get(index)?;
-        let slot = self.graph_slots.get_input(&slot_id)?;
-
-        Some(
-            div()
-                .id(*slot_id)
-                .flex()
-                .items_center()
-                .gap(SLOT_ROW_GAP)
-                .child(
-                    div()
-                        .bg(slot.data.ty().color(self.cx))
-                        .min_w(SLOT_DOT_SIZE)
-                        .min_h(SLOT_DOT_SIZE)
-                        .rounded(SLOT_DOT_RADIUS)
-                        .on_prepaint({
-                            let editor = self.editor.clone();
-                            move |bounds, _, cx| {
-                                let _ = editor.update(cx, |editor, _| {
-                                    editor.add_input_slot_pos(slot_id, bounds.center());
-                                });
-                            }
-                        }),
-                )
-                .child(div().text_sm().child(slot.name.clone()))
-                .when(slot.connected.is_none(), |d| {
-                    d.child(slot.data.ty().render_inline(
-                        slot.data.value(),
-                        GraphInlineLiteralRenderContext {
-                            slot_id,
-                            window: self.window,
-                            on_update: Rc::new({
-                                let graph = self.cx.entity().downgrade();
-                                move |value, cx| {
-                                    let _ = graph.update(cx, |graph, _| {
-                                        graph.set_slot_value(slot_id, value);
-                                    });
-                                }
-                            }),
-                            cx: self.cx,
-                        },
-                    ))
-                })
-                .into_any_element(),
-        )
-    }
-
-    pub fn render_output_slot(&mut self, index: usize) -> Option<AnyElement> {
-        let slot_id = *self.outputs.get(index)?;
-        let slot = self.graph_slots.get_output(&slot_id)?;
-
-        Some(
-            div()
-                .id(*slot_id)
-                .flex()
-                .items_center()
-                .justify_end()
-                .gap(SLOT_ROW_GAP)
-                .child(div().text_sm().child(slot.name.clone()))
-                .child(
-                    div()
-                        .bg(slot.data_ty.color(self.cx))
-                        .min_w(SLOT_DOT_SIZE)
-                        .min_h(SLOT_DOT_SIZE)
-                        .rounded(SLOT_DOT_RADIUS)
-                        .on_prepaint({
-                            let editor = self.editor.clone();
-                            move |bounds, _, cx| {
-                                let _ = editor.update(cx, |editor, _| {
-                                    editor.add_output_slot_pos(slot_id, bounds.center());
-                                });
-                            }
-                        }),
-                )
-                .into_any_element(),
-        )
-    }
-}
-
 pub struct GraphNodeCodeGenContext<'a, Data: GraphData> {
     pub inputs: &'a [GraphInputSlotId],
     pub outputs: &'a [GraphOutputSlotId],
@@ -516,7 +556,6 @@ pub struct GraphNodeCodeGenContext<'a, Data: GraphData> {
     pub ident_generator: &'a mut GraphVarIdentGenerator,
     pub resources: &'a GraphResources,
     pub texture_usage: &'a mut GraphTextureUsageRecorder,
-    pub cx: &'a App,
     pub _marker: PhantomData<Data>,
 }
 
@@ -526,27 +565,20 @@ impl<Data: GraphData> GraphNodeCodeGenContext<'_, Data> {
             .inputs
             .get(index)
             .ok_or(GraphNodeCodeGenError::SlotIndexOutOfBounds)?;
-
         let slot = self
             .graph_slots
             .get_input(slot_id)
             .ok_or(GraphNodeCodeGenError::MissingInputSlot)?;
-
         let Some(connected) = slot.connected else {
-            dbg!();
-            // Literal value should always has the same type as the slot type.
             return slot
                 .data
                 .to_code()
                 .ok_or(GraphNodeCodeGenError::LiteralToCodeFailed);
         };
-        dbg!();
-
         let output_slot = self
             .graph_slots
             .get_output(&connected)
             .ok_or(GraphNodeCodeGenError::MissingOutputSlot)?;
-
         let ident = self
             .output_slot_idents
             .get(&connected)
@@ -569,12 +601,10 @@ impl<Data: GraphData> GraphNodeCodeGenContext<'_, Data> {
             .inputs
             .get(index)
             .ok_or(GraphNodeCodeGenError::SlotIndexOutOfBounds)?;
-
         let slot = self
             .graph_slots
             .get_input(slot_id)
             .ok_or(GraphNodeCodeGenError::MissingInputSlot)?;
-
         Ok(slot.data.as_ref::<T>())
     }
 
@@ -583,12 +613,10 @@ impl<Data: GraphData> GraphNodeCodeGenContext<'_, Data> {
             .outputs
             .get(index)
             .ok_or(GraphNodeCodeGenError::SlotIndexOutOfBounds)?;
-
-        let ident = match self.output_slot_idents.entry(*slot_id) {
-            Entry::Occupied(e) => e.get().clone(),
-            Entry::Vacant(e) => e.insert(self.ident_generator.next_output()).clone(),
-        };
-        Ok(ident)
+        Ok(match self.output_slot_idents.entry(*slot_id) {
+            Entry::Occupied(entry) => entry.get().clone(),
+            Entry::Vacant(entry) => entry.insert(self.ident_generator.next_output()).clone(),
+        })
     }
 }
 
@@ -626,16 +654,9 @@ impl std::fmt::Display for ContextualGraphNodeCodeGenError {
     }
 }
 
+#[derive(Default)]
 pub struct GraphNodeRegistry<Data: GraphData> {
     nodes: BTreeMap<&'static str, Box<dyn ErasedGraphNode<Data>>>,
-}
-
-impl<Data: GraphData> Default for GraphNodeRegistry<Data> {
-    fn default() -> Self {
-        Self {
-            nodes: Default::default(),
-        }
-    }
 }
 
 impl<Data: GraphData> Clone for GraphNodeRegistry<Data> {

@@ -6,7 +6,6 @@ use std::{
 use arc_swap::ArcSwap;
 use cyancia_assets::asset::{AssetHandle, AssetId};
 use cyancia_utils::{log_err::LogErr, wrapper};
-use gpui::{App, Entity};
 use log::error;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
@@ -24,16 +23,14 @@ use crate::{
     },
 };
 
-pub struct GraphFunctionData {}
+pub struct GraphFunctionData;
 
 pub static GRAPH_FUNCTION_TYPE_REGISTRY: LazyLock<GraphTypeRegistry> = LazyLock::new(builtin_types);
 pub static GRAPH_FUNCTION_NODE_REGISTRY: LazyLock<GraphNodeRegistry<GraphFunctionData>> =
     LazyLock::new(|| {
         let mut nodes = builtin_nodes();
-
         nodes.register::<GraphInputNode>();
         nodes.register::<GraphOutputNode>();
-
         nodes
     });
 
@@ -55,16 +52,14 @@ wrapper! {
 
 pub type FunctionGraph = Graph<GraphFunctionData>;
 
-#[derive(Clone)]
 pub struct GraphFunction {
     // FIXME This should always exist
     pub asset_id: Option<AssetId<SerializableGraphFunction>>,
     pub id: GraphFunctionId,
     pub name: String,
-    pub graph: Entity<FunctionGraph>,
+    pub graph: FunctionGraph,
 }
 
-#[allow(type_alias_bounds)]
 pub type SharedGraphFunctionStorage = Arc<ArcSwap<GraphFunctionStorage>>;
 
 #[derive(Default)]
@@ -80,26 +75,24 @@ impl GraphFunctionStorage {
         textures: SharedGraphTextureStorage,
         functions: SharedGraphFunctionStorage,
         handles: Vec<AssetHandle<SerializableGraphFunction>>,
-        cx: &mut App,
     ) -> Self {
         let functions = handles
             .into_iter()
             .filter_map(|handle| {
                 let ser_func = handle.get().logged_err().ok()?;
-                let (maybe_func, handle_errs) = ser_func.deserialize_func(
+                let (maybe_func, errors) = ser_func.deserialize_func(
                     textures.clone(),
                     functions.clone(),
                     Some(handle.id()),
-                    cx,
                 );
-                if !handle_errs.is_empty() {
+                if !errors.is_empty() {
                     error!("Error deserializing graph function {}:", handle.id());
-                    for err in handle_errs {
-                        error!("  - {}", err);
+                    for error in errors {
+                        error!("  - {}", error);
                     }
                 }
-                let func = maybe_func?;
-                Some((func.id, func))
+                let function = maybe_func?;
+                Some((function.id, function))
             })
             .collect();
         Self { functions }

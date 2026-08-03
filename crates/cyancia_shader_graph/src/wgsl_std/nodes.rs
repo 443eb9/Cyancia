@@ -1,39 +1,34 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use cyancia_math::curve::CubicCurve;
-use cyancia_utils::random_oklch;
-use cyancia_widgets::curve_edit::{CurveEdit, CurveEditEvent, CurveEditState};
+use cyancia_widgets::curve_edit::CurveEdit;
 use glam::{Vec2, Vec3, Vec3Swizzles};
-use gpui::{
-    AnyElement, App, AppContext, Entity, ParentElement, Pixels, Rgba, SharedString, Styled, div, px,
-};
-use gpui_component::{
-    IndexPath, Sizable,
-    input::{Input, InputEvent, InputState},
-    searchable_list::SearchableListItem,
-    select::{SearchableVec, Select, SelectEvent, SelectState},
-};
+use iced_core::{Color, Length};
+use iced_widget::{column, pick_list, text_input};
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    GraphElement,
     graph::{
         GraphData, GraphVarIdentGenerator,
         external::{ExternalVariableId, generate_external_variable_name},
         function::GraphFunctionId,
         node::{
             GraphNode, GraphNodeCodeGenContext, GraphNodeCodeGenError, GraphNodeCreateSlotsContext,
-            GraphNodeRenderContext, GraphNodeUpdateSignatureContext, StatelessCommonGraphNode,
+            GraphNodeUpdateContext, GraphNodeUpdateSignatureContext, GraphNodeViewContext,
+            StatelessCommonGraphNode,
         },
-        slot::{GraphDefaultInputSlot, GraphDefaultOutputSlot},
+        slot::{ErasedGraphLiteralUpdateMessage, GraphDefaultInputSlot, GraphDefaultOutputSlot},
         texture::TextureId,
     },
-    wgsl_std::types::{ColorType, F32Type, RectType, TextureType, Vec2FType},
+    wgsl_std::{
+        themed_color,
+        types::{ColorType, F32Type, RectType, TextureType, Vec2FType},
+    },
 };
 
 use cyancia_shader_graph_derive::stateless;
-
-const NODE_HEADER_FIELD_GAP: Pixels = px(2.0);
 
 #[derive(Default, Clone)]
 pub struct ScalarMathNode;
@@ -117,20 +112,15 @@ impl ScalarMathNodeMode {
     ];
 }
 
-impl SearchableListItem for ScalarMathNodeMode {
-    type Value = Self;
-
-    fn title(&self) -> SharedString {
-        format!("{}", self).into()
-    }
-
-    fn value(&self) -> &Self::Value {
-        self
-    }
+#[derive(Clone)]
+pub enum ScalarMathNodeMessage {
+    ModeChanged(ScalarMathNodeMode),
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
 impl<Data: GraphData> GraphNode<Data> for ScalarMathNode {
     type State = ScalarMathNodeMode;
+    type Message = ScalarMathNodeMessage;
 
     fn name(&self) -> &'static str {
         "Scalar Math"
@@ -140,8 +130,8 @@ impl<Data: GraphData> GraphNode<Data> for ScalarMathNode {
         ScalarMathNodeMode::Add
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(ScalarMathNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(ScalarMathNode), is_dark)
     }
 
     fn create_inputs(
@@ -219,49 +209,32 @@ impl<Data: GraphData> GraphNode<Data> for ScalarMathNode {
         vec![GraphDefaultOutputSlot::new::<F32Type>("Result".into())]
     }
 
-    fn render(
+    fn view(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeRenderContext<'_, '_, Data>,
-    ) -> AnyElement {
-        let graph = ctx.cx.entity().downgrade();
-        let select_state = ctx
-            .window
-            .use_keyed_state(*ctx.node_id, ctx.cx, |window, cx| {
-                let state = cx.new(|cx| {
-                    SelectState::new(
-                        SearchableVec::new(ScalarMathNodeMode::ALL),
-                        ScalarMathNodeMode::ALL
-                            .iter()
-                            .position(|mode| mode == state)
-                            .map(IndexPath::new),
-                        window,
-                        cx,
-                    )
-                });
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        ctx.view_all_slots_with_header(
+            pick_list(
+                ScalarMathNodeMode::ALL,
+                Some(*state),
+                ScalarMathNodeMessage::ModeChanged,
+            )
+            .width(Length::Fill),
+            ScalarMathNodeMessage::LiteralUpdate,
+        )
+    }
 
-                let node_id = ctx.node_id;
-                cx.subscribe_in(
-                    &state,
-                    window,
-                    move |_: &mut Entity<SelectState<_>>, _, event: &SelectEvent<_>, _, cx| {
-                        if let SelectEvent::Confirm(Some(val)) = event {
-                            let val = *val;
-                            let _ = graph.update(cx, |graph, cx| {
-                                graph.update_node_state::<Self>(cx, node_id, move |state| {
-                                    *state = val;
-                                });
-                            });
-                        }
-                    },
-                )
-                .detach();
-
-                state
-            });
-
-        let select_state = select_state.read(ctx.cx);
-        ctx.render_all_slots_with_header(Select::new(select_state).small())
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            ScalarMathNodeMessage::ModeChanged(mode) => *state = mode,
+            ScalarMathNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+        }
     }
 
     fn generate_code(
@@ -406,20 +379,15 @@ impl VectorMathNodeMode {
     ];
 }
 
-impl SearchableListItem for VectorMathNodeMode {
-    type Value = Self;
-
-    fn title(&self) -> SharedString {
-        format!("{}", self).into()
-    }
-
-    fn value(&self) -> &Self::Value {
-        self
-    }
+#[derive(Clone)]
+pub enum VectorMathNodeMessage {
+    ModeChanged(VectorMathNodeMode),
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
 impl<Data: GraphData> GraphNode<Data> for VectorMathNode {
     type State = VectorMathNodeMode;
+    type Message = VectorMathNodeMessage;
 
     fn name(&self) -> &'static str {
         "Vector Math"
@@ -429,8 +397,8 @@ impl<Data: GraphData> GraphNode<Data> for VectorMathNode {
         VectorMathNodeMode::Add
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(VectorMathNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(VectorMathNode), is_dark)
     }
 
     fn create_inputs(
@@ -562,49 +530,32 @@ impl<Data: GraphData> GraphNode<Data> for VectorMathNode {
         }
     }
 
-    fn render(
+    fn view(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeRenderContext<'_, '_, Data>,
-    ) -> AnyElement {
-        let graph = ctx.cx.entity().downgrade();
-        let select_state = ctx
-            .window
-            .use_keyed_state(*ctx.node_id, ctx.cx, |window, cx| {
-                let state = cx.new(|cx| {
-                    SelectState::new(
-                        SearchableVec::new(VectorMathNodeMode::ALL),
-                        VectorMathNodeMode::ALL
-                            .iter()
-                            .position(|mode| mode == state)
-                            .map(IndexPath::new),
-                        window,
-                        cx,
-                    )
-                });
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        ctx.view_all_slots_with_header(
+            pick_list(
+                VectorMathNodeMode::ALL,
+                Some(*state),
+                VectorMathNodeMessage::ModeChanged,
+            )
+            .width(Length::Fill),
+            VectorMathNodeMessage::LiteralUpdate,
+        )
+    }
 
-                let node_id = ctx.node_id;
-                cx.subscribe_in(
-                    &state,
-                    window,
-                    move |_: &mut Entity<SelectState<_>>, _, event: &SelectEvent<_>, _, cx| {
-                        if let SelectEvent::Confirm(Some(val)) = event {
-                            let val = *val;
-                            let _ = graph.update(cx, |graph, cx| {
-                                graph.update_node_state::<Self>(cx, node_id, move |state| {
-                                    *state = val;
-                                });
-                            });
-                        }
-                    },
-                )
-                .detach();
-
-                state
-            });
-
-        let select_state = select_state.read(ctx.cx);
-        ctx.render_all_slots_with_header(Select::new(select_state).small())
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            VectorMathNodeMessage::ModeChanged(mode) => *state = mode,
+            VectorMathNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+        }
     }
 
     fn generate_code(
@@ -685,20 +636,15 @@ impl RectMathNodeMode {
     ];
 }
 
-impl SearchableListItem for RectMathNodeMode {
-    type Value = Self;
-
-    fn title(&self) -> SharedString {
-        format!("{}", self).into()
-    }
-
-    fn value(&self) -> &Self::Value {
-        self
-    }
+#[derive(Clone)]
+pub enum RectMathNodeMessage {
+    ModeChanged(RectMathNodeMode),
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
 impl<Data: GraphData> GraphNode<Data> for RectMathNode {
     type State = RectMathNodeMode;
+    type Message = RectMathNodeMessage;
 
     fn name(&self) -> &'static str {
         "Rect Math"
@@ -708,8 +654,8 @@ impl<Data: GraphData> GraphNode<Data> for RectMathNode {
         RectMathNodeMode::Union
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(RectMathNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(RectMathNode), is_dark)
     }
 
     fn create_inputs(
@@ -739,50 +685,32 @@ impl<Data: GraphData> GraphNode<Data> for RectMathNode {
         vec![GraphDefaultOutputSlot::new::<RectType>("Result".into())]
     }
 
-    fn render(
+    fn view(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeRenderContext<'_, '_, Data>,
-    ) -> AnyElement {
-        let graph = ctx.cx.entity().downgrade();
-        let select_state = ctx
-            .window
-            .use_keyed_state(*ctx.node_id, ctx.cx, |window, cx| {
-                let state = cx.new(|cx| {
-                    SelectState::new(
-                        SearchableVec::new(RectMathNodeMode::ALL),
-                        RectMathNodeMode::ALL
-                            .iter()
-                            .position(|mode| mode == state)
-                            .map(IndexPath::new),
-                        window,
-                        cx,
-                    )
-                });
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        ctx.view_all_slots_with_header(
+            pick_list(
+                RectMathNodeMode::ALL,
+                Some(*state),
+                RectMathNodeMessage::ModeChanged,
+            )
+            .width(Length::Fill),
+            RectMathNodeMessage::LiteralUpdate,
+        )
+    }
 
-                let node_id = ctx.node_id;
-                cx.subscribe_in(
-                    &state,
-                    window,
-                    move |_: &mut Entity<SelectState<_>>, _, event: &SelectEvent<_>, _, cx| {
-                        if let SelectEvent::Confirm(Some(val)) = event {
-                            let val = *val;
-                            graph
-                                .update(cx, |graph, cx| {
-                                    graph.update_node_state::<Self>(cx, node_id, move |state| {
-                                        *state = val;
-                                    });
-                                })
-                                .ok();
-                        }
-                    },
-                )
-                .detach();
-                state
-            });
-
-        let select_state = select_state.read(ctx.cx);
-        ctx.render_all_slots_with_header(Select::new(select_state).small())
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            RectMathNodeMessage::ModeChanged(mode) => *state = mode,
+            RectMathNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+        }
     }
 
     fn generate_code(
@@ -846,7 +774,8 @@ pub struct GraphTimes {
 }
 
 pub trait GraphDataWithTime: GraphData {
-    fn time_field() -> String;
+    fn time(&self) -> GraphTimes;
+    fn wgsl_variable() -> String;
 }
 
 #[stateless]
@@ -855,8 +784,8 @@ impl<Data: GraphDataWithTime> StatelessCommonGraphNode<Data> for TimeNode {
         "Time"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(TimeNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(TimeNode), is_dark)
     }
 
     fn create_inputs(
@@ -882,7 +811,7 @@ impl<Data: GraphDataWithTime> StatelessCommonGraphNode<Data> for TimeNode {
     ) -> Result<String, GraphNodeCodeGenError> {
         let now = ctx.get_output(0)?;
         let stroke_begin = ctx.get_output(1)?;
-        let accessor = Data::time_field();
+        let accessor = Data::wgsl_variable();
 
         Ok(format!(
             "
@@ -903,8 +832,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for ClampNode {
         "Clamp"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(ClampNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(ClampNode), is_dark)
     }
 
     fn create_inputs(
@@ -950,8 +879,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for StepNode {
         "Step"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(StepNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(StepNode), is_dark)
     }
 
     fn create_inputs(
@@ -995,8 +924,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SmoothStepNode {
         "Smooth Step"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(SmoothStepNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(SmoothStepNode), is_dark)
     }
 
     fn create_inputs(
@@ -1042,8 +971,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SplitComponentsNode {
         "Split Components"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(SplitComponentsNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(SplitComponentsNode), is_dark)
     }
 
     fn create_inputs(
@@ -1087,8 +1016,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for CombineComponentsNode {
         "Combine Components"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(CombineComponentsNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(CombineComponentsNode), is_dark)
     }
 
     fn create_inputs(
@@ -1132,8 +1061,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for CombineColorComponentsN
         "Combine Color Components"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(CombineColorComponentsNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(CombineColorComponentsNode), is_dark)
     }
 
     fn create_inputs(
@@ -1181,8 +1110,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SplitColorComponentsNod
         "Split Color Components"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(SplitColorComponentsNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(SplitColorComponentsNode), is_dark)
     }
 
     fn create_inputs(
@@ -1237,8 +1166,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for GetPixelColorNode {
         "Get Pixel Color"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(GetPixelColorNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(GetPixelColorNode), is_dark)
     }
 
     fn create_inputs(
@@ -1277,8 +1206,15 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for GetPixelColorNode {
 #[derive(Default, Clone)]
 pub struct TextureNode;
 
+#[derive(Clone)]
+pub enum TextureNodeMessage {
+    TextureChanged(TextureId),
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
+}
+
 impl<Data: GraphData> GraphNode<Data> for TextureNode {
     type State = TextureId;
+    type Message = TextureNodeMessage;
 
     fn name(&self) -> &'static str {
         "Texture"
@@ -1288,8 +1224,8 @@ impl<Data: GraphData> GraphNode<Data> for TextureNode {
         TextureId::NULL
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(TextureNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(TextureNode), is_dark)
     }
 
     fn create_inputs(
@@ -1308,53 +1244,36 @@ impl<Data: GraphData> GraphNode<Data> for TextureNode {
         vec![GraphDefaultOutputSlot::new::<TextureType>("Texture".into())]
     }
 
-    fn render(
+    fn view(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeRenderContext<'_, '_, Data>,
-    ) -> AnyElement {
-        let graph = ctx.cx.entity().downgrade();
-        let node_id = ctx.node_id;
-        let textures = ctx.resources.textures.load();
-        let all_textures = textures.all().values().cloned().collect::<Vec<_>>();
-        let selected = all_textures
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        let texture_storage = ctx.resources.textures.load();
+        let textures = texture_storage.all().values().cloned().collect::<Vec<_>>();
+        let selected = textures
             .iter()
-            .position(|r| Some(r.handle.id()) == **state)
-            .map(IndexPath::new);
+            .find(|texture| Some(texture.external_id) == **state)
+            .cloned();
+        ctx.view_all_slots_with_header(
+            pick_list(textures, selected, |texture| {
+                TextureNodeMessage::TextureChanged(TextureId(Some(texture.external_id)))
+            })
+            .width(Length::Fill),
+            TextureNodeMessage::LiteralUpdate,
+        )
+    }
 
-        let select_state = ctx
-            .window
-            .use_keyed_state(*ctx.node_id, ctx.cx, |window, cx| {
-                let select_state =
-                    cx.new(|cx| SelectState::new(all_textures.clone(), selected, window, cx));
-
-                cx.subscribe_in(
-                    &select_state,
-                    window,
-                    move |_: &mut Entity<SelectState<_>>, _, event: &SelectEvent<_>, _, cx| {
-                        if let SelectEvent::Confirm(Some(val)) = event {
-                            graph
-                                .update(cx, |graph, cx| {
-                                    graph.update_node_state::<Self>(cx, node_id, move |state| {
-                                        *state = TextureId(Some(*val));
-                                    });
-                                })
-                                .ok();
-                        }
-                    },
-                )
-                .detach();
-
-                select_state
-            });
-
-        let select_state = select_state.read(ctx.cx).clone();
-        select_state.update(ctx.cx, |state, cx| {
-            state.set_items(all_textures, ctx.window, cx);
-            state.set_selected_index(selected, ctx.window, cx);
-        });
-
-        ctx.render_all_slots_with_header(Select::new(&select_state).small())
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            TextureNodeMessage::TextureChanged(id) => *state = id,
+            TextureNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+        }
     }
 
     fn generate_code(
@@ -1380,8 +1299,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for ColorMixNode {
         "Color Mix"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(ColorMixNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(ColorMixNode), is_dark)
     }
 
     fn create_inputs(
@@ -1427,8 +1346,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for TextureSizeNode {
         "Texture Size"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(TextureSizeNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(TextureSizeNode), is_dark)
     }
 
     fn create_inputs(
@@ -1470,15 +1389,9 @@ pub struct GraphFunctionReference {
     pub name: String,
 }
 
-impl SearchableListItem for GraphFunctionReference {
-    type Value = GraphFunctionId;
-
-    fn title(&self) -> SharedString {
-        self.name.clone().into()
-    }
-
-    fn value(&self) -> &Self::Value {
-        &self.id
+impl std::fmt::Display for GraphFunctionReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.name)
     }
 }
 
@@ -1493,8 +1406,15 @@ pub struct GraphFunctionNodeState {
     pub id: Option<GraphFunctionId>,
 }
 
+#[derive(Clone)]
+pub enum GraphFunctionNodeMessage {
+    FunctionChanged(GraphFunctionId),
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
+}
+
 impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
     type State = GraphFunctionNodeState;
+    type Message = GraphFunctionNodeMessage;
 
     fn name(&self) -> &'static str {
         "Function"
@@ -1504,8 +1424,8 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
         GraphFunctionNodeState { id: None }
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(GraphFunctionNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(GraphFunctionNode), is_dark)
     }
 
     fn create_inputs(
@@ -1513,13 +1433,12 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
         state: &Self::State,
         ctx: GraphNodeCreateSlotsContext<'_, Data>,
     ) -> Vec<GraphDefaultInputSlot> {
-        let funcs = ctx.resources.functions.load();
-        let Some(func) = state.id.as_ref().and_then(|id| funcs.get(id)) else {
+        let functions = ctx.resources.functions.load();
+        let Some(func) = state.id.as_ref().and_then(|id| functions.get(id)) else {
             return Vec::new();
         };
 
         func.graph
-            .read(ctx.cx)
             .signature()
             .inputs
             .iter()
@@ -1537,13 +1456,12 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
         state: &Self::State,
         ctx: GraphNodeCreateSlotsContext<'_, Data>,
     ) -> Vec<GraphDefaultOutputSlot> {
-        let funcs = ctx.resources.functions.load();
-        let Some(func) = state.id.as_ref().and_then(|id| funcs.get(id)) else {
+        let functions = ctx.resources.functions.load();
+        let Some(func) = state.id.as_ref().and_then(|id| functions.get(id)) else {
             return Vec::new();
         };
 
         func.graph
-            .read(ctx.cx)
             .signature()
             .outputs
             .iter()
@@ -1556,13 +1474,13 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
             .collect()
     }
 
-    fn render(
+    fn view(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeRenderContext<'_, '_, Data>,
-    ) -> AnyElement {
-        let funcs = ctx.resources.functions.load();
-        let all_refs = funcs
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        let function_storage = ctx.resources.functions.load();
+        let functions = function_storage
             .all()
             .iter()
             .map(|(id, graph)| GraphFunctionReference {
@@ -1570,41 +1488,29 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
                 name: graph.name.clone(),
             })
             .collect::<Vec<_>>();
-        let cur_ref = all_refs
+        let selected = functions
             .iter()
-            .position(|r| Some(&r.id) == state.id.as_ref())
-            .map(IndexPath::new);
-        let graph = ctx.cx.entity().downgrade();
+            .find(|reference| Some(reference.id) == state.id)
+            .cloned();
+        ctx.view_all_slots_with_header(
+            pick_list(functions, selected, |reference| {
+                GraphFunctionNodeMessage::FunctionChanged(reference.id)
+            })
+            .width(Length::Fill),
+            GraphFunctionNodeMessage::LiteralUpdate,
+        )
+    }
 
-        let select_state = ctx
-            .window
-            .use_keyed_state(*ctx.node_id, ctx.cx, |window, cx| {
-                let state = cx.new(|cx| SelectState::new(all_refs, cur_ref, window, cx));
-
-                let node_id = ctx.node_id;
-                cx.subscribe_in(
-                    &state,
-                    window,
-                    move |_: &mut Entity<SelectState<_>>, _, event: &SelectEvent<_>, _, cx| {
-                        if let SelectEvent::Confirm(Some(val)) = event {
-                            let val = *val;
-                            graph
-                                .update(cx, |graph, cx| {
-                                    graph.update_node_state::<Self>(cx, node_id, move |state| {
-                                        state.id = Some(val);
-                                    });
-                                })
-                                .ok();
-                        }
-                    },
-                )
-                .detach();
-
-                state
-            });
-
-        let select_state = select_state.read(ctx.cx);
-        ctx.render_all_slots_with_header(Select::new(select_state).small())
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            GraphFunctionNodeMessage::FunctionChanged(id) => state.id = Some(id),
+            GraphFunctionNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+        }
     }
 
     fn generate_code(
@@ -1615,8 +1521,8 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
         let Some(id) = state.id.as_ref() else {
             return Ok(Default::default());
         };
-        let funcs = ctx.resources.functions.load();
-        let Some(func) = funcs.get(id) else {
+        let functions = ctx.resources.functions.load();
+        let Some(func) = functions.get(id) else {
             return Ok(Default::default());
         };
 
@@ -1630,7 +1536,6 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
 
         let (output_idents, code) = func
             .graph
-            .read(ctx.cx)
             .compile(
                 input_idents,
                 GraphVarIdentGenerator::new(format!(
@@ -1639,7 +1544,6 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
                     UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed)
                 )),
                 ctx.texture_usage,
-                ctx.cx,
             )
             .map_err(|e| GraphNodeCodeGenError::Custom(e.into()))?;
 
@@ -1660,8 +1564,16 @@ pub struct GraphInputNodeState {
     pub ty: Option<&'static str>,
 }
 
+#[derive(Clone)]
+pub enum GraphInputNodeMessage {
+    NameChanged(String),
+    TypeChanged(&'static str),
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
+}
+
 impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
     type State = GraphInputNodeState;
+    type Message = GraphInputNodeMessage;
 
     fn name(&self) -> &'static str {
         "Graph Input"
@@ -1671,8 +1583,8 @@ impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
         GraphInputNodeState::default()
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(GraphInputNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(GraphInputNode), is_dark)
     }
 
     fn create_inputs(
@@ -1686,7 +1598,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
     fn create_outputs(
         &self,
         state: &Self::State,
-        _ctx: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_, Data>,
     ) -> Vec<GraphDefaultOutputSlot> {
         let Some(ty) = state
             .ty
@@ -1707,81 +1619,37 @@ impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
         ctx.require_output_slot_as_graph_input(0, state.name.clone());
     }
 
-    fn render(
+    fn view(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeRenderContext<'_, '_, Data>,
-    ) -> AnyElement {
-        let graph = ctx.cx.entity().downgrade();
-        let input_state = ctx
-            .window
-            .use_keyed_state(*ctx.node_id, ctx.cx, |window, cx| {
-                let name_state = cx.new(|cx| InputState::new(window, cx));
-                let ty_state = cx.new(|cx| {
-                    SelectState::new(
-                        Data::type_registry()
-                            .all_types()
-                            .keys()
-                            .cloned()
-                            .collect::<Vec<_>>(),
-                        state.ty.and_then(|ty| {
-                            Data::type_registry()
-                                .all_types()
-                                .keys()
-                                .position(|k| *k == ty)
-                                .map(IndexPath::new)
-                        }),
-                        window,
-                        cx,
-                    )
-                });
-
-                let node_id = ctx.node_id;
-                cx.subscribe_in(&name_state, window, {
-                    let graph = graph.clone();
-                    move |_, input, event: &InputEvent, _, cx| match event {
-                        InputEvent::PressEnter { .. } | InputEvent::Blur => {
-                            let name = input.read(cx).value();
-                            graph
-                                .update(cx, |graph, cx| {
-                                    graph.update_node_state::<Self>(cx, node_id, move |state| {
-                                        state.name = name.into();
-                                    });
-                                })
-                                .ok();
-                        }
-                        InputEvent::Change | InputEvent::Focus => {}
-                    }
-                })
-                .detach();
-                cx.subscribe_in(&ty_state, window, {
-                    move |_, _, event: &SelectEvent<_>, _, cx| {
-                        if let SelectEvent::Confirm(Some(val)) = event {
-                            let val = *val;
-                            graph
-                                .update(cx, |graph, cx| {
-                                    graph.update_node_state::<Self>(cx, node_id, move |state| {
-                                        state.ty = Some(val);
-                                    });
-                                })
-                                .ok();
-                        }
-                    }
-                })
-                .detach();
-
-                (name_state, ty_state)
-            });
-
-        let (name_state, ty_state) = input_state.read(ctx.cx);
-        ctx.render_all_slots_with_header(
-            div()
-                .flex()
-                .flex_col()
-                .gap(NODE_HEADER_FIELD_GAP)
-                .child(Input::new(name_state).small())
-                .child(Select::new(ty_state).small()),
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        let types = Data::type_registry()
+            .all_types()
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        ctx.view_all_slots_with_header(
+            column![
+                text_input("Name", &state.name).on_input(GraphInputNodeMessage::NameChanged),
+                pick_list(types, state.ty, GraphInputNodeMessage::TypeChanged).width(Length::Fill),
+            ]
+            .spacing(2),
+            GraphInputNodeMessage::LiteralUpdate,
         )
+    }
+
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            GraphInputNodeMessage::NameChanged(name) => state.name = name,
+            GraphInputNodeMessage::TypeChanged(ty) => state.ty = Some(ty),
+            GraphInputNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+        }
     }
 
     fn generate_code(
@@ -1802,8 +1670,16 @@ pub struct GraphOutputNodeState {
     pub ty: Option<&'static str>,
 }
 
+#[derive(Clone)]
+pub enum GraphOutputNodeMessage {
+    NameChanged(String),
+    TypeChanged(&'static str),
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
+}
+
 impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
     type State = GraphOutputNodeState;
+    type Message = GraphOutputNodeMessage;
 
     fn name(&self) -> &'static str {
         "Graph Output"
@@ -1813,14 +1689,14 @@ impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
         GraphOutputNodeState::default()
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(GraphOutputNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(GraphOutputNode), is_dark)
     }
 
     fn create_inputs(
         &self,
         state: &Self::State,
-        _ctx: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_, Data>,
     ) -> Vec<GraphDefaultInputSlot> {
         let Some(ty) = state
             .ty
@@ -1849,82 +1725,37 @@ impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
         ctx.require_input_slot_as_graph_output(0, state.name.clone());
     }
 
-    fn render(
+    fn view(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeRenderContext<'_, '_, Data>,
-    ) -> AnyElement {
-        let graph = ctx.cx.entity().downgrade();
-        let input_state = ctx
-            .window
-            .use_keyed_state(*ctx.node_id, ctx.cx, |window, cx| {
-                let name_state = cx.new(|cx| InputState::new(window, cx));
-                let ty_state = cx.new(|cx| {
-                    SelectState::new(
-                        Data::type_registry()
-                            .all_types()
-                            .keys()
-                            .cloned()
-                            .collect::<Vec<_>>(),
-                        state.ty.and_then(|ty| {
-                            Data::type_registry()
-                                .all_types()
-                                .keys()
-                                .position(|k| *k == ty)
-                                .map(IndexPath::new)
-                        }),
-                        window,
-                        cx,
-                    )
-                });
-
-                cx.subscribe_in(&name_state, window, {
-                    let graph = graph.clone();
-                    let node_id = ctx.node_id;
-                    move |_, input, event: &InputEvent, _, cx| match event {
-                        InputEvent::PressEnter { .. } | InputEvent::Blur => {
-                            let name = input.read(cx).value();
-                            graph
-                                .update(cx, |graph, cx| {
-                                    graph.update_node_state::<Self>(cx, node_id, move |state| {
-                                        state.name = name.into();
-                                    });
-                                })
-                                .ok();
-                        }
-                        InputEvent::Change | InputEvent::Focus => {}
-                    }
-                })
-                .detach();
-                cx.subscribe_in(&ty_state, window, {
-                    let node_id = ctx.node_id;
-                    move |_, _, event: &SelectEvent<_>, _, cx| {
-                        if let SelectEvent::Confirm(Some(val)) = event {
-                            let val = *val;
-                            graph
-                                .update(cx, |graph, cx| {
-                                    graph.update_node_state::<Self>(cx, node_id, move |state| {
-                                        state.ty = Some(val);
-                                    });
-                                })
-                                .ok();
-                        }
-                    }
-                })
-                .detach();
-
-                (name_state, ty_state)
-            });
-
-        let (name_state, ty_state) = input_state.read(ctx.cx);
-        ctx.render_all_slots_with_header(
-            div()
-                .flex()
-                .flex_col()
-                .gap(NODE_HEADER_FIELD_GAP)
-                .child(Input::new(name_state).small())
-                .child(Select::new(ty_state).small()),
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        let types = Data::type_registry()
+            .all_types()
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        ctx.view_all_slots_with_header(
+            column![
+                text_input("Name", &state.name).on_input(GraphOutputNodeMessage::NameChanged),
+                pick_list(types, state.ty, GraphOutputNodeMessage::TypeChanged).width(Length::Fill),
+            ]
+            .spacing(2),
+            GraphOutputNodeMessage::LiteralUpdate,
         )
+    }
+
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            GraphOutputNodeMessage::NameChanged(name) => state.name = name,
+            GraphOutputNodeMessage::TypeChanged(ty) => state.ty = Some(ty),
+            GraphOutputNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+        }
     }
 
     fn generate_code(
@@ -1942,30 +1773,37 @@ pub struct ExternalVariableReference {
     pub name: String,
 }
 
-impl SearchableListItem for ExternalVariableReference {
-    type Value = ExternalVariableId;
-
-    fn title(&self) -> SharedString {
-        self.name.clone().into()
+impl PartialEq for ExternalVariableReference {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
     }
+}
 
-    fn value(&self) -> &Self::Value {
-        &self.id
+impl std::fmt::Display for ExternalVariableReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.name)
     }
 }
 
 #[derive(Default, Clone)]
 pub struct ExternalVariableNode;
 
+#[derive(Clone)]
+pub enum ExternalVariableNodeMessage {
+    VariableChanged(ExternalVariableId),
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
+}
+
 impl<Data: GraphData> GraphNode<Data> for ExternalVariableNode {
     type State = Option<ExternalVariableId>;
+    type Message = ExternalVariableNodeMessage;
 
     fn name(&self) -> &'static str {
         "External Variable"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(ExternalVariableNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(ExternalVariableNode), is_dark)
     }
 
     fn create_inputs(
@@ -2036,12 +1874,12 @@ impl<Data: GraphData> GraphNode<Data> for ExternalVariableNode {
         None
     }
 
-    fn render(
+    fn view(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeRenderContext<'_, '_, Data>,
-    ) -> AnyElement {
-        let all_refs = ctx
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        let variables = ctx
             .resources
             .external_vars
             .all()
@@ -2051,44 +1889,29 @@ impl<Data: GraphData> GraphNode<Data> for ExternalVariableNode {
                 name: entry.name.clone(),
             })
             .collect::<Vec<_>>();
-        let selected = state.as_ref().and_then(|id| {
-            all_refs
-                .iter()
-                .position(|r| r.id == *id)
-                .map(IndexPath::new)
-        });
+        let selected = variables
+            .iter()
+            .find(|reference| Some(reference.id) == *state)
+            .cloned();
+        ctx.view_all_slots_with_header(
+            pick_list(variables, selected, |reference| {
+                ExternalVariableNodeMessage::VariableChanged(reference.id)
+            })
+            .width(Length::Fill),
+            ExternalVariableNodeMessage::LiteralUpdate,
+        )
+    }
 
-        let graph = ctx.cx.entity().downgrade();
-        let select_state = ctx
-            .window
-            .use_keyed_state(*ctx.node_id, ctx.cx, |window, cx| {
-                let state = cx.new(|cx| SelectState::new(all_refs.clone(), selected, window, cx));
-
-                let node_id = ctx.node_id;
-                cx.subscribe_in(&state, window, {
-                    move |_, _, event: &SelectEvent<_>, _, cx| {
-                        if let SelectEvent::Confirm(Some(val)) = event {
-                            graph
-                                .update(cx, |graph, cx| {
-                                    graph.update_node_state::<Self>(cx, node_id, move |state| {
-                                        *state = Some(*val);
-                                    });
-                                })
-                                .ok();
-                        }
-                    }
-                })
-                .detach();
-
-                state
-            });
-
-        let select_state = select_state.read(ctx.cx).clone();
-        select_state.update(ctx.cx, |state, cx| {
-            state.set_items(all_refs, ctx.window, cx);
-            state.set_selected_index(selected, ctx.window, cx);
-        });
-        ctx.render_all_slots_with_header(Select::new(&select_state).small())
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            ExternalVariableNodeMessage::VariableChanged(id) => *state = Some(id),
+            ExternalVariableNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+        }
     }
 }
 
@@ -2116,8 +1939,15 @@ pub struct SerializableCurveNodeState {
     pub control_points: Vec<Vec2>,
 }
 
+#[derive(Clone)]
+pub enum CurveNodeMessage {
+    CurveChanged(CubicCurve),
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
+}
+
 impl<Data: GraphData> GraphNode<Data> for CurveNode {
     type State = CurveNodeState;
+    type Message = CurveNodeMessage;
 
     fn name(&self) -> &'static str {
         "Curve"
@@ -2127,8 +1957,8 @@ impl<Data: GraphData> GraphNode<Data> for CurveNode {
         Default::default()
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(CurveNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(CurveNode), is_dark)
     }
 
     fn create_inputs(
@@ -2147,94 +1977,33 @@ impl<Data: GraphData> GraphNode<Data> for CurveNode {
         vec![GraphDefaultOutputSlot::new::<F32Type>("Y".into())]
     }
 
-    fn render(
+    fn view(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeRenderContext<'_, '_, Data>,
-    ) -> AnyElement {
-        let graph = ctx.cx.entity().downgrade();
-        let edit_state: Entity<Entity<_>> =
-            ctx.window
-                .use_keyed_state(*ctx.node_id, ctx.cx, |window, cx| {
-                    let state = cx.new(|cx| {
-                        CurveEditState::new(CubicCurve::new(state.control_points.clone()), cx)
-                    });
-
-                    cx.subscribe_in(&state, window, {
-                        let node_id = ctx.node_id;
-                        move |_, edit, event: &CurveEditEvent, _, cx| match event {
-                            CurveEditEvent::ControlPointsChanged => {
-                                let edit = edit.read(cx);
-                                let control_points = edit.value().control_points().to_vec();
-                                let _ = graph.update(cx, |graph, cx| {
-                                    graph.update_node_state::<Self>(cx, node_id, move |state| {
-                                        state.control_points = control_points;
-                                    });
-                                });
-                            }
-                        }
-                    })
-                    .detach();
-
-                    state
-                });
-
-        let state = edit_state.read(ctx.cx);
-        ctx.render_all_slots_with_header(
-            div().w_full().aspect_square().child(CurveEdit::new(state)),
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        ctx.view_all_slots_with_header(
+            CurveEdit::new(CubicCurve::new(state.control_points.clone()))
+                .width(Length::Fill)
+                .height(Length::Fixed(128.0))
+                .on_change(CurveNodeMessage::CurveChanged),
+            CurveNodeMessage::LiteralUpdate,
         )
     }
 
-    // fn view_inputs(
-    //     &self,
-    //     state: &Self::State,
-    //     ctx: GraphNodeInputsViewContext<'_, Data>,
-    // ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
-    //     Column::with_children(ctx.view_all_inputs(&["X"], CurveNodeMessage::LiteralUpdate))
-    //         .push(
-    //             CurveEdit::new(CubicCurve::new(state.control_points.clone()))
-    //                 .width(NODE_WIDTH)
-    //                 .height(NODE_WIDTH * 0.75)
-    //                 .on_point_created(CurveNodeMessage::CurvePointCreated)
-    //                 .on_point_moved(CurveNodeMessage::CurvePointMoved)
-    //                 .on_point_deleted(CurveNodeMessage::CurvePointDeleted),
-    //         )
-    //         .into()
-    // }
-
-    // fn view_outputs(
-    //     &self,
-    //     state: &Self::State,
-    //     ctx: GraphNodeOutputsViewContext<'_, Data>,
-    // ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
-    //     Column::with_children(ctx.view_all_outputs(&["Y"])).into()
-    // }
-
-    // fn update(
-    //     &self,
-    //     state: &mut Self::State,
-    //     message: Self::Message,
-    //     mut ctx: GraphNodeUpdateContext<'_, Data>,
-    // ) {
-    //     match message {
-    //         CurveNodeMessage::LiteralUpdate(message) => {
-    //             ctx.update_literal(message);
-    //         }
-    //         CurveNodeMessage::CurvePointCreated(index, position) => {
-    //             state.control_points.insert(index, position);
-    //         }
-    //         CurveNodeMessage::CurvePointMoved(index, position) => {
-    //             if let Some(point) = state.control_points.get_mut(index) {
-    //                 *point = position;
-    //             }
-    //         }
-    //         CurveNodeMessage::CurvePointDeleted(index) => {
-    //             if state.control_points.len() > 2 {
-    //                 state.control_points.remove(index);
-    //             }
-    //         }
-    //     }
-    // }
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            CurveNodeMessage::CurveChanged(curve) => {
+                state.control_points = curve.control_points().to_vec();
+            }
+            CurveNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+        }
+    }
 
     fn generate_code(
         &self,
@@ -2286,8 +2055,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for RandomNode {
         "Random Number"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(RandomNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(RandomNode), is_dark)
     }
 
     fn create_inputs(
