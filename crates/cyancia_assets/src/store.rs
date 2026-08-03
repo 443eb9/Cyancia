@@ -5,7 +5,7 @@ use std::{
 };
 
 use chrono::Utc;
-use gpui::Global;
+use cyancia_runtime::service::Service;
 use path_clean::PathClean;
 
 use crate::{
@@ -27,7 +27,7 @@ pub struct AssetRegistry {
     index_db: Arc<AssetIndexDb>,
 }
 
-impl Global for AssetRegistry {}
+impl Service for AssetRegistry {}
 
 impl AssetRegistry {
     pub fn new(

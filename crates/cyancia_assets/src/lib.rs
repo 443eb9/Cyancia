@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use std::{cell::Ref, path::PathBuf, sync::Arc};
 
-use gpui::App;
+use cyancia_runtime::{Application, Services, plugin::Plugin};
 
 use crate::{
     bundle::ErasedAssetBundle,
@@ -16,13 +16,30 @@ pub mod loader;
 pub mod store;
 pub mod tag;
 
-pub fn init(cx: &mut App) {
-    cx.set_global(AssetRegistryBuilder::default());
+pub struct AssetsPlugin {
+    pub asset_root: PathBuf,
+    pub bundles: Vec<Arc<dyn ErasedAssetBundle>>,
 }
 
-pub fn finish(cx: &mut App) {
-    let builder = cx.remove_global::<AssetRegistryBuilder>();
-    cx.set_global(builder.build());
+impl Plugin for AssetsPlugin {
+    fn build(&self, app: &mut Application) {
+        let mut builder = AssetRegistryBuilder::default();
+        builder.set_root(self.asset_root.clone());
+
+        for bundle in &self.bundles {
+            builder.add_bundle(bundle.clone());
+        }
+
+        app.add_service_instance(builder);
+    }
+
+    fn finish(&self, app: &mut Application) {
+        let builder = app
+            .runtime_mut()
+            .services_mut()
+            .remove_service::<AssetRegistryBuilder>();
+        app.add_service_instance(builder.build());
+    }
 }
 
 pub trait AssetAppExt {
@@ -31,17 +48,18 @@ pub trait AssetAppExt {
     fn assets(&self) -> &AssetRegistry;
 }
 
-impl AssetAppExt for App {
+impl AssetAppExt for Services {
     fn add_asset_serializer<A: AssetSerializer + Default>(&mut self) {
-        self.global_mut::<AssetRegistryBuilder>()
+        self.service_mut::<AssetRegistryBuilder>()
             .add_serializer::<A>();
     }
 
     fn add_asset_bundle(&mut self, bundle: Arc<dyn ErasedAssetBundle>) {
-        self.global_mut::<AssetRegistryBuilder>().add_bundle(bundle);
+        self.service_mut::<AssetRegistryBuilder>()
+            .add_bundle(bundle);
     }
 
     fn assets(&self) -> &AssetRegistry {
-        self.global::<AssetRegistry>()
+        self.service::<AssetRegistry>()
     }
 }

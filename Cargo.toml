@@ -5,7 +5,7 @@ members = [
     # "crates/cyancia_actions",
     # "crates/cyancia_anti_aliasing",
     # "crates/cyancia_app",
-    # "crates/cyancia_assets",
+    "crates/cyancia_assets",
     # "crates/cyancia_brush",
     # "crates/cyancia_bucket_tool",
     # "crates/cyancia_canvas",
