@@ -40,7 +40,7 @@ use crate::{
 
 pub mod slot;
 
-pub const NODE_WIDTH: f32 = 170.0;
+pub const NODE_WIDTH: f32 = 200.0;
 const NODE_BORDER_RADIUS: f32 = 5.0;
 
 #[derive(Clone)]

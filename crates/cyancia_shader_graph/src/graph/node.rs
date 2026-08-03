@@ -8,7 +8,7 @@ use std::{
 use cyancia_utils::{cloneable_any::ClonableAnySync, wrapper};
 use dyn_clone::DynClone;
 use iced_core::{Color, Length, Point};
-use iced_widget::{Column, Row};
+use iced_widget::Column;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -451,11 +451,19 @@ impl<Data: GraphData> GraphNodeViewContext<'_, Data> {
         &self,
         map_literal: impl Fn(ErasedGraphLiteralUpdateMessage) -> Message + Copy + 'static,
     ) -> GraphElement<'static, Message> {
-        Row::new()
-            .push(Column::with_children(self.view_all_inputs(map_literal)).spacing(2))
-            .push(iced_widget::space().width(Length::Fill))
-            .push(Column::with_children(self.view_all_outputs()).spacing(2))
-            .spacing(8)
+        Column::new()
+            .push(
+                Column::with_children(self.view_all_inputs(map_literal))
+                    .width(Length::Fill)
+                    .spacing(4),
+            )
+            .push(
+                Column::with_children(self.view_all_outputs())
+                    .width(Length::Fill)
+                    .spacing(4),
+            )
+            .width(Length::Fill)
+            .spacing(2)
             .into()
     }
 

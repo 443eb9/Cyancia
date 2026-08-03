@@ -198,8 +198,16 @@ where
     });
 
     match slot_side {
-        SlotSide::Left => row![pin, text].align_y(Vertical::Center).spacing(4).into(),
-        SlotSide::Right => row![text, pin].align_y(Vertical::Center).spacing(4).into(),
+        SlotSide::Left => row![pin, text]
+            .width(Length::Fill)
+            .align_y(Vertical::Center)
+            .spacing(4)
+            .into(),
+        SlotSide::Right => row![iced_widget::space().width(Length::Fill), text, pin]
+            .width(Length::Fill)
+            .align_y(Vertical::Center)
+            .spacing(4)
+            .into(),
     }
 }
 
@@ -224,10 +232,12 @@ where
 
     match slot_side {
         SlotSide::Left => row![pin, text, widget]
+            .width(Length::Fill)
             .align_y(Vertical::Center)
             .spacing(4)
             .into(),
-        SlotSide::Right => row![widget, text, pin]
+        SlotSide::Right => row![iced_widget::space().width(Length::Fill), widget, text, pin]
+            .width(Length::Fill)
             .align_y(Vertical::Center)
             .spacing(4)
             .into(),
