@@ -467,6 +467,7 @@ where
                         return;
                     }
                 }
+                shell.request_redraw();
                 shell.capture_event();
             }
             Event::Mouse(mouse::Event::WheelScrolled { delta })
