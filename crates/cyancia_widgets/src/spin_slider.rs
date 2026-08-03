@@ -238,14 +238,17 @@ where
     }
 
     fn percentage_to_value(&self, percentage: f32) -> T {
-        let percentage = <f32 as AsPrimitive<f64>>::as_(percentage.clamp(0.0, 1.0));
+        let percentage = percentage.clamp(0.0, 1.0) as f64;
         let start: f64 = (*self.range.start()).as_();
         let end: f64 = (*self.range.end()).as_();
         let value = match self.scale {
             SliderScale::Linear => start + (end - start) * percentage,
             SliderScale::Logarithmic => (end / start).powf(percentage) * start,
         };
-        self.snap_f64(value)
+
+        let step: f64 = self.step.as_();
+        let steps = ((value - start) / step).round();
+        (start + steps * step).clamp(start, end).as_()
     }
 }
 
@@ -747,14 +750,6 @@ where
             mouse::Interaction::Pointer
         }
     }
-}
-
-impl<T, Message, Theme> SpinSlider<'_, T, Message, Theme>
-where
-    T: Copy + PartialOrd + Display + FromStr + AsPrimitive<f64>,
-    Theme: Catalog,
-    f64: AsPrimitive<T>,
-{
 }
 
 impl<'a, T, Message, Theme, Renderer> From<SpinSlider<'a, T, Message, Theme>>
