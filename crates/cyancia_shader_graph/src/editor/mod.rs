@@ -432,7 +432,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                     return;
                 };
 
-                state.view_drag = ViewDragState::Dragging {
+                state.interaction = InteractionState::ViewDragging {
                     cursor_origin: cursor,
                     translation_origin: state.view_translation,
                 };
@@ -440,8 +440,8 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                 return;
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Middle)) => {
-                if let ViewDragState::Dragging { .. } = state.view_drag {
-                    state.view_drag = ViewDragState::Idle;
+                if matches!(state.interaction, InteractionState::ViewDragging { .. }) {
+                    state.interaction = InteractionState::Idle;
                     shell.capture_event();
                     return;
                 }
@@ -470,7 +470,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                             continue;
                         };
 
-                        state.edge_connect = EdgeConnectState::Dragging {
+                        state.interaction = InteractionState::EdgeConnecting {
                             resolved_source,
                             color: slot_data.color,
                         };
@@ -482,22 +482,21 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                 for (node_index, node_layout) in layout.children().enumerate() {
                     if node_layout.bounds().contains(cursor) {
                         let node_id = self.graph.nodes[node_index].node_id;
-                        if state.selection.selected_nodes.is_empty() {
-                            state.selection.selected_nodes.insert(node_id);
+                        if state.selected_nodes.is_empty() {
+                            state.selected_nodes.insert(node_id);
                         } else if state.keyboard_modifiers.shift() {
-                            state.selection.selected_nodes.insert(node_id);
+                            state.selected_nodes.insert(node_id);
                         } else if state.keyboard_modifiers.control() {
-                            if !state.selection.selected_nodes.remove(&node_id) {
-                                state.selection.selected_nodes.insert(node_id);
+                            if !state.selected_nodes.remove(&node_id) {
+                                state.selected_nodes.insert(node_id);
                             }
-                        } else if !state.selection.selected_nodes.contains(&node_id) {
-                            state.selection.selected_nodes.clear();
-                            state.selection.selected_nodes.insert(node_id);
+                        } else if !state.selected_nodes.contains(&node_id) {
+                            state.selected_nodes.clear();
+                            state.selected_nodes.insert(node_id);
                         }
-                        state.node_drag = DragNodeState::Dragging {
+                        state.interaction = InteractionState::NodeDragging {
                             cursor_origin: cursor,
                             node_origin: state
-                                .selection
                                 .selected_nodes
                                 .iter()
                                 .filter_map(|id| {
@@ -505,7 +504,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                                 })
                                 .map(|(id, index)| (*id, layout.child(index).position()))
                                 .collect(),
-                            skip_release: false,
+                            skip_next_release: false,
                         };
                         shell.request_redraw();
                         shell.capture_event();
@@ -516,69 +515,121 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                 let mode = if state.keyboard_modifiers.shift() {
                     MarqueeMode::Add
                 } else {
-                    state.selection.selected_nodes.clear();
+                    state.selected_nodes.clear();
                     MarqueeMode::Replace
                 };
-                state.selection.state = DragSelectionState::Dragging {
+                state.interaction = InteractionState::SelectionDragging {
                     cursor_origin: cursor,
-                    originally_selected: state.selection.selected_nodes.clone(),
+                    originally_selected: state.selected_nodes.clone(),
                     mode,
                 };
                 shell.capture_event();
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                if let DragNodeState::Dragging {
-                    skip_release: skip_next_release,
-                    ..
-                } = &mut state.node_drag
-                {
-                    if *skip_next_release {
-                        *skip_next_release = false;
-                    } else {
-                        state.node_drag = DragNodeState::Idle;
+                match std::mem::take(&mut state.interaction) {
+                    InteractionState::NodeDragging {
+                        cursor_origin,
+                        node_origin,
+                        skip_next_release,
+                    } => {
+                        if skip_next_release {
+                            state.interaction = InteractionState::NodeDragging {
+                                cursor_origin,
+                                node_origin,
+                                skip_next_release: false,
+                            };
+                        }
+                        shell.capture_event();
                     }
-                    shell.capture_event();
-                    return;
+                    InteractionState::EdgeConnecting {
+                        resolved_source, ..
+                    } => {
+                        let mut found = None;
+                        for (slot_id, slot_pos) in state.slot_pins.all() {
+                            let cursor = cursor.position().unwrap();
+                            if slot_pos.distance(cursor) < SLOT_PIN_SNAP {
+                                found = Some(*slot_id);
+                                break;
+                            }
+                        }
+
+                        if let Some(end) = found {
+                            match (resolved_source, end) {
+                                (GraphSlotId::Input(to), GraphSlotId::Output(from))
+                                | (GraphSlotId::Output(from), GraphSlotId::Input(to)) => {
+                                    shell.publish(GraphEditorMessage::EdgeCreateRequest(from, to));
+                                }
+                                _ => {}
+                            }
+                        }
+                        shell.capture_event();
+                        shell.request_redraw();
+                    }
+                    InteractionState::SelectionDragging {
+                        cursor_origin,
+                        originally_selected,
+                        mode,
+                    } => {
+                        let Some(cursor) = cursor.position() else {
+                            state.interaction = InteractionState::SelectionDragging {
+                                cursor_origin,
+                                originally_selected,
+                                mode,
+                            };
+                            return;
+                        };
+                        let selection_rect = Rectangle {
+                            x: cursor_origin.x.min(cursor.x),
+                            y: cursor_origin.y.min(cursor.y),
+                            width: (cursor_origin.x - cursor.x).abs(),
+                            height: (cursor_origin.y - cursor.y).abs(),
+                        };
+                        state.selected_nodes = match mode {
+                            MarqueeMode::Replace => HashSet::new(),
+                            MarqueeMode::Add => originally_selected,
+                        };
+                        for (node, layout) in self.graph.nodes.keys().zip(layout.children()) {
+                            if selection_rect.intersects(&layout.bounds()) {
+                                state.selected_nodes.insert(*node);
+                            }
+                        }
+                        shell.request_redraw();
+                        shell.capture_event();
+                    }
+                    interaction => state.interaction = interaction,
                 }
-
-                if let EdgeConnectState::Dragging {
-                    resolved_source,
-                    color: _,
-                } = &state.edge_connect
-                {
-                    let mut found = None;
-                    for (slot_id, slot_pos) in state.slot_pins.all() {
-                        let cursor = cursor.position().unwrap();
-                        let d = slot_pos.distance(cursor);
-                        if d < SLOT_PIN_SNAP {
-                            found = Some(*slot_id);
-                            break;
-                        }
-                    }
-
-                    if let Some(end) = found {
-                        match (*resolved_source, end) {
-                            (GraphSlotId::Input(to), GraphSlotId::Output(from)) => {
-                                shell.publish(GraphEditorMessage::EdgeCreateRequest(from, to));
-                            }
-                            (GraphSlotId::Output(from), GraphSlotId::Input(to)) => {
-                                shell.publish(GraphEditorMessage::EdgeCreateRequest(from, to));
-                            }
-                            _ => {}
-                        }
-                    }
-                    state.edge_connect = EdgeConnectState::Idle;
-                    shell.capture_event();
+            }
+            Event::Mouse(mouse::Event::CursorMoved { .. }) => match &state.interaction {
+                InteractionState::Idle => {}
+                InteractionState::EdgeConnecting { .. } => {
                     shell.request_redraw();
-                    return;
+                    shell.capture_event();
                 }
-
-                if let DragSelectionState::Dragging {
+                InteractionState::NodeDragging {
+                    cursor_origin,
+                    node_origin,
+                    ..
+                } => {
+                    let Some(cursor) = cursor.position() else {
+                        return;
+                    };
+                    for selected in &state.selected_nodes {
+                        if let Some(node_origin) = node_origin.get(selected) {
+                            shell.publish(GraphEditorMessage::NodeMoveRequest(
+                                *node_origin + (cursor - *cursor_origin)
+                                    - Vector::new(layout.position().x, layout.position().y)
+                                    - state.view_translation,
+                                *selected,
+                            ));
+                        }
+                    }
+                    shell.capture_event();
+                }
+                InteractionState::SelectionDragging {
                     cursor_origin,
                     originally_selected,
                     mode,
-                } = &state.selection.state
-                {
+                } => {
                     let Some(cursor) = cursor.position() else {
                         return;
                     };
@@ -588,101 +639,31 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                         width: (cursor_origin.x - cursor.x).abs(),
                         height: (cursor_origin.y - cursor.y).abs(),
                     };
-                    let mut selected = match mode {
+                    state.selected_nodes = match mode {
                         MarqueeMode::Replace => HashSet::new(),
                         MarqueeMode::Add => originally_selected.clone(),
                     };
                     for (node, layout) in self.graph.nodes.keys().zip(layout.children()) {
                         if selection_rect.intersects(&layout.bounds()) {
-                            selected.insert(*node);
+                            state.selected_nodes.insert(*node);
                         }
                     }
-                    state.selection.selected_nodes = selected;
-                    state.selection.state = DragSelectionState::Idle;
                     shell.request_redraw();
                     shell.capture_event();
-                    return;
                 }
-            }
-            Event::Mouse(mouse::Event::CursorMoved { .. }) => {
-                match &state.edge_connect {
-                    EdgeConnectState::Idle => {}
-                    EdgeConnectState::Dragging { .. } => {
-                        shell.request_redraw();
-                        shell.capture_event();
+                InteractionState::ViewDragging {
+                    cursor_origin,
+                    translation_origin,
+                } => {
+                    let Some(cursor) = cursor.position() else {
                         return;
-                    }
+                    };
+                    state.view_translation = *translation_origin + (cursor - *cursor_origin);
+                    shell.capture_event();
+                    shell.invalidate_layout();
+                    shell.request_redraw();
                 }
-
-                let Some(cursor) = cursor.position() else {
-                    return;
-                };
-
-                match &state.node_drag {
-                    DragNodeState::Idle => {}
-                    DragNodeState::Dragging {
-                        cursor_origin: origin,
-                        node_origin,
-                        ..
-                    } => {
-                        for selected in &state.selection.selected_nodes {
-                            if let Some(node_origin) = node_origin.get(selected) {
-                                shell.publish(GraphEditorMessage::NodeMoveRequest(
-                                    *node_origin + (cursor - *origin)
-                                        - Vector::new(layout.position().x, layout.position().y)
-                                        - state.view_translation,
-                                    *selected,
-                                ));
-                            }
-                        }
-                        shell.capture_event();
-                        return;
-                    }
-                }
-
-                match &state.selection.state {
-                    DragSelectionState::Idle => {}
-                    DragSelectionState::Dragging {
-                        cursor_origin,
-                        originally_selected,
-                        mode,
-                    } => {
-                        let selection_rect = Rectangle {
-                            x: cursor_origin.x.min(cursor.x),
-                            y: cursor_origin.y.min(cursor.y),
-                            width: (cursor_origin.x - cursor.x).abs(),
-                            height: (cursor_origin.y - cursor.y).abs(),
-                        };
-                        let mut selected = match mode {
-                            MarqueeMode::Replace => HashSet::new(),
-                            MarqueeMode::Add => originally_selected.clone(),
-                        };
-                        for (node, layout) in self.graph.nodes.keys().zip(layout.children()) {
-                            if selection_rect.intersects(&layout.bounds()) {
-                                selected.insert(*node);
-                            }
-                        }
-                        state.selection.selected_nodes = selected;
-                        shell.request_redraw();
-                        shell.capture_event();
-                        return;
-                    }
-                }
-
-                match &state.view_drag {
-                    ViewDragState::Idle => {}
-                    ViewDragState::Dragging {
-                        cursor_origin,
-                        translation_origin,
-                    } => {
-                        state.view_translation = *translation_origin + (cursor - *cursor_origin);
-                        shell.capture_event();
-                        shell.invalidate_layout();
-                        shell.request_redraw();
-                        return;
-                    }
-                }
-            }
+            },
             Event::Keyboard(keyboard::Event::KeyPressed {
                 physical_key,
                 modifiers,
@@ -699,7 +680,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                 // TODO: make them configurable
                 match key {
                     key::Code::Delete => {
-                        for node_id in state.selection.selected_nodes.drain() {
+                        for node_id in state.selected_nodes.drain() {
                             shell.publish(GraphEditorMessage::NodeDeleteRequest(node_id));
                         }
                         shell.capture_event();
@@ -727,9 +708,10 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
     ) -> Interaction {
         let state = tree.state.downcast_ref::<State>();
 
-        match state.node_drag {
-            DragNodeState::Idle => self
-                .graph
+        if matches!(state.interaction, InteractionState::NodeDragging { .. }) {
+            mouse::Interaction::Grabbing
+        } else {
+            self.graph
                 .nodes
                 .values()
                 .zip(&tree.children)
@@ -741,8 +723,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                         .mouse_interaction(tree, layout, cursor, viewport, renderer)
                 })
                 .max()
-                .unwrap_or_default(),
-            DragNodeState::Dragging { .. } => mouse::Interaction::Grabbing,
+                .unwrap_or_default()
         }
     }
 
@@ -818,7 +799,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
         {
             use iced_core::Renderer;
             renderer.with_layer(layout.bounds(), |renderer| {
-                if state.selection.selected_nodes.contains(&child.node_id) {
+                if state.selected_nodes.contains(&child.node_id) {
                     renderer.fill_quad(
                         Quad {
                             bounds: node_layout.bounds().expand(2.0),
@@ -851,12 +832,12 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
         }
 
         if let (
-            EdgeConnectState::Dragging {
+            InteractionState::EdgeConnecting {
                 resolved_source,
                 color,
             },
             Some(cursor_pos),
-        ) = (&state.edge_connect, cursor.position())
+        ) = (&state.interaction, cursor.position())
             && let Some(start_pos) = state.slot_pins.get(&resolved_source)
         {
             let mut frame = Frame::with_bounds(renderer, layout.bounds());
@@ -876,7 +857,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
             });
         };
 
-        if let DragSelectionState::Dragging { cursor_origin, .. } = &state.selection.state {
+        if let InteractionState::SelectionDragging { cursor_origin, .. } = &state.interaction {
             let Some(cursor_pos) = cursor.position() else {
                 return;
             };
@@ -940,13 +921,12 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                 |name| {
                     let position = state.node_creation_menu.position.take().unwrap();
                     let node_id = GraphNodeId::new(Uuid::new_v4());
-                    state.selection.selected_nodes.clear();
-                    state.selection.selected_nodes.insert(node_id);
-                    state.selection.state = DragSelectionState::Idle;
-                    state.node_drag = DragNodeState::Dragging {
+                    state.selected_nodes.clear();
+                    state.selected_nodes.insert(node_id);
+                    state.interaction = InteractionState::NodeDragging {
                         cursor_origin: position,
                         node_origin: HashMap::from([(node_id, position)]),
-                        skip_release: true,
+                        skip_next_release: true,
                     };
                     GraphEditorMessage::NodeCreateRequest(
                         position - state.view_translation,
@@ -979,10 +959,8 @@ struct State {
     keyboard_modifiers: keyboard::Modifiers,
 
     node_creation_menu: NodeCreationMenuState,
-    node_drag: DragNodeState,
-    view_drag: ViewDragState,
-    edge_connect: EdgeConnectState,
-    selection: NodeSelectionState,
+    selected_nodes: HashSet<GraphNodeId>,
+    interaction: InteractionState,
     slot_pins: GraphSlotPinPositionCollection,
 }
 
@@ -994,40 +972,26 @@ struct NodeCreationMenuState {
 }
 
 #[derive(Default)]
-enum DragNodeState {
+enum InteractionState {
     #[default]
     Idle,
-    Dragging {
+    NodeDragging {
         cursor_origin: Point,
         node_origin: HashMap<GraphNodeId, Point>,
-        skip_release: bool,
+        skip_next_release: bool,
     },
-}
-
-#[derive(Default)]
-enum EdgeConnectState {
-    #[default]
-    Idle,
-    Dragging {
+    EdgeConnecting {
         resolved_source: GraphSlotId,
         color: Color,
     },
-}
-
-#[derive(Default)]
-struct NodeSelectionState {
-    selected_nodes: HashSet<GraphNodeId>,
-    state: DragSelectionState,
-}
-
-#[derive(Default)]
-enum DragSelectionState {
-    #[default]
-    Idle,
-    Dragging {
+    SelectionDragging {
         cursor_origin: Point,
         originally_selected: HashSet<GraphNodeId>,
         mode: MarqueeMode,
+    },
+    ViewDragging {
+        cursor_origin: Point,
+        translation_origin: Vector,
     },
 }
 
@@ -1035,14 +999,4 @@ enum DragSelectionState {
 enum MarqueeMode {
     Replace,
     Add,
-}
-
-#[derive(Default)]
-enum ViewDragState {
-    #[default]
-    Idle,
-    Dragging {
-        cursor_origin: Point,
-        translation_origin: Vector,
-    },
 }
