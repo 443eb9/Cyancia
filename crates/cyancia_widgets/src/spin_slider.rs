@@ -379,9 +379,17 @@ where
                         let SpinSliderState::Editing { value } = &state.interaction else {
                             continue;
                         };
-                        if self.commit_input(value, shell) {
-                            state.interaction = SpinSliderState::Idle;
+                        let Ok(value) = value.parse::<T>() else {
+                            continue;
+                        };
+                        let value = self.snap(value);
+                        if value != self.value {
+                            shell.publish((self.on_change)(value));
                         }
+                        if let Some(on_release) = &self.on_release {
+                            shell.publish(on_release(value));
+                        }
+                        state.interaction = SpinSliderState::Idle;
                     }
                 }
             }
@@ -747,19 +755,6 @@ where
     Theme: Catalog,
     f64: AsPrimitive<T>,
 {
-    fn commit_input(&self, input: &str, shell: &mut Shell<'_, Message>) -> bool {
-        let Ok(value) = input.parse::<T>() else {
-            return false;
-        };
-        let value = self.snap(value);
-        if value != self.value {
-            shell.publish((self.on_change)(value));
-        }
-        if let Some(on_release) = &self.on_release {
-            shell.publish(on_release(value));
-        }
-        true
-    }
 }
 
 impl<'a, T, Message, Theme, Renderer> From<SpinSlider<'a, T, Message, Theme>>
