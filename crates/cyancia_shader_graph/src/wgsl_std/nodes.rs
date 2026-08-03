@@ -846,8 +846,7 @@ pub struct GraphTimes {
 }
 
 pub trait GraphDataWithTime: GraphData {
-    fn time(&self) -> GraphTimes;
-    fn wgsl_variable() -> String;
+    fn time_field() -> String;
 }
 
 #[stateless]
@@ -883,7 +882,7 @@ impl<Data: GraphDataWithTime> StatelessCommonGraphNode<Data> for TimeNode {
     ) -> Result<String, GraphNodeCodeGenError> {
         let now = ctx.get_output(0)?;
         let stroke_begin = ctx.get_output(1)?;
-        let accessor = Data::wgsl_variable();
+        let accessor = Data::time_field();
 
         Ok(format!(
             "
@@ -1316,16 +1315,11 @@ impl<Data: GraphData> GraphNode<Data> for TextureNode {
     ) -> AnyElement {
         let graph = ctx.cx.entity().downgrade();
         let node_id = ctx.node_id;
-        let all_textures = ctx
-            .resources
-            .textures
-            .all()
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
+        let textures = ctx.resources.textures.load();
+        let all_textures = textures.all().values().cloned().collect::<Vec<_>>();
         let selected = all_textures
             .iter()
-            .position(|r| r.external_id == *state)
+            .position(|r| Some(r.handle.id()) == **state)
             .map(IndexPath::new);
 
         let select_state = ctx
@@ -1342,7 +1336,7 @@ impl<Data: GraphData> GraphNode<Data> for TextureNode {
                             graph
                                 .update(cx, |graph, cx| {
                                     graph.update_node_state::<Self>(cx, node_id, move |state| {
-                                        *state = *val;
+                                        *state = TextureId(Some(*val));
                                     });
                                 })
                                 .ok();
@@ -1519,11 +1513,8 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
         state: &Self::State,
         ctx: GraphNodeCreateSlotsContext<'_, Data>,
     ) -> Vec<GraphDefaultInputSlot> {
-        let Some(func) = state
-            .id
-            .as_ref()
-            .and_then(|id| ctx.resources.functions.get(id))
-        else {
+        let funcs = ctx.resources.functions.load();
+        let Some(func) = state.id.as_ref().and_then(|id| funcs.get(id)) else {
             return Vec::new();
         };
 
@@ -1546,11 +1537,8 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
         state: &Self::State,
         ctx: GraphNodeCreateSlotsContext<'_, Data>,
     ) -> Vec<GraphDefaultOutputSlot> {
-        let Some(func) = state
-            .id
-            .as_ref()
-            .and_then(|id| ctx.resources.functions.get(id))
-        else {
+        let funcs = ctx.resources.functions.load();
+        let Some(func) = state.id.as_ref().and_then(|id| funcs.get(id)) else {
             return Vec::new();
         };
 
@@ -1573,9 +1561,8 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
         state: &Self::State,
         mut ctx: GraphNodeRenderContext<'_, '_, Data>,
     ) -> AnyElement {
-        let all_refs = ctx
-            .resources
-            .functions
+        let funcs = ctx.resources.functions.load();
+        let all_refs = funcs
             .all()
             .iter()
             .map(|(id, graph)| GraphFunctionReference {
@@ -1628,7 +1615,8 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
         let Some(id) = state.id.as_ref() else {
             return Ok(Default::default());
         };
-        let Some(func) = ctx.resources.functions.get(id) else {
+        let funcs = ctx.resources.functions.load();
+        let Some(func) = funcs.get(id) else {
             return Ok(Default::default());
         };
 
@@ -1698,11 +1686,11 @@ impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
     fn create_outputs(
         &self,
         state: &Self::State,
-        ctx: GraphNodeCreateSlotsContext<'_, Data>,
+        _ctx: GraphNodeCreateSlotsContext<'_, Data>,
     ) -> Vec<GraphDefaultOutputSlot> {
         let Some(ty) = state
             .ty
-            .and_then(|ty| ctx.type_registry.get_type(ty))
+            .and_then(|ty| Data::type_registry().get_type(ty))
             .map(dyn_clone::clone_box)
         else {
             return vec![];
@@ -1731,13 +1719,13 @@ impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
                 let name_state = cx.new(|cx| InputState::new(window, cx));
                 let ty_state = cx.new(|cx| {
                     SelectState::new(
-                        ctx.type_registry
+                        Data::type_registry()
                             .all_types()
                             .keys()
                             .cloned()
                             .collect::<Vec<_>>(),
                         state.ty.and_then(|ty| {
-                            ctx.type_registry
+                            Data::type_registry()
                                 .all_types()
                                 .keys()
                                 .position(|k| *k == ty)
@@ -1832,11 +1820,11 @@ impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
     fn create_inputs(
         &self,
         state: &Self::State,
-        ctx: GraphNodeCreateSlotsContext<'_, Data>,
+        _ctx: GraphNodeCreateSlotsContext<'_, Data>,
     ) -> Vec<GraphDefaultInputSlot> {
         let Some(ty) = state
             .ty
-            .and_then(|ty| ctx.type_registry.get_type(ty))
+            .and_then(|ty| Data::type_registry().get_type(ty))
             .map(dyn_clone::clone_box)
         else {
             return vec![];
@@ -1873,13 +1861,13 @@ impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
                 let name_state = cx.new(|cx| InputState::new(window, cx));
                 let ty_state = cx.new(|cx| {
                     SelectState::new(
-                        ctx.type_registry
+                        Data::type_registry()
                             .all_types()
                             .keys()
                             .cloned()
                             .collect::<Vec<_>>(),
                         state.ty.and_then(|ty| {
-                            ctx.type_registry
+                            Data::type_registry()
                                 .all_types()
                                 .keys()
                                 .position(|k| *k == ty)

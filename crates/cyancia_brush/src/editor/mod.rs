@@ -1,27 +1,20 @@
-use std::{
-    collections::HashMap,
-    rc::Rc,
-    sync::{Arc, LazyLock},
-};
+use std::{rc::Rc, sync::Arc};
 
 use cyancia_assets::{AssetAppExt, asset::AssetId};
-use cyancia_render::texture::Image;
 use cyancia_shader_graph::{
     editor::GraphEditor,
     graph::{
-        Graph, GraphResources,
+        Graph, GraphData, GraphResources,
         external::{ExternalVariable, ExternalVariableId},
-        function::{GraphFunction, GraphFunctionId, GraphFunctionStorage},
-        node::GraphNodeRegistry,
+        function::{
+            ASSET_GRAPH_FUNCTION_STORAGE, FunctionGraph, GraphFunction, GraphFunctionData,
+            GraphFunctionId,
+        },
         slot::GraphInlineLiteralRenderContext,
-        texture::GraphTextureStorage,
-        variable::{GraphLiteral, GraphTypeRegistry},
+        texture::ASSET_GRAPH_TEXTURE_STORAGE,
+        variable::GraphLiteral,
     },
     save::{SerializableGraph, SerializableGraphFunction},
-    wgsl_std::{
-        builtin_nodes, builtin_types,
-        nodes::{GraphInputNode, GraphOutputNode},
-    },
 };
 use gpui::{
     Action, App, AppContext, Axis, BorrowAppContext, ClickEvent, Context, Entity,
@@ -44,33 +37,13 @@ use uuid::Uuid;
 
 use crate::{
     asset::{BrushPreset, BrushPresetMetadata},
-    instance::{
-        BRUSH_GRAPH_TYPES, BrushPresetInstance, GraphFunctionInstance, MAIN_GRAPH_NODES,
-        REQUIRED_SPACING_GRAPH_NODES, STROKE_POSTPROCESS_GRAPH_NODES,
+    instance::{BRUSH_GRAPH_TYPES, BrushPresetInstance, GraphFunctionInstance},
+    render::graph::{
+        BrushMainGraphData, BrushRequiredSpacingGraphData, BrushStrokePostprocessGraphData,
     },
-    render::graph::{BrushGraphData, BrushGraphPostprocessData},
     tool::CurrentBrushPresetHandle,
     widget::{BrushFunctionListDelegate, BrushPresetListDelegate},
 };
-
-pub static FUNCTION_GRAPH_NODE_REGISTRY: LazyLock<Arc<GraphNodeRegistry<BrushGraphData>>> =
-    LazyLock::new(|| {
-        let mut registry = GraphNodeRegistry::default();
-
-        registry.merge(builtin_nodes());
-        registry.register::<GraphInputNode>();
-        registry.register::<GraphOutputNode>();
-
-        registry.into()
-    });
-
-pub static FUNCTION_GRAPH_TYPE_REGISTRY: LazyLock<Arc<GraphTypeRegistry>> = LazyLock::new(|| {
-    let mut registry = GraphTypeRegistry::default();
-
-    registry.merge(builtin_types());
-
-    registry.into()
-});
 
 pub const BRUSH_EDITOR_CONTEXT: &str = "brush_editor";
 
@@ -92,10 +65,6 @@ struct DeleteExternalVariable {
 
 // TODO: Tag filtering.
 pub struct BrushEditor {
-    texture_storage: Arc<GraphTextureStorage>,
-    main_function_storage: Arc<GraphFunctionStorage<BrushGraphData>>,
-    stroke_pp_function_storage: Arc<GraphFunctionStorage<BrushGraphPostprocessData>>,
-
     selected: Option<Selected>,
 
     editor_state: Option<EditorState>,
@@ -112,38 +81,17 @@ pub struct BrushEditor {
 impl BrushEditor {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let brush_assets = cx.assets().all_handles_of::<BrushPreset>().unwrap();
-        let function_assets = cx
-            .assets()
-            .all_handles_of::<SerializableGraphFunction>()
-            .unwrap();
-        let functions = function_assets
-            .iter()
-            .map(|handle| {
-                let func = handle.get().unwrap();
-                // TODO err handling
-                (
-                    func.id,
-                    func.deserialize_func(
-                        Some(handle.id()),
-                        FUNCTION_GRAPH_TYPE_REGISTRY.clone(),
-                        FUNCTION_GRAPH_NODE_REGISTRY.as_ref(),
-                        cx,
-                    )
-                    .0
-                    .unwrap(),
-                )
-            })
-            .collect();
-        let function_storage = Arc::new(GraphFunctionStorage::new(functions));
-
-        // TODO: Update this storage when asset changes.
-        let textures = cx.assets().all_handles_of::<Image>().unwrap();
-        let texture_storage = Arc::new(GraphTextureStorage::new(textures));
 
         let brushes =
             cx.new(|cx| ListState::new(BrushPresetListDelegate::new(brush_assets), window, cx));
-        let functions = cx
-            .new(|cx| ListState::new(BrushFunctionListDelegate::new(function_assets), window, cx));
+        let functions = ASSET_GRAPH_FUNCTION_STORAGE.load();
+        let functions = cx.new(|cx| {
+            ListState::new(
+                BrushFunctionListDelegate::new(functions.all().values()),
+                window,
+                cx,
+            )
+        });
         let name_input_state = cx.new(|cx| InputState::new(window, cx));
 
         cx.subscribe_in(&brushes, window, Self::on_brush_list_event)
@@ -182,9 +130,6 @@ impl BrushEditor {
 
         Self {
             selected: None,
-            texture_storage,
-            main_function_storage: function_storage,
-            stroke_pp_function_storage: Arc::new(GraphFunctionStorage::new(HashMap::new())), // TODO
 
             editor_state: None,
             brushes,
@@ -221,9 +166,8 @@ impl BrushEditor {
 
                 let (maybe_instance, errs) = BrushPresetInstance::from_asset(
                     &brush,
-                    self.texture_storage.clone(),
-                    self.main_function_storage.clone(),
-                    self.stroke_pp_function_storage.clone(),
+                    ASSET_GRAPH_TEXTURE_STORAGE.clone(),
+                    ASSET_GRAPH_FUNCTION_STORAGE.clone(),
                     cx,
                 );
 
@@ -239,9 +183,10 @@ impl BrushEditor {
                 self.name_input_state.update(cx, |st, cx| {
                     st.set_value(instance.metadata().name.clone(), window, cx);
                 });
-                self.editor_state = Some(EditorState::Main(cx.new(|cx| {
-                    GraphEditor::new(instance.main_graph().clone(), MAIN_GRAPH_NODES.clone(), cx)
-                })));
+                self.editor_state =
+                    Some(EditorState::Main(cx.new(|cx| {
+                        GraphEditor::new(instance.main_graph().clone(), cx)
+                    })));
                 self.selected = Some(Selected::Brush(SelectedBrush {
                     asset_id: brush.id(),
                     instance,
@@ -266,41 +211,25 @@ impl BrushEditor {
                     brushes.set_selected_index(None, window, cx);
                 });
 
-                let Some(func) = functions_entity.update(cx, |funcs, _| {
+                let Some(id) = functions_entity.update(cx, |funcs, _| {
                     let item = funcs.delegate().get(*ix)?;
-                    Some(item.handle.clone())
+                    Some(item.id)
                 }) else {
                     return;
                 };
 
-                let ser_func = match func.get() {
-                    Ok(ser_func) => ser_func,
-                    Err(err) => {
-                        log::error!("Failed reading function {}: {:?}", func.id(), err);
-                        return;
-                    }
-                };
-                let (maybe_func, errs) = ser_func.deserialize_func(
-                    Some(func.id()),
-                    FUNCTION_GRAPH_TYPE_REGISTRY.clone(),
-                    FUNCTION_GRAPH_NODE_REGISTRY.as_ref(),
-                    cx,
-                );
-
-                for err in errs {
-                    log::error!("Error deserializing function {:?}: {:?}", func.id(), err);
-                }
-                let Some(func) = maybe_func else {
-                    log::error!("Failed to load function {}", func.id());
+                let functions = ASSET_GRAPH_FUNCTION_STORAGE.load();
+                // FIXME This can be incorrect since the cloned instance is referencing the same graph
+                //       entity.
+                let Some(func) = functions.get(&id).cloned() else {
                     return;
                 };
-
                 self.name_input_state.update(cx, |st, cx| {
                     st.set_value(func.name.clone(), window, cx);
                 });
-                self.editor_state = Some(EditorState::Main(cx.new(|cx| {
-                    GraphEditor::new(func.graph.clone(), FUNCTION_GRAPH_NODE_REGISTRY.clone(), cx)
-                })));
+                self.editor_state = Some(EditorState::Function(
+                    cx.new(|cx| GraphEditor::new(func.graph.clone(), cx)),
+                ));
                 self.selected = Some(Selected::Function(SelectedFunction {
                     asset_id: func.asset_id.unwrap(),
                     id: func.id,
@@ -475,9 +404,8 @@ impl BrushEditor {
 
                 let (instance, _) = BrushPresetInstance::new(
                     &new_brush,
-                    self.texture_storage.clone(),
-                    self.main_function_storage.clone(),
-                    self.stroke_pp_function_storage.clone(),
+                    ASSET_GRAPH_TEXTURE_STORAGE.clone(),
+                    ASSET_GRAPH_FUNCTION_STORAGE.clone(),
                     cx,
                 );
                 let Some(instance) = instance else {
@@ -509,15 +437,7 @@ impl BrushEditor {
                     asset_id: None,
                     id,
                     name: "[Unnamed Function]".to_string(),
-                    graph: cx.new(|_| {
-                        Graph::new(
-                            GraphResources {
-                                functions: self.main_function_storage.clone(),
-                                ..Default::default()
-                            },
-                            FUNCTION_GRAPH_TYPE_REGISTRY.clone(),
-                        )
-                    }),
+                    graph: cx.new(|_| Graph::new(GraphResources::default())),
                 });
 
                 let ser_func =
@@ -563,14 +483,7 @@ impl BrushEditor {
             .new_ext_var_type_select_state
             .read(cx)
             .selected_value()
-            .and_then(|ty_name| {
-                brush
-                    .instance
-                    .main_graph()
-                    .read(cx)
-                    .type_registry()
-                    .get_type(ty_name)
-            })
+            .and_then(|ty_name| BrushMainGraphData::type_registry().get_type(ty_name))
         else {
             return;
         };
@@ -829,14 +742,8 @@ impl BrushEditor {
             return;
         };
         brush.viewing_graph = BrushPresetGraph::RequiredSpacing;
-        let st = cx.new(|cx| {
-            GraphEditor::new(
-                brush.instance.required_spacing_graph().clone(),
-                REQUIRED_SPACING_GRAPH_NODES.clone(),
-                cx,
-            )
-        });
-        self.editor_state = Some(EditorState::Main(st));
+        let st = cx.new(|cx| GraphEditor::new(brush.instance.required_spacing_graph().clone(), cx));
+        self.editor_state = Some(EditorState::RequiredSpacing(st));
     }
 
     fn on_select_main_graph(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -844,13 +751,7 @@ impl BrushEditor {
             return;
         };
         brush.viewing_graph = BrushPresetGraph::Main;
-        let st = cx.new(|cx| {
-            GraphEditor::new(
-                brush.instance.main_graph().clone(),
-                MAIN_GRAPH_NODES.clone(),
-                cx,
-            )
-        });
+        let st = cx.new(|cx| GraphEditor::new(brush.instance.main_graph().clone(), cx));
         self.editor_state = Some(EditorState::Main(st));
     }
 
@@ -868,8 +769,7 @@ impl BrushEditor {
             return;
         };
         brush.viewing_graph = BrushPresetGraph::StrokePostprocess { index };
-        let st = cx
-            .new(|cx| GraphEditor::new(graph.clone(), STROKE_POSTPROCESS_GRAPH_NODES.clone(), cx));
+        let st = cx.new(|cx| GraphEditor::new(graph.clone(), cx));
         self.editor_state = Some(EditorState::Postprocess(st));
     }
 }
@@ -932,6 +832,7 @@ impl Render for BrushEditor {
                 .child("Name")
                 .child(Input::new(&self.name_input_state).w_full());
             let graph_view = match &self.editor_state {
+                Some(EditorState::RequiredSpacing(e)) => e.clone().into_any_element(),
                 Some(EditorState::Main(e)) => e.clone().into_any_element(),
                 Some(EditorState::Postprocess(e)) => e.clone().into_any_element(),
                 Some(EditorState::Function(e)) => e.clone().into_any_element(),
@@ -1017,25 +918,25 @@ pub enum Selected {
 }
 
 pub enum EditorState {
-    Main(Entity<GraphEditor<BrushGraphData>>),
-    Postprocess(Entity<GraphEditor<BrushGraphPostprocessData>>),
-    Function(Entity<GraphEditor<BrushGraphData>>),
+    RequiredSpacing(Entity<GraphEditor<BrushRequiredSpacingGraphData>>),
+    Main(Entity<GraphEditor<BrushMainGraphData>>),
+    Postprocess(Entity<GraphEditor<BrushStrokePostprocessGraphData>>),
+    Function(Entity<GraphEditor<GraphFunctionData>>),
 }
 
 impl EditorState {
-    pub fn new_main(graph: Entity<Graph<BrushGraphData>>, cx: &mut App) -> Self {
-        EditorState::Main(cx.new(|cx| GraphEditor::new(graph, MAIN_GRAPH_NODES.clone(), cx)))
+    pub fn new_main(graph: Entity<Graph<BrushMainGraphData>>, cx: &mut App) -> Self {
+        EditorState::Main(cx.new(|cx| GraphEditor::new(graph, cx)))
     }
 
-    pub fn new_postprocess(graph: Entity<Graph<BrushGraphPostprocessData>>, cx: &mut App) -> Self {
-        EditorState::Postprocess(
-            cx.new(|cx| GraphEditor::new(graph, STROKE_POSTPROCESS_GRAPH_NODES.clone(), cx)),
-        )
+    pub fn new_postprocess(
+        graph: Entity<Graph<BrushStrokePostprocessGraphData>>,
+        cx: &mut App,
+    ) -> Self {
+        EditorState::Postprocess(cx.new(|cx| GraphEditor::new(graph, cx)))
     }
 
-    pub fn new_function(graph: Entity<Graph<BrushGraphData>>, cx: &mut App) -> Self {
-        EditorState::Function(
-            cx.new(|cx| GraphEditor::new(graph, FUNCTION_GRAPH_NODE_REGISTRY.clone(), cx)),
-        )
+    pub fn new_function(graph: Entity<FunctionGraph>, cx: &mut App) -> Self {
+        EditorState::Function(cx.new(|cx| GraphEditor::new(graph, cx)))
     }
 }

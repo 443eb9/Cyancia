@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet, hash_map::Entry},
+    marker::PhantomData,
     sync::Arc,
 };
 
@@ -12,15 +13,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::graph::{
     Graph, GraphData, GraphResources,
-    external::{ExternalVariable, ExternalVariableId, GraphExternalVariableStorage},
-    function::{GraphFunction, GraphFunctionId},
-    node::{
-        GraphNodeCreateSlotsContext, GraphNodeData, GraphNodeId, GraphNodeRegistry,
-        StatefulGraphNode,
-    },
+    external::{ExternalVariable, ExternalVariableId},
+    function::{GraphFunction, GraphFunctionId, SharedGraphFunctionStorage},
+    node::{GraphNodeCreateSlotsContext, GraphNodeData, GraphNodeId, StatefulGraphNode},
     slot::{
         GraphInputSlotData, GraphInputSlotId, GraphOutputSlotData, GraphOutputSlotId, GraphSlots,
     },
+    texture::SharedGraphTextureStorage,
     variable::{GraphLiteral, GraphTypeRegistry},
 };
 
@@ -88,10 +87,7 @@ impl<Data: GraphData> Graph<Data> {
 
     pub fn from_toml(
         s: &str,
-        resources: GraphResources<Data>,
-        type_registry: Arc<GraphTypeRegistry>,
-        node_registry: &GraphNodeRegistry<Data>,
-        __vars: Arc<GraphExternalVariableStorage>,
+        resources: GraphResources,
         cx: &App,
     ) -> (Option<Self>, Vec<GraphDeserializeError>) {
         let graph = match toml::from_str::<SerializableGraph>(s) {
@@ -100,14 +96,12 @@ impl<Data: GraphData> Graph<Data> {
                 return (None, vec![GraphDeserializeError::DeserializerError(e)]);
             }
         };
-        Self::from_serialized(&graph, resources, type_registry, node_registry, cx)
+        Self::from_serialized(&graph, resources, cx)
     }
 
     pub fn from_serialized(
         serialized: &SerializableGraph,
-        resources: GraphResources<Data>,
-        type_registry: Arc<GraphTypeRegistry>,
-        node_registry: &GraphNodeRegistry<Data>,
+        resources: GraphResources,
         cx: &App,
     ) -> (Option<Self>, Vec<GraphDeserializeError>) {
         let SerializableGraph {
@@ -124,7 +118,7 @@ impl<Data: GraphData> Graph<Data> {
         let mut graph_outputs = HashMap::with_capacity(outputs.len());
 
         'node_loop: for ser_node in nodes {
-            let Some(node_inst) = node_registry.get(&ser_node.data.name) else {
+            let Some(node_inst) = Data::node_registry().get(&ser_node.data.name) else {
                 errs.push(GraphDeserializeError::NodeNotFound(
                     ser_node.data.name.clone(),
                 ));
@@ -132,7 +126,7 @@ impl<Data: GraphData> Graph<Data> {
             };
 
             let mut node = StatefulGraphNode::new(node_inst);
-            match node.deserialize_and_set_state(ser_node.state.clone(), &type_registry) {
+            match node.deserialize_and_set_state(ser_node.state.clone()) {
                 Ok(_) => {}
                 Err(e) => {
                     errs.push(GraphDeserializeError::NodeStateDeserializeError(e));
@@ -142,8 +136,8 @@ impl<Data: GraphData> Graph<Data> {
 
             let raw_inputs = node.create_inputs(GraphNodeCreateSlotsContext {
                 resources: &resources,
-                type_registry: &type_registry,
                 cx,
+                _marker: PhantomData,
             });
             if raw_inputs.len() != ser_node.inputs.len() {
                 errs.push(GraphDeserializeError::UnmatchedInputSlotCount {
@@ -163,7 +157,7 @@ impl<Data: GraphData> Graph<Data> {
                 };
 
                 let type_name = default.ty.name();
-                let value_type_obj = match type_registry.get_type(type_name) {
+                let value_type_obj = match Data::type_registry().get_type(type_name) {
                     Some(t) => t,
                     None => {
                         errs.push(GraphDeserializeError::TypeNotFound(type_name.to_string()));
@@ -195,8 +189,8 @@ impl<Data: GraphData> Graph<Data> {
 
             let raw_outputs = node.create_outputs(GraphNodeCreateSlotsContext {
                 resources: &resources,
-                type_registry: &type_registry,
                 cx,
+                _marker: PhantomData,
             });
             if raw_outputs.len() != ser_node.outputs.len() {
                 errs.push(GraphDeserializeError::UnmatchedOutputSlotCount {
@@ -265,7 +259,6 @@ impl<Data: GraphData> Graph<Data> {
                 outputs: graph_outputs,
             },
             resources,
-            type_registry,
             cached_run_order: Default::default(),
             cached_signature: Default::default(),
         });
@@ -452,10 +445,7 @@ pub struct SerializableGraphFunction {
 }
 
 impl SerializableGraphFunction {
-    pub fn serialize_func<Data: crate::graph::GraphData>(
-        func: &GraphFunction<Data>,
-        cx: &App,
-    ) -> Result<Self, anyhow::Error> {
+    pub fn serialize_func(func: &GraphFunction, cx: &App) -> Result<Self, anyhow::Error> {
         Ok(SerializableGraphFunction {
             id: func.id,
             name: func.name.clone(),
@@ -463,24 +453,21 @@ impl SerializableGraphFunction {
         })
     }
 
-    pub fn deserialize_func<Data: crate::graph::GraphData>(
+    pub fn deserialize_func(
         &self,
+        textures: SharedGraphTextureStorage,
+        functions: SharedGraphFunctionStorage,
         asset_id: Option<AssetId<SerializableGraphFunction>>,
-        type_registry: Arc<GraphTypeRegistry>,
-        node_registry: &GraphNodeRegistry<Data>,
         cx: &mut App,
-    ) -> (Option<GraphFunction<Data>>, Vec<GraphDeserializeError>) {
-        // Create empty resources for the graph function
+    ) -> (Option<GraphFunction>, Vec<GraphDeserializeError>) {
+        // Graph functions don't have external variables
         let resources = GraphResources {
-            textures: Arc::new(Default::default()),
-            functions: Arc::new(crate::graph::function::GraphFunctionStorage::new(
-                Default::default(),
-            )),
+            textures,
+            functions,
             external_vars: Arc::new(Default::default()),
         };
 
-        let (maybe_graph, err) =
-            Graph::from_serialized(&self.graph, resources, type_registry, node_registry, cx);
+        let (maybe_graph, err) = Graph::from_serialized(&self.graph, resources, cx);
 
         let func = maybe_graph.map(|graph| GraphFunction {
             asset_id,

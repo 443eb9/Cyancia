@@ -1,6 +1,7 @@
 use std::{
     any::Any,
     collections::{BTreeMap, HashMap, hash_map::Entry},
+    marker::PhantomData,
     rc::Rc,
     sync::Arc,
 };
@@ -24,7 +25,7 @@ use crate::{
             GraphInputSlotId, GraphOutputSlotId, GraphSlots,
         },
         texture::GraphTextureUsageRecorder,
-        variable::{GraphLiteralValue, GraphTypeRegistry, GraphVariable},
+        variable::{GraphLiteralValue, GraphVariable},
     },
     save::GraphSerializable,
 };
@@ -64,12 +65,8 @@ pub trait GraphNode<Data: GraphData>: Send + Sync + 'static + DynClone {
     fn serialize_state(&self, state: &Self::State) -> Result<toml::Value, toml::ser::Error> {
         state.to_toml()
     }
-    fn deserialize_state(
-        &self,
-        value: toml::Value,
-        type_registry: &GraphTypeRegistry,
-    ) -> Result<Self::State, toml::de::Error> {
-        Self::State::from_toml(value, type_registry)
+    fn deserialize_state(&self, value: toml::Value) -> Result<Self::State, toml::de::Error> {
+        Self::State::from_toml(value, Data::type_registry())
     }
 }
 
@@ -115,7 +112,6 @@ pub trait ErasedGraphNode<Data: GraphData>: Send + Sync + 'static + DynClone {
     fn deserialize_state(
         &self,
         value: toml::Value,
-        type_registry: &GraphTypeRegistry,
     ) -> Result<Box<dyn Any + Send + Sync>, toml::de::Error>;
 }
 
@@ -202,9 +198,8 @@ impl<T: GraphNode<Data>, Data: GraphData> ErasedGraphNode<Data> for T {
     fn deserialize_state(
         &self,
         value: toml::Value,
-        type_registry: &GraphTypeRegistry,
     ) -> Result<Box<dyn Any + Send + Sync>, toml::de::Error> {
-        let state = self.deserialize_state(value, type_registry)?;
+        let state = self.deserialize_state(value)?;
         Ok(Box::new(state))
     }
 }
@@ -253,12 +248,8 @@ impl<Data: GraphData> StatefulGraphNode<Data> {
         self.data.serialize_state(&self.state)
     }
 
-    pub fn deserialize_and_set_state(
-        &mut self,
-        value: toml::Value,
-        type_registry: &GraphTypeRegistry,
-    ) -> Result<(), toml::de::Error> {
-        let state = self.data.deserialize_state(value, type_registry)?;
+    pub fn deserialize_and_set_state(&mut self, value: toml::Value) -> Result<(), toml::de::Error> {
+        let state = self.data.deserialize_state(value)?;
         self.state = state;
         Ok(())
     }
@@ -318,8 +309,7 @@ impl<Data: GraphData> GraphNodeData<Data> {
         &self,
         node_id: GraphNodeId,
         graph_slots: &GraphSlots,
-        resources: &GraphResources<Data>,
-        type_registry: &GraphTypeRegistry,
+        resources: &GraphResources,
         editor: WeakEntity<GraphEditor<Data>>,
         window: &mut Window,
         cx: &mut Context<'_, Graph<Data>>,
@@ -330,7 +320,6 @@ impl<Data: GraphData> GraphNodeData<Data> {
             outputs: &self.outputs,
             graph_slots,
             resources,
-            type_registry,
             editor,
             window,
             cx,
@@ -339,9 +328,9 @@ impl<Data: GraphData> GraphNodeData<Data> {
 }
 
 pub struct GraphNodeCreateSlotsContext<'a, Data: GraphData> {
-    pub resources: &'a GraphResources<Data>,
-    pub type_registry: &'a GraphTypeRegistry,
+    pub resources: &'a GraphResources,
     pub cx: &'a App,
+    pub _marker: PhantomData<Data>,
 }
 
 pub struct GraphNodeUpdateSignatureContext<'a, Data: GraphData> {
@@ -349,8 +338,8 @@ pub struct GraphNodeUpdateSignatureContext<'a, Data: GraphData> {
     pub outputs: &'a [GraphOutputSlotId],
     pub slots: &'a GraphSlots,
     pub signature: &'a mut GraphSignature,
-    pub type_registry: &'a GraphTypeRegistry,
-    pub resources: &'a GraphResources<Data>,
+    pub resources: &'a GraphResources,
+    pub _marker: PhantomData<Data>,
 }
 
 impl<Data: GraphData> GraphNodeUpdateSignatureContext<'_, Data> {
@@ -388,8 +377,7 @@ pub struct GraphNodeRenderContext<'a, 'app, Data: GraphData> {
     pub inputs: &'a [GraphInputSlotId],
     pub outputs: &'a [GraphOutputSlotId],
     pub graph_slots: &'a GraphSlots,
-    pub resources: &'a GraphResources<Data>,
-    pub type_registry: &'a GraphTypeRegistry,
+    pub resources: &'a GraphResources,
     pub editor: WeakEntity<GraphEditor<Data>>,
     pub window: &'a mut Window,
     pub cx: &'a mut Context<'app, Graph<Data>>,
@@ -526,10 +514,10 @@ pub struct GraphNodeCodeGenContext<'a, Data: GraphData> {
     pub graph_slots: &'a GraphSlots,
     pub output_slot_idents: &'a mut HashMap<GraphOutputSlotId, String>,
     pub ident_generator: &'a mut GraphVarIdentGenerator,
-    pub resources: &'a GraphResources<Data>,
-    pub type_registry: &'a GraphTypeRegistry,
+    pub resources: &'a GraphResources,
     pub texture_usage: &'a mut GraphTextureUsageRecorder,
     pub cx: &'a App,
+    pub _marker: PhantomData<Data>,
 }
 
 impl<Data: GraphData> GraphNodeCodeGenContext<'_, Data> {
@@ -565,7 +553,7 @@ impl<Data: GraphData> GraphNodeCodeGenContext<'_, Data> {
             .ok_or(GraphNodeCodeGenError::MissingOutputSlot)?;
 
         if output_slot.data_ty.name() != slot.data.ty().name() {
-            self.type_registry
+            Data::type_registry()
                 .try_wgsl_cast(&*output_slot.data_ty, slot.data.ty(), ident)
                 .ok_or(GraphNodeCodeGenError::FailedToCastVariable)
         } else {
@@ -638,9 +626,16 @@ impl std::fmt::Display for ContextualGraphNodeCodeGenError {
     }
 }
 
-#[derive(Default)]
 pub struct GraphNodeRegistry<Data: GraphData> {
     nodes: BTreeMap<&'static str, Box<dyn ErasedGraphNode<Data>>>,
+}
+
+impl<Data: GraphData> Default for GraphNodeRegistry<Data> {
+    fn default() -> Self {
+        Self {
+            nodes: Default::default(),
+        }
+    }
 }
 
 impl<Data: GraphData> Clone for GraphNodeRegistry<Data> {

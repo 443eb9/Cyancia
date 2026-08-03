@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
+    marker::PhantomData,
     sync::Arc,
 };
 
@@ -10,17 +11,17 @@ use uuid::Uuid;
 
 use crate::graph::{
     external::GraphExternalVariableStorage,
-    function::GraphFunctionStorage,
+    function::SharedGraphFunctionStorage,
     node::{
         ContextualGraphNodeCodeGenError, ErasedGraphNode, GraphNode, GraphNodeCodeGenContext,
-        GraphNodeCreateSlotsContext, GraphNodeData, GraphNodeId, GraphNodeUpdateSignatureContext,
-        StatefulGraphNode,
+        GraphNodeCreateSlotsContext, GraphNodeData, GraphNodeId, GraphNodeRegistry,
+        GraphNodeUpdateSignatureContext, StatefulGraphNode,
     },
     slot::{
         GraphDefaultInputSlot, GraphDefaultOutputSlot, GraphInputSlotData, GraphInputSlotId,
         GraphOutputSlotData, GraphOutputSlotId, GraphSlots,
     },
-    texture::{GraphTextureStorage, GraphTextureUsageRecorder},
+    texture::{GraphTextureUsageRecorder, SharedGraphTextureStorage},
     variable::{GraphLiteral, GraphLiteralValue, GraphTypeRegistry, GraphVariable},
 };
 
@@ -34,19 +35,17 @@ pub mod variable;
 pub struct Graph<Data: GraphData> {
     pub(crate) nodes: HashMap<GraphNodeId, GraphNodeData<Data>>,
     pub(crate) slots: GraphSlots,
-    pub(crate) resources: GraphResources<Data>,
-    pub(crate) type_registry: Arc<GraphTypeRegistry>,
+    pub(crate) resources: GraphResources,
     pub(crate) cached_run_order: RwLock<Option<Vec<GraphNodeId>>>,
     pub(crate) cached_signature: RwLock<Option<GraphSignature>>,
 }
 
 impl<Data: GraphData> Graph<Data> {
-    pub fn new(resources: GraphResources<Data>, type_registry: Arc<GraphTypeRegistry>) -> Self {
+    pub fn new(resources: GraphResources) -> Self {
         Self {
             nodes: HashMap::new(),
             slots: GraphSlots::default(),
             resources,
-            type_registry,
             cached_run_order: Default::default(),
             cached_signature: Default::default(),
         }
@@ -76,8 +75,8 @@ impl<Data: GraphData> Graph<Data> {
             node_id,
             node.create_inputs(GraphNodeCreateSlotsContext {
                 resources: &self.resources,
-                type_registry: &self.type_registry,
                 cx,
+                _marker: PhantomData,
             }),
         )
         .into();
@@ -86,8 +85,8 @@ impl<Data: GraphData> Graph<Data> {
             node_id,
             node.create_outputs(GraphNodeCreateSlotsContext {
                 resources: &self.resources,
-                type_registry: &self.type_registry,
                 cx,
+                _marker: PhantomData,
             }),
         )
         .into();
@@ -149,7 +148,7 @@ impl<Data: GraphData> Graph<Data> {
 
         if let (Some(from), Some(to)) = (from_slot, to_slot) {
             from.data_ty.name() == to.data.ty().name()
-                || self.type_registry.can_cast(&*from.data_ty, to.data.ty())
+                || Data::type_registry().can_cast(&*from.data_ty, to.data.ty())
         } else {
             false
         }
@@ -369,7 +368,7 @@ impl<Data: GraphData> Graph<Data> {
                 slots: &self.slots,
                 signature: &mut signature,
                 resources: &self.resources,
-                type_registry: &self.type_registry,
+                _marker: PhantomData,
             };
             node.data.update_signature(ctx);
         }
@@ -383,8 +382,8 @@ impl<Data: GraphData> Graph<Data> {
 
         let new_input_defs = node.data.create_inputs(GraphNodeCreateSlotsContext {
             resources: &self.resources,
-            type_registry: &self.type_registry,
             cx,
+            _marker: PhantomData,
         });
         let mut new_input_ids = Vec::with_capacity(new_input_defs.len());
         let mut old_input_ids = node.inputs.to_vec();
@@ -440,8 +439,8 @@ impl<Data: GraphData> Graph<Data> {
 
         let new_output_defs = node.data.create_outputs(GraphNodeCreateSlotsContext {
             resources: &self.resources,
-            type_registry: &self.type_registry,
             cx,
+            _marker: PhantomData,
         });
         let mut new_output_ids = Vec::with_capacity(new_output_defs.len());
         let mut old_output_ids = node.outputs.to_vec();
@@ -544,9 +543,9 @@ impl<Data: GraphData> Graph<Data> {
                 output_slot_idents: &mut output_slot_idents,
                 ident_generator: &mut ident_generator,
                 resources: &self.resources,
-                type_registry: &self.type_registry,
                 texture_usage,
                 cx,
+                _marker: PhantomData,
             };
 
             match node.data.generate_code(context) {
@@ -585,12 +584,8 @@ impl<Data: GraphData> Graph<Data> {
         Ok((graph_output_idents, code))
     }
 
-    pub fn resources(&self) -> &GraphResources<Data> {
+    pub fn resources(&self) -> &GraphResources {
         &self.resources
-    }
-
-    pub fn type_registry(&self) -> &Arc<GraphTypeRegistry> {
-        &self.type_registry
     }
 }
 
@@ -666,9 +661,9 @@ fn delete_all_outputs(slots: &mut GraphSlots, output_slot_ids: &[GraphOutputSlot
 }
 
 #[derive(Default, Clone)]
-pub struct GraphResources<Data: GraphData> {
-    pub textures: Arc<GraphTextureStorage>,
-    pub functions: Arc<GraphFunctionStorage<Data>>,
+pub struct GraphResources {
+    pub textures: SharedGraphTextureStorage,
+    pub functions: SharedGraphFunctionStorage,
     pub external_vars: Arc<GraphExternalVariableStorage>,
 }
 
@@ -709,4 +704,7 @@ impl GraphVarIdentGenerator {
     }
 }
 
-pub trait GraphData: Send + Sync + 'static {}
+pub trait GraphData: Send + Sync + 'static + Sized {
+    fn type_registry() -> &'static GraphTypeRegistry;
+    fn node_registry() -> &'static GraphNodeRegistry<Self>;
+}

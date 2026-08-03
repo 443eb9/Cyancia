@@ -1,14 +1,11 @@
-use std::{rc::Rc, sync::Arc};
+use std::rc::Rc;
 
-use cyancia_assets::{AssetAppExt, asset::AssetHandle};
+use cyancia_assets::asset::AssetHandle;
 use cyancia_canvas::{CanvasAppExt, CanvasUndoStackAppExt};
-use cyancia_render::{render_context::RenderContextAppExt, texture::Image};
-use cyancia_shader_graph::{
-    graph::{
-        function::GraphFunctionStorage, slot::GraphInlineLiteralRenderContext,
-        texture::GraphTextureStorage,
-    },
-    save::SerializableGraphFunction,
+use cyancia_render::render_context::RenderContextAppExt;
+use cyancia_shader_graph::graph::{
+    function::ASSET_GRAPH_FUNCTION_STORAGE, slot::GraphInlineLiteralRenderContext,
+    texture::ASSET_GRAPH_TEXTURE_STORAGE,
 };
 use cyancia_tools::{ToolFunction, ToolId};
 use cyancia_utils::wrapper;
@@ -21,7 +18,6 @@ use log::error;
 
 use crate::{
     asset::BrushPreset,
-    editor::{FUNCTION_GRAPH_NODE_REGISTRY, FUNCTION_GRAPH_TYPE_REGISTRY},
     input_processing::{BasicStabilizer, InputProcessor},
     instance::BrushPresetInstance,
     render::CanvasBrushPresetOperator,
@@ -34,38 +30,10 @@ pub(crate) fn init(cx: &mut App) {
             return;
         };
 
-        let function_assets = cx
-            .assets()
-            .all_handles_of::<SerializableGraphFunction>()
-            .unwrap();
-        let functions = function_assets
-            .iter()
-            .map(|handle| {
-                let func = handle.get().unwrap();
-                // TODO err handling
-                (
-                    func.id,
-                    func.deserialize_func(
-                        Some(handle.id()),
-                        FUNCTION_GRAPH_TYPE_REGISTRY.clone(),
-                        FUNCTION_GRAPH_NODE_REGISTRY.as_ref(),
-                        cx,
-                    )
-                    .0
-                    .unwrap(),
-                )
-            })
-            .collect();
-        let function_storage = Arc::new(GraphFunctionStorage::new(functions));
-
-        // TODO: Update this storage when asset changes.
-        let textures = cx.assets().all_handles_of::<Image>().unwrap();
-        let texture_storage = Arc::new(GraphTextureStorage::new(textures));
         let (instance, err) = BrushPresetInstance::from_asset(
             &handle.0,
-            texture_storage,
-            function_storage,
-            Arc::new(Default::default()), // TODO
+            ASSET_GRAPH_TEXTURE_STORAGE.clone(),
+            ASSET_GRAPH_FUNCTION_STORAGE.clone(),
             cx,
         );
 
