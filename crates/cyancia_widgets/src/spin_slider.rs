@@ -23,7 +23,6 @@ where
     scale: SliderScale,
     default: Option<T>,
     on_change: Box<dyn Fn(T) -> Message + 'a>,
-    on_release: Option<Box<dyn Fn(T) -> Message + 'a>>,
     width: Length,
     height: Length,
     size: f32,
@@ -65,7 +64,6 @@ where
             scale: SliderScale::Linear,
             default: None,
             on_change: Box::new(on_change),
-            on_release: None,
             width: Length::Fill,
             height: Length::Fixed(Self::DEFAULT_HEIGHT),
             size: Self::DEFAULT_HEIGHT * 0.62,
@@ -93,11 +91,6 @@ where
         } else {
             value
         });
-        self
-    }
-
-    pub fn on_release(mut self, callback: impl Fn(T) -> Message + 'a) -> Self {
-        self.on_release = Some(Box::new(callback));
         self
     }
 
@@ -389,9 +382,6 @@ where
                         if value != self.value {
                             shell.publish((self.on_change)(value));
                         }
-                        if let Some(on_release) = &self.on_release {
-                            shell.publish(on_release(value));
-                        }
                         state.interaction = SpinSliderState::Idle;
                     }
                 }
@@ -463,14 +453,8 @@ where
                 };
                 shell.capture_event();
             } else if let Some(value) = edited_value {
-                {
-                    let this = &self;
-                    if value != this.value {
-                        shell.publish((this.on_change)(value));
-                    }
-                };
-                if let Some(on_release) = &self.on_release {
-                    shell.publish(on_release(value));
+                if value != self.value {
+                    shell.publish((self.on_change)(value));
                 }
             }
             return;
@@ -538,9 +522,7 @@ where
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 match std::mem::take(&mut state.interaction) {
                     SpinSliderState::Dragging { value } => {
-                        if let Some(on_release) = &self.on_release {
-                            shell.publish(on_release(value));
-                        }
+                        shell.publish((self.on_change)(value));
                     }
                     SpinSliderState::Pressing {
                         target: PressTarget::Field,
