@@ -55,7 +55,7 @@ where
             on_release: None,
             width: Length::Fill,
             height: Length::Fixed(Self::DEFAULT_HEIGHT),
-            size: Self::DEFAULT_HEIGHT,
+            size: Self::DEFAULT_HEIGHT * 0.62,
             rounded: 4.0,
             prefix: String::new(),
             suffix: String::new(),
@@ -161,7 +161,7 @@ where
             .on_submit(SpinSliderInputMessage::Submitted)
             .width(Length::Fill)
             .padding([0, 4])
-            .size(self.size * 0.62)
+            .size(self.size)
             .line_height(LineHeight::Relative(1.0))
             .align_x(Horizontal::Center)
             .style(|theme, status| {
@@ -808,7 +808,7 @@ fn fill_text<Renderer>(
         Text {
             content: content.to_owned(),
             bounds: bounds.size(),
-            size: Pixels(size * 0.62),
+            size: Pixels(size),
             line_height: LineHeight::Relative(1.0),
             font: renderer.default_font(),
             align_x: Alignment::Center,
