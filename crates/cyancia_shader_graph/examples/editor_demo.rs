@@ -49,26 +49,7 @@ impl DemoEditor {
     }
 
     fn update(&mut self, message: GraphEditorMessage) {
-        match message {
-            GraphEditorMessage::NodeCreateRequest(position, name) => {
-                let node = DemoData::node_registry()
-                    .get(name)
-                    .expect("graph editor requested an unregistered node");
-                self.graph.add_boxed_node(position, node);
-            }
-            GraphEditorMessage::NodeMoveRequest(position, id) => {
-                self.graph
-                    .get_node_mut(&id)
-                    .expect("graph editor moved a missing node")
-                    .position = position;
-            }
-            GraphEditorMessage::NodeDeleteRequest(id) => self.graph.delete_node(&id),
-            GraphEditorMessage::EdgeCreateRequest(from, to) => {
-                self.graph.connect_slots(from, to);
-            }
-            GraphEditorMessage::EdgeRemoveRequest(to) => self.graph.disconnect_slot(to),
-            GraphEditorMessage::NodeUpdate(message) => self.graph.update_node(message),
-        }
+        self.graph.update(message);
     }
 }
 

@@ -26,6 +26,7 @@ use iced_widget::{
     text,
 };
 use indexmap::IndexMap;
+use uuid::Uuid;
 
 use crate::{
     GraphRenderer, GraphTheme,
@@ -44,7 +45,7 @@ const NODE_BORDER_RADIUS: f32 = 5.0;
 
 #[derive(Clone)]
 pub enum GraphEditorMessage {
-    NodeCreateRequest(Point, &'static str),
+    NodeCreateRequest(Point, &'static str, GraphNodeId),
     NodeMoveRequest(Point, GraphNodeId),
     NodeDeleteRequest(GraphNodeId),
     EdgeCreateRequest(GraphOutputSlotId, GraphInputSlotId),
@@ -55,9 +56,12 @@ pub enum GraphEditorMessage {
 impl std::fmt::Debug for GraphEditorMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NodeCreateRequest(arg0, _) => {
-                f.debug_tuple("NodeCreateRequest").field(arg0).finish()
-            }
+            Self::NodeCreateRequest(position, name, node_id) => f
+                .debug_tuple("NodeCreateRequest")
+                .field(position)
+                .field(name)
+                .field(node_id)
+                .finish(),
             Self::NodeMoveRequest(arg0, arg1) => f
                 .debug_tuple("NodeMoveRequest")
                 .field(arg0)
@@ -75,6 +79,26 @@ impl std::fmt::Debug for GraphEditorMessage {
                 f.debug_tuple("EdgeRemoveRequest").field(arg0).finish()
             }
             Self::NodeUpdate(_) => f.debug_tuple("NodeUpdate").finish(),
+        }
+    }
+}
+
+impl<Data: GraphData> Graph<Data> {
+    pub fn update(&mut self, message: GraphEditorMessage) {
+        match message {
+            GraphEditorMessage::NodeCreateRequest(position, name, node_id) => {
+                let node = Data::node_registry().get(name).unwrap();
+                self.insert_boxed_node(node_id, position, node);
+            }
+            GraphEditorMessage::NodeMoveRequest(position, id) => {
+                self.get_node_mut(&id).unwrap().position = position;
+            }
+            GraphEditorMessage::NodeDeleteRequest(id) => self.delete_node(&id),
+            GraphEditorMessage::EdgeCreateRequest(from, to) => {
+                self.connect_slots(from, to);
+            }
+            GraphEditorMessage::EdgeRemoveRequest(to) => self.disconnect_slot(to),
+            GraphEditorMessage::NodeUpdate(message) => self.update_node(message),
         }
     }
 }
@@ -481,6 +505,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                                 })
                                 .map(|(id, index)| (*id, layout.child(index).position()))
                                 .collect(),
+                            skip_release: false,
                         };
                         shell.request_redraw();
                         shell.capture_event();
@@ -502,8 +527,16 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                 shell.capture_event();
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                if let DragNodeState::Dragging { .. } = &state.node_drag {
-                    state.node_drag = DragNodeState::Idle;
+                if let DragNodeState::Dragging {
+                    skip_release: skip_next_release,
+                    ..
+                } = &mut state.node_drag
+                {
+                    if *skip_next_release {
+                        *skip_next_release = false;
+                    } else {
+                        state.node_drag = DragNodeState::Idle;
+                    }
                     shell.capture_event();
                     return;
                 }
@@ -590,6 +623,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                     DragNodeState::Dragging {
                         cursor_origin: origin,
                         node_origin,
+                        ..
                     } => {
                         for selected in &state.selection.selected_nodes {
                             if let Some(node_origin) = node_origin.get(selected) {
@@ -665,12 +699,16 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                 // TODO: make them configurable
                 match key {
                     key::Code::Delete => {
-                        for node_id in &state.selection.selected_nodes {
-                            shell.publish(GraphEditorMessage::NodeDeleteRequest(*node_id));
+                        for node_id in state.selection.selected_nodes.drain() {
+                            shell.publish(GraphEditorMessage::NodeDeleteRequest(node_id));
                         }
+                        shell.capture_event();
+                        shell.request_redraw();
                     }
                     key::Code::KeyA if modifiers.contains(keyboard::Modifiers::SHIFT) => {
                         state.node_creation_menu.position = cursor.position();
+                        shell.capture_event();
+                        shell.request_redraw();
                     }
                     _ => {}
                 }
@@ -900,11 +938,20 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                 &self.node_creation_menu_items,
                 &mut state.node_creation_menu.hovered,
                 |name| {
-                    let position = state.node_creation_menu.position.unwrap();
-                    state.node_creation_menu.position = None;
+                    let position = state.node_creation_menu.position.take().unwrap();
+                    let node_id = GraphNodeId::new(Uuid::new_v4());
+                    state.selection.selected_nodes.clear();
+                    state.selection.selected_nodes.insert(node_id);
+                    state.selection.state = DragSelectionState::Idle;
+                    state.node_drag = DragNodeState::Dragging {
+                        cursor_origin: position,
+                        node_origin: HashMap::from([(node_id, position)]),
+                        skip_release: true,
+                    };
                     GraphEditorMessage::NodeCreateRequest(
                         position - state.view_translation,
                         name.node_title,
+                        node_id,
                     )
                 },
                 None,
@@ -953,6 +1000,7 @@ enum DragNodeState {
     Dragging {
         cursor_origin: Point,
         node_origin: HashMap<GraphNodeId, Point>,
+        skip_release: bool,
     },
 }
 
