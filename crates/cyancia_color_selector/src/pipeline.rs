@@ -49,7 +49,7 @@ fn compile_gradient_shader(
             .replace("//CODEGEN_FLAG_PICKER_TO_PCS", &input.function)
             .replace("//CODEGEN_FLAG_PCS_TO_IMAGE", &image.function)
             .replace("//CODEGEN_FLAG_PCS_TO_OUTPUT", &output.function),
-        &[cyancia_color::color::PACKAGE],
+        &[&cyancia_color::color::PACKAGE],
     )
 }
 
@@ -61,7 +61,7 @@ fn compile_compute_bounds_shader(profile: &ColorProfile) -> Result<String> {
         include_str!("../shader/compute_bounds.wesl")
             .replace("//CODEGEN_FLAG_PICKER_TO_PCS", &input.function)
             .replace("//CODEGEN_FLAG_PCS_TO_IMAGE", &image.function),
-        &[cyancia_color::color::PACKAGE],
+        &[&cyancia_color::color::PACKAGE],
     )
 }
 

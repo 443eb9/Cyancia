@@ -205,7 +205,7 @@ impl CanvasRenderPipeline {
         let shader_module = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("canvas shader"),
             source: ShaderSource::Wgsl(
-                compile_wesl(shader, &[cyancia_image::image::PACKAGE])
+                compile_wesl(shader, &[&cyancia_image::image::PACKAGE])
                     .unwrap()
                     .into(),
             ),
