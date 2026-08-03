@@ -15,7 +15,7 @@ members = [
     "crates/cyancia_dock",
     # "crates/cyancia_image",
     "crates/cyancia_input",
-    # "crates/cyancia_math",
+    "crates/cyancia_math",
     "crates/cyancia_platform",
     "crates/cyancia_render",
     "crates/cyancia_runtime",
@@ -29,7 +29,7 @@ members = [
     "crates/cyancia_utils",
     "crates/cyancia_utils_derive",
     # "crates/cyancia_view",
-    # "crates/cyancia_widgets",
+    "crates/cyancia_widgets",
 ]
 resolver = "3"
 # default-members = ["crates/cyancia_app"]
