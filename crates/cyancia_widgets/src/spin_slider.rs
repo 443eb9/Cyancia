@@ -9,20 +9,21 @@ use iced_core::{
     widget::tree::{self, Tree},
 };
 use iced_widget::{TextInput, text_input};
-use std::ops::RangeInclusive;
+use num_traits::AsPrimitive;
+use std::{fmt::Display, ops::RangeInclusive, str::FromStr};
 
-pub struct SpinSlider<'a, Message, Theme = iced_core::Theme>
+pub struct SpinSlider<'a, T, Message, Theme = iced_core::Theme>
 where
     Theme: Catalog,
 {
-    range: RangeInclusive<f32>,
-    value: f32,
-    step: f32,
+    range: RangeInclusive<T>,
+    value: T,
+    step: T,
     precision: usize,
     scale: SliderScale,
-    default: Option<f32>,
-    on_change: Box<dyn Fn(f32) -> Message + 'a>,
-    on_release: Option<Box<dyn Fn(f32) -> Message + 'a>>,
+    default: Option<T>,
+    on_change: Box<dyn Fn(T) -> Message + 'a>,
+    on_release: Option<Box<dyn Fn(T) -> Message + 'a>>,
     width: Length,
     height: Length,
     size: f32,
@@ -33,21 +34,33 @@ where
     class: <Theme as Catalog>::Class<'a>,
 }
 
-impl<'a, Message, Theme> SpinSlider<'a, Message, Theme>
+impl<'a, T, Message, Theme> SpinSlider<'a, T, Message, Theme>
 where
+    T: Copy + PartialOrd + Display + FromStr + AsPrimitive<f64>,
     Theme: Catalog,
+    f64: AsPrimitive<T>,
 {
     pub const DEFAULT_HEIGHT: f32 = 24.0;
 
-    pub fn new(
-        range: RangeInclusive<f32>,
-        value: f32,
-        on_change: impl Fn(f32) -> Message + 'a,
-    ) -> Self {
+    pub fn new(range: RangeInclusive<T>, value: T, on_change: impl Fn(T) -> Message + 'a) -> Self {
+        let value = if value < *range.start() {
+            *range.start()
+        } else if value > *range.end() {
+            *range.end()
+        } else {
+            value
+        };
+        let fractional_step = 0.1f64.as_();
+        let step = if fractional_step > 0.0f64.as_() {
+            fractional_step
+        } else {
+            1.0f64.as_()
+        };
+
         Self {
-            value: value.clamp(*range.start(), *range.end()),
+            value,
             range,
-            step: 0.1,
+            step,
             precision: 2,
             scale: SliderScale::Linear,
             default: None,
@@ -64,20 +77,26 @@ where
         }
     }
 
-    pub fn new_01(value: f32, on_change: impl Fn(f32) -> Message + 'a) -> Self {
-        Self::new(0.0..=1.0, value, on_change)
+    pub fn new_01(value: T, on_change: impl Fn(T) -> Message + 'a) -> Self {
+        Self::new(0.0f64.as_()..=1.0f64.as_(), value, on_change)
     }
 
-    pub fn new_percent(value: f32, on_change: impl Fn(f32) -> Message + 'a) -> Self {
-        Self::new(0.0..=100.0, value, on_change).precision(0)
+    pub fn new_percent(value: T, on_change: impl Fn(T) -> Message + 'a) -> Self {
+        Self::new(0.0f64.as_()..=100.0f64.as_(), value, on_change).precision(0)
     }
 
-    pub fn default(mut self, value: f32) -> Self {
-        self.default = Some(value.clamp(*self.range.start(), *self.range.end()));
+    pub fn default(mut self, value: T) -> Self {
+        self.default = Some(if value < *self.range.start() {
+            *self.range.start()
+        } else if value > *self.range.end() {
+            *self.range.end()
+        } else {
+            value
+        });
         self
     }
 
-    pub fn on_release(mut self, callback: impl Fn(f32) -> Message + 'a) -> Self {
+    pub fn on_release(mut self, callback: impl Fn(T) -> Message + 'a) -> Self {
         self.on_release = Some(Box::new(callback));
         self
     }
@@ -102,14 +121,17 @@ where
         self
     }
 
-    pub fn step(mut self, step: f32) -> Self {
+    pub fn step(mut self, step: T) -> Self {
         self.step = step;
         self
     }
 
     pub fn precision(mut self, precision: usize) -> Self {
         self.precision = precision;
-        self.step = 10.0_f32.powi(-(precision as i32));
+        let step: T = 10.0_f64.powi(-(precision as i32)).as_();
+        if step > 0.0_f64.as_() {
+            self.step = step;
+        }
         self
     }
 
@@ -188,50 +210,60 @@ where
             .into()
     }
 
-    fn step_value(&self, value: f32, direction: f32) -> f32 {
-        self.snap(value + self.step * direction)
+    fn step_value(&self, value: T, direction: f64) -> T {
+        self.snap_f64(value.as_() + self.step.as_() * direction)
     }
 
-    fn snap(&self, value: f32) -> f32 {
-        let start = *self.range.start();
-        let steps = ((value - start) / self.step).round();
-        (start + steps * self.step).clamp(start, *self.range.end())
+    fn snap(&self, value: T) -> T {
+        self.snap_f64(value.as_())
     }
 
-    fn value_to_percentage(&self, value: f32) -> f32 {
-        let start = *self.range.start();
-        let end = *self.range.end();
-        match self.scale {
+    fn snap_f64(&self, value: f64) -> T {
+        let start: f64 = (*self.range.start()).as_();
+        let end: f64 = (*self.range.end()).as_();
+        let step: f64 = self.step.as_();
+        let steps = ((value - start) / step).round();
+        (start + steps * step).clamp(start, end).as_()
+    }
+
+    fn value_to_percentage(&self, value: T) -> f32 {
+        let value: f64 = value.as_();
+        let start: f64 = (*self.range.start()).as_();
+        let end: f64 = (*self.range.end()).as_();
+        let percentage = match self.scale {
             SliderScale::Linear => (value - start) / (end - start),
             SliderScale::Logarithmic => (value / start).ln() / (end / start).ln(),
-        }
-        .clamp(0.0, 1.0)
+        };
+        <f64 as AsPrimitive<f32>>::as_(percentage.clamp(0.0, 1.0))
     }
 
-    fn percentage_to_value(&self, percentage: f32) -> f32 {
-        let percentage = percentage.clamp(0.0, 1.0);
-        let start = *self.range.start();
-        let end = *self.range.end();
+    fn percentage_to_value(&self, percentage: f32) -> T {
+        let percentage = <f32 as AsPrimitive<f64>>::as_(percentage.clamp(0.0, 1.0));
+        let start: f64 = (*self.range.start()).as_();
+        let end: f64 = (*self.range.end()).as_();
         let value = match self.scale {
             SliderScale::Linear => start + (end - start) * percentage,
             SliderScale::Logarithmic => (end / start).powf(percentage) * start,
         };
-        self.snap(value)
+        self.snap_f64(value)
     }
 }
 
-impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer> for SpinSlider<'_, Message, Theme>
+impl<T, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for SpinSlider<'_, T, Message, Theme>
 where
+    T: Copy + PartialOrd + Display + FromStr + AsPrimitive<f64> + 'static,
     Theme: Catalog,
+    f64: AsPrimitive<T>,
     Renderer: iced_core::Renderer + iced_core::text::Renderer,
     for<'a> <Theme as text_input::Catalog>::Class<'a>: From<text_input::StyleFn<'a, Theme>>,
 {
     fn tag(&self) -> tree::Tag {
-        tree::Tag::of::<SpinSliderTreeState>()
+        tree::Tag::of::<SpinSliderTreeState<T>>()
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(SpinSliderTreeState::default())
+        tree::State::new(SpinSliderTreeState::<T>::default())
     }
 
     fn children(&self) -> Vec<Tree> {
@@ -239,7 +271,7 @@ where
     }
 
     fn diff(&self, tree: &mut Tree) {
-        let state = tree.state.downcast_ref::<SpinSliderTreeState>();
+        let state = tree.state.downcast_ref::<SpinSliderTreeState<T>>();
         let value = match &state.interaction {
             SpinSliderState::Editing { value } => value.clone(),
             _ => format!("{:.*}", self.precision, self.value),
@@ -260,7 +292,7 @@ where
         let size = limits.resolve(self.width, self.height, Size::new(0.0, self.size));
         let button_width = size.height.min(size.width / 3.0);
         let input_size = Size::new((size.width - button_width * 2.0).max(0.0), size.height);
-        let state = tree.state.downcast_ref::<SpinSliderTreeState>();
+        let state = tree.state.downcast_ref::<SpinSliderTreeState<T>>();
         let value = match &state.interaction {
             SpinSliderState::Editing { value } => value.clone(),
             _ => format!("{:.*}", self.precision, self.value),
@@ -289,7 +321,7 @@ where
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        let state = tree.state.downcast_mut::<SpinSliderTreeState>();
+        let state = tree.state.downcast_mut::<SpinSliderTreeState<T>>();
         let bounds = layout.bounds();
         let (minus, field, plus) = split_bounds(bounds);
 
@@ -388,7 +420,7 @@ where
                 return;
             }
 
-            let edited_value = value.parse::<f32>().ok().map(|value| self.snap(value));
+            let edited_value = value.parse::<T>().ok().map(|value| self.snap(value));
             state.interaction = SpinSliderState::Idle;
             tree.children[0]
                 .state
@@ -545,7 +577,7 @@ where
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        let state = tree.state.downcast_ref::<SpinSliderTreeState>();
+        let state = tree.state.downcast_ref::<SpinSliderTreeState<T>>();
         let bounds = layout.bounds();
         let (minus, field, plus) = split_bounds(bounds);
         let status = if self.disabled {
@@ -661,7 +693,7 @@ where
         if self.disabled || !cursor.is_over(layout.bounds()) {
             return mouse::Interaction::default();
         }
-        let state = tree.state.downcast_ref::<SpinSliderTreeState>();
+        let state = tree.state.downcast_ref::<SpinSliderTreeState<T>>();
         if let SpinSliderState::Editing { value } = &state.interaction
             && cursor.is_over(layout.child(0).bounds())
         {
@@ -682,18 +714,20 @@ where
     }
 }
 
-impl<Message, Theme> SpinSlider<'_, Message, Theme>
+impl<T, Message, Theme> SpinSlider<'_, T, Message, Theme>
 where
+    T: Copy + PartialOrd + Display + FromStr + AsPrimitive<f64>,
     Theme: Catalog,
+    f64: AsPrimitive<T>,
 {
-    fn publish_change(&self, value: f32, shell: &mut Shell<'_, Message>) {
-        if (value - self.value).abs() > f32::EPSILON {
+    fn publish_change(&self, value: T, shell: &mut Shell<'_, Message>) {
+        if value != self.value {
             shell.publish((self.on_change)(value));
         }
     }
 
     fn commit_input(&self, input: &str, shell: &mut Shell<'_, Message>) -> bool {
-        let Ok(value) = input.parse::<f32>() else {
+        let Ok(value) = input.parse::<T>() else {
             return false;
         };
         let value = self.snap(value);
@@ -705,15 +739,17 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> From<SpinSlider<'a, Message, Theme>>
+impl<'a, T, Message, Theme, Renderer> From<SpinSlider<'a, T, Message, Theme>>
     for Element<'a, Message, Theme, Renderer>
 where
+    T: Copy + PartialOrd + Display + FromStr + AsPrimitive<f64> + 'static,
+    f64: AsPrimitive<T>,
     Message: 'a,
     Theme: Catalog + 'a,
     Renderer: iced_core::Renderer + iced_core::text::Renderer + 'a,
     for<'b> <Theme as text_input::Catalog>::Class<'b>: From<text_input::StyleFn<'b, Theme>>,
 {
-    fn from(widget: SpinSlider<'a, Message, Theme>) -> Self {
+    fn from(widget: SpinSlider<'a, T, Message, Theme>) -> Self {
         Element::new(widget)
     }
 }
@@ -755,25 +791,33 @@ pub enum Status {
     Disabled,
 }
 
-#[derive(Debug, Default)]
-struct SpinSliderTreeState {
-    interaction: SpinSliderState,
+#[derive(Debug)]
+struct SpinSliderTreeState<T> {
+    interaction: SpinSliderState<T>,
     modifiers: keyboard::Modifiers,
 }
 
-#[derive(Debug, Default)]
-enum SpinSliderState {
-    #[default]
+impl<T> Default for SpinSliderTreeState<T> {
+    fn default() -> Self {
+        Self {
+            interaction: SpinSliderState::Idle,
+            modifiers: keyboard::Modifiers::default(),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum SpinSliderState<T> {
     Idle,
-    Pressing {
-        target: PressTarget,
-    },
-    Dragging {
-        value: f32,
-    },
-    Editing {
-        value: String,
-    },
+    Pressing { target: PressTarget },
+    Dragging { value: T },
+    Editing { value: String },
+}
+
+impl<T> Default for SpinSliderState<T> {
+    fn default() -> Self {
+        Self::Idle
+    }
 }
 
 fn split_bounds(bounds: Rectangle) -> (Rectangle, Rectangle, Rectangle) {
