@@ -341,6 +341,7 @@ where
                     .unfocus();
             }
 
+            shell.request_redraw();
             if event_captured {
                 return;
             }
