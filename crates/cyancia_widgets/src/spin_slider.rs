@@ -1,6 +1,6 @@
 use iced_core::{
     Background, Border, Clipboard, Color, Element, Event, Layout, Length, Pixels, Point, Rectangle,
-    Shell, Size, Text, Theme, Widget,
+    Shell, Size, Text, Widget,
     alignment::{Horizontal, Vertical},
     border::{self},
     keyboard::{self, key::Key},
@@ -11,7 +11,10 @@ use iced_core::{
 use iced_widget::{TextInput, text_input};
 use std::ops::RangeInclusive;
 
-pub struct SpinSlider<'a, Message> {
+pub struct SpinSlider<'a, Message, Theme = iced_core::Theme>
+where
+    Theme: Catalog,
+{
     range: RangeInclusive<f32>,
     value: f32,
     step: f32,
@@ -21,15 +24,19 @@ pub struct SpinSlider<'a, Message> {
     on_change: Box<dyn Fn(f32) -> Message + 'a>,
     on_release: Option<Box<dyn Fn(f32) -> Message + 'a>>,
     width: Length,
-    height: f32,
+    height: Length,
+    size: f32,
     rounded: f32,
     prefix: String,
     suffix: String,
     disabled: bool,
-    style: Option<Box<dyn Fn(&Theme, InteractionState) -> Style + 'a>>,
+    class: <Theme as Catalog>::Class<'a>,
 }
 
-impl<'a, Message> SpinSlider<'a, Message> {
+impl<'a, Message, Theme> SpinSlider<'a, Message, Theme>
+where
+    Theme: Catalog,
+{
     pub const DEFAULT_HEIGHT: f32 = 24.0;
 
     pub fn new(
@@ -47,12 +54,13 @@ impl<'a, Message> SpinSlider<'a, Message> {
             on_change: Box::new(on_change),
             on_release: None,
             width: Length::Fill,
-            height: Self::DEFAULT_HEIGHT,
+            height: Length::Fixed(Self::DEFAULT_HEIGHT),
+            size: Self::DEFAULT_HEIGHT,
             rounded: 4.0,
             prefix: String::new(),
             suffix: String::new(),
             disabled: false,
-            style: None,
+            class: <Theme as Catalog>::default(),
         }
     }
 
@@ -79,8 +87,13 @@ impl<'a, Message> SpinSlider<'a, Message> {
         self
     }
 
-    pub fn height(mut self, height: impl Into<Pixels>) -> Self {
-        self.height = height.into().0;
+    pub fn height(mut self, height: impl Into<Length>) -> Self {
+        self.height = height.into();
+        self
+    }
+
+    pub fn size(mut self, size: f32) -> Self {
+        self.size = size;
         self
     }
 
@@ -120,8 +133,18 @@ impl<'a, Message> SpinSlider<'a, Message> {
         self
     }
 
-    pub fn style(mut self, style: impl Fn(&Theme, InteractionState) -> Style + 'a) -> Self {
-        self.style = Some(Box::new(style));
+    #[must_use]
+    pub fn style(mut self, style: impl Fn(&Theme, Status) -> Style + 'a) -> Self
+    where
+        <Theme as Catalog>::Class<'a>: From<StyleFn<'a, Theme>>,
+    {
+        self.class = (Box::new(style) as StyleFn<'a, Theme>).into();
+        self
+    }
+
+    #[must_use]
+    pub fn class(mut self, class: impl Into<<Theme as Catalog>::Class<'a>>) -> Self {
+        self.class = class.into();
         self
     }
 
@@ -131,23 +154,28 @@ impl<'a, Message> SpinSlider<'a, Message> {
     ) -> Element<'b, SpinSliderInputMessage, Theme, Renderer>
     where
         Renderer: iced_core::text::Renderer + 'b,
+        for<'c> <Theme as text_input::Catalog>::Class<'c>: From<text_input::StyleFn<'c, Theme>>,
     {
         TextInput::new("", value)
             .on_input(SpinSliderInputMessage::Changed)
             .on_submit(SpinSliderInputMessage::Submitted)
             .width(Length::Fill)
             .padding([0, 4])
-            .size(self.height * 0.62)
+            .size(self.size * 0.62)
             .line_height(LineHeight::Relative(1.0))
             .align_x(Horizontal::Center)
             .style(|theme, status| {
-                let spin_style = self.style.as_ref().map_or_else(
-                    || default_style(theme, InteractionState::Editing),
-                    |style| style(theme, InteractionState::Editing),
-                );
-                let input_style = text_input::default(theme, status);
+                let spin_style = <Theme as Catalog>::style(theme, &self.class, Status::Editing);
+                let input_class = <Theme as text_input::Catalog>::default();
+                let input_style =
+                    <Theme as text_input::Catalog>::style(theme, &input_class, status);
                 let text_color = spin_style.text_color.unwrap_or_else(|| {
-                    text_input::default(theme, text_input::Status::Active).value
+                    <Theme as text_input::Catalog>::style(
+                        theme,
+                        &input_class,
+                        text_input::Status::Active,
+                    )
+                    .value
                 });
                 text_input::Style {
                     background: Color::TRANSPARENT.into(),
@@ -192,9 +220,11 @@ impl<'a, Message> SpinSlider<'a, Message> {
     }
 }
 
-impl<Message, Renderer> Widget<Message, Theme, Renderer> for SpinSlider<'_, Message>
+impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer> for SpinSlider<'_, Message, Theme>
 where
+    Theme: Catalog,
     Renderer: iced_core::Renderer + iced_core::text::Renderer,
+    for<'a> <Theme as text_input::Catalog>::Class<'a>: From<text_input::StyleFn<'a, Theme>>,
 {
     fn tag(&self) -> tree::Tag {
         tree::Tag::of::<SpinSliderTreeState>()
@@ -227,11 +257,7 @@ where
         renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-        let size = limits.resolve(
-            self.width,
-            Length::Fixed(self.height),
-            Size::new(0.0, self.height),
-        );
+        let size = limits.resolve(self.width, self.height, Size::new(0.0, self.size));
         let button_width = size.height.min(size.width / 3.0);
         let input_size = Size::new((size.width - button_width * 2.0).max(0.0), size.height);
         let state = tree.state.downcast_ref::<SpinSliderTreeState>();
@@ -523,20 +549,17 @@ where
         let bounds = layout.bounds();
         let (minus, field, plus) = split_bounds(bounds);
         let status = if self.disabled {
-            InteractionState::Disabled
+            Status::Disabled
         } else if matches!(state.interaction, SpinSliderState::Editing { .. }) {
-            InteractionState::Editing
+            Status::Editing
         } else if matches!(state.interaction, SpinSliderState::Dragging { .. }) {
-            InteractionState::Dragging
+            Status::Dragged
         } else if cursor.is_over(bounds) {
-            InteractionState::Hovering
+            Status::Hovered
         } else {
-            InteractionState::Active
+            Status::Active
         };
-        let style = self.style.as_ref().map_or_else(
-            || default_style(theme, status),
-            |style| style(theme, status),
-        );
+        let style = <Theme as Catalog>::style(theme, &self.class, status);
 
         renderer.fill_quad(
             renderer::Quad {
@@ -601,7 +624,7 @@ where
         );
 
         let text_color = style.text_color.unwrap_or(renderer_style.text_color);
-        fill_text(renderer, minus, "−", self.height, text_color);
+        fill_text(renderer, minus, "−", self.size, text_color);
         if let SpinSliderState::Editing { value } = &state.interaction {
             self.text_input::<Renderer>(value).as_widget().draw(
                 &tree.children[0],
@@ -620,11 +643,11 @@ where
                     "{}{:.*}{}",
                     self.prefix, self.precision, self.value, self.suffix
                 ),
-                self.height,
+                self.size,
                 text_color,
             );
         }
-        fill_text(renderer, plus, "+", self.height, text_color);
+        fill_text(renderer, plus, "+", self.size, text_color);
     }
 
     fn mouse_interaction(
@@ -659,7 +682,10 @@ where
     }
 }
 
-impl<Message> SpinSlider<'_, Message> {
+impl<Message, Theme> SpinSlider<'_, Message, Theme>
+where
+    Theme: Catalog,
+{
     fn publish_change(&self, value: f32, shell: &mut Shell<'_, Message>) {
         if (value - self.value).abs() > f32::EPSILON {
             shell.publish((self.on_change)(value));
@@ -679,12 +705,15 @@ impl<Message> SpinSlider<'_, Message> {
     }
 }
 
-impl<'a, Message, Renderer> From<SpinSlider<'a, Message>> for Element<'a, Message, Theme, Renderer>
+impl<'a, Message, Theme, Renderer> From<SpinSlider<'a, Message, Theme>>
+    for Element<'a, Message, Theme, Renderer>
 where
     Message: 'a,
+    Theme: Catalog + 'a,
     Renderer: iced_core::Renderer + iced_core::text::Renderer + 'a,
+    for<'b> <Theme as text_input::Catalog>::Class<'b>: From<text_input::StyleFn<'b, Theme>>,
 {
-    fn from(widget: SpinSlider<'a, Message>) -> Self {
+    fn from(widget: SpinSlider<'a, Message, Theme>) -> Self {
         Element::new(widget)
     }
 }
@@ -718,10 +747,10 @@ enum SpinSliderInputMessage {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InteractionState {
+pub enum Status {
     Active,
-    Hovering,
-    Dragging,
+    Hovered,
+    Dragged,
     Editing,
     Disabled,
 }
@@ -770,7 +799,7 @@ fn fill_text<Renderer>(
     renderer: &mut Renderer,
     bounds: Rectangle,
     content: &str,
-    height: f32,
+    size: f32,
     color: Color,
 ) where
     Renderer: iced_core::Renderer + iced_core::text::Renderer,
@@ -779,7 +808,7 @@ fn fill_text<Renderer>(
         Text {
             content: content.to_owned(),
             bounds: bounds.size(),
-            size: Pixels(height * 0.62),
+            size: Pixels(size * 0.62),
             line_height: LineHeight::Relative(1.0),
             font: renderer.default_font(),
             align_x: Alignment::Center,
@@ -793,15 +822,37 @@ fn fill_text<Renderer>(
     );
 }
 
-fn default_style(theme: &Theme, status: InteractionState) -> Style {
+pub trait Catalog: text_input::Catalog + Sized {
+    type Class<'a>;
+
+    fn default<'a>() -> <Self as Catalog>::Class<'a>;
+
+    fn style(&self, class: &<Self as Catalog>::Class<'_>, status: Status) -> Style;
+}
+
+pub type StyleFn<'a, Theme> = Box<dyn Fn(&Theme, Status) -> Style + 'a>;
+
+impl Catalog for iced_core::Theme {
+    type Class<'a> = StyleFn<'a, Self>;
+
+    fn default<'a>() -> <Self as Catalog>::Class<'a> {
+        Box::new(default)
+    }
+
+    fn style(&self, class: &<Self as Catalog>::Class<'_>, status: Status) -> Style {
+        class(self, status)
+    }
+}
+
+pub fn default(theme: &iced_core::Theme, status: Status) -> Style {
     let palette = theme.extended_palette();
     let value_bar = match status {
-        InteractionState::Hovering | InteractionState::Editing => palette.primary.strong.color,
-        InteractionState::Dragging => palette.primary.weak.color,
-        InteractionState::Disabled | InteractionState::Active => palette.primary.base.color,
+        Status::Hovered | Status::Editing => palette.primary.strong.color,
+        Status::Dragged => palette.primary.weak.color,
+        Status::Disabled | Status::Active => palette.primary.base.color,
     };
     let background = match status {
-        InteractionState::Editing => palette.background.weak.color,
+        Status::Editing => palette.background.weak.color,
         _ => palette.background.base.color,
     };
     Style {

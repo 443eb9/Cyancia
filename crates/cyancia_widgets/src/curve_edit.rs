@@ -2,7 +2,7 @@ use cyancia_math::curve::CubicCurve;
 use glam::Vec2;
 use iced_core::{
     Background, Border, Clipboard, Color, Element, Event, Layout, Length, Point, Rectangle, Shell,
-    Size, Theme, Widget,
+    Size, Widget,
     keyboard::{self, key},
     layout,
     mouse::{self, Cursor},
@@ -13,16 +13,28 @@ use iced_graphics::geometry::{Frame, Path, Stroke};
 
 const MIN_POINT_GAP: f32 = 0.001;
 
-pub struct CurveEdit<'a, Message> {
+pub struct CurveEdit<'a, Message, Theme = iced_core::Theme>
+where
+    Theme: Catalog,
+{
     curve: CubicCurve,
     on_change: Option<Box<dyn Fn(CubicCurve) -> Message + 'a>>,
     on_release: Option<Box<dyn Fn(CubicCurve) -> Message + 'a>>,
     width: Length,
     height: Length,
-    style: CurveEditStyle,
+    grid_resolution: usize,
+    curve_resolution: usize,
+    control_point_radius: f32,
+    curve_stroke_width: f32,
+    grid_stroke_width: f32,
+    control_point_stroke_width: f32,
+    class: Theme::Class<'a>,
 }
 
-impl<'a, Message> CurveEdit<'a, Message> {
+impl<'a, Message, Theme> CurveEdit<'a, Message, Theme>
+where
+    Theme: Catalog,
+{
     pub fn new(curve: CubicCurve) -> Self {
         assert!(curve.control_points().len() >= 2);
 
@@ -32,7 +44,13 @@ impl<'a, Message> CurveEdit<'a, Message> {
             on_release: None,
             width: Length::Fill,
             height: Length::Fill,
-            style: CurveEditStyle::default(),
+            grid_resolution: 4,
+            curve_resolution: 128,
+            control_point_radius: 4.0,
+            curve_stroke_width: 1.5,
+            grid_stroke_width: 0.5,
+            control_point_stroke_width: 1.0,
+            class: Theme::default(),
         }
     }
 
@@ -56,44 +74,55 @@ impl<'a, Message> CurveEdit<'a, Message> {
         self
     }
 
-    pub fn curve_style(mut self, style: CurveEditStyle) -> Self {
-        self.style = style;
+    #[must_use]
+    pub fn style(mut self, style: impl Fn(&Theme, Status) -> Style + 'a) -> Self
+    where
+        Theme::Class<'a>: From<StyleFn<'a, Theme>>,
+    {
+        self.class = (Box::new(style) as StyleFn<'a, Theme>).into();
+        self
+    }
+
+    #[must_use]
+    pub fn class(mut self, class: impl Into<Theme::Class<'a>>) -> Self {
+        self.class = class.into();
         self
     }
 
     pub fn grid_resolution(mut self, resolution: usize) -> Self {
         assert!(resolution > 0);
-        self.style.grid_resolution = resolution;
+        self.grid_resolution = resolution;
         self
     }
 
     pub fn curve_resolution(mut self, resolution: usize) -> Self {
         assert!(resolution > 0);
-        self.style.curve_resolution = resolution;
+        self.curve_resolution = resolution;
         self
     }
 
     pub fn control_point_radius(mut self, radius: f32) -> Self {
         assert!(radius > 0.0);
-        self.style.control_point_radius = radius;
+        self.control_point_radius = radius;
         self
     }
 
     pub fn curve_stroke_width(mut self, width: f32) -> Self {
         assert!(width > 0.0);
-        self.style.curve_stroke_width = width;
+        self.curve_stroke_width = width;
         self
     }
 
     pub fn grid_stroke_width(mut self, width: f32) -> Self {
         assert!(width > 0.0);
-        self.style.grid_stroke_width = width;
+        self.grid_stroke_width = width;
         self
     }
 }
 
-impl<Message, Renderer> Widget<Message, Theme, Renderer> for CurveEdit<'_, Message>
+impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer> for CurveEdit<'_, Message, Theme>
 where
+    Theme: Catalog,
     Renderer: iced_core::Renderer + iced_graphics::geometry::Renderer,
 {
     fn tag(&self) -> tree::Tag {
@@ -146,8 +175,7 @@ where
                     .filter_map(|(index, point)| {
                         let screen = normalized_to_local(*point, bounds.size());
                         let distance = (screen - Vec2::new(position.x, position.y)).length();
-                        (distance <= self.style.control_point_radius * 2.0)
-                            .then_some((index, distance))
+                        (distance <= self.control_point_radius * 2.0).then_some((index, distance))
                     })
                     .min_by(|left, right| left.1.total_cmp(&right.1))
                     .map(|(index, _)| index);
@@ -246,30 +274,33 @@ where
         theme: &Theme,
         _renderer_style: &renderer::Style,
         layout: Layout<'_>,
-        _cursor: Cursor,
+        cursor: Cursor,
         _viewport: &Rectangle,
     ) {
         let bounds = layout.bounds();
-        let palette = self.style.resolve(theme);
         let state = tree.state.downcast_ref::<CurveEditState>();
+        let status = if state.dragging {
+            Status::Dragged
+        } else if cursor.is_over(bounds) {
+            Status::Hovered
+        } else {
+            Status::Active
+        };
+        let style = theme.style(&self.class, status);
 
         renderer.fill_quad(
             Quad {
                 bounds,
-                border: Border {
-                    color: palette.border,
-                    width: self.style.border_width,
-                    ..Default::default()
-                },
+                border: style.border,
                 ..Default::default()
             },
-            Background::Color(palette.background),
+            style.background,
         );
 
         let mut frame = Frame::new(renderer, bounds.size());
 
-        for index in 1..self.style.grid_resolution {
-            let fraction = index as f32 / self.style.grid_resolution as f32;
+        for index in 1..self.grid_resolution {
+            let fraction = index as f32 / self.grid_resolution as f32;
             let x = fraction * bounds.width;
             let y = fraction * bounds.height;
             let vertical = Path::new(|builder| {
@@ -281,15 +312,15 @@ where
                 builder.line_to(Point::new(bounds.width, y));
             });
             let stroke = Stroke {
-                style: palette.grid.into(),
-                width: self.style.grid_stroke_width,
+                style: style.grid.into(),
+                width: self.grid_stroke_width,
                 ..Default::default()
             };
             frame.stroke(&vertical, stroke);
             frame.stroke(&horizontal, stroke);
         }
 
-        let sampled = self.curve.subdivide(self.style.curve_resolution);
+        let sampled = self.curve.subdivide(self.curve_resolution);
         let curve = Path::new(|builder| {
             let first = normalized_to_local(sampled[0], bounds.size());
             builder.move_to(Point::new(first.x, first.y));
@@ -301,26 +332,26 @@ where
         frame.stroke(
             &curve,
             Stroke {
-                style: palette.curve.into(),
-                width: self.style.curve_stroke_width,
+                style: style.curve.into(),
+                width: self.curve_stroke_width,
                 ..Default::default()
             },
         );
 
         for (index, point) in self.curve.control_points().iter().enumerate() {
             let center = normalized_to_local(*point, bounds.size());
-            let radius = self.style.control_point_radius;
+            let radius = self.control_point_radius;
             let origin = Point::new(center.x - radius, center.y - radius);
             let point_size = Size::new(radius * 2.0, radius * 2.0);
             if state.selected_index == Some(index) {
-                frame.fill_rectangle(origin, point_size, palette.selected_control_point);
+                frame.fill_rectangle(origin, point_size, style.selected_control_point);
             } else {
                 frame.stroke_rectangle(
                     origin,
                     point_size,
                     Stroke {
-                        style: palette.control_point.into(),
-                        width: self.style.control_point_stroke_width,
+                        style: style.control_point.into(),
+                        width: self.control_point_stroke_width,
                         ..Default::default()
                     },
                 );
@@ -350,12 +381,14 @@ where
     }
 }
 
-impl<'a, Message, Renderer> From<CurveEdit<'a, Message>> for Element<'a, Message, Theme, Renderer>
+impl<'a, Message, Theme, Renderer> From<CurveEdit<'a, Message, Theme>>
+    for Element<'a, Message, Theme, Renderer>
 where
     Message: 'a,
+    Theme: Catalog + 'a,
     Renderer: iced_core::Renderer + iced_graphics::geometry::Renderer + 'a,
 {
-    fn from(widget: CurveEdit<'a, Message>) -> Self {
+    fn from(widget: CurveEdit<'a, Message, Theme>) -> Self {
         Element::new(widget)
     }
 }
@@ -367,66 +400,59 @@ struct CurveEditState {
     drag_curve: Option<CubicCurve>,
 }
 
-#[derive(Clone, Copy)]
-pub struct CurveEditStyle {
-    pub grid_resolution: usize,
-    pub curve_resolution: usize,
-    pub control_point_radius: f32,
-    pub curve_stroke_width: f32,
-    pub grid_stroke_width: f32,
-    pub control_point_stroke_width: f32,
-    pub border_width: f32,
-    pub background: Option<Color>,
-    pub border: Option<Color>,
-    pub grid: Option<Color>,
-    pub curve: Option<Color>,
-    pub control_point: Option<Color>,
-    pub selected_control_point: Option<Color>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    Active,
+    Hovered,
+    Dragged,
 }
 
-impl Default for CurveEditStyle {
-    fn default() -> Self {
-        Self {
-            grid_resolution: 4,
-            curve_resolution: 128,
-            control_point_radius: 4.0,
-            curve_stroke_width: 1.5,
-            grid_stroke_width: 0.5,
-            control_point_stroke_width: 1.0,
-            border_width: 1.0,
-            background: None,
-            border: None,
-            grid: None,
-            curve: None,
-            control_point: None,
-            selected_control_point: None,
-        }
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Style {
+    pub background: Background,
+    pub border: Border,
+    pub grid: Color,
+    pub curve: Color,
+    pub control_point: Color,
+    pub selected_control_point: Color,
+}
+
+pub trait Catalog: Sized {
+    type Class<'a>;
+
+    fn default<'a>() -> Self::Class<'a>;
+
+    fn style(&self, class: &Self::Class<'_>, status: Status) -> Style;
+}
+
+pub type StyleFn<'a, Theme> = Box<dyn Fn(&Theme, Status) -> Style + 'a>;
+
+impl Catalog for iced_core::Theme {
+    type Class<'a> = StyleFn<'a, Self>;
+
+    fn default<'a>() -> Self::Class<'a> {
+        Box::new(default)
+    }
+
+    fn style(&self, class: &Self::Class<'_>, status: Status) -> Style {
+        class(self, status)
     }
 }
 
-impl CurveEditStyle {
-    fn resolve(self, theme: &Theme) -> ResolvedCurveEditStyle {
-        let palette = theme.extended_palette();
-        ResolvedCurveEditStyle {
-            background: self.background.unwrap_or(palette.background.base.color),
-            border: self.border.unwrap_or(palette.background.strong.color),
-            grid: self.grid.unwrap_or(palette.background.strong.color),
-            curve: self.curve.unwrap_or(palette.primary.base.color),
-            control_point: self.control_point.unwrap_or(palette.primary.base.color),
-            selected_control_point: self
-                .selected_control_point
-                .unwrap_or(palette.primary.strong.color),
-        }
+pub fn default(theme: &iced_core::Theme, _status: Status) -> Style {
+    let palette = theme.extended_palette();
+    Style {
+        background: palette.background.base.color.into(),
+        border: Border {
+            color: palette.background.strong.color,
+            width: 1.0,
+            ..Default::default()
+        },
+        grid: palette.background.strong.color,
+        curve: palette.primary.base.color,
+        control_point: palette.primary.base.color,
+        selected_control_point: palette.primary.strong.color,
     }
-}
-
-struct ResolvedCurveEditStyle {
-    background: Color,
-    border: Color,
-    grid: Color,
-    curve: Color,
-    control_point: Color,
-    selected_control_point: Color,
 }
 
 fn local_to_normalized(local: Point, size: Size) -> Vec2 {
