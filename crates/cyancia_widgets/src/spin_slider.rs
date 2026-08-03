@@ -140,7 +140,7 @@ impl<'a, Message> SpinSlider<'a, Message> {
     }
 
     fn text_input<'b, Renderer>(
-        &self,
+        &'b self,
         value: &'b str,
     ) -> Element<'b, SpinSliderInputMessage, Theme, Renderer>
     where
@@ -151,8 +151,26 @@ impl<'a, Message> SpinSlider<'a, Message> {
             .on_submit(SpinSliderInputMessage::Submitted)
             .width(Length::Fill)
             .padding([0, 4])
-            .size(self.height * 0.55)
+            .size(self.height * 0.62)
+            .line_height(LineHeight::Relative(1.0))
             .align_x(Horizontal::Center)
+            .style(|theme, status| {
+                let spin_style = self.style.as_ref().map_or_else(
+                    || default_style(theme, InteractionState::Editing),
+                    |style| style(theme, InteractionState::Editing),
+                );
+                let input_style = text_input::default(theme, status);
+                let text_color = spin_style.text_color.unwrap_or_else(|| {
+                    text_input::default(theme, text_input::Status::Active).value
+                });
+                text_input::Style {
+                    background: Color::TRANSPARENT.into(),
+                    border: Border::default(),
+                    placeholder: text_color,
+                    value: text_color,
+                    ..input_style
+                }
+            })
             .into()
     }
 
@@ -550,20 +568,18 @@ where
             },
             style.button_background,
         );
-        if !matches!(state.interaction, SpinSliderState::Editing { .. }) {
-            renderer.fill_quad(
-                renderer::Quad {
-                    bounds: field,
-                    border: Border {
-                        color: style.border_color,
-                        width: 1.0,
-                        ..Default::default()
-                    },
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds: field,
+                border: Border {
+                    color: style.border_color,
+                    width: 1.0,
                     ..Default::default()
                 },
-                style.background,
-            );
-        }
+                ..Default::default()
+            },
+            style.background,
+        );
         renderer.fill_quad(
             renderer::Quad {
                 bounds: plus,
@@ -581,19 +597,22 @@ where
             style.button_background,
         );
 
-        if !matches!(state.interaction, SpinSliderState::Editing { .. }) {
-            let percentage = self.value_to_percentage(self.value);
-            renderer.fill_quad(
-                renderer::Quad {
-                    bounds: Rectangle {
-                        width: field.width * percentage,
-                        ..field
-                    },
-                    ..Default::default()
+        let percentage = self.value_to_percentage(self.value);
+        let value_bar = if matches!(state.interaction, SpinSliderState::Editing { .. }) {
+            style.value_bar.scale_alpha(0.2)
+        } else {
+            style.value_bar
+        };
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds: Rectangle {
+                    width: field.width * percentage,
+                    ..field
                 },
-                style.value_bar,
-            );
-        }
+                ..Default::default()
+            },
+            value_bar,
+        );
 
         let text_color = style.text_color.unwrap_or(renderer_style.text_color);
         fill_text(renderer, minus, "−", self.height, text_color);
@@ -795,8 +814,12 @@ fn default_style(theme: &Theme, status: InteractionState) -> Style {
         InteractionState::Dragging => palette.primary.weak.color,
         InteractionState::Disabled | InteractionState::Active => palette.primary.base.color,
     };
+    let background = match status {
+        InteractionState::Editing => palette.background.weak.color,
+        _ => palette.background.base.color,
+    };
     Style {
-        background: palette.background.base.color.into(),
+        background: background.into(),
         value_bar: value_bar.into(),
         button_background: palette.background.weak.color.into(),
         border_color: palette.background.strong.color,
