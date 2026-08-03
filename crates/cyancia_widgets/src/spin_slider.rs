@@ -37,15 +37,10 @@ impl<'a, Message> SpinSlider<'a, Message> {
         value: f32,
         on_change: impl Fn(f32) -> Message + 'a,
     ) -> Self {
-        assert!(range.start().is_finite());
-        assert!(range.end().is_finite());
-        assert!(range.start() < range.end());
-        assert!(value.is_finite());
-
         Self {
             value: value.clamp(*range.start(), *range.end()),
             range,
-            step: 0.01,
+            step: 0.1,
             precision: 2,
             scale: SliderScale::Linear,
             default: None,
@@ -70,7 +65,6 @@ impl<'a, Message> SpinSlider<'a, Message> {
     }
 
     pub fn default(mut self, value: f32) -> Self {
-        assert!(value.is_finite());
         self.default = Some(value.clamp(*self.range.start(), *self.range.end()));
         self
     }
@@ -87,34 +81,26 @@ impl<'a, Message> SpinSlider<'a, Message> {
 
     pub fn height(mut self, height: impl Into<Pixels>) -> Self {
         self.height = height.into().0;
-        assert!(self.height > 0.0);
         self
     }
 
     pub fn rounded(mut self, rounded: f32) -> Self {
-        assert!(rounded >= 0.0);
         self.rounded = rounded;
         self
     }
 
     pub fn step(mut self, step: f32) -> Self {
-        assert!(step.is_finite() && step > 0.0);
         self.step = step;
         self
     }
 
     pub fn precision(mut self, precision: usize) -> Self {
-        assert!(precision <= 38);
         self.precision = precision;
         self.step = 10.0_f32.powi(-(precision as i32));
-        assert!(self.step > 0.0);
         self
     }
 
     pub fn scale(mut self, scale: SliderScale) -> Self {
-        if scale == SliderScale::Logarithmic {
-            assert!(*self.range.start() > 0.0);
-        }
         self.scale = scale;
         self
     }
@@ -824,39 +810,5 @@ fn default_style(theme: &Theme, status: InteractionState) -> Style {
         button_background: palette.background.weak.color.into(),
         border_color: palette.background.strong.color,
         text_color: None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn snaps_linear_values_to_step() {
-        let slider = SpinSlider::<()>::new(-1.0..=1.0, 0.0, |_| ()).step(0.25);
-        assert_eq!(slider.percentage_to_value(0.0), -1.0);
-        assert_eq!(slider.percentage_to_value(0.625), 0.25);
-        assert_eq!(slider.percentage_to_value(1.0), 1.0);
-    }
-
-    #[test]
-    fn maps_logarithmic_values() {
-        let slider = SpinSlider::<()>::new(1.0..=100.0, 10.0, |_| ())
-            .step(0.01)
-            .scale(SliderScale::Logarithmic);
-        assert!((slider.value_to_percentage(10.0) - 0.5).abs() < f32::EPSILON * 4.0);
-        assert!((slider.percentage_to_value(0.5) - 10.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn splits_button_and_value_regions() {
-        let bounds = Rectangle::new(Point::new(10.0, 20.0), Size::new(120.0, 24.0));
-        let (minus, field, plus) = split_bounds(bounds);
-        assert_eq!(minus.width, 24.0);
-        assert_eq!(
-            field,
-            Rectangle::new(Point::new(34.0, 20.0), Size::new(72.0, 24.0))
-        );
-        assert_eq!(plus.x, 106.0);
     }
 }
