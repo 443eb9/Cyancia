@@ -428,25 +428,36 @@ where
                 .unfocus();
 
             if position.is_some_and(|position| minus.contains(position)) {
-                self.publish_change(
-                    self.step_value(edited_value.unwrap_or(self.value), -1.0),
-                    shell,
-                );
+                {
+                    let this = &self;
+                    let value = self.step_value(edited_value.unwrap_or(self.value), -1.0);
+                    if value != this.value {
+                        shell.publish((this.on_change)(value));
+                    }
+                };
                 state.interaction = SpinSliderState::Pressing {
                     target: PressTarget::Minus,
                 };
                 shell.capture_event();
             } else if position.is_some_and(|position| plus.contains(position)) {
-                self.publish_change(
-                    self.step_value(edited_value.unwrap_or(self.value), 1.0),
-                    shell,
-                );
+                {
+                    let this = &self;
+                    let value = self.step_value(edited_value.unwrap_or(self.value), 1.0);
+                    if value != this.value {
+                        shell.publish((this.on_change)(value));
+                    }
+                };
                 state.interaction = SpinSliderState::Pressing {
                     target: PressTarget::Plus,
                 };
                 shell.capture_event();
             } else if let Some(value) = edited_value {
-                self.publish_change(value, shell);
+                {
+                    let this = &self;
+                    if value != this.value {
+                        shell.publish((this.on_change)(value));
+                    }
+                };
                 if let Some(on_release) = &self.on_release {
                     shell.publish(on_release(value));
                 }
@@ -461,19 +472,27 @@ where
                 };
 
                 state.interaction = if minus.contains(position) {
-                    self.publish_change(self.step_value(self.value, -1.0), shell);
+                    let value = self.step_value(self.value, -1.0);
+                    if value != self.value {
+                        shell.publish((self.on_change)(value));
+                    }
                     SpinSliderState::Pressing {
                         target: PressTarget::Minus,
                     }
                 } else if plus.contains(position) {
-                    self.publish_change(self.step_value(self.value, 1.0), shell);
+                    let value = self.step_value(self.value, 1.0);
+                    if value != self.value {
+                        shell.publish((self.on_change)(value));
+                    }
                     SpinSliderState::Pressing {
                         target: PressTarget::Plus,
                     }
                 } else if field.contains(position) {
                     if state.modifiers.command() {
                         if let Some(default) = self.default {
-                            self.publish_change(default, shell);
+                            if default != self.value {
+                                shell.publish((self.on_change)(default));
+                            }
                         }
                         SpinSliderState::Idle
                     } else {
@@ -500,7 +519,9 @@ where
                 };
                 let value = self.percentage_to_value((position.x - field.x) / field.width);
                 state.interaction = SpinSliderState::Dragging { value };
-                self.publish_change(value, shell);
+                if value != self.value {
+                    shell.publish((self.on_change)(value));
+                }
                 shell.capture_event();
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
@@ -542,10 +563,10 @@ where
                     mouse::ScrollDelta::Lines { y, .. } => *y,
                     mouse::ScrollDelta::Pixels { y, .. } => *y,
                 };
-                self.publish_change(
-                    self.step_value(self.value, if delta < 0.0 { -1.0 } else { 1.0 }),
-                    shell,
-                );
+                let value = self.step_value(self.value, if delta < 0.0 { -1.0 } else { 1.0 });
+                if value != self.value {
+                    shell.publish((self.on_change)(value));
+                }
                 shell.capture_event();
             }
             Event::Keyboard(keyboard::Event::KeyPressed { key, .. })
@@ -553,11 +574,17 @@ where
             {
                 match key {
                     Key::Named(keyboard::key::Named::ArrowUp) => {
-                        self.publish_change(self.step_value(self.value, 1.0), shell);
+                        let value = self.step_value(self.value, 1.0);
+                        if value != self.value {
+                            shell.publish((self.on_change)(value));
+                        }
                         shell.capture_event();
                     }
                     Key::Named(keyboard::key::Named::ArrowDown) => {
-                        self.publish_change(self.step_value(self.value, -1.0), shell);
+                        let value = self.step_value(self.value, -1.0);
+                        if value != self.value {
+                            shell.publish((self.on_change)(value));
+                        }
                         shell.capture_event();
                     }
                     _ => {}
@@ -720,18 +747,14 @@ where
     Theme: Catalog,
     f64: AsPrimitive<T>,
 {
-    fn publish_change(&self, value: T, shell: &mut Shell<'_, Message>) {
-        if value != self.value {
-            shell.publish((self.on_change)(value));
-        }
-    }
-
     fn commit_input(&self, input: &str, shell: &mut Shell<'_, Message>) -> bool {
         let Ok(value) = input.parse::<T>() else {
             return false;
         };
         let value = self.snap(value);
-        self.publish_change(value, shell);
+        if value != self.value {
+            shell.publish((self.on_change)(value));
+        }
         if let Some(on_release) = &self.on_release {
             shell.publish(on_release(value));
         }
