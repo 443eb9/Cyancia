@@ -36,8 +36,6 @@ where
     Theme: Catalog,
 {
     pub fn new(curve: CubicCurve) -> Self {
-        assert!(curve.control_points().len() >= 2);
-
         Self {
             curve,
             on_change: None,
@@ -90,31 +88,26 @@ where
     }
 
     pub fn grid_resolution(mut self, resolution: usize) -> Self {
-        assert!(resolution > 0);
         self.grid_resolution = resolution;
         self
     }
 
     pub fn curve_resolution(mut self, resolution: usize) -> Self {
-        assert!(resolution > 0);
         self.curve_resolution = resolution;
         self
     }
 
     pub fn control_point_radius(mut self, radius: f32) -> Self {
-        assert!(radius > 0.0);
         self.control_point_radius = radius;
         self
     }
 
     pub fn curve_stroke_width(mut self, width: f32) -> Self {
-        assert!(width > 0.0);
         self.curve_stroke_width = width;
         self
     }
 
     pub fn grid_stroke_width(mut self, width: f32) -> Self {
-        assert!(width > 0.0);
         self.grid_stroke_width = width;
         self
     }
@@ -191,7 +184,6 @@ where
                         .checked_sub(1)
                         .map_or(0.0, |previous| points[previous].x + MIN_POINT_GAP);
                     let max = points.get(index).map_or(1.0, |next| next.x - MIN_POINT_GAP);
-                    assert!(min <= max);
                     points.insert(index, Vec2::new(normalized.x.clamp(min, max), normalized.y));
                     let curve = CubicCurve::new(points);
                     state.selected_index = Some(index);
@@ -211,7 +203,6 @@ where
                     .selected_index
                     .expect("dragging without a selected point");
                 let mut points = self.curve.control_points().to_vec();
-                assert!(index < points.len());
 
                 let normalized = screen_to_normalized(position, bounds);
                 let min = index
@@ -220,7 +211,6 @@ where
                 let max = points
                     .get(index + 1)
                     .map_or(1.0, |next| next.x - MIN_POINT_GAP);
-                assert!(min <= max);
                 points[index] = Vec2::new(normalized.x.clamp(min, max), normalized.y);
 
                 let curve = CubicCurve::new(points);
@@ -253,7 +243,6 @@ where
                 }
 
                 let mut points = self.curve.control_points().to_vec();
-                assert!(index < points.len());
                 points.remove(index);
                 state.selected_index = None;
                 state.dragging = false;
