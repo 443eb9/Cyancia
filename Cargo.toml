@@ -1,32 +1,38 @@
 [workspace]
 members = [
-    "crates/cyancia_abr",
-    "crates/cyancia_abr_derive",
-    "crates/cyancia_actions", "crates/cyancia_anti_aliasing",
-    "crates/cyancia_app",
-    "crates/cyancia_assets",
-    "crates/cyancia_brush",
-    "crates/cyancia_bucket_tool",
-    "crates/cyancia_canvas",
-    "crates/cyancia_color",
-    "crates/cyancia_cyan",
-    "crates/cyancia_color_selector",
-    "crates/cyancia_image",
-    "crates/cyancia_math",
-    "crates/cyancia_render",
-    "crates/cyancia_selection_tool",
-    "crates/cyancia_shader_graph",
-    "crates/cyancia_shader_graph_derive",
-    "crates/cyancia_theme",
-    "crates/cyancia_tools",
-    "crates/cyancia_undo",
+    # "crates/cyancia_abr",
+    # "crates/cyancia_abr_derive",
+    # "crates/cyancia_actions",
+    # "crates/cyancia_anti_aliasing",
+    # "crates/cyancia_app",
+    # "crates/cyancia_assets",
+    # "crates/cyancia_brush",
+    # "crates/cyancia_bucket_tool",
+    # "crates/cyancia_canvas",
+    # "crates/cyancia_color",
+    # "crates/cyancia_cyan",
+    # "crates/cyancia_color_selector",
+    "crates/cyancia_dock",
+    # "crates/cyancia_image",
+    # "crates/cyancia_input",
+    # "crates/cyancia_math",
+    "crates/cyancia_platform",
+    # "crates/cyancia_render",
+    "crates/cyancia_runtime",
+    "crates/cyancia_runtime_derive",
+    # "crates/cyancia_selection_tool",
+    # "crates/cyancia_shader_graph",
+    # "crates/cyancia_shader_graph_derive",
+    # "crates/cyancia_theme",
+    # "crates/cyancia_tools",
+    # "crates/cyancia_undo",
     "crates/cyancia_utils",
     "crates/cyancia_utils_derive",
-    "crates/cyancia_view",
-    "crates/cyancia_widgets",
+    # "crates/cyancia_view",
+    # "crates/cyancia_widgets",
 ]
 resolver = "3"
-default-members = ["crates/cyancia_app"]
+# default-members = ["crates/cyancia_app"]
 
 [profile.dev]
 opt-level = 1
@@ -55,9 +61,14 @@ cyancia_canvas = { version = "0.1.0", path = "crates/cyancia_canvas" }
 cyancia_color = { version = "0.1.0", path = "crates/cyancia_color" }
 cyancia_cyan = { version = "0.1.0", path = "crates/cyancia_cyan" }
 cyancia_color_selector = { version = "0.1.0", path = "crates/cyancia_color_selector" }
+cyancia_dock = { version = "0.1.0", path = "crates/cyancia_dock" }
 cyancia_image = { version = "0.1.0", path = "crates/cyancia_image" }
+cyancia_input = { version = "0.1.0", path = "crates/cyancia_input" }
 cyancia_math = { version = "0.1.0", path = "crates/cyancia_math" }
+cyancia_platform = { version = "0.1.0", path = "crates/cyancia_platform" }
 cyancia_render = { version = "0.1.0", path = "crates/cyancia_render" }
+cyancia_runtime = { version = "0.1.0", path = "crates/cyancia_runtime" }
+cyancia_runtime_derive = { version = "0.1.0", path = "crates/cyancia_runtime_derive" }
 cyancia_selection_tool = { version = "0.1.0", path = "crates/cyancia_selection_tool" }
 cyancia_shader_graph = { version = "0.1.0", path = "crates/cyancia_shader_graph" }
 cyancia_shader_graph_derive = { version = "0.1.0", path = "crates/cyancia_shader_graph_derive" }
@@ -97,6 +108,15 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "277f220a6196572116a8fd84fba6c36187094cab" }
 gpui_platform = { git = "https://github.com/443eb9/gpui-ce", rev = "de53e91475147f27b738ed6feb310a01f875a647", features = ["font-kit", "winit"] }
 half = "2"
+iced = { version = "0.14", features = ["debug", "canvas", "selector", "smol"] }
+iced_aw = { version = "0.13", features = ["context_menu"] }
+iced_core = "0.14"
+iced_futures = { version = "0.14", features = ["smol"] }
+iced_graphics = { version = "0.14", features = ["geometry"] }
+iced_runtime = "0.14"
+iced_wgpu = { version = "0.14", features = ["geometry"] }
+iced_widget = { version = "0.14", features = ["wgpu"] }
+iced_winit = "0.14"
 image = "0.25"
 indexmap = { version = "2", features = ["serde"] }
 log = "0.4"
@@ -133,11 +153,29 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 variadics_please = "2"
 wesl = { version = "0.4", features = ["package", "naga-ext"] }
-wgpu = { git = "https://github.com/zed-industries/wgpu.git", rev = "357a0c56e0070480ad9daea5d2eaa83150b79e88" }
+wgpu = "27"
 windows = "0.62"
-winit = "0.31.0-beta.2"
+winit = "0.30"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 zip = "8"
+
+[patch.crates-io]
+naga = { git = "https://github.com/gfx-rs/wgpu", rev = "7a2afeb014cb30a976059717c4ae7c85f01d858e", package = "naga" }
+iced = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
+iced_beacon = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
+iced_core = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
+iced_debug = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
+iced_devtools = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
+iced_futures = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
+iced_graphics = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
+iced_highlighter = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
+iced_program = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
+iced_renderer = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
+iced_runtime = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
+iced_selector = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
+iced_wgpu = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
+iced_widget = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
+iced_winit = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
 
 [patch."https://github.com/zed-industries/zed"]
 gpui = { git = "https://github.com/443eb9/gpui-ce", rev = "de53e91475147f27b738ed6feb310a01f875a647" }
