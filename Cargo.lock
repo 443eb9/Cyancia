@@ -1875,6 +1875,7 @@ dependencies = [
  "glam 0.30.10",
  "iced_core",
  "iced_graphics",
+ "iced_widget",
 ]
 
 [[package]]
