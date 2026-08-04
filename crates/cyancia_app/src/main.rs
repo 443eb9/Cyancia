@@ -15,13 +15,10 @@ use cyancia_canvas::CanvasPlugin;
 use cyancia_image::ImagePlugin;
 use cyancia_input::InputPlugin;
 use cyancia_render::RenderPlugin;
-use cyancia_runtime::{
-    Application,
-    service::RenderContext,
-    windows::WindowCommandBuffer,
-};
+use cyancia_runtime::{Application, service::RenderContext, windows::WindowCommandBuffer};
 use cyancia_shader_graph::ShaderGraphPlugin;
 use cyancia_tools::ToolsPlugin;
+use cyancia_undo::UndoPlugin;
 
 fn main() {
     tracing_subscriber::fmt()
@@ -32,7 +29,9 @@ fn main() {
 
     let mut app = Application::default();
     let mut asset_bundles = Vec::<Arc<dyn ErasedAssetBundle>>::new();
-    asset_bundles.push(Arc::new(AssetDirectory::new("assets/builtin_assets").unwrap()));
+    asset_bundles.push(Arc::new(
+        AssetDirectory::new("assets/builtin_assets").unwrap(),
+    ));
 
     {
         let (standard_bundles, errs) = StandardAssetBundle::scan_bundles("assets");
@@ -60,6 +59,7 @@ fn main() {
             asset_root: "assets".into(),
             bundles: asset_bundles,
         })
+        .add_plugin(UndoPlugin)
         .add_plugin(RenderPlugin)
         .add_plugin(ShaderGraphPlugin)
         .add_plugin(ToolsPlugin)

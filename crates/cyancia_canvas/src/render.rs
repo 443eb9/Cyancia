@@ -18,6 +18,7 @@ use encase::ShaderType;
 use glam::{IVec2, Mat3, UVec2, UVec3};
 use iced_core::Rectangle;
 use iced_widget::shader;
+use wesl::include_wesl;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingResource, BindingType, BlendState, BufferUsages, ColorTargetState,
@@ -403,7 +404,7 @@ impl CanvasPresentPipeline {
     ) -> Self {
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("canvas present shader"),
-            source: ShaderSource::Wgsl(include_str!("shaders/canvas_present.wesl").into()),
+            source: ShaderSource::Wgsl(include_wesl!("canvas_present").into()),
         });
         let layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("canvas present bind group layout"),

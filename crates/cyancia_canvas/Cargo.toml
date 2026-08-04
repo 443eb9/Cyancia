@@ -36,6 +36,7 @@ parking_lot.workspace = true
 serde.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+wesl.workspace = true
 wgpu.workspace = true
 
 [build-dependencies]
