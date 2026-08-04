@@ -10,18 +10,13 @@ pub struct BrushPresetListItem {
 }
 
 impl BrushPresetListItem {
-    pub fn new(brush: AssetHandle<BrushPreset>) -> Self {
-        let name = brush
-            .get()
-            .expect("Brush preset should be loaded")
-            .metadata
-            .name
-            .clone();
-        Self {
+    pub fn new(brush: AssetHandle<BrushPreset>) -> Option<Self> {
+        let name = brush.get().ok()?.metadata.name.clone();
+        Some(Self {
             brush,
             name,
             selected: false,
-        }
+        })
     }
 }
 
@@ -33,7 +28,10 @@ pub struct BrushPresetListDelegate {
 impl BrushPresetListDelegate {
     pub fn new(brushes: Vec<AssetHandle<BrushPreset>>) -> Self {
         Self {
-            items: brushes.into_iter().map(BrushPresetListItem::new).collect(),
+            items: brushes
+                .into_iter()
+                .filter_map(BrushPresetListItem::new)
+                .collect(),
             selected: None,
         }
     }
@@ -56,8 +54,10 @@ impl BrushPresetListDelegate {
     }
 
     pub fn push(&mut self, brush: AssetHandle<BrushPreset>) -> usize {
-        self.items.push(BrushPresetListItem::new(brush));
-        self.items.len() - 1
+        if let Some(item) = BrushPresetListItem::new(brush) {
+            self.items.push(item);
+        }
+        self.items.len().saturating_sub(1)
     }
 }
 

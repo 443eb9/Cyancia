@@ -39,7 +39,6 @@ impl Plugin for ActionPlugin {
         runtime
             .services_mut()
             .add_asset_serializer::<KeyBindingDefManifestLoader>();
-        runtime.add_service::<KeyBindingDefManifestCollection>();
         runtime.add_service::<ActionFunctionRegistry>();
         let services = runtime.services_mut();
         services
@@ -57,6 +56,11 @@ impl Plugin for ActionPlugin {
             .add_action_function::<OpenBrushEditorAction>()
             .add_action_function::<UndoAction>()
             .add_action_function::<RedoAction>();
+    }
+
+    fn finish(&self, app: &mut Application) {
+        let mut runtime = app.runtime_mut();
+        runtime.add_service::<KeyBindingDefManifestCollection>();
     }
 }
 
