@@ -1,12 +1,16 @@
 use std::path::PathBuf;
 
-use cyancia_canvas::{CanvasAppExt, CCanvas};
+use cyancia_canvas::{
+    CanvasAppExt,
+    CCanvas,
+    event::CanvasCreated,
+};
 use cyancia_image::{
     CImage,
     texel::TexelType,
     tile::{GpuLayerInfo, GpuTileStorage, TileStorageAppExt},
 };
-use cyancia_runtime::Services;
+use cyancia_runtime::{Services, event::Event};
 use cyancia_tools::{ToolProxies, ToolProxy};
 use cyancia_undo::{UndoStack, UndoStacks};
 use cyancia_utils::log_err::LogErr;
@@ -82,6 +86,7 @@ impl ActionFunction for OpenFileAction {
         );
 
         services.add_canvas(canvas);
+        CanvasCreated::broadcast(CanvasCreated { id: canvas_id });
 
         Task::none()
     }

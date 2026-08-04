@@ -79,7 +79,7 @@ wrapper! {
 }
 
 pub trait ToolFunction: 'static {
-    type Message: Send + 'static;
+    type Message: Send + Sync + 'static;
 
     fn id() -> ToolId;
     fn activate(&mut self, _: &mut Services) -> Task<Self::Message> {
@@ -164,7 +164,7 @@ pub trait ErasedToolFunction: 'static {
     fn deactivate(&mut self, services: &mut Services) -> Task<ErasedToolFunctionMessage>;
     fn handle_message(
         &mut self,
-        message: Box<dyn Any + Send>,
+        message: Box<dyn Any + Send + Sync>,
         services: &mut Services,
     ) -> Task<ErasedToolFunctionMessage>;
     fn tool_option_widget<'a>(
@@ -229,7 +229,7 @@ impl<T: ToolFunction> ErasedToolFunction for T {
 
     fn handle_message(
         &mut self,
-        message: Box<dyn Any + Send>,
+        message: Box<dyn Any + Send + Sync>,
         services: &mut Services,
     ) -> Task<ErasedToolFunctionMessage> {
         let message = message
@@ -259,7 +259,7 @@ impl<T: ToolFunction> ErasedToolFunction for T {
     }
 }
 
-fn erased_task<T: Send + 'static>(
+fn erased_task<T: Send + Sync + 'static>(
     tool_id: ToolId,
     task: Task<T>,
 ) -> Task<ErasedToolFunctionMessage> {
@@ -271,7 +271,7 @@ fn erased_task<T: Send + 'static>(
 
 pub struct ErasedToolFunctionMessage {
     pub tool_id: ToolId,
-    pub message: Box<dyn Any + Send>,
+    pub message: Box<dyn Any + Send + Sync>,
 }
 
 #[derive(Default)]

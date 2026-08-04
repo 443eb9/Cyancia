@@ -1,240 +1,234 @@
-use std::sync::Arc;
+use std::{any::Any, sync::Arc};
 
-use cyancia_brush::tool::BrushTool;
-use cyancia_canvas::{CanvasAppExt, GlobalCanvasEvents, event::CanvasCreated};
-use cyancia_theme::SwitchThemeAction;
-use cyancia_tools::{ToolFunction, ToolLayer, ToolProxies};
-use cyancia_view::{View, ViewId};
-use gpui::{
-    App, AppContext, BorrowAppContext, Context, Entity, FocusHandle, InteractiveElement,
-    IntoElement, Menu, MenuItem, ParentElement, Render, Styled, WeakEntity, Window, WindowHandle,
-    WindowOptions, div, prelude::FluentBuilder,
+use cyancia_actions::{
+    ActionFunctionRegistry, ActionId,
+    actions_matcher::ActionsMatcher,
+    manifest::KeyBindingDefManifestCollection,
 };
-use gpui_component::{
-    ActiveTheme, GlobalState, Root, Theme, ThemeRegistry, TitleBar,
-    dock::{DockArea, DockItem, DockPlacement},
-    menu::AppMenuBar,
+use cyancia_canvas::{
+    CanvasManager,
+    event::{CanvasCreated, CanvasRemoved},
+    tools::PanTool,
 };
+use cyancia_dock::{
+    DockManager, DockMessage,
+    dock::{Dock, DockId},
+};
+use cyancia_runtime::{
+    Services,
+    event::Event,
+    windows::{WindowView, WindowViewId},
+};
+use cyancia_tools::{ToolFunction, ToolProxies, ToolProxy};
+use iced::{
+    Element, Subscription, Task, Theme, event,
+    keyboard::{self},
+    mouse, window,
+};
+use iced_wgpu::Renderer;
+use parking_lot::Mutex;
 
 use crate::dock::{
-    BrushPresetDock, CanvasDock, ColorSelectorDock, CurrentCanvasLayersDock, FiltersDock,
-    LayersDock, ToolOptionsDock,
+    BrushPresetDock, CanvasDock, FiltersDock, LayersDock, ToolOptionsDock,
+    construct_canvas_dock_id, BRUSH_PRESETS_DOCK_ID, FILTERS_DOCK_ID, LAYER_DOCK_ID,
+    TOOL_OPTIONS_DOCK_ID,
 };
 
-fn default_dock_layout(
-    dock_area: &WeakEntity<DockArea>,
-    window: &mut Window,
-    cx: &mut App,
-) -> DockItem {
-    DockItem::h_split(
-        vec![DockItem::tabs(
-            vec![
-                Arc::new(cx.new(LayersDock::new)),
-                Arc::new(cx.new(FiltersDock::new)),
-                Arc::new(cx.new(|cx| ToolOptionsDock::new(window, cx))),
-                Arc::new(cx.new(|cx| CurrentCanvasLayersDock::new(window, cx))),
-                Arc::new(cx.new(|cx| BrushPresetDock::new(window, cx))),
-                Arc::new(cx.new(|cx| ColorSelectorDock::new(window, cx))),
-            ],
-            dock_area,
-            window,
-            cx,
-        )],
-        dock_area,
-        window,
-        cx,
-    )
-}
-
-pub const MAIN_VIEW_CONTEXT: &str = "main_view";
-
 pub struct MainView {
-    menu_bar: Entity<AppMenuBar>,
-    dock_area: Entity<DockArea>,
-    focus_handle: FocusHandle,
+    dock_manager: DockManager<Theme, Renderer>,
+    actions_matcher: Arc<Mutex<ActionsMatcher>>,
 }
 
-impl View for MainView {
-    fn id() -> ViewId {
-        ViewId::new("main_view")
+pub enum MainViewMessage {
+    Dock(DockMessage),
+    WindowEvent(window::Id, window::Event),
+    KeyboardEvent(window::Id, keyboard::Event),
+    MouseEvent(window::Id, mouse::Event),
+    CanvasCreated(CanvasCreated),
+    CanvasRemoved(CanvasRemoved),
+    ActionMessage(ActionId, Box<dyn Any + Send + Sync>),
+}
+
+impl WindowView for MainView {
+    type Message = MainViewMessage;
+
+    fn id() -> WindowViewId {
+        WindowViewId::new("main_view")
     }
 
-    fn open(cx: &mut App) -> anyhow::Result<WindowHandle<Root>> {
-        cx.open_window(
-            WindowOptions {
-                titlebar: None,
-                ..Default::default()
-            },
-            |window, cx| {
-                super::init_after_window_created(window, cx);
-                let main_view = cx.new(|cx| MainView::new(window, cx));
+    fn boot(services: &mut Services) -> (Self, Task<Self::Message>) {
+        let actions = services
+            .service::<KeyBindingDefManifestCollection>()
+            .action_collection()
+            .clone();
+        let actions_matcher = Arc::new(Mutex::new(ActionsMatcher::new(actions)));
 
-                cx.new(|cx| Root::new(main_view, window, cx))
+        let (main_window, task) = window::open(Default::default());
+        let (mut dock_manager, dock_manager_task) = DockManager::new(main_window);
+        dock_manager.register_dock(LayersDock);
+        dock_manager.register_dock(FiltersDock);
+        dock_manager.register_dock(ToolOptionsDock::new(services));
+        dock_manager.register_dock(BrushPresetDock::new(services));
+
+        let dock_tasks = Task::batch([
+            dock_manager.open_dock(DockId::new(LAYER_DOCK_ID.into())),
+            dock_manager.open_dock(DockId::new(FILTERS_DOCK_ID.into())),
+            dock_manager.open_dock(DockId::new(TOOL_OPTIONS_DOCK_ID.into())),
+            dock_manager.open_dock(DockId::new(BRUSH_PRESETS_DOCK_ID.into())),
+        ])
+        .map(MainViewMessage::Dock);
+
+        (
+            Self {
+                dock_manager,
+                actions_matcher,
             },
+            Task::batch([
+                task.discard(),
+                dock_manager_task.map(MainViewMessage::Dock),
+                dock_tasks,
+            ]),
         )
     }
-}
 
-impl MainView {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let dock_area_entity = cx.new(|cx| DockArea::new("main-dock-area", None, window, cx));
+    fn view<'a>(
+        &'a self,
+        window: window::Id,
+        services: &'a Services,
+    ) -> impl Into<Element<'a, Self::Message, Theme, iced_wgpu::Renderer>> {
+        Some(
+            self.dock_manager
+                .view(window, services)?
+                .map(MainViewMessage::Dock),
+        )
+    }
 
-        dock_area_entity.update(cx, |dock_area, cx| {
-            dock_area.set_center(
-                default_dock_layout(&dock_area_entity.downgrade(), window, cx),
-                window,
-                cx,
-            );
-        });
+    fn update(
+        &mut self,
+        message: Self::Message,
+        services: &mut Services,
+    ) -> impl Into<Task<Self::Message>> {
+        match message {
+            MainViewMessage::Dock(m) => self
+                .dock_manager
+                .update(m, services)
+                .map(MainViewMessage::Dock),
+            MainViewMessage::WindowEvent(id, event) => {
+                match event {
+                    window::Event::Focused => {
+                        self.actions_matcher.lock().reset_keyboard_state();
+                    }
+                    _ => {}
+                }
 
-        let menu_bar = AppMenuBar::new(cx);
-        update_menu_bar(&menu_bar, cx);
-        cx.observe_global::<Theme>({
-            let menu_bar = menu_bar.clone();
-            move |_, cx| {
-                update_menu_bar(&menu_bar, cx);
+                self.dock_manager.on_window_event(id, event).discard()
             }
-        })
-        .detach();
 
-        let canvas_events = cx.global_canvas_events_entity();
-        cx.subscribe_in(&canvas_events, window, Self::on_canvas_created)
-            .detach();
-        let focus_handle = cx.focus_handle();
-        focus_handle.focus(window, cx);
+            MainViewMessage::KeyboardEvent(window, event) => {
+                if let Some(action) = self.actions_matcher.lock().on_keyboard_event(event) {
+                    if let Some(action_func) = services
+                        .service_mut::<ActionFunctionRegistry>()
+                        .get(action.clone())
+                    {
+                        log::info!("Triggering action: {}", action.0);
+                        return action_func.trigger(services).map(move |message| {
+                            MainViewMessage::ActionMessage(action.clone(), message)
+                        });
+                    } else {
+                        log::warn!("No action function found for action: {}", action.0);
+                    }
+                }
+                Task::none()
+            }
+            MainViewMessage::MouseEvent(window, event) => {
+                match event {
+                    mouse::Event::CursorMoved { position } => {
+                        return self
+                            .dock_manager
+                            .on_cursor_moved(window, position)
+                            .map(MainViewMessage::Dock);
+                    }
+                    mouse::Event::ButtonReleased(mouse::Button::Left) => {
+                        return self
+                            .dock_manager
+                            .on_float_window_drag_end()
+                            .map(MainViewMessage::Dock);
+                    }
+                    _ => {}
+                }
 
-        Self {
-            menu_bar,
-            dock_area: dock_area_entity,
-            focus_handle,
+                Task::none()
+            }
+            MainViewMessage::CanvasCreated(e) => {
+                log::info!("Canvas created: {}", e.id);
+                let tool_proxy_id = services
+                    .service::<CanvasManager>()
+                    .get(&e.id)
+                    .map(|canvas| canvas.tool_proxy_id());
+                if let Some(tool_proxy_id) = tool_proxy_id {
+                    let _ = services.service_scope::<ToolProxies, _>(|tool_proxies, services| {
+                        tool_proxies
+                            .get_mut(&tool_proxy_id)
+                            .switch_tool(PanTool::id(), services)
+                    });
+                }
+                let dock = CanvasDock::new(e.id, self.actions_matcher.clone());
+                let id = <CanvasDock as Dock<Theme, Renderer>>::id(&dock);
+                self.dock_manager.register_dock(dock);
+                self.dock_manager.open_dock(id).map(MainViewMessage::Dock)
+            }
+            MainViewMessage::CanvasRemoved(e) => {
+                log::info!("Canvas removed: {}", e.id);
+                let id = DockId::new(construct_canvas_dock_id(e.id).into());
+                self.dock_manager.unregister_dock(&id);
+
+                Task::none()
+            }
+            MainViewMessage::ActionMessage(action_id, message) => {
+                if let Some(action_func) = services
+                    .service_mut::<ActionFunctionRegistry>()
+                    .get(action_id.clone())
+                {
+                    action_func
+                        .handle_message(message, services)
+                        .map(move |message| {
+                            MainViewMessage::ActionMessage(action_id.clone(), message)
+                        })
+                } else {
+                    Task::none()
+                }
+            }
         }
     }
 
-    fn on_canvas_created(
-        &mut self,
-        _: &Entity<GlobalCanvasEvents>,
-        event: &CanvasCreated,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(canvas) = cx.read_canvas(&event.id) else {
-            return;
-        };
-        let canvas_id = canvas.id();
-        let tool_proxy_id = canvas.tool_proxy_id();
-
-        cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
-            tool_proxies
-                .get_mut(&tool_proxy_id)
-                .switch_tool(BrushTool::id(), cx);
-        });
-
-        self.dock_area.update(cx, |dock_area, cx| {
-            dock_area.add_panel(
-                Arc::new(cx.new(|cx| CanvasDock::new(canvas_id, tool_proxy_id, window, cx))),
-                DockPlacement::Center,
-                None,
-                window,
-                cx,
-            );
-        });
+    fn close(self, services: &mut Services) -> Task<()> {
+        iced::exit()
     }
-}
 
-fn update_menu_bar(menu_bar: &Entity<AppMenuBar>, cx: &mut App) {
-    cx.set_menus(build_menu_bar(cx));
-    let menus = build_menu_bar(cx).into_iter().map(|m| m.owned()).collect();
-    GlobalState::global_mut(cx).set_app_menus(menus);
-    menu_bar.update(cx, |menu_bar, cx| {
-        menu_bar.reload(cx);
-    });
-}
+    fn subscription(&self) -> Subscription<Self::Message> {
+        let external = iced::event::listen_with(|event, status, window| match event {
+            iced::Event::Window(e) => Some(MainViewMessage::WindowEvent(window, e)),
+            iced::Event::Keyboard(e) => Some(MainViewMessage::KeyboardEvent(window, e)),
+            iced::Event::Mouse(e) => Some(MainViewMessage::MouseEvent(window, e)),
+            _ => None,
+        });
 
-fn build_menu_bar(cx: &App) -> Vec<Menu> {
-    use cyancia_actions::{edit::*, file::*, layer::*, selection::*, window::*};
+        let dock = self.dock_manager.subscription().map(MainViewMessage::Dock);
+        let canvas_create = CanvasCreated::listen_to().map(MainViewMessage::CanvasCreated);
+        let canvas_remove = CanvasRemoved::listen_to().map(MainViewMessage::CanvasRemoved);
 
-    let current_theme = cx.theme().theme_name();
-    let themes = ThemeRegistry::global(cx)
-        .sorted_themes()
-        .into_iter()
-        .map(|theme| {
-            MenuItem::action(
-                theme.name.clone(),
-                SwitchThemeAction {
-                    theme: theme.name.clone(),
-                },
-            )
-            .checked(&theme.name == current_theme)
-        })
-        .collect::<Vec<_>>();
+        Subscription::batch([external, dock, canvas_create, canvas_remove])
+    }
 
-    vec![
-        Menu {
-            name: "File".into(),
-            items: vec![
-                MenuItem::action("Open", OpenFileAction),
-                MenuItem::action("Save", SaveFileAction),
-            ],
-            disabled: false,
-        },
-        Menu {
-            name: "Edit".into(),
-            items: vec![
-                MenuItem::action("Undo", UndoAction),
-                MenuItem::action("Redo", RedoAction),
-                MenuItem::separator(),
-                MenuItem::action("Paste Into New Layer", PasteIntoNewLayerAction),
-            ],
-            disabled: false,
-        },
-        Menu {
-            name: "Layer".into(),
-            items: vec![
-                MenuItem::action("Create New Layer", CreateNewLayerAction),
-                MenuItem::action("Delete Selected Layer", DeleteSelectionAction),
-                MenuItem::action("Group Selected Layers", GroupSelectedLayersAction),
-                MenuItem::action("Move Selected Layer Up", MoveLayerUpAction),
-                MenuItem::action("Move Selected Layer Down", MoveLayerDownAction),
-                MenuItem::action("Select Previous Layer", SelectPreviousLayerAction),
-                MenuItem::action("Select Next Layer", SelectNextLayerAction),
-            ],
-            disabled: false,
-        },
-        Menu {
-            name: "Selection".into(),
-            items: vec![MenuItem::action("Delete Selection", DeleteSelectionAction)],
-            disabled: false,
-        },
-        Menu {
-            name: "Window".into(),
-            items: vec![
-                MenuItem::action("Open Brush Editor", OpenBrushEditorAction),
-                MenuItem::separator(),
-                MenuItem::Submenu(Menu {
-                    name: "Themes".into(),
-                    items: themes,
-                    disabled: false,
-                }),
-            ],
-            disabled: false,
-        },
-    ]
-}
+    fn windows(&self) -> Arc<[iced_core::window::Id]> {
+        self.dock_manager
+            .window_infos()
+            .map(|i| i.id)
+            .collect::<Vec<_>>()
+            .into()
+    }
 
-impl Render for MainView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        ToolLayer::default()
-            .when_some(cx.read_current_canvas(), |tool_layer, canvas| {
-                tool_layer.tool_proxy(canvas.tool_proxy_id())
-            })
-            .child(
-                div()
-                    .track_focus(&self.focus_handle)
-                    .key_context(MAIN_VIEW_CONTEXT)
-                    .w_full()
-                    .h_full()
-                    .child(TitleBar::new().child(self.menu_bar.clone()))
-                    .child(self.dock_area.clone()),
-            )
+    fn root_window(&self) -> Option<iced_core::window::Id> {
+        Some(self.dock_manager.main_window().id)
     }
 }

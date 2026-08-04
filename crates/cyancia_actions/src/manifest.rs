@@ -132,6 +132,7 @@ impl KeyBindingDefManifestCollection {
     }
 }
 
+#[derive(Clone)]
 pub struct ActionCollection {
     shortcuts: HashMap<KeySequence, ActionId>,
 }
