@@ -2,7 +2,7 @@
 members = [
     # "crates/cyancia_abr",
     # "crates/cyancia_abr_derive",
-    # "crates/cyancia_actions",
+    "crates/cyancia_actions",
     # "crates/cyancia_anti_aliasing",
     # "crates/cyancia_app",
     "crates/cyancia_assets",

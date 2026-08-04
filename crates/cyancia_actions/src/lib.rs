@@ -1,7 +1,9 @@
-use std::collections::HashMap;
+use std::{any::Any, collections::HashMap, sync::Arc};
 
 use cyancia_assets::AssetAppExt;
-use gpui::{Action, App, Global, KeyBinding, KeyBindingContextPredicate};
+use cyancia_runtime::{Application, Services, plugin::Plugin, service::Service};
+use cyancia_utils::wrapper;
+use iced_runtime::Task;
 
 use crate::{
     edit::{PasteIntoNewLayerAction, RedoAction, UndoAction},
@@ -10,144 +12,128 @@ use crate::{
         CreateNewLayerAction, DeleteSelectedLayersAction, GroupSelectedLayersAction,
         MoveLayerDownAction, MoveLayerUpAction, SelectNextLayerAction, SelectPreviousLayerAction,
     },
-    manifest::{KeyBindingDefManifest, KeyBindingDefManifestLoader},
+    manifest::{KeyBindingDefManifestCollection, KeyBindingDefManifestLoader},
     selection::DeleteSelectionAction,
     window::OpenBrushEditorAction,
 };
 
+pub mod actions_matcher;
 pub mod edit;
 pub mod file;
+pub mod keystroke;
 pub mod layer;
 pub mod manifest;
 pub mod selection;
 pub mod window;
 
-// pub struct ActionPlugin;
-
-// impl Plugin for ActionPlugin {
-//     fn build(&self, app: &mut Application) {
-//         app.add_service::<ActionFunctionRegistry>()
-//             .add_action_function::<CanvasToolSwitch<PanToolAction>>()
-//             .add_action_function::<CanvasToolSwitch<RotateToolAction>>()
-//             .add_action_function::<CanvasToolSwitch<ZoomToolAction>>()
-//             .add_action_function::<CanvasToolSwitch<BrushToolAction>>()
-//             .add_action_function::<OpenFileAction>()
-//             .add_action_function::<CreateNewLayerAction>()
-//             .add_action_function::<MoveLayerUpAction>()
-//             .add_action_function::<MoveLayerDownAction>()
-//             .add_action_function::<GroupActiveLayerAction>()
-//             .add_action_function::<OpenBrushEditorAction>();
-//     }
-// }
-
-pub fn init(cx: &mut App) {
-    cx.add_asset_serializer::<KeyBindingDefManifestLoader>();
-    cx.set_global(ActionFunctionRegistry::default());
-    cx.add_action_function::<DeleteSelectionAction>();
-    cx.add_action_function::<OpenFileAction>();
-    cx.add_action_function::<SaveFileAction>();
-    cx.add_action_function::<CreateNewLayerAction>();
-    cx.add_action_function::<MoveLayerUpAction>();
-    cx.add_action_function::<MoveLayerDownAction>();
-    cx.add_action_function::<DeleteSelectedLayersAction>();
-    cx.add_action_function::<GroupSelectedLayersAction>();
-    cx.add_action_function::<SelectNextLayerAction>();
-    cx.add_action_function::<SelectPreviousLayerAction>();
-    cx.add_action_function::<PasteIntoNewLayerAction>();
-    cx.add_action_function::<OpenBrushEditorAction>();
-    cx.add_action_function::<UndoAction>();
-    cx.add_action_function::<RedoAction>();
+wrapper! {
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub ActionId : Arc<str>
 }
 
-pub fn finish(cx: &mut App) {
-    let manifests = cx
-        .assets()
-        .all_handles_of::<KeyBindingDefManifest>()
-        .unwrap();
-    let functions = cx.global::<ActionFunctionRegistry>();
+pub struct ActionPlugin;
 
-    // TODO Use the first manifest currently. In the future, this should be confuguable.
-    let manifest_handle = manifests.first().expect("No keybinding manifest available");
-    let manifest = manifest_handle.get().unwrap();
-    log::info!(
-        "Loading {} key bindings from manifest {}",
-        manifest.actions.len(),
-        manifest.name
-    );
-    let key_bindings = manifest
-        .actions
-        .iter()
-        .map(|def| {
-            let function_parser = functions
-                .functions
-                .get(def.action_name.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Action {} not found.", def.action_name))?;
-            let context = if let Some(context) = &def.context {
-                Some(KeyBindingContextPredicate::parse(context)?.into())
-            } else {
-                None
-            };
-
-            Ok::<KeyBinding, anyhow::Error>(KeyBinding::load(
-                &def.shortcut,
-                function_parser(def.action_data.clone())?,
-                context,
-                true,
-                None,
-                cx.keyboard_mapper().as_ref(),
-            )?)
-        })
-        .enumerate()
-        .filter_map(|(i, binding)| match binding {
-            Ok(b) => Some(b),
-            Err(e) => {
-                let def = manifest.actions.get(i)?;
-                log::error!(
-                    "Error loading keybinding {} triggered by {} with context {:?} and data {}: {}",
-                    def.action_name,
-                    def.shortcut,
-                    def.context,
-                    def.action_data,
-                    e
-                );
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    cx.bind_keys(key_bindings);
-}
-
-pub trait ActionAppExt {
-    fn add_action_function<A: ActionFunction>(&mut self);
-}
-
-impl ActionAppExt for App {
-    fn add_action_function<A: ActionFunction>(&mut self) {
-        self.global_mut::<ActionFunctionRegistry>().register::<A>();
-        self.on_action::<A>(|f, cx| {
-            log::info!("Action triggered from keymap: {}", f.name());
-            f.trigger(cx);
-        });
+impl Plugin for ActionPlugin {
+    fn build(&self, app: &mut Application) {
+        let mut runtime = app.runtime_mut();
+        runtime
+            .services_mut()
+            .add_asset_serializer::<KeyBindingDefManifestLoader>();
+        runtime.add_service::<KeyBindingDefManifestCollection>();
+        runtime.add_service::<ActionFunctionRegistry>();
+        let services = runtime.services_mut();
+        services
+            .add_action_function::<DeleteSelectionAction>()
+            .add_action_function::<OpenFileAction>()
+            .add_action_function::<SaveFileAction>()
+            .add_action_function::<CreateNewLayerAction>()
+            .add_action_function::<MoveLayerUpAction>()
+            .add_action_function::<MoveLayerDownAction>()
+            .add_action_function::<DeleteSelectedLayersAction>()
+            .add_action_function::<GroupSelectedLayersAction>()
+            .add_action_function::<SelectNextLayerAction>()
+            .add_action_function::<SelectPreviousLayerAction>()
+            .add_action_function::<PasteIntoNewLayerAction>()
+            .add_action_function::<OpenBrushEditorAction>()
+            .add_action_function::<UndoAction>()
+            .add_action_function::<RedoAction>();
     }
 }
 
-pub trait ActionFunction: Action + Send + Sync + 'static {
-    fn trigger(&self, cx: &mut App);
+pub trait ActionAppExt {
+    fn add_action_function<A: ActionFunction + Default>(&mut self) -> &mut Self;
+}
+
+impl ActionAppExt for Services {
+    fn add_action_function<A: ActionFunction + Default>(&mut self) -> &mut Self {
+        self.service_mut::<ActionFunctionRegistry>().register::<A>();
+        self
+    }
+}
+
+pub trait ActionFunction: Send + Sync + 'static {
+    type Message: Send + Sync + 'static;
+
+    fn id(&self) -> ActionId;
+    fn trigger(&self, services: &mut Services) -> Task<Self::Message>;
+    fn handle_message(
+        &self,
+        message: Self::Message,
+        services: &mut Services,
+    ) -> Task<Self::Message> {
+        Task::none()
+    }
+}
+
+pub trait ErasedActionFunction: Send + Sync + 'static {
+    fn id(&self) -> ActionId;
+    fn trigger(&self, services: &mut Services) -> Task<Box<dyn Any + Send + Sync>>;
+    fn handle_message(
+        &self,
+        message: Box<dyn Any + Send + Sync>,
+        services: &mut Services,
+    ) -> Task<Box<dyn Any + Send + Sync>> {
+        Task::none()
+    }
+}
+
+impl<T: ActionFunction> ErasedActionFunction for T {
+    fn id(&self) -> ActionId {
+        self.id()
+    }
+
+    fn trigger(&self, services: &mut Services) -> Task<Box<dyn Any + Send + Sync>> {
+        self.trigger(services)
+            .map(|message| Box::new(message) as Box<dyn Any + Send + Sync>)
+    }
+
+    fn handle_message(
+        &self,
+        message: Box<dyn Any + Send + Sync>,
+        services: &mut Services,
+    ) -> Task<Box<dyn Any + Send + Sync>> {
+        let message = message
+            .downcast::<T::Message>()
+            .expect("Invalid message type");
+        self.handle_message(*message, services)
+            .map(|message| Box::new(message) as Box<dyn Any + Send + Sync>)
+    }
 }
 
 #[derive(Default)]
 pub struct ActionFunctionRegistry {
-    functions: HashMap<
-        &'static str,
-        Box<dyn Fn(serde_json::Value) -> Result<Box<dyn Action>, anyhow::Error>>,
-    >,
+    functions: HashMap<ActionId, Arc<dyn ErasedActionFunction>>,
 }
 
-impl Global for ActionFunctionRegistry {}
+impl Service for ActionFunctionRegistry {}
 
 impl ActionFunctionRegistry {
-    pub fn register<A: ActionFunction>(&mut self) {
-        self.functions
-            .insert(A::name_for_type(), Box::new(A::build));
+    pub fn register<A: ActionFunction + Default>(&mut self) {
+        let action = A::default();
+        self.functions.insert(action.id(), Arc::new(action));
+    }
+
+    pub fn get(&self, action_id: ActionId) -> Option<Arc<dyn ErasedActionFunction>> {
+        self.functions.get(&action_id).cloned()
     }
 }

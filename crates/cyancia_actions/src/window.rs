@@ -1,15 +1,25 @@
-use cyancia_view::{ViewAppExt, ViewId};
-use gpui::{Action, App};
-use schemars::JsonSchema;
-use serde::Deserialize;
+use cyancia_runtime::{
+    Services,
+    windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},
+};
+use iced_runtime::Task;
 
-use crate::ActionFunction;
+use crate::{ActionFunction, ActionId};
 
-#[derive(Action, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
+#[derive(Default)]
 pub struct OpenBrushEditorAction;
 
 impl ActionFunction for OpenBrushEditorAction {
-    fn trigger(&self, cx: &mut App) {
-        cx.open_view(ViewId::new("brush_editor"));
+    type Message = ();
+
+    fn id(&self) -> ActionId {
+        ActionId::new("OpenBrushEditorAction".into())
+    }
+
+    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
+        services.service_mut::<WindowCommandBuffer>().push(
+            OpenWindowViewCommand::new(WindowViewId::new("brush_editor")),
+        );
+        Task::none()
     }
 }
