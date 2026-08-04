@@ -5,12 +5,15 @@ use bevy_math::IRect;
 use cyancia_cyan::CyanArchive;
 use cyancia_image::{
     CImage,
+    composite::{BlendFunctionRegistry, ImageCompositor, LayerPreviewOverriders},
     layer::{LayerId, LayerStackNode},
+    tile::TileStorageAppExt,
 };
+use cyancia_render::render_context::RenderContextAppExt;
+use cyancia_runtime::{Application, Services, plugin::Plugin, service::Service};
 use cyancia_tools::{ToolProxyId, ToolsAppExt};
 use cyancia_undo::{QueuedUndoCommand, UndoCommand, UndoStack, UndoStacks};
 use cyancia_utils::wrapper;
-use gpui::{App, AppContext, BorrowAppContext, Context, Entity, EventEmitter, Global, WeakEntity};
 use indexmap::IndexSet;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
@@ -18,10 +21,7 @@ use uuid::Uuid;
 
 use crate::{
     control::CanvasTransform,
-    event::{
-        CanvasActiveLayerChanged, CanvasCreated, CanvasLayerPropertyChanged, CanvasRemoved,
-        CanvasUpdated, CurrentCanvasChanged,
-    },
+    event::CanvasActiveLayerChanged,
     tools::{PanTool, RotateTool, ZoomTool},
 };
 
@@ -39,7 +39,6 @@ wrapper! {
     pub CanvasId : Uuid
 }
 
-#[derive(Debug)]
 pub struct CCanvas {
     id: CanvasId,
     tool_proxy_id: ToolProxyId,
@@ -48,9 +47,9 @@ pub struct CCanvas {
     pub archive: CyanArchive,
     pub transform: CanvasTransform,
     active_layer: LayerId,
-    // Also contains active_layer
     selected_layers: IndexSet<LayerId>,
     dirty_tiles: IRect,
+    compositor: ImageCompositor,
 }
 
 impl CCanvas {
@@ -67,8 +66,9 @@ impl CCanvas {
             .first()
             .expect("Root layer should have at least one child");
 
+        let dirty_tiles = image.image_tile_rect();
         Self {
-            id: CanvasId(Uuid::new_v4()),
+            id: CanvasId::new(Uuid::new_v4()),
             tool_proxy_id,
             file_path: path,
             image,
@@ -76,7 +76,8 @@ impl CCanvas {
             transform: CanvasTransform::default(),
             active_layer: background_layer,
             selected_layers: IndexSet::from([background_layer]),
-            dirty_tiles: IRect::default(),
+            dirty_tiles,
+            compositor: ImageCompositor::new(),
         }
     }
 
@@ -102,59 +103,102 @@ impl CCanvas {
         self.dirty_tiles = self.dirty_tiles.union(tiles);
     }
 
+    pub fn dirty_tiles(&self) -> IRect {
+        self.dirty_tiles
+    }
+
     pub fn clear_dirty(&mut self) -> IRect {
         let rect = self.dirty_tiles;
         self.dirty_tiles = IRect::EMPTY;
         rect
     }
 
-    pub fn set_active_layer(&mut self, layer_id: LayerId, cx: &mut Context<Self>) {
-        if layer_id == self.active_layer || layer_id == *self.image.layer_stack().root_id() {
+    pub fn recomposite(&mut self, services: &mut Services) {
+        if self.dirty_tiles.is_empty() {
             return;
+        }
+        let dirty_tiles = self.clear_dirty();
+        services.service_scope::<LayerPreviewOverriders, _>(|overriders, services| {
+            let tiles = services.tile_storage();
+            let blend_functions = services.service::<BlendFunctionRegistry>();
+            let device = services.render_device();
+            let queue = services.render_queue();
+            self.compositor.create_cache(
+                overriders,
+                &self.image,
+                tiles,
+                blend_functions,
+                device,
+                queue,
+            );
+            self.compositor
+                .composite(overriders, dirty_tiles, &self.image, tiles, device, queue);
+        });
+    }
+
+    pub fn set_active_layer(&mut self, layer_id: LayerId) -> Option<CanvasActiveLayerChanged> {
+        if layer_id == self.active_layer || layer_id == *self.image.layer_stack().root_id() {
+            return None;
         }
         let old = self.active_layer;
         self.active_layer = layer_id;
         self.selected_layers.insert(layer_id);
-
-        cx.emit(CanvasActiveLayerChanged {
+        Some(CanvasActiveLayerChanged {
             from: old,
             to: layer_id,
-        });
+        })
     }
 
-    pub fn set_active_layer_and_clear_select(&mut self, layer_id: LayerId, cx: &mut Context<Self>) {
+    pub fn set_active_layer_and_clear_select(
+        &mut self,
+        layer_id: LayerId,
+    ) -> Option<CanvasActiveLayerChanged> {
         self.selected_layers.clear();
-        self.set_active_layer(layer_id, cx);
+        self.set_active_layer(layer_id)
     }
 
     pub fn select_layer(&mut self, layer_id: LayerId) {
         self.selected_layers.insert(layer_id);
     }
 
-    pub fn deselect_layer(&mut self, layer_id: LayerId, cx: &mut Context<Self>) {
+    pub fn deselect_layer(&mut self, layer_id: LayerId) -> Option<CanvasActiveLayerChanged> {
         if self.selected_layers.contains(&layer_id) && self.selected_layers.len() == 1 {
-            return;
+            return None;
         }
 
         self.selected_layers.shift_remove(&layer_id);
         if self.active_layer == layer_id {
-            self.set_active_layer(self.selected_layers.first().copied().unwrap(), cx);
-        }
-    }
-
-    pub fn toggle_layer_selection_and_active(&mut self, layer_id: LayerId, cx: &mut Context<Self>) {
-        if self.selected_layers.contains(&layer_id) {
-            self.deselect_layer(layer_id, cx);
+            self.set_active_layer(
+                self.selected_layers
+                    .first()
+                    .copied()
+                    .expect("A selected layer should remain"),
+            )
         } else {
-            self.set_active_layer(layer_id, cx);
+            None
         }
     }
 
-    pub fn toggle_layer_selection(&mut self, layer_id: LayerId, cx: &mut Context<Self>) {
+    pub fn toggle_layer_selection_and_active(
+        &mut self,
+        layer_id: LayerId,
+    ) -> Option<CanvasActiveLayerChanged> {
         if self.selected_layers.contains(&layer_id) {
-            self.deselect_layer(layer_id, cx);
+            self.deselect_layer(layer_id)
+        } else {
+            self.set_active_layer(layer_id)
+        }
+    }
+
+    pub fn toggle_layer_selection(
+        &mut self,
+        layer_id: LayerId,
+    ) -> Option<CanvasActiveLayerChanged> {
+        if self.selected_layers.contains(&layer_id) {
+            self.deselect_layer(layer_id)
         } else {
             self.select_layer(layer_id);
+            None
         }
     }
 
@@ -181,211 +225,167 @@ impl CCanvas {
     }
 
     pub fn parent_id_of_active_layer(&self) -> LayerId {
-        let l = self
+        let layer = self
             .image
             .layer_stack()
             .get_layer(&self.active_layer)
             .expect("Active layer should always exist");
-        *l.parent()
+        *layer
+            .parent()
             .expect("Active layer should always have a parent")
     }
 }
 
-impl EventEmitter<CanvasUpdated> for CCanvas {}
+pub struct CanvasPlugin;
 
-impl EventEmitter<CanvasActiveLayerChanged> for CCanvas {}
-
-impl EventEmitter<CanvasLayerPropertyChanged> for CCanvas {}
-
-pub fn init(cx: &mut App) {
-    let cm = CanvasManager::new(cx);
-    cx.set_global(cm);
-    cx.add_tool_function::<PanTool>();
-    cx.add_tool_function::<RotateTool>();
-    cx.add_tool_function::<ZoomTool>();
-}
-
-pub trait CanvasAppExt {
-    fn add_canvas(&mut self, canvas: CCanvas, cx: &mut App);
-    fn remove_canvas(&mut self, id: &CanvasId, cx: &mut App);
-    fn global_canvas_events_entity(&self) -> Entity<GlobalCanvasEvents>;
-    fn current_canvas_id(&self) -> Option<CanvasId>;
-    fn current_canvas(&self) -> Option<WeakEntity<CCanvas>>;
-    fn read_current_canvas(&self) -> Option<&CCanvas>;
-    fn update_current_canvas<R>(
-        &mut self,
-        update: impl FnOnce(&mut CCanvas, &mut Context<CCanvas>) -> R,
-    ) -> Option<R>;
-    fn canvas(&self, id: &CanvasId) -> Option<WeakEntity<CCanvas>>;
-    fn read_canvas(&self, id: &CanvasId) -> Option<&CCanvas>;
-    fn update_canvas<R>(
-        &mut self,
-        id: &CanvasId,
-        update: impl FnOnce(&mut CCanvas, &mut Context<CCanvas>) -> R,
-    ) -> Option<R>;
-    fn set_current_canvas(&mut self, id: CanvasId);
-}
-
-impl CanvasAppExt for App {
-    fn add_canvas(&mut self, canvas: CCanvas, _: &mut App) {
-        self.update_global::<CanvasManager, _>(|cm, cx| cm.add_canvas(canvas, cx));
-    }
-
-    fn remove_canvas(&mut self, id: &CanvasId, _: &mut App) {
-        self.update_global::<CanvasManager, _>(|cm, cx| cm.remove_canvas(id, cx));
-    }
-
-    fn global_canvas_events_entity(&self) -> Entity<GlobalCanvasEvents> {
-        self.global::<CanvasManager>().event_emitter()
-    }
-
-    fn current_canvas_id(&self) -> Option<CanvasId> {
-        self.global::<CanvasManager>().current_id()
-    }
-
-    fn current_canvas(&self) -> Option<WeakEntity<CCanvas>> {
-        self.global::<CanvasManager>().current()
-    }
-
-    fn read_current_canvas(&self) -> Option<&CCanvas> {
-        self.global::<CanvasManager>().read_current(self)
-    }
-
-    fn update_current_canvas<R>(
-        &mut self,
-        update: impl FnOnce(&mut CCanvas, &mut Context<CCanvas>) -> R,
-    ) -> Option<R> {
-        self.update_global::<CanvasManager, _>(|cm, cx| cm.update_current(cx, update))
-    }
-
-    fn canvas(&self, id: &CanvasId) -> Option<WeakEntity<CCanvas>> {
-        self.global::<CanvasManager>().get(id)
-    }
-
-    fn read_canvas(&self, id: &CanvasId) -> Option<&CCanvas> {
-        self.global::<CanvasManager>().read(id, self)
-    }
-
-    fn update_canvas<R>(
-        &mut self,
-        id: &CanvasId,
-        update: impl FnOnce(&mut CCanvas, &mut Context<CCanvas>) -> R,
-    ) -> Option<R> {
-        self.update_global::<CanvasManager, _>(|cm, cx| cm.update(id, cx, update))
-    }
-
-    fn set_current_canvas(&mut self, id: CanvasId) {
-        self.update_global::<CanvasManager, _>(|cm, cx| cm.set_current(id, cx));
+impl Plugin for CanvasPlugin {
+    fn build(&self, app: &mut Application) {
+        app.add_service::<CanvasManager>();
+        let mut runtime = app.runtime_mut();
+        runtime
+            .services_mut()
+            .add_tool_function::<PanTool>()
+            .add_tool_function::<RotateTool>()
+            .add_tool_function::<ZoomTool>();
     }
 }
 
-pub struct GlobalCanvasEvents;
-
-impl EventEmitter<CanvasCreated> for GlobalCanvasEvents {}
-
-impl EventEmitter<CanvasRemoved> for GlobalCanvasEvents {}
-
-impl EventEmitter<CurrentCanvasChanged> for GlobalCanvasEvents {}
-
+#[derive(Default)]
 pub struct CanvasManager {
-    canvases: HashMap<CanvasId, Entity<CCanvas>>,
+    canvases: HashMap<CanvasId, CCanvas>,
     current_canvas: Option<CanvasId>,
-    event_emitter: Entity<GlobalCanvasEvents>,
 }
 
-impl Global for CanvasManager {}
+impl Service for CanvasManager {}
 
 impl CanvasManager {
-    pub fn new(cx: &mut App) -> Self {
-        Self {
-            canvases: HashMap::new(),
-            current_canvas: None,
-            event_emitter: cx.new(|_| GlobalCanvasEvents),
-        }
-    }
-
-    pub fn add_canvas(&mut self, canvas: CCanvas, cx: &mut App) {
+    pub fn add_canvas(&mut self, canvas: CCanvas) -> CanvasId {
         let id = canvas.id;
-        let old = self.current_canvas.replace(id);
-        self.canvases.insert(id, cx.new(|_| canvas));
-        self.event_emitter.update(cx, |_, cx| {
-            cx.emit(CanvasCreated { id });
-            cx.emit(CurrentCanvasChanged {
-                from: old,
-                to: Some(id),
-            });
-        });
+        self.current_canvas = Some(id);
+        self.canvases.insert(id, canvas);
+        id
     }
 
-    pub fn remove_canvas(&mut self, id: &CanvasId, cx: &mut App) {
-        if self.canvases.remove(id).is_some() {
-            if self.current_canvas.as_ref() == Some(id) {
-                self.current_canvas = self.canvases.keys().next().copied();
-            }
-            self.event_emitter.update(cx, |_, cx| {
-                cx.emit(CanvasRemoved { id: *id });
-                cx.emit(CurrentCanvasChanged {
-                    from: Some(*id),
-                    to: self.current_canvas.as_ref().copied(),
-                });
-            });
+    pub fn remove_canvas(&mut self, id: &CanvasId) -> Option<CCanvas> {
+        let removed = self.canvases.remove(id)?;
+        if self.current_canvas.as_ref() == Some(id) {
+            self.current_canvas = self.canvases.keys().next().copied();
         }
+        Some(removed)
     }
 
-    pub fn get(&self, id: &CanvasId) -> Option<WeakEntity<CCanvas>> {
-        Some(self.canvases.get(id)?.downgrade())
+    pub fn get(&self, id: &CanvasId) -> Option<&CCanvas> {
+        self.canvases.get(id)
     }
 
-    pub fn read<'a>(&self, id: &CanvasId, cx: &'a App) -> Option<&'a CCanvas> {
-        Some(self.canvases.get(id)?.read(cx))
+    pub fn get_mut(&mut self, id: &CanvasId) -> Option<&mut CCanvas> {
+        self.canvases.get_mut(id)
     }
 
-    pub fn update<R>(
-        &self,
-        id: &CanvasId,
-        cx: &mut App,
-        update: impl FnOnce(&mut CCanvas, &mut Context<CCanvas>) -> R,
-    ) -> Option<R> {
-        let canvas = self.canvases.get(id)?;
-        Some(canvas.update(cx, update))
+    pub fn current(&self) -> Option<&CCanvas> {
+        self.get(&self.current_canvas?)
     }
 
-    pub fn current(&self) -> Option<WeakEntity<CCanvas>> {
-        let cur = self.current_canvas.as_ref()?;
-        Some(self.canvases.get(cur)?.downgrade())
-    }
-
-    pub fn read_current<'a>(&self, cx: &'a App) -> Option<&'a CCanvas> {
-        let cur = self.current_canvas.as_ref()?;
-        Some(self.canvases.get(cur)?.read(cx))
-    }
-
-    pub fn update_current<R>(
-        &mut self,
-        cx: &mut App,
-        update: impl FnOnce(&mut CCanvas, &mut Context<CCanvas>) -> R,
-    ) -> Option<R> {
-        let cur = self.current_canvas.as_ref()?;
-        let canvas = self.canvases.get(cur).unwrap();
-        Some(canvas.update(cx, update))
+    pub fn current_mut(&mut self) -> Option<&mut CCanvas> {
+        self.get_mut(&self.current_canvas?)
     }
 
     pub fn current_id(&self) -> Option<CanvasId> {
         self.current_canvas
     }
 
-    pub fn set_current(&mut self, id: CanvasId, cx: &mut App) {
-        let old = self.current_canvas.replace(id);
-        self.event_emitter.update(cx, |_, cx| {
-            cx.emit(CurrentCanvasChanged {
-                from: old,
-                to: Some(id),
-            });
-        });
+    pub fn set_current(&mut self, id: CanvasId) {
+        assert!(self.canvases.contains_key(&id), "Canvas should exist");
+        self.current_canvas = Some(id);
+    }
+}
+
+pub trait CanvasAppExt {
+    fn add_canvas(&mut self, canvas: CCanvas) -> CanvasId;
+    fn remove_canvas(&mut self, id: &CanvasId) -> Option<CCanvas>;
+    fn current_canvas_id(&self) -> Option<CanvasId>;
+    fn current_canvas(&self) -> Option<&CCanvas>;
+    fn current_canvas_mut(&mut self) -> Option<&mut CCanvas>;
+    fn canvas(&self, id: &CanvasId) -> Option<&CCanvas>;
+    fn canvas_mut(&mut self, id: &CanvasId) -> Option<&mut CCanvas>;
+    fn update_current_canvas<R>(
+        &mut self,
+        update: impl FnOnce(&mut CCanvas, &mut Services) -> R,
+    ) -> Option<R>;
+    fn update_canvas<R>(
+        &mut self,
+        id: &CanvasId,
+        update: impl FnOnce(&mut CCanvas, &mut Services) -> R,
+    ) -> Option<R>;
+    fn recomposite_current_canvas(&mut self);
+    fn recomposite_canvas(&mut self, id: &CanvasId);
+    fn set_current_canvas(&mut self, id: CanvasId);
+}
+
+impl CanvasAppExt for Services {
+    fn add_canvas(&mut self, mut canvas: CCanvas) -> CanvasId {
+        canvas.recomposite(self);
+        self.service_mut::<CanvasManager>().add_canvas(canvas)
     }
 
-    pub fn event_emitter(&self) -> Entity<GlobalCanvasEvents> {
-        self.event_emitter.clone()
+    fn remove_canvas(&mut self, id: &CanvasId) -> Option<CCanvas> {
+        self.service_mut::<CanvasManager>().remove_canvas(id)
+    }
+
+    fn current_canvas_id(&self) -> Option<CanvasId> {
+        self.service::<CanvasManager>().current_id()
+    }
+
+    fn current_canvas(&self) -> Option<&CCanvas> {
+        self.service::<CanvasManager>().current()
+    }
+
+    fn current_canvas_mut(&mut self) -> Option<&mut CCanvas> {
+        self.service_mut::<CanvasManager>().current_mut()
+    }
+
+    fn canvas(&self, id: &CanvasId) -> Option<&CCanvas> {
+        self.service::<CanvasManager>().get(id)
+    }
+
+    fn canvas_mut(&mut self, id: &CanvasId) -> Option<&mut CCanvas> {
+        self.service_mut::<CanvasManager>().get_mut(id)
+    }
+
+    fn update_current_canvas<R>(
+        &mut self,
+        update: impl FnOnce(&mut CCanvas, &mut Services) -> R,
+    ) -> Option<R> {
+        let id = self.current_canvas_id()?;
+        self.update_canvas(&id, update)
+    }
+
+    fn update_canvas<R>(
+        &mut self,
+        id: &CanvasId,
+        update: impl FnOnce(&mut CCanvas, &mut Services) -> R,
+    ) -> Option<R> {
+        self.service_scope::<CanvasManager, _>(|manager, services| {
+            let canvas = manager.get_mut(id)?;
+            let result = update(canvas, services);
+            canvas.recomposite(services);
+            Some(result)
+        })
+    }
+
+    fn recomposite_current_canvas(&mut self) {
+        let Some(id) = self.current_canvas_id() else {
+            return;
+        };
+        self.recomposite_canvas(&id);
+    }
+
+    fn recomposite_canvas(&mut self, id: &CanvasId) {
+        self.update_canvas(id, |canvas, services| canvas.recomposite(services));
+    }
+
+    fn set_current_canvas(&mut self, id: CanvasId) {
+        self.service_mut::<CanvasManager>().set_current(id);
     }
 }
 
@@ -413,7 +413,7 @@ pub trait CanvasUndoStackAppExt {
     fn queue_undo_command(&mut self, id: &CanvasId) -> anyhow::Result<QueuedUndoCommand>;
 }
 
-impl CanvasUndoStackAppExt for App {
+impl CanvasUndoStackAppExt for Services {
     fn current_canvas_undo_stack(&self) -> Option<&UndoStack> {
         self.undo_stack(&self.current_canvas_id()?)
     }
@@ -423,11 +423,11 @@ impl CanvasUndoStackAppExt for App {
     }
 
     fn undo_stack(&self, id: &CanvasId) -> Option<&UndoStack> {
-        self.global::<UndoStacks>().get(id)
+        self.service::<UndoStacks>().get(&**id)
     }
 
     fn undo_stack_mut(&mut self, id: &CanvasId) -> Option<&mut UndoStack> {
-        self.global_mut::<UndoStacks>().get_mut(id)
+        self.service_mut::<UndoStacks>().get_mut(&**id)
     }
 
     fn push_undo_command_to_current<C: UndoCommand>(&mut self, command: C) -> anyhow::Result<()> {
@@ -446,10 +446,10 @@ impl CanvasUndoStackAppExt for App {
         &mut self,
         command: Box<dyn UndoCommand>,
     ) -> anyhow::Result<()> {
-        let cur = self
+        let id = self
             .current_canvas_id()
             .ok_or_else(|| anyhow::anyhow!("No current canvas"))?;
-        self.push_undo_command_boxed(&cur, command)
+        self.push_undo_command_boxed(&id, command)
     }
 
     fn push_undo_command_boxed(
@@ -457,27 +457,25 @@ impl CanvasUndoStackAppExt for App {
         id: &CanvasId,
         command: Box<dyn UndoCommand>,
     ) -> anyhow::Result<()> {
-        self.update_global::<UndoStacks, _>(|stacks, cx| {
-            let stack = stacks
-                .get_mut(id)
-                .ok_or_else(|| anyhow::anyhow!("Undo stack for canvas {} not found", id))?;
-            stack.push_boxed(command, cx)
+        self.service_scope::<UndoStacks, _>(|stacks, services| {
+            stacks
+                .get_mut(&**id)
+                .ok_or_else(|| anyhow::anyhow!("Undo stack for canvas {} not found", id))?
+                .push_boxed(command, services)
         })
     }
 
     fn queue_undo_command_to_current(&mut self) -> anyhow::Result<QueuedUndoCommand> {
-        let cur = self
+        let id = self
             .current_canvas_id()
             .ok_or_else(|| anyhow::anyhow!("No current canvas"))?;
-        self.queue_undo_command(&cur)
+        self.queue_undo_command(&id)
     }
 
     fn queue_undo_command(&mut self, id: &CanvasId) -> anyhow::Result<QueuedUndoCommand> {
-        self.update_global::<UndoStacks, _>(|stacks, _| {
-            let stack = stacks
-                .get_mut(id)
-                .ok_or_else(|| anyhow::anyhow!("Undo stack for canvas {} not found", id))?;
-            Ok(stack.queue())
-        })
+        self.service_mut::<UndoStacks>()
+            .get_mut(&**id)
+            .ok_or_else(|| anyhow::anyhow!("Undo stack for canvas {} not found", id))
+            .map(UndoStack::queue)
     }
 }

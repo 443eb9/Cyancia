@@ -10,20 +10,17 @@ use cyancia_image::{
     tile::{DynamicLayerStorage, GpuLayerInfo, GpuTileStorage, TileStorageAppExt},
 };
 use cyancia_render::render_context::RenderContextAppExt;
+use cyancia_runtime::Services;
 use cyancia_undo::UndoCommand;
 use cyancia_utils::log_err::LogErr;
 use glam::IVec2;
-use gpui::App;
 use indexmap::IndexSet;
 use wgpu::{
     Device, Extent3d, ImageSubresourceRange, Origin3d, Queue, TexelCopyTextureInfo, Texture,
     TextureAspect, TextureDescriptor, TextureDimension, TextureUsages,
 };
 
-use crate::{
-    CCanvas, CanvasAppExt, CanvasId,
-    event::{CanvasLayerPropertyChanged, CanvasUpdated},
-};
+use crate::{CCanvas, CanvasAppExt, CanvasId};
 
 pub struct TileReplaceCommand {
     pub reason: Cow<'static, str>,
@@ -165,7 +162,7 @@ impl TileReplaceCommand {
 }
 
 fn apply_tile_replace(
-    cx: &mut App,
+    services: &mut Services,
     canvas: CanvasId,
     layer: LayerId,
     replace_tile: &Option<(Texture, Vec<IVec2>)>,
@@ -174,10 +171,10 @@ fn apply_tile_replace(
     let mut dirty_min = IVec2::MAX;
     let mut dirty_max = IVec2::MIN;
 
-    let device = cx.render_device();
-    let queue = cx.render_queue();
+    let device = services.render_device();
+    let queue = services.render_queue();
 
-    let tile_storage = cx.tile_storage();
+    let tile_storage = services.tile_storage();
     let mut layer = tile_storage.get_layer_mut(layer).unwrap();
 
     let mut ec = device.create_command_encoder(&Default::default());
@@ -246,12 +243,10 @@ fn apply_tile_replace(
 
     drop(layer);
 
-    cx.update_canvas(&canvas, |_, cx| {
-        cx.emit(CanvasUpdated {
-            dirty_tiles: IRect {
-                min: dirty_min,
-                max: dirty_max + 1,
-            },
+    services.update_canvas(&canvas, |canvas, _| {
+        canvas.mark_dirty(IRect {
+            min: dirty_min,
+            max: dirty_max + 1,
         });
     });
 }
@@ -262,7 +257,7 @@ impl UndoCommand for TileReplaceCommand {
     }
 
     #[tracing::instrument(skip_all)]
-    fn redo(&mut self, cx: &mut App) -> anyhow::Result<()> {
+    fn redo(&mut self, services: &mut Services) -> anyhow::Result<()> {
         let to_clear = self
             .old_tiles
             .as_ref()
@@ -276,12 +271,12 @@ impl UndoCommand for TileReplaceCommand {
             })
             .unwrap_or_default();
 
-        apply_tile_replace(cx, self.canvas, self.layer, &self.new_tiles, to_clear);
+        apply_tile_replace(services, self.canvas, self.layer, &self.new_tiles, to_clear);
         Ok(())
     }
 
     #[tracing::instrument(skip_all)]
-    fn undo(&mut self, cx: &mut App) -> anyhow::Result<()> {
+    fn undo(&mut self, services: &mut Services) -> anyhow::Result<()> {
         let to_clear = self
             .new_tiles
             .as_ref()
@@ -295,7 +290,7 @@ impl UndoCommand for TileReplaceCommand {
             })
             .unwrap_or_default();
 
-        apply_tile_replace(cx, self.canvas, self.layer, &self.old_tiles, to_clear);
+        apply_tile_replace(services, self.canvas, self.layer, &self.old_tiles, to_clear);
         Ok(())
     }
 }
@@ -335,41 +330,44 @@ impl UndoCommand for InsertLayerCommand {
         "Create Layer".into()
     }
 
-    fn redo(&mut self, cx: &mut App) -> anyhow::Result<()> {
-        cx.update_canvas(&self.canvas, |canvas, cx| {
-            canvas.image.layer_stack_mut().add_layer(
-                self.parent_id,
-                self.position,
-                self.layer.clone(),
-            );
-            canvas.set_active_layer_and_clear_select(*self.layer.id(), cx);
-        })
-        .ok_or(anyhow::anyhow!("Canvas {} not found", self.canvas))
-        .log_err();
-        cx.refresh_windows();
-
+    fn redo(&mut self, services: &mut Services) -> anyhow::Result<()> {
         if let Some(texel_type) = self.layer.properties().get_texel_type() {
-            cx.tile_storage()
+            services
+                .tile_storage()
                 .declare_layer(*self.layer.id(), GpuLayerInfo { texel_type });
         }
+
+        services
+            .update_canvas(&self.canvas, |canvas, _| {
+                canvas.image.layer_stack_mut().add_layer(
+                    self.parent_id,
+                    self.position,
+                    self.layer.clone(),
+                );
+                canvas.mark_dirty(canvas.image.image_tile_rect());
+                canvas.set_active_layer_and_clear_select(*self.layer.id());
+            })
+            .ok_or(anyhow::anyhow!("Canvas {} not found", self.canvas))
+            .log_err();
 
         Ok(())
     }
 
-    fn undo(&mut self, cx: &mut App) -> anyhow::Result<()> {
-        cx.update_canvas(&self.canvas, |canvas, cx| {
-            canvas
-                .image
-                .layer_stack_mut()
-                .remove_layer_hierarchy(self.layer.id());
-            canvas.set_active_layer_and_clear_select(self.previous_active_layer, cx);
-            for layer_id in &self.previous_selected_layers {
-                canvas.select_layer(*layer_id);
-            }
-        })
-        .ok_or(anyhow::anyhow!("Canvas {} not found", self.canvas))
-        .log_err();
-        cx.refresh_windows();
+    fn undo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+        services
+            .update_canvas(&self.canvas, |canvas, _| {
+                canvas
+                    .image
+                    .layer_stack_mut()
+                    .remove_layer_hierarchy(self.layer.id());
+                canvas.mark_dirty(canvas.image.image_tile_rect());
+                canvas.set_active_layer_and_clear_select(self.previous_active_layer);
+                for layer_id in &self.previous_selected_layers {
+                    canvas.select_layer(*layer_id);
+                }
+            })
+            .ok_or(anyhow::anyhow!("Canvas {} not found", self.canvas))
+            .log_err();
 
         Ok(())
     }
@@ -394,49 +392,51 @@ impl UndoCommand for GroupLayerCommand {
         "Group Layer".into()
     }
 
-    fn redo(&mut self, cx: &mut App) -> anyhow::Result<()> {
-        cx.update_canvas(&self.canvas, |canvas, _| {
-            canvas.image.layer_stack_mut().add_layer(
-                self.parent_id,
-                self.index,
-                self.group.clone(),
-            );
-            for (i, child) in self.children.iter().enumerate() {
-                canvas
-                    .image
-                    .layer_stack_mut()
-                    .move_layer(child.id, *self.group.id(), i);
-            }
-        })
-        .ok_or(anyhow::anyhow!("Canvas {} not found", self.canvas))
-        .log_err();
-        cx.refresh_windows();
+    fn redo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+        services
+            .update_canvas(&self.canvas, |canvas, _| {
+                canvas.image.layer_stack_mut().add_layer(
+                    self.parent_id,
+                    self.index,
+                    self.group.clone(),
+                );
+                for (i, child) in self.children.iter().enumerate() {
+                    canvas
+                        .image
+                        .layer_stack_mut()
+                        .move_layer(child.id, *self.group.id(), i);
+                }
+                canvas.mark_dirty(canvas.image.image_tile_rect());
+            })
+            .ok_or(anyhow::anyhow!("Canvas {} not found", self.canvas))
+            .log_err();
 
         Ok(())
     }
 
-    fn undo(&mut self, cx: &mut App) -> anyhow::Result<()> {
-        cx.update_canvas(&self.canvas, |canvas, _| {
-            let mut removed_nodes = canvas
-                .image
-                .layer_stack_mut()
-                .remove_layer_hierarchy(self.group.id());
+    fn undo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+        services
+            .update_canvas(&self.canvas, |canvas, _| {
+                let mut removed_nodes = canvas
+                    .image
+                    .layer_stack_mut()
+                    .remove_layer_hierarchy(self.group.id());
 
-            removed_nodes.remove(self.group.id()).unwrap();
+                removed_nodes.remove(self.group.id()).unwrap();
 
-            for child in &self.children {
-                canvas.image.layer_stack_mut().add_layer(
-                    child.original_parent,
-                    LayerPosition::Above(child.original_above),
-                    removed_nodes.remove(&child.id).unwrap(),
-                );
-            }
+                for child in &self.children {
+                    canvas.image.layer_stack_mut().add_layer(
+                        child.original_parent,
+                        LayerPosition::Above(child.original_above),
+                        removed_nodes.remove(&child.id).unwrap(),
+                    );
+                }
 
-            assert!(removed_nodes.is_empty());
-        })
-        .ok_or(anyhow::anyhow!("Canvas {} not found", self.canvas))
-        .log_err();
-        cx.refresh_windows();
+                assert!(removed_nodes.is_empty());
+                canvas.mark_dirty(canvas.image.image_tile_rect());
+            })
+            .ok_or(anyhow::anyhow!("Canvas {} not found", self.canvas))
+            .log_err();
 
         Ok(())
     }
@@ -491,54 +491,58 @@ impl UndoCommand for MoveLayersCommand {
         "Move Layer".into()
     }
 
-    fn redo(&mut self, cx: &mut App) -> anyhow::Result<()> {
-        cx.update_canvas(&self.canvas, |canvas, _| match self.new_position {
-            LayerPosition::Above(_) => {
-                for layer in self.layers.iter().rev() {
-                    canvas.image.layer_stack_mut().move_layer(
-                        layer.id,
-                        self.new_parent,
-                        self.new_position,
-                    );
+    fn redo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+        services.update_canvas(&self.canvas, |canvas, _| {
+            match self.new_position {
+                LayerPosition::Above(_) => {
+                    for layer in self.layers.iter().rev() {
+                        canvas.image.layer_stack_mut().move_layer(
+                            layer.id,
+                            self.new_parent,
+                            self.new_position,
+                        );
+                    }
+                }
+                LayerPosition::Absolute(_) | LayerPosition::Below(_) => {
+                    for layer in self.layers.iter() {
+                        canvas.image.layer_stack_mut().move_layer(
+                            layer.id,
+                            self.new_parent,
+                            self.new_position,
+                        );
+                    }
                 }
             }
-            LayerPosition::Absolute(_) | LayerPosition::Below(_) => {
-                for layer in self.layers.iter() {
-                    canvas.image.layer_stack_mut().move_layer(
-                        layer.id,
-                        self.new_parent,
-                        self.new_position,
-                    );
-                }
-            }
+            canvas.mark_dirty(canvas.image.image_tile_rect());
         });
-        cx.refresh_windows();
 
         Ok(())
     }
 
-    fn undo(&mut self, cx: &mut App) -> anyhow::Result<()> {
-        cx.update_canvas(&self.canvas, |canvas, _| match self.new_position {
-            LayerPosition::Above(_) => {
-                for layer in self.layers.iter().rev() {
-                    canvas.image.layer_stack_mut().move_layer(
-                        layer.id,
-                        layer.original_parent,
-                        LayerPosition::Above(layer.original_above),
-                    );
+    fn undo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+        services.update_canvas(&self.canvas, |canvas, _| {
+            match self.new_position {
+                LayerPosition::Above(_) => {
+                    for layer in self.layers.iter().rev() {
+                        canvas.image.layer_stack_mut().move_layer(
+                            layer.id,
+                            layer.original_parent,
+                            LayerPosition::Above(layer.original_above),
+                        );
+                    }
+                }
+                LayerPosition::Absolute(_) | LayerPosition::Below(_) => {
+                    for layer in self.layers.iter() {
+                        canvas.image.layer_stack_mut().move_layer(
+                            layer.id,
+                            layer.original_parent,
+                            LayerPosition::Above(layer.original_above),
+                        );
+                    }
                 }
             }
-            LayerPosition::Absolute(_) | LayerPosition::Below(_) => {
-                for layer in self.layers.iter() {
-                    canvas.image.layer_stack_mut().move_layer(
-                        layer.id,
-                        layer.original_parent,
-                        LayerPosition::Above(layer.original_above),
-                    );
-                }
-            }
+            canvas.mark_dirty(canvas.image.image_tile_rect());
         });
-        cx.refresh_windows();
 
         Ok(())
     }
@@ -639,64 +643,66 @@ impl UndoCommand for DeleteLayersCommand {
     }
 
     #[tracing::instrument(skip_all)]
-    fn redo(&mut self, cx: &mut App) -> anyhow::Result<()> {
-        cx.update_canvas(&self.canvas, |canvas, cx| {
-            if self.nodes.is_some() {
-                bail!("Called redo twice consecutively is not valid")
-            }
+    fn redo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+        services
+            .update_canvas(&self.canvas, |canvas, _| {
+                if self.nodes.is_some() {
+                    bail!("Called redo twice consecutively is not valid")
+                }
 
-            let mut nodes = Vec::with_capacity(self.delete_roots.len());
+                let mut nodes = Vec::with_capacity(self.delete_roots.len());
 
-            for root in &self.delete_roots {
-                let parent = canvas.image.layer_stack().get_parent_of(root).unwrap();
-                let parent_id = *parent.id();
-                let above = parent.child_below(root);
-                let deleted = canvas.image.layer_stack_mut().remove_layer_hierarchy(root);
-                nodes.push(DeletedNode {
-                    root: *root,
-                    nodes: deleted,
-                    original_parent: parent_id,
-                    original_above: above,
-                });
-            }
-            self.nodes = Some(nodes);
+                for root in &self.delete_roots {
+                    let parent = canvas.image.layer_stack().get_parent_of(root).unwrap();
+                    let parent_id = *parent.id();
+                    let above = parent.child_below(root);
+                    let deleted = canvas.image.layer_stack_mut().remove_layer_hierarchy(root);
+                    nodes.push(DeletedNode {
+                        root: *root,
+                        nodes: deleted,
+                        original_parent: parent_id,
+                        original_above: above,
+                    });
+                }
+                self.nodes = Some(nodes);
+                canvas.mark_dirty(canvas.image.image_tile_rect());
 
-            if let Some((_, new_active)) = self.active_layer_from_to {
-                canvas.set_active_layer(new_active, cx);
-            }
+                if let Some((_, new_active)) = self.active_layer_from_to {
+                    canvas.set_active_layer(new_active);
+                }
 
-            Ok(())
-        })
-        .unwrap()?;
-        cx.refresh_windows();
+                Ok(())
+            })
+            .expect("Canvas should exist")?;
 
         Ok(())
     }
 
     #[tracing::instrument(skip_all)]
-    fn undo(&mut self, cx: &mut App) -> anyhow::Result<()> {
-        cx.update_canvas(&self.canvas, |canvas, cx| {
-            let Some(nodes) = self.nodes.take() else {
-                bail!("Called undo twice consecutively is not valid")
-            };
+    fn undo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+        services
+            .update_canvas(&self.canvas, |canvas, _| {
+                let Some(nodes) = self.nodes.take() else {
+                    bail!("Called undo twice consecutively is not valid")
+                };
 
-            for node in nodes.into_iter() {
-                canvas.image.layer_stack_mut().add_layer_hierarchy(
-                    node.original_parent,
-                    LayerPosition::Above(node.original_above),
-                    node.root,
-                    node.nodes,
-                );
-            }
+                for node in nodes.into_iter() {
+                    canvas.image.layer_stack_mut().add_layer_hierarchy(
+                        node.original_parent,
+                        LayerPosition::Above(node.original_above),
+                        node.root,
+                        node.nodes,
+                    );
+                }
+                canvas.mark_dirty(canvas.image.image_tile_rect());
 
-            if let Some((old_active, _)) = self.active_layer_from_to {
-                canvas.set_active_layer(old_active, cx);
-            }
+                if let Some((old_active, _)) = self.active_layer_from_to {
+                    canvas.set_active_layer(old_active);
+                }
 
-            Ok(())
-        })
-        .unwrap()?;
-        cx.refresh_windows();
+                Ok(())
+            })
+            .expect("Canvas should exist")?;
 
         Ok(())
     }
@@ -714,46 +720,30 @@ impl UndoCommand for LayerPropertyChangeCommand {
         "Layer Property Change".into()
     }
 
-    fn redo(&mut self, cx: &mut App) -> anyhow::Result<()> {
-        cx.update_canvas(&self.canvas, |canvas, cx| {
+    fn redo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+        services.update_canvas(&self.canvas, |canvas, _| {
             let layer = canvas
                 .image
                 .layer_stack_mut()
                 .get_layer_mut(&self.layer_id)
                 .unwrap();
             *layer.properties_mut() = self.new.clone();
-            // TODO use layer bounds
-            cx.emit(CanvasUpdated {
-                dirty_tiles: canvas.image.image_tile_rect(),
-            });
-            cx.emit(CanvasLayerPropertyChanged {
-                layer_id: self.layer_id,
-                old: self.old.clone(),
-            });
+            canvas.mark_dirty(canvas.image.image_tile_rect());
         });
-        cx.refresh_windows();
 
         Ok(())
     }
 
-    fn undo(&mut self, cx: &mut App) -> anyhow::Result<()> {
-        cx.update_canvas(&self.canvas, |canvas, cx| {
+    fn undo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+        services.update_canvas(&self.canvas, |canvas, _| {
             let layer = canvas
                 .image
                 .layer_stack_mut()
                 .get_layer_mut(&self.layer_id)
                 .unwrap();
             *layer.properties_mut() = self.old.clone();
-            // TODO use layer bounds
-            cx.emit(CanvasUpdated {
-                dirty_tiles: canvas.image.image_tile_rect(),
-            });
-            cx.emit(CanvasLayerPropertyChanged {
-                layer_id: self.layer_id,
-                old: self.new.clone(),
-            });
+            canvas.mark_dirty(canvas.image.image_tile_rect());
         });
-        cx.refresh_windows();
 
         Ok(())
     }

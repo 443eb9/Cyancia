@@ -1,5 +1,5 @@
 use std::{
-    any::TypeId,
+    any::{Any, TypeId},
     cell::{Ref, RefCell, RefMut},
     collections::{HashMap, VecDeque},
     marker::PhantomData,
@@ -273,7 +273,7 @@ pub enum ApplicationMessage {
 
 #[derive(Default)]
 pub struct Services {
-    services: HashMap<TypeId, Box<dyn Service>>,
+    services: HashMap<TypeId, Box<dyn Any>>,
 }
 
 impl Services {

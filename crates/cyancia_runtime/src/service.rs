@@ -3,7 +3,6 @@ use std::{
     sync::Arc,
 };
 
-use downcast_rs::DowncastSync;
 use futures::executor::block_on;
 use parking_lot::{
     MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
@@ -12,9 +11,7 @@ use wgpu::{Adapter, Backends, Device, Features, Instance, Limits, Queue};
 
 use crate::Services;
 
-pub trait Service: DowncastSync {}
-
-downcast_rs::impl_downcast!(sync Service);
+pub trait Service: 'static {}
 
 pub trait FromServices {
     fn from_services(services: &Services) -> Self;

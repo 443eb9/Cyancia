@@ -1693,6 +1693,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "cyancia_canvas"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bevy_math 0.18.1 (git+https://github.com/443eb9/bevy.git?branch=release-0.18.1)",
+ "bytemuck",
+ "cyancia_color",
+ "cyancia_cyan",
+ "cyancia_image",
+ "cyancia_input",
+ "cyancia_math",
+ "cyancia_render",
+ "cyancia_runtime",
+ "cyancia_tools",
+ "cyancia_undo",
+ "cyancia_utils",
+ "encase",
+ "glam 0.30.10",
+ "iced",
+ "iced_core",
+ "iced_wgpu",
+ "iced_widget",
+ "indexmap",
+ "log",
+ "moxcms",
+ "parking_lot",
+ "parse-display",
+ "serde",
+ "tracing",
+ "uuid",
+ "wesl",
+ "wgpu",
+]
+
+[[package]]
 name = "cyancia_color"
 version = "0.1.0"
 dependencies = [
@@ -1915,6 +1950,37 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "cyancia_tools"
+version = "0.1.0"
+dependencies = [
+ "cyancia_assets",
+ "cyancia_input",
+ "cyancia_runtime",
+ "cyancia_utils",
+ "iced",
+ "iced_widget",
+ "log",
+ "parse-display",
+ "serde",
+ "serde_json",
+ "uuid",
+ "wgpu",
+]
+
+[[package]]
+name = "cyancia_undo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cyancia_runtime",
+ "cyancia_utils",
+ "downcast-rs 2.0.2",
+ "futures",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
