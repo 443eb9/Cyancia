@@ -123,7 +123,10 @@ pub trait ToolFunction: 'static {
     fn handle_message(&mut self, _: Self::Message, _: &mut Services) -> Task<Self::Message> {
         Task::none()
     }
-    fn tool_option_widget(&self) -> Element<'_, Self::Message> {
+    fn tool_option_widget<'a>(
+        &'a self,
+        _: &'a Services,
+    ) -> Element<'a, Self::Message, iced_core::Theme, iced_wgpu::Renderer> {
         iced_widget::Space::new().into()
     }
     fn canvas_overlay(&mut self, _: &TextureView, _: &mut Services) -> Task<Self::Message> {
@@ -164,7 +167,10 @@ pub trait ErasedToolFunction: 'static {
         message: Box<dyn Any + Send>,
         services: &mut Services,
     ) -> Task<ErasedToolFunctionMessage>;
-    fn tool_option_widget(&self) -> Element<'_, ErasedToolFunctionMessage>;
+    fn tool_option_widget<'a>(
+        &'a self,
+        services: &'a Services,
+    ) -> Element<'a, ErasedToolFunctionMessage, iced_core::Theme, iced_wgpu::Renderer>;
     fn canvas_overlay(
         &mut self,
         canvas_surface: &TextureView,
@@ -232,9 +238,12 @@ impl<T: ToolFunction> ErasedToolFunction for T {
         erased_task(T::id(), self.handle_message(*message, services))
     }
 
-    fn tool_option_widget(&self) -> Element<'_, ErasedToolFunctionMessage> {
+    fn tool_option_widget<'a>(
+        &'a self,
+        services: &'a Services,
+    ) -> Element<'a, ErasedToolFunctionMessage, iced_core::Theme, iced_wgpu::Renderer> {
         let id = T::id();
-        self.tool_option_widget()
+        self.tool_option_widget(services)
             .map(move |message| ErasedToolFunctionMessage {
                 tool_id: id.clone(),
                 message: Box::new(message),
@@ -470,7 +479,10 @@ impl ToolProxy {
         function.handle_message(message.message, services)
     }
 
-    pub fn tool_option_widget(&self) -> Option<Element<'_, ErasedToolFunctionMessage>> {
+    pub fn tool_option_widget<'a>(
+        &'a self,
+        services: &'a Services,
+    ) -> Option<Element<'a, ErasedToolFunctionMessage, iced_core::Theme, iced_wgpu::Renderer>> {
         let state = self
             .override_state
             .as_ref()
@@ -479,7 +491,7 @@ impl ToolProxy {
             self.tool_functions
                 .get(&state.function)
                 .expect("Active tool function should exist")
-                .tool_option_widget(),
+                .tool_option_widget(services),
         )
     }
 

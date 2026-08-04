@@ -3,28 +3,25 @@ use std::{fmt, sync::LazyLock};
 use bevy_math::IRect;
 use cyancia_image::blend_modes::BlendMode;
 use cyancia_shader_graph::{
+    GraphElement,
     graph::{
         GraphData,
         node::{
             GraphNode, GraphNodeCodeGenContext, GraphNodeCodeGenError, GraphNodeCreateSlotsContext,
-            GraphNodeRegistry, GraphNodeRenderContext, GraphNodeUpdateSignatureContext,
-            StatelessCommonGraphNode, stateless,
+            GraphNodeRegistry, GraphNodeUpdateContext, GraphNodeUpdateSignatureContext,
+            GraphNodeViewContext, StatelessCommonGraphNode, stateless,
         },
-        slot::{GraphDefaultInputSlot, GraphDefaultOutputSlot},
+        slot::{ErasedGraphLiteralUpdateMessage, GraphDefaultInputSlot, GraphDefaultOutputSlot},
         variable::GraphTypeRegistry,
     },
     wgsl_std::{
-        nodes::GraphDataWithTime,
+        nodes::{GraphDataWithTime, GraphTimes},
         types::{ColorType, F32Type, RectType, TextureType, Vec2FType},
     },
 };
 use cyancia_utils::random_oklch;
-use gpui::{AnyElement, App, AppContext, Entity, Rgba, SharedString};
-use gpui_component::{
-    IndexPath, Sizable,
-    searchable_list::SearchableListItem,
-    select::{SearchableVec, Select, SelectEvent, SelectState},
-};
+use iced_core::{Color, Length};
+use iced_widget::pick_list;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -34,21 +31,6 @@ use crate::{
     },
     render::{ComputedPenInput, Time},
 };
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct BlendModeItem(BlendMode);
-
-impl SearchableListItem for BlendModeItem {
-    type Value = BlendMode;
-
-    fn title(&self) -> SharedString {
-        self.0.to_string().into()
-    }
-
-    fn value(&self) -> &Self::Value {
-        &self.0
-    }
-}
 
 #[derive(Default, Clone)]
 pub struct BrushStrokePostprocessGraphData {
@@ -113,19 +95,40 @@ impl GraphDataWithPenInput for BrushRequiredSpacingGraphData {
 }
 
 impl GraphDataWithTime for BrushMainGraphData {
-    fn time_field() -> String {
+    fn time(&self) -> GraphTimes {
+        GraphTimes {
+            now: self.pen_input.time.now,
+            stroke_begin: self.pen_input.time.stroke_begin,
+        }
+    }
+
+    fn wgsl_variable() -> String {
         "graph_input.time".into()
     }
 }
 
 impl GraphDataWithTime for BrushRequiredSpacingGraphData {
-    fn time_field() -> String {
+    fn time(&self) -> GraphTimes {
+        GraphTimes {
+            now: self.pen_input.time.now,
+            stroke_begin: self.pen_input.time.stroke_begin,
+        }
+    }
+
+    fn wgsl_variable() -> String {
         "graph_input.time".into()
     }
 }
 
 impl GraphDataWithTime for BrushStrokePostprocessGraphData {
-    fn time_field() -> String {
+    fn time(&self) -> GraphTimes {
+        GraphTimes {
+            now: self.time.now,
+            stroke_begin: self.time.stroke_begin,
+        }
+    }
+
+    fn wgsl_variable() -> String {
         "graph_input.time".into()
     }
 }
@@ -139,8 +142,8 @@ impl<Data: GraphDataWithPenInput> StatelessCommonGraphNode<Data> for PenPosition
         "Pen Position"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(PenPositionNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(PenPositionNode, is_dark)
     }
 
     fn create_inputs(
@@ -178,8 +181,8 @@ impl<Data: GraphDataWithPenInput> StatelessCommonGraphNode<Data> for DrawDirecti
         "Draw Direction"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(DrawDirectionNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(DrawDirectionNode, is_dark)
     }
 
     fn create_inputs(
@@ -221,8 +224,8 @@ impl<Data: GraphDataWithPenInput> StatelessCommonGraphNode<Data> for PenPressure
         "Pen Pressure"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(PenPressureNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(PenPressureNode, is_dark)
     }
 
     fn create_inputs(
@@ -260,8 +263,8 @@ impl<Data: GraphDataWithPenInput> StatelessCommonGraphNode<Data> for PenTiltNode
         "Pen Tilt"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(PenTiltNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(PenTiltNode, is_dark)
     }
 
     fn create_inputs(
@@ -299,8 +302,8 @@ impl<Data: GraphDataWithPenInput> StatelessCommonGraphNode<Data> for PenAngleNod
         "Pen Angle"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(PenAngleNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(PenAngleNode, is_dark)
     }
 
     fn create_inputs(
@@ -342,8 +345,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for PixelPositionNode {
         "Pixel Position"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(PixelPositionNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(PixelPositionNode, is_dark)
     }
 
     fn create_inputs(
@@ -377,8 +380,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for FilterWithinMaskNode {
         "Filter Within Mask"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(FilterWithinMaskNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(FilterWithinMaskNode, is_dark)
     }
 
     fn create_inputs(
@@ -444,8 +447,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for FilterWithinBoundsNode 
         "Filter Within Bounds"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(FilterWithinBoundsNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(FilterWithinBoundsNode, is_dark)
     }
 
     fn create_inputs(
@@ -495,8 +498,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for OutputColorNode {
         "Output Color"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(OutputColorNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(OutputColorNode, is_dark)
     }
 
     fn create_inputs(
@@ -533,8 +536,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for OutputBoundsNode {
         "Output Bounds"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(OutputBoundsNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(OutputBoundsNode, is_dark)
     }
 
     fn create_inputs(
@@ -577,18 +580,6 @@ impl PasteTextureMode {
     const ALL: [PasteTextureMode; 2] = [PasteTextureMode::Clamp, PasteTextureMode::Wrap];
 }
 
-impl SearchableListItem for PasteTextureMode {
-    type Value = Self;
-
-    fn title(&self) -> SharedString {
-        self.to_string().into()
-    }
-
-    fn value(&self) -> &Self::Value {
-        self
-    }
-}
-
 impl fmt::Display for PasteTextureMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -603,8 +594,15 @@ pub struct PasteTextureNodeState {
     pub mode: PasteTextureMode,
 }
 
+#[derive(Clone)]
+pub enum PasteTextureNodeMessage {
+    ModeChanged(PasteTextureMode),
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
+}
+
 impl<Data: GraphData> GraphNode<Data> for PasteTextureNode {
     type State = PasteTextureNodeState;
+    type Message = PasteTextureNodeMessage;
 
     fn name(&self) -> &'static str {
         "Paste Texture"
@@ -614,8 +612,8 @@ impl<Data: GraphData> GraphNode<Data> for PasteTextureNode {
         Default::default()
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(PasteTextureNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(PasteTextureNode, is_dark)
     }
 
     fn create_inputs(
@@ -640,52 +638,32 @@ impl<Data: GraphData> GraphNode<Data> for PasteTextureNode {
         vec![GraphDefaultOutputSlot::new::<ColorType>("Color".into())]
     }
 
-    fn render(
+    fn view(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeRenderContext<'_, '_, Data>,
-    ) -> AnyElement {
-        let graph = ctx.cx.entity().downgrade();
-        let select_state = ctx
-            .window
-            .use_keyed_state(*ctx.node_id, ctx.cx, |window, cx| {
-                let state_entity = cx.new(|cx| {
-                    SelectState::new(
-                        SearchableVec::new(PasteTextureMode::ALL),
-                        PasteTextureMode::ALL
-                            .iter()
-                            .position(|mode| mode == &state.mode)
-                            .map(IndexPath::new),
-                        window,
-                        cx,
-                    )
-                });
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        ctx.view_all_slots_with_header(
+            pick_list(
+                PasteTextureMode::ALL,
+                Some(state.mode),
+                PasteTextureNodeMessage::ModeChanged,
+            )
+            .width(Length::Fill),
+            PasteTextureNodeMessage::LiteralUpdate,
+        )
+    }
 
-                let node_id = ctx.node_id;
-                cx.subscribe_in(
-                    &state_entity,
-                    window,
-                    move |_: &mut Entity<SelectState<_>>, _, event: &SelectEvent<_>, _, cx| {
-                        if let SelectEvent::Confirm(Some(val)) = event {
-                            let _ = graph.update(cx, |graph, cx| {
-                                graph.update_node_state::<PasteTextureNode>(
-                                    cx,
-                                    node_id,
-                                    move |state| {
-                                        state.mode = *val;
-                                    },
-                                );
-                            });
-                        }
-                    },
-                )
-                .detach();
-
-                state_entity
-            });
-
-        let select_state = select_state.read(ctx.cx);
-        ctx.render_all_slots_with_header(Select::new(select_state).small())
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            PasteTextureNodeMessage::ModeChanged(mode) => state.mode = mode,
+            PasteTextureNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+        }
     }
 
     fn generate_code(
@@ -719,8 +697,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for CurrentPixelColorNode {
         "Current Pixel Color"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(CurrentPixelColorNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(CurrentPixelColorNode, is_dark)
     }
 
     fn create_inputs(
@@ -758,8 +736,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for LayerPixelColorNode {
         "Layer Pixel Color"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(LayerPixelColorNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(LayerPixelColorNode, is_dark)
     }
 
     fn create_inputs(
@@ -796,8 +774,15 @@ pub struct BlendColorNodeState {
     pub blend_mode: BlendMode,
 }
 
+#[derive(Clone)]
+pub enum BlendModeNodeMessage {
+    ModeChanged(BlendMode),
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
+}
+
 impl<Data: GraphData> GraphNode<Data> for BlendColorNode {
     type State = BlendColorNodeState;
+    type Message = BlendModeNodeMessage;
 
     fn name(&self) -> &'static str {
         "Blend Color"
@@ -809,8 +794,8 @@ impl<Data: GraphData> GraphNode<Data> for BlendColorNode {
         }
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(BlendColorNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(BlendColorNode, is_dark)
     }
 
     fn create_inputs(
@@ -832,54 +817,31 @@ impl<Data: GraphData> GraphNode<Data> for BlendColorNode {
         vec![GraphDefaultOutputSlot::new::<ColorType>("Color".into())]
     }
 
-    fn render(
+    fn view(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeRenderContext<'_, '_, Data>,
-    ) -> AnyElement {
-        let graph = ctx.cx.entity().downgrade();
-        // TODO Use blend function registry
-        let items = BlendMode::ALL.map(BlendModeItem);
-        let select_state = ctx
-            .window
-            .use_keyed_state(*ctx.node_id, ctx.cx, |window, cx| {
-                let state_entity = cx.new(|cx| {
-                    SelectState::new(
-                        SearchableVec::new(items),
-                        BlendMode::ALL
-                            .iter()
-                            .position(|mode| mode == &state.blend_mode)
-                            .map(IndexPath::new),
-                        window,
-                        cx,
-                    )
-                });
-
-                let node_id = ctx.node_id;
-                cx.subscribe_in(
-                    &state_entity,
-                    window,
-                    move |_: &mut Entity<SelectState<_>>, _, event: &SelectEvent<_>, _, cx| {
-                        if let SelectEvent::Confirm(Some(val)) = event {
-                            let _ = graph.update(cx, |graph, cx| {
-                                graph.update_node_state::<BlendColorNode>(
-                                    cx,
-                                    node_id,
-                                    move |state| {
-                                        state.blend_mode = *val;
-                                    },
-                                );
-                            });
-                        }
-                    },
-                )
-                .detach();
-
-                state_entity
-            });
-
-        let select_state = select_state.read(ctx.cx);
-        ctx.render_all_slots_with_header(Select::new(select_state).small())
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        ctx.view_all_slots_with_header(
+            pick_list(
+                BlendMode::ALL,
+                Some(state.blend_mode),
+                BlendModeNodeMessage::ModeChanged,
+            )
+            .width(Length::Fill),
+            BlendModeNodeMessage::LiteralUpdate,
+        )
+    }
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            BlendModeNodeMessage::ModeChanged(mode) => state.blend_mode = mode,
+            BlendModeNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+        }
     }
 
     fn generate_code(
@@ -909,8 +871,8 @@ impl StatelessCommonGraphNode<BrushStrokePostprocessGraphData> for StrokeBoundsN
         "Stroke Bounds"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(StrokeBoundsNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(StrokeBoundsNode, is_dark)
     }
 
     fn create_inputs(
@@ -947,8 +909,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for EllipticalMaskNode {
         "Elliptical Mask"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(EllipticalMaskNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(EllipticalMaskNode, is_dark)
     }
 
     fn create_inputs(
@@ -1000,6 +962,7 @@ pub struct BlendWithBufferNodeState {
 
 impl<Data: GraphData> GraphNode<Data> for BlendWithInputNode {
     type State = BlendWithBufferNodeState;
+    type Message = BlendModeNodeMessage;
 
     fn name(&self) -> &'static str {
         "Blend With Input"
@@ -1011,8 +974,8 @@ impl<Data: GraphData> GraphNode<Data> for BlendWithInputNode {
         }
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(BlendWithInputNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(BlendWithInputNode, is_dark)
     }
 
     fn create_inputs(
@@ -1034,53 +997,31 @@ impl<Data: GraphData> GraphNode<Data> for BlendWithInputNode {
         vec![GraphDefaultOutputSlot::new::<ColorType>("Color".into())]
     }
 
-    fn render(
+    fn view(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeRenderContext<'_, '_, Data>,
-    ) -> AnyElement {
-        let graph = ctx.cx.entity().downgrade();
-        let items = BlendMode::ALL.map(BlendModeItem);
-        let select_state = ctx
-            .window
-            .use_keyed_state(*ctx.node_id, ctx.cx, |window, cx| {
-                let state_entity = cx.new(|cx| {
-                    SelectState::new(
-                        SearchableVec::new(items),
-                        BlendMode::ALL
-                            .iter()
-                            .position(|mode| mode == &state.blend_mode)
-                            .map(IndexPath::new),
-                        window,
-                        cx,
-                    )
-                });
-
-                let node_id = ctx.node_id;
-                cx.subscribe_in(
-                    &state_entity,
-                    window,
-                    move |_: &mut Entity<SelectState<_>>, _, event: &SelectEvent<_>, _, cx| {
-                        if let SelectEvent::Confirm(Some(val)) = event {
-                            let _ = graph.update(cx, |graph, cx| {
-                                graph.update_node_state::<BlendColorNode>(
-                                    cx,
-                                    node_id,
-                                    move |state| {
-                                        state.blend_mode = *val;
-                                    },
-                                );
-                            });
-                        }
-                    },
-                )
-                .detach();
-
-                state_entity
-            });
-
-        let select_state = select_state.read(ctx.cx);
-        ctx.render_all_slots_with_header(Select::new(select_state).small())
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        ctx.view_all_slots_with_header(
+            pick_list(
+                BlendMode::ALL,
+                Some(state.blend_mode),
+                BlendModeNodeMessage::ModeChanged,
+            )
+            .width(Length::Fill),
+            BlendModeNodeMessage::LiteralUpdate,
+        )
+    }
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            BlendModeNodeMessage::ModeChanged(mode) => state.blend_mode = mode,
+            BlendModeNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+        }
     }
 
     fn generate_code(
@@ -1108,6 +1049,7 @@ pub struct BlendWithLayerNodeState {
 
 impl<Data: GraphData> GraphNode<Data> for BlendWithLayerNode {
     type State = BlendWithLayerNodeState;
+    type Message = BlendModeNodeMessage;
 
     fn name(&self) -> &'static str {
         "Blend With Layer"
@@ -1119,8 +1061,8 @@ impl<Data: GraphData> GraphNode<Data> for BlendWithLayerNode {
         }
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(BlendWithLayerNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(BlendWithLayerNode, is_dark)
     }
 
     fn create_inputs(
@@ -1142,53 +1084,31 @@ impl<Data: GraphData> GraphNode<Data> for BlendWithLayerNode {
         vec![GraphDefaultOutputSlot::new::<ColorType>("Color".into())]
     }
 
-    fn render(
+    fn view(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeRenderContext<'_, '_, Data>,
-    ) -> AnyElement {
-        let graph = ctx.cx.entity().downgrade();
-        let items = BlendMode::ALL.map(BlendModeItem);
-        let select_state = ctx
-            .window
-            .use_keyed_state(*ctx.node_id, ctx.cx, |window, cx| {
-                let state_entity = cx.new(|cx| {
-                    SelectState::new(
-                        SearchableVec::new(items),
-                        BlendMode::ALL
-                            .iter()
-                            .position(|mode| mode == &state.blend_mode)
-                            .map(IndexPath::new),
-                        window,
-                        cx,
-                    )
-                });
-
-                let node_id = ctx.node_id;
-                cx.subscribe_in(
-                    &state_entity,
-                    window,
-                    move |_: &mut Entity<SelectState<_>>, _, event: &SelectEvent<_>, _, cx| {
-                        if let SelectEvent::Confirm(Some(val)) = event {
-                            let _ = graph.update(cx, |graph, cx| {
-                                graph.update_node_state::<BlendColorNode>(
-                                    cx,
-                                    node_id,
-                                    move |state| {
-                                        state.blend_mode = *val;
-                                    },
-                                );
-                            });
-                        }
-                    },
-                )
-                .detach();
-
-                state_entity
-            });
-
-        let select_state = select_state.read(ctx.cx);
-        ctx.render_all_slots_with_header(Select::new(select_state).small())
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        ctx.view_all_slots_with_header(
+            pick_list(
+                BlendMode::ALL,
+                Some(state.blend_mode),
+                BlendModeNodeMessage::ModeChanged,
+            )
+            .width(Length::Fill),
+            BlendModeNodeMessage::LiteralUpdate,
+        )
+    }
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            BlendModeNodeMessage::ModeChanged(mode) => state.blend_mode = mode,
+            BlendModeNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+        }
     }
 
     fn generate_code(
@@ -1215,8 +1135,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for OutputSpacingNode {
         "Output Spacing"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(OutputSpacingNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(OutputSpacingNode, is_dark)
     }
 
     fn update_signature(&self, mut ctx: GraphNodeUpdateSignatureContext<'_, Data>) {
@@ -1254,8 +1174,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for OutputRequiredSpacingNo
         "Output Required Spacing"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(OutputRequiredSpacingNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(OutputRequiredSpacingNode, is_dark)
     }
 
     fn update_signature(&self, mut ctx: GraphNodeUpdateSignatureContext<'_, Data>) {
@@ -1295,8 +1215,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SelectionMaskNode {
         "Selection Mask"
     }
 
-    fn header_color(&self, cx: &App) -> Rgba {
-        random_oklch!(SelectionMaskNode, cx)
+    fn header_color(&self, is_dark: bool) -> Color {
+        random_oklch!(SelectionMaskNode, is_dark)
     }
 
     fn create_inputs(

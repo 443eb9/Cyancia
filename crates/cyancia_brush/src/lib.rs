@@ -1,6 +1,6 @@
 use cyancia_assets::AssetAppExt;
+use cyancia_runtime::{Application, plugin::Plugin};
 use cyancia_tools::ToolsAppExt;
-use gpui::App;
 
 use crate::{asset::BrushPresetSerializer, tool::BrushTool};
 
@@ -12,19 +12,13 @@ pub mod render;
 pub mod tool;
 pub mod widget;
 
-pub fn init(cx: &mut App) {
-    cx.add_asset_serializer::<BrushPresetSerializer>();
-    cx.add_tool_function::<BrushTool>();
+pub struct BrushPlugin;
 
-    editor::init(cx);
-    tool::init(cx);
+impl Plugin for BrushPlugin {
+    fn build(&self, app: &mut Application) {
+        let mut runtime = app.runtime_mut();
+        let services = runtime.services_mut();
+        services.add_asset_serializer::<BrushPresetSerializer>();
+        services.add_tool_function::<BrushTool>();
+    }
 }
-
-// pub struct BrushPlugin;
-
-// impl Plugin for BrushPlugin {
-//     fn build(&self, app: &mut Application) {
-//         app.add_asset_serializer::<BrushPresetSerializer>()
-//             .add_tool_function::<BrushTool>();
-//     }
-// }

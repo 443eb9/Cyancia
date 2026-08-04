@@ -1,13 +1,9 @@
 use bevy_color::{Oklcha, Srgba};
-use gpui::{App, Rgba};
-use gpui_component::Theme;
+use iced_core::Color;
 
 #[macro_export]
 macro_rules! random_oklch {
-    ($struct_name:ty, $cx:expr) => {
-        random_oklch!($struct_name, $cx, 0u32)
-    };
-    ($struct_name:ty, $cx:expr, $extra_offset:literal) => {{
+    ($struct_name:ty, $is_dark:expr) => {{
         const CH: (f32, f32) = {
             let name = stringify!($struct_name).as_bytes();
             let mut i = 0;
@@ -16,7 +12,6 @@ macro_rules! random_oklch {
                 hash = (hash << 5).wrapping_sub(hash) + name[i] as u32;
                 i += 1;
             }
-            hash = (hash << 5).wrapping_sub(hash) + $extra_offset;
 
             const MIN_C: f32 = 0.05;
             const MAX_C: f32 = 0.15;
@@ -25,21 +20,17 @@ macro_rules! random_oklch {
             (c, h)
         };
 
-        cyancia_utils::themed_color::themed_oklch(CH.0, CH.1, $cx)
+        cyancia_utils::themed_color::themed_oklch(CH.0, CH.1, $is_dark)
     }};
 }
 
-pub fn themed_oklch(c: f32, h: f32, cx: &App) -> Rgba {
-    let l = if Theme::global(cx).is_dark() {
-        0.4
-    } else {
-        0.7
-    };
+pub fn themed_oklch(c: f32, h: f32, is_dark: bool) -> Color {
+    let l = if is_dark { 0.4 } else { 0.7 };
     let color = Srgba::from(Oklcha::new(l, c, h, 1.0));
-    Rgba {
-        r: color.red,
-        g: color.green,
-        b: color.blue,
-        a: color.alpha,
-    }
+    Color::from_rgba(
+        color.red.clamp(0.0, 1.0),
+        color.green.clamp(0.0, 1.0),
+        color.blue.clamp(0.0, 1.0),
+        color.alpha.clamp(0.0, 1.0),
+    )
 }

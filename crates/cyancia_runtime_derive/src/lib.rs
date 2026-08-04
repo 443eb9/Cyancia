@@ -7,8 +7,7 @@ pub fn derive_event(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
 
-    let static_name =
-        format_ident!("__{}_EVENT_CHANNEL", name.to_string().to_uppercase());
+    let static_name = format_ident!("__{}_EVENT_CHANNEL", name.to_string().to_uppercase());
 
     quote! {
         static #static_name: ::cyancia_runtime::__private::LazyLock<(

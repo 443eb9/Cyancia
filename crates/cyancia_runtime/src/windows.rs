@@ -244,12 +244,15 @@ where
                     return Task::none();
                 };
 
-                let task = view.state.update(message.message, services).map(move |msg| {
-                    WindowViewManagerMessage::ViewUpdate(ErasedWindowViewMessage {
-                        view: message.view,
-                        message: msg,
-                    })
-                });
+                let task = view
+                    .state
+                    .update(message.message, services)
+                    .map(move |msg| {
+                        WindowViewManagerMessage::ViewUpdate(ErasedWindowViewMessage {
+                            view: message.view,
+                            message: msg,
+                        })
+                    });
 
                 update_view_windows(message.view, view, &mut self.window_to_view);
 

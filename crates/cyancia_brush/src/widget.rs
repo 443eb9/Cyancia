@@ -1,185 +1,118 @@
 use cyancia_assets::asset::AssetHandle;
 use cyancia_shader_graph::graph::function::{GraphFunction, GraphFunctionId};
-use gpui::{App, Context, IntoElement, ParentElement, RenderOnce, SharedString, Window};
-use gpui_component::{
-    IndexPath, Selectable,
-    list::{ListDelegate, ListItem, ListState},
-};
 
 use crate::asset::BrushPreset;
 
-#[derive(IntoElement)]
 pub struct BrushPresetListItem {
-    base: ListItem,
-    pub handle: AssetHandle<BrushPreset>,
-    is_selected: bool,
+    pub brush: AssetHandle<BrushPreset>,
+    pub name: String,
+    pub selected: bool,
 }
 
 impl BrushPresetListItem {
     pub fn new(brush: AssetHandle<BrushPreset>) -> Self {
+        let name = brush
+            .get()
+            .expect("Brush preset should be loaded")
+            .metadata
+            .name
+            .clone();
         Self {
-            base: ListItem::new(*brush.clone().id()),
-            handle: brush,
-            is_selected: false,
+            brush,
+            name,
+            selected: false,
         }
-    }
-}
-
-impl Selectable for BrushPresetListItem {
-    fn selected(mut self, selected: bool) -> Self {
-        self.is_selected = selected;
-        self
-    }
-
-    fn is_selected(&self) -> bool {
-        self.is_selected
-    }
-}
-
-impl RenderOnce for BrushPresetListItem {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        let Ok(brush) = self.handle.get() else {
-            return self
-                .base
-                .child(format!("Unable to load brush {}", self.handle.id()));
-        };
-        self.base
-            .selected(self.is_selected)
-            .child(brush.metadata.name.clone())
     }
 }
 
 pub struct BrushPresetListDelegate {
     items: Vec<BrushPresetListItem>,
-    selected_index: Option<IndexPath>,
+    selected: Option<usize>,
 }
 
 impl BrushPresetListDelegate {
     pub fn new(brushes: Vec<AssetHandle<BrushPreset>>) -> Self {
         Self {
             items: brushes.into_iter().map(BrushPresetListItem::new).collect(),
-            selected_index: None,
+            selected: None,
         }
     }
 
-    pub fn get(&self, ix: IndexPath) -> Option<&BrushPresetListItem> {
-        self.items.get(ix.row)
+    pub fn get(&self, index: usize) -> Option<&BrushPresetListItem> {
+        self.items.get(index)
     }
 
     pub fn items(&self) -> &[BrushPresetListItem] {
         &self.items
     }
-}
 
-impl ListDelegate for BrushPresetListDelegate {
-    type Item = BrushPresetListItem;
-
-    fn items_count(&self, _: usize, _: &App) -> usize {
-        self.items.len()
+    pub fn select(&mut self, index: usize) {
+        assert!(index < self.items.len(), "Brush index should exist");
+        if let Some(previous) = self.selected {
+            self.items[previous].selected = false;
+        }
+        self.items[index].selected = true;
+        self.selected = Some(index);
     }
 
-    fn render_item(
-        &mut self,
-        ix: IndexPath,
-        _: &mut Window,
-        _: &mut Context<ListState<Self>>,
-    ) -> Option<Self::Item> {
-        let item = self.items.get(ix.row)?;
-        Some(BrushPresetListItem::new(item.handle.clone()))
-    }
-
-    fn set_selected_index(
-        &mut self,
-        ix: Option<IndexPath>,
-        _: &mut Window,
-        _: &mut Context<ListState<Self>>,
-    ) {
-        self.selected_index = ix;
+    pub fn push(&mut self, brush: AssetHandle<BrushPreset>) -> usize {
+        self.items.push(BrushPresetListItem::new(brush));
+        self.items.len() - 1
     }
 }
 
-#[derive(IntoElement)]
 pub struct BrushFunctionItem {
-    base: ListItem,
     pub id: GraphFunctionId,
-    pub name: SharedString,
-    is_selected: bool,
+    pub name: String,
+    pub selected: bool,
 }
 
 impl BrushFunctionItem {
-    pub fn new(id: GraphFunctionId, name: SharedString) -> Self {
+    pub fn new(id: GraphFunctionId, name: String) -> Self {
         Self {
-            base: ListItem::new(*id),
             id,
             name,
-            is_selected: false,
+            selected: false,
         }
-    }
-}
-
-impl Selectable for BrushFunctionItem {
-    fn selected(mut self, selected: bool) -> Self {
-        self.is_selected = selected;
-        self
-    }
-
-    fn is_selected(&self) -> bool {
-        self.is_selected
-    }
-}
-
-impl RenderOnce for BrushFunctionItem {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        self.base
-            .selected(self.is_selected)
-            .child(self.name.clone())
     }
 }
 
 pub struct BrushFunctionListDelegate {
     items: Vec<BrushFunctionItem>,
-    selected_index: Option<IndexPath>,
+    selected: Option<usize>,
 }
 
 impl BrushFunctionListDelegate {
-    pub fn new<'a>(funcs: impl IntoIterator<Item = &'a GraphFunction>) -> Self {
+    pub fn new<'a>(functions: impl IntoIterator<Item = &'a GraphFunction>) -> Self {
         Self {
-            items: funcs
+            items: functions
                 .into_iter()
-                .map(|f| BrushFunctionItem::new(f.id, f.name.clone().into()))
+                .map(|function| BrushFunctionItem::new(function.id, function.name.clone()))
                 .collect(),
-            selected_index: None,
+            selected: None,
         }
     }
 
-    pub fn get(&self, ix: IndexPath) -> Option<&BrushFunctionItem> {
-        self.items.get(ix.row)
-    }
-}
-
-impl ListDelegate for BrushFunctionListDelegate {
-    type Item = BrushFunctionItem;
-
-    fn items_count(&self, _: usize, _: &App) -> usize {
-        self.items.len()
+    pub fn get(&self, index: usize) -> Option<&BrushFunctionItem> {
+        self.items.get(index)
     }
 
-    fn render_item(
-        &mut self,
-        ix: IndexPath,
-        _: &mut Window,
-        _: &mut Context<ListState<Self>>,
-    ) -> Option<Self::Item> {
-        let item = self.items.get(ix.row)?;
-        Some(BrushFunctionItem::new(item.id, item.name.clone()))
+    pub fn items(&self) -> &[BrushFunctionItem] {
+        &self.items
     }
 
-    fn set_selected_index(
-        &mut self,
-        ix: Option<IndexPath>,
-        _: &mut Window,
-        _: &mut Context<ListState<Self>>,
-    ) {
-        self.selected_index = ix;
+    pub fn select(&mut self, index: usize) {
+        assert!(index < self.items.len(), "Function index should exist");
+        if let Some(previous) = self.selected {
+            self.items[previous].selected = false;
+        }
+        self.items[index].selected = true;
+        self.selected = Some(index);
+    }
+
+    pub fn push(&mut self, function: &GraphFunction) -> usize {
+        self.items
+            .push(BrushFunctionItem::new(function.id, function.name.clone()));
+        self.items.len() - 1
     }
 }
