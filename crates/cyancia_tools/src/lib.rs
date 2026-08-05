@@ -312,7 +312,6 @@ struct State {
     is_updating: bool,
 }
 
-#[derive(Default)]
 pub struct ToolProxy {
     current_state: Option<State>,
     override_state: Option<State>,
@@ -320,25 +319,17 @@ pub struct ToolProxy {
 }
 
 impl ToolProxy {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    fn ensure_tool(&mut self, tool: &ToolId, services: &Services) -> bool {
-        if self.tool_functions.contains_key(tool) {
-            return true;
-        }
-        let spawner = services
-            .service::<ToolFunctionRegistry>()
+    pub fn new(registry: &ToolFunctionRegistry) -> Self {
+        let tool_functions = registry
             .spawners
-            .get(tool)
-            .cloned();
-        if let Some(spawner) = spawner {
-            self.tool_functions.insert(tool.clone(), spawner());
-            true
-        } else {
-            log::error!("Unable to switch to tool {:?}: not found in registry", tool);
-            false
+            .iter()
+            .map(|(id, spawner)| (id.clone(), spawner()))
+            .collect();
+
+        Self {
+            current_state: None,
+            override_state: None,
+            tool_functions,
         }
     }
 
@@ -363,9 +354,11 @@ impl ToolProxy {
             })
             .unwrap_or_else(Task::none);
 
-        if !self.ensure_tool(&tool, services) {
+        if !self.tool_functions.contains_key(&tool) {
+            log::error!("Unable to switch to tool {:?}: not found in registry", tool);
             return deactivate;
         }
+
         let activate = self
             .tool_functions
             .get_mut(&tool)
@@ -401,9 +394,11 @@ impl ToolProxy {
             .unwrap_or_else(Task::none);
 
         if let Some(tool) = tool {
-            if !self.ensure_tool(&tool, services) {
+            if !self.tool_functions.contains_key(&tool) {
+                log::error!("Unable to switch to tool {:?}: not found in registry", tool);
                 return deactivate;
             }
+
             let activate = self
                 .tool_functions
                 .get_mut(&tool)

@@ -1,17 +1,13 @@
 use std::path::PathBuf;
 
-use cyancia_canvas::{
-    CanvasAppExt,
-    CCanvas,
-    event::CanvasCreated,
-};
+use cyancia_canvas::{CCanvas, CanvasAppExt, event::CanvasCreated};
 use cyancia_image::{
     CImage,
     texel::TexelType,
     tile::{GpuLayerInfo, GpuTileStorage, TileStorageAppExt},
 };
 use cyancia_runtime::{Services, event::Event};
-use cyancia_tools::{ToolProxies, ToolProxy};
+use cyancia_tools::{ToolFunctionRegistry, ToolProxies, ToolProxy};
 use cyancia_undo::{UndoStack, UndoStacks};
 use cyancia_utils::log_err::LogErr;
 use iced_runtime::Task;
@@ -58,7 +54,8 @@ impl ActionFunction for OpenFileAction {
         };
         log::info!("Opened image from file {:?}.", path);
 
-        let tool_proxy_id = services.service_mut::<ToolProxies>().add(ToolProxy::new());
+        let tool_proxy = ToolProxy::new(services.service::<ToolFunctionRegistry>());
+        let tool_proxy_id = services.service_mut::<ToolProxies>().add(tool_proxy);
         let canvas = CCanvas::new(path, image, archive, tool_proxy_id);
         let canvas_id = canvas.id();
 
