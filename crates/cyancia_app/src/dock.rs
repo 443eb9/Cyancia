@@ -359,7 +359,7 @@ impl CanvasDock {
 }
 
 pub enum CanvasDockMessage {
-    CanvasUpdated(IRect),
+    CanvasUpdated(Option<IRect>),
     CanvasFocus(Point),
     MouseEvent(mouse::Event),
     WidgetRectChange(Rect),
@@ -412,7 +412,7 @@ impl Dock<Theme, Renderer> for CanvasDock {
                     );
                     self.compositor.composite(
                         overriders,
-                        dirty_tiles,
+                        dirty_tiles.unwrap_or_else(|| canvas.image.image_tile_rect()),
                         &canvas.image,
                         tiles,
                         device,
@@ -505,6 +505,10 @@ impl Dock<Theme, Renderer> for CanvasDock {
         }
     }
 
+    fn on_open(&mut self) -> Task<Self::Message> {
+        Task::done(CanvasDockMessage::CanvasUpdated(None))
+    }
+
     fn on_close(&mut self) -> Task<Self::Message> {
         CanvasRemoved::broadcast(CanvasRemoved { id: self.canvas });
 
@@ -512,7 +516,7 @@ impl Dock<Theme, Renderer> for CanvasDock {
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
-        CanvasUpdated::listen_to().map(|e| CanvasDockMessage::CanvasUpdated(e.dirty_tiles))
+        CanvasUpdated::listen_to().map(|e| CanvasDockMessage::CanvasUpdated(Some(e.dirty_tiles)))
     }
 }
 
