@@ -10,7 +10,7 @@ use cyancia_image::{
     tile::{DynamicLayerStorage, GpuLayerInfo, GpuTileStorage, TileStorageAppExt},
 };
 use cyancia_render::render_context::RenderContextAppExt;
-use cyancia_runtime::Services;
+use cyancia_runtime::{Services, event::Event};
 use cyancia_undo::UndoCommand;
 use cyancia_utils::log_err::LogErr;
 use glam::IVec2;
@@ -20,7 +20,7 @@ use wgpu::{
     TextureAspect, TextureDescriptor, TextureDimension, TextureUsages,
 };
 
-use crate::{CCanvas, CanvasAppExt, CanvasId};
+use crate::{CCanvas, CanvasAppExt, CanvasId, event::CanvasUpdated};
 
 pub struct TileReplaceCommand {
     pub reason: Cow<'static, str>,
@@ -241,13 +241,12 @@ fn apply_tile_replace(
 
     queue.submit([ec.finish()]);
 
-    drop(layer);
-
-    services.update_canvas(&canvas, |canvas, _| {
-        canvas.mark_dirty(IRect {
+    CanvasUpdated::broadcast(CanvasUpdated {
+        id: canvas,
+        dirty_tiles: IRect {
             min: dirty_min,
             max: dirty_max + 1,
-        });
+        },
     });
 }
 
@@ -344,7 +343,10 @@ impl UndoCommand for InsertLayerCommand {
                     self.position,
                     self.layer.clone(),
                 );
-                canvas.mark_dirty(canvas.image.image_tile_rect());
+                CanvasUpdated::broadcast(CanvasUpdated {
+                    id: self.canvas,
+                    dirty_tiles: canvas.image.image_tile_rect(),
+                });
                 canvas.set_active_layer_and_clear_select(*self.layer.id());
             })
             .ok_or(anyhow::anyhow!("Canvas {} not found", self.canvas))
@@ -360,7 +362,10 @@ impl UndoCommand for InsertLayerCommand {
                     .image
                     .layer_stack_mut()
                     .remove_layer_hierarchy(self.layer.id());
-                canvas.mark_dirty(canvas.image.image_tile_rect());
+                CanvasUpdated::broadcast(CanvasUpdated {
+                    id: self.canvas,
+                    dirty_tiles: canvas.image.image_tile_rect(),
+                });
                 canvas.set_active_layer_and_clear_select(self.previous_active_layer);
                 for layer_id in &self.previous_selected_layers {
                     canvas.select_layer(*layer_id);
@@ -406,7 +411,10 @@ impl UndoCommand for GroupLayerCommand {
                         .layer_stack_mut()
                         .move_layer(child.id, *self.group.id(), i);
                 }
-                canvas.mark_dirty(canvas.image.image_tile_rect());
+                CanvasUpdated::broadcast(CanvasUpdated {
+                    id: self.canvas,
+                    dirty_tiles: canvas.image.image_tile_rect(),
+                });
             })
             .ok_or(anyhow::anyhow!("Canvas {} not found", self.canvas))
             .log_err();
@@ -433,7 +441,10 @@ impl UndoCommand for GroupLayerCommand {
                 }
 
                 assert!(removed_nodes.is_empty());
-                canvas.mark_dirty(canvas.image.image_tile_rect());
+                CanvasUpdated::broadcast(CanvasUpdated {
+                    id: self.canvas,
+                    dirty_tiles: canvas.image.image_tile_rect(),
+                });
             })
             .ok_or(anyhow::anyhow!("Canvas {} not found", self.canvas))
             .log_err();
@@ -513,7 +524,10 @@ impl UndoCommand for MoveLayersCommand {
                     }
                 }
             }
-            canvas.mark_dirty(canvas.image.image_tile_rect());
+            CanvasUpdated::broadcast(CanvasUpdated {
+                id: self.canvas,
+                dirty_tiles: canvas.image.image_tile_rect(),
+            });
         });
 
         Ok(())
@@ -541,7 +555,10 @@ impl UndoCommand for MoveLayersCommand {
                     }
                 }
             }
-            canvas.mark_dirty(canvas.image.image_tile_rect());
+            CanvasUpdated::broadcast(CanvasUpdated {
+                id: self.canvas,
+                dirty_tiles: canvas.image.image_tile_rect(),
+            });
         });
 
         Ok(())
@@ -665,7 +682,10 @@ impl UndoCommand for DeleteLayersCommand {
                     });
                 }
                 self.nodes = Some(nodes);
-                canvas.mark_dirty(canvas.image.image_tile_rect());
+                CanvasUpdated::broadcast(CanvasUpdated {
+                    id: self.canvas,
+                    dirty_tiles: canvas.image.image_tile_rect(),
+                });
 
                 if let Some((_, new_active)) = self.active_layer_from_to {
                     canvas.set_active_layer(new_active);
@@ -694,7 +714,10 @@ impl UndoCommand for DeleteLayersCommand {
                         node.nodes,
                     );
                 }
-                canvas.mark_dirty(canvas.image.image_tile_rect());
+                CanvasUpdated::broadcast(CanvasUpdated {
+                    id: self.canvas,
+                    dirty_tiles: canvas.image.image_tile_rect(),
+                });
 
                 if let Some((old_active, _)) = self.active_layer_from_to {
                     canvas.set_active_layer(old_active);
@@ -728,7 +751,10 @@ impl UndoCommand for LayerPropertyChangeCommand {
                 .get_layer_mut(&self.layer_id)
                 .unwrap();
             *layer.properties_mut() = self.new.clone();
-            canvas.mark_dirty(canvas.image.image_tile_rect());
+            CanvasUpdated::broadcast(CanvasUpdated {
+                id: self.canvas,
+                dirty_tiles: canvas.image.image_tile_rect(),
+            });
         });
 
         Ok(())
@@ -742,7 +768,10 @@ impl UndoCommand for LayerPropertyChangeCommand {
                 .get_layer_mut(&self.layer_id)
                 .unwrap();
             *layer.properties_mut() = self.old.clone();
-            canvas.mark_dirty(canvas.image.image_tile_rect());
+            CanvasUpdated::broadcast(CanvasUpdated {
+                id: self.canvas,
+                dirty_tiles: canvas.image.image_tile_rect(),
+            });
         });
 
         Ok(())

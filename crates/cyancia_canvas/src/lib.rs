@@ -48,8 +48,6 @@ pub struct CCanvas {
     pub transform: CanvasTransform,
     active_layer: LayerId,
     selected_layers: IndexSet<LayerId>,
-    dirty_tiles: IRect,
-    compositor: ImageCompositor,
 }
 
 impl CCanvas {
@@ -76,8 +74,6 @@ impl CCanvas {
             transform: CanvasTransform::default(),
             active_layer: background_layer,
             selected_layers: IndexSet::from([background_layer]),
-            dirty_tiles,
-            compositor: ImageCompositor::new(),
         }
     }
 
@@ -97,43 +93,6 @@ impl CCanvas {
         self.file_path = path.clone();
         self.archive.set_path(path)?;
         Ok(())
-    }
-
-    pub fn mark_dirty(&mut self, tiles: IRect) {
-        self.dirty_tiles = self.dirty_tiles.union(tiles);
-    }
-
-    pub fn dirty_tiles(&self) -> IRect {
-        self.dirty_tiles
-    }
-
-    pub fn clear_dirty(&mut self) -> IRect {
-        let rect = self.dirty_tiles;
-        self.dirty_tiles = IRect::EMPTY;
-        rect
-    }
-
-    pub fn recomposite(&mut self, services: &mut Services) {
-        if self.dirty_tiles.is_empty() {
-            return;
-        }
-        let dirty_tiles = self.clear_dirty();
-        services.service_scope::<LayerPreviewOverriders, _>(|overriders, services| {
-            let tiles = services.tile_storage();
-            let blend_functions = services.service::<BlendFunctionRegistry>();
-            let device = services.render_device();
-            let queue = services.render_queue();
-            self.compositor.create_cache(
-                overriders,
-                &self.image,
-                tiles,
-                blend_functions,
-                device,
-                queue,
-            );
-            self.compositor
-                .composite(overriders, dirty_tiles, &self.image, tiles, device, queue);
-        });
     }
 
     pub fn set_active_layer(&mut self, layer_id: LayerId) -> Option<CanvasActiveLayerChanged> {
@@ -317,14 +276,11 @@ pub trait CanvasAppExt {
         id: &CanvasId,
         update: impl FnOnce(&mut CCanvas, &mut Services) -> R,
     ) -> Option<R>;
-    fn recomposite_current_canvas(&mut self);
-    fn recomposite_canvas(&mut self, id: &CanvasId);
     fn set_current_canvas(&mut self, id: CanvasId);
 }
 
 impl CanvasAppExt for Services {
     fn add_canvas(&mut self, mut canvas: CCanvas) -> CanvasId {
-        canvas.recomposite(self);
         self.service_mut::<CanvasManager>().add_canvas(canvas)
     }
 
@@ -367,21 +323,8 @@ impl CanvasAppExt for Services {
     ) -> Option<R> {
         self.service_scope::<CanvasManager, _>(|manager, services| {
             let canvas = manager.get_mut(id)?;
-            let result = update(canvas, services);
-            canvas.recomposite(services);
-            Some(result)
+            Some(update(canvas, services))
         })
-    }
-
-    fn recomposite_current_canvas(&mut self) {
-        let Some(id) = self.current_canvas_id() else {
-            return;
-        };
-        self.recomposite_canvas(&id);
-    }
-
-    fn recomposite_canvas(&mut self, id: &CanvasId) {
-        self.update_canvas(id, |canvas, services| canvas.recomposite(services));
     }
 
     fn set_current_canvas(&mut self, id: CanvasId) {

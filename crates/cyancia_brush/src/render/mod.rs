@@ -116,7 +116,7 @@ impl CanvasBrushPresetOperator {
         stroke_id: u64,
         canvas_id: CanvasId,
         services: &mut Services,
-    ) -> Option<Task<BrushRenderUpdate>> {
+    ) -> Task<BrushRenderUpdate> {
         let canvas = services
             .canvas(&canvas_id)
             .expect("Current canvas should exist");
@@ -124,7 +124,7 @@ impl CanvasBrushPresetOperator {
             .transform
             .window_to_pixel(Vec2::new(input.position.x, input.position.y))
         else {
-            return None;
+            return Task::none();
         };
         let active_layer_id = canvas.active_layer_id();
         let selection_layer_id = canvas.image.selection_layer();
@@ -134,7 +134,7 @@ impl CanvasBrushPresetOperator {
             .contains::<LayerTexelTypeProp>()
         {
             log::warn!("Unable to paint to the active layer which cannot contain pixels.");
-            return None;
+            return Task::none();
         }
 
         let tiles = services.tile_storage();
@@ -213,7 +213,7 @@ impl CanvasBrushPresetOperator {
         });
 
         self.last_session = Some(session);
-        task
+        task.unwrap_or_else(Task::none)
     }
 
     pub fn update_stroke(
@@ -227,9 +227,7 @@ impl CanvasBrushPresetOperator {
         let Some(session) = self.last_session.as_ref() else {
             return Task::none();
         };
-        let canvas = services
-            .canvas(&session.canvas_id)
-            .expect("Stroke canvas should exist");
+        let canvas = services.canvas(&session.canvas_id).unwrap();
         let Some(position) = canvas
             .transform
             .window_to_pixel(Vec2::new(input.position.x, input.position.y))
@@ -338,11 +336,6 @@ impl CanvasBrushPresetOperator {
 struct StrokePostprocessPipelines {
     main: BrushPostProcessPipeline,
     bounds_eval: BrushPostProcessBoundsEvalPipeline,
-}
-
-struct WorkerThreadData {
-    samples: AsyncBufferReadback<OutputSamples>,
-    dab_infos: AsyncBufferReadback<Vec<DabInfo>>,
 }
 
 struct StrokeSession {

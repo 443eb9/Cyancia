@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 
 use cyancia_assets::asset::AssetHandle;
-use cyancia_canvas::{CanvasAppExt, CanvasUndoStackAppExt, command::TileReplaceCommand};
+use cyancia_canvas::{
+    CanvasAppExt, CanvasUndoStackAppExt, command::TileReplaceCommand, event::CanvasUpdated,
+};
 use cyancia_image::{composite::LayerPreviewOverriders, tile::TileStorageAppExt};
 use cyancia_input::{key::KeyboardState, mouse::PressedMouseState};
 use cyancia_render::render_context::RenderContextAppExt;
-use cyancia_runtime::{Services, service::Service};
+use cyancia_runtime::{Services, event::Event, service::Service};
 use cyancia_shader_graph::graph::{
     external::ExternalVariableId, function::ASSET_GRAPH_FUNCTION_STORAGE,
     slot::ErasedGraphLiteralUpdateMessage, texture::ASSET_GRAPH_TEXTURE_STORAGE,
@@ -104,15 +106,18 @@ impl ToolFunction for BrushTool {
 
         self.next_stroke_id += 1;
         let stroke_id = self.next_stroke_id;
-        let Some(task) = services.service_scope::<CurrentBrushPreset, _>(|brush, services| {
-            brush.0.begin_stroke(mouse, stroke_id, canvas_id, services)
-        }) else {
-            return Task::none();
-        };
         self.active_stroke_id = Some(stroke_id);
         self.queued_commands
             .insert(stroke_id, services.queue_undo_command(&canvas_id).unwrap());
-        task.map(BrushToolMessage::Render)
+
+        services
+            .try_service_scope::<CurrentBrushPreset, _>(|brush, services| {
+                brush
+                    .0
+                    .begin_stroke(mouse, stroke_id, canvas_id, services)
+                    .map(BrushToolMessage::Render)
+            })
+            .unwrap_or_else(Task::none)
     }
 
     #[tracing::instrument(skip_all, name = "brush_tool_update")]
@@ -169,7 +174,12 @@ impl ToolFunction for BrushTool {
                 services
                     .service_mut::<LayerPreviewOverriders>()
                     .insert_overrider(target_layer_id, overrider);
-                services.update_canvas(&canvas_id, |canvas, _| canvas.mark_dirty(dirty_tiles));
+                CanvasUpdated::broadcast(CanvasUpdated {
+                    id: canvas_id,
+                    dirty_tiles,
+                });
+
+                Task::none()
             }
             BrushToolMessage::Render(BrushRenderUpdate::Finished {
                 stroke_id,
@@ -185,7 +195,6 @@ impl ToolFunction for BrushTool {
                 }
 
                 let Some(result_texture) = result.texture().cloned() else {
-                    services.recomposite_canvas(&canvas_id);
                     return Task::none();
                 };
                 let cmd = {
@@ -205,6 +214,8 @@ impl ToolFunction for BrushTool {
                     )
                 };
                 command.send(Box::new(cmd));
+
+                Task::none()
             }
             BrushToolMessage::UpdateExternalVariable { id, message } => {
                 services.service_scope::<CurrentBrushPreset, _>(|brush, _| {
@@ -218,9 +229,10 @@ impl ToolFunction for BrushTool {
                     variable.value.ty().update_literal(&mut *value, message);
                     instance.update_external_var(&id, value);
                 });
+
+                Task::none()
             }
         }
-        Task::none()
     }
 
     fn tool_option_widget<'a>(

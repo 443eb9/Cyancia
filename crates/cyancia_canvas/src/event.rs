@@ -20,8 +20,9 @@ pub struct CanvasRemoved {
     pub id: CanvasId,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Event, Debug, Clone)]
 pub struct CanvasUpdated {
+    pub id: CanvasId,
     pub dirty_tiles: IRect,
 }
 

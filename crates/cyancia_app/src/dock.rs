@@ -4,19 +4,23 @@ use bevy_math::{IRect, Rect};
 use cyancia_assets::AssetAppExt;
 use cyancia_brush::{asset::BrushPreset, tool::BrushServicesExt, widget::BrushPresetListDelegate};
 use cyancia_canvas::{
-    CanvasId, CanvasManager, event::CanvasRemoved, render::ICC_TRANSFORM_SHADER_IDENT,
-    tools::PanTool, widget::canvas::CanvasWidget,
+    CanvasAppExt, CanvasId, CanvasManager,
+    event::{CanvasRemoved, CanvasUpdated},
+    render::ICC_TRANSFORM_SHADER_IDENT,
+    tools::PanTool,
+    widget::canvas::CanvasWidget,
 };
 use cyancia_color::shader::IccTransformShader;
 use cyancia_dock::dock::{Dock, DockId};
 use cyancia_image::{
     composite::{BlendFunctionRegistry, ImageCompositor, LayerPreviewOverriders},
-    tile::GpuTileStorage,
+    tile::{GpuTileStorage, TileStorageAppExt},
 };
 use cyancia_input::{
     key::KeyboardState,
     mouse::{HoverMouseState, PressedMouseState},
 };
+use cyancia_render::render_context::RenderContextAppExt;
 use cyancia_runtime::{Services, event::Event, service::RenderContext};
 use cyancia_tools::{ErasedToolFunctionMessage, ToolProxies};
 use iced::{
@@ -355,11 +359,11 @@ impl CanvasDock {
 }
 
 pub enum CanvasDockMessage {
+    CanvasUpdated(IRect),
     CanvasFocus(Point),
     MouseEvent(mouse::Event),
     WidgetRectChange(Rect),
     ToolFunctionMessage(ErasedToolFunctionMessage),
-    Tick,
 }
 
 impl Dock<Theme, Renderer> for CanvasDock {
@@ -389,6 +393,35 @@ impl Dock<Theme, Renderer> for CanvasDock {
 
     fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
         match message {
+            CanvasDockMessage::CanvasUpdated(dirty_tiles) => {
+                services.service_scope::<LayerPreviewOverriders, _>(|overriders, services| {
+                    let Some(canvas) = services.canvas(&self.canvas) else {
+                        return;
+                    };
+                    let tiles = services.tile_storage();
+                    let blend_functions = services.service::<BlendFunctionRegistry>();
+                    let device = services.render_device();
+                    let queue = services.render_queue();
+                    self.compositor.create_cache(
+                        overriders,
+                        &canvas.image,
+                        tiles,
+                        blend_functions,
+                        device,
+                        queue,
+                    );
+                    self.compositor.composite(
+                        overriders,
+                        dirty_tiles,
+                        &canvas.image,
+                        tiles,
+                        device,
+                        queue,
+                    );
+                });
+
+                Task::none()
+            }
             CanvasDockMessage::MouseEvent(event) => {
                 let canvas_manager = services.service_mut::<CanvasManager>();
                 if canvas_manager.current_id() != Some(self.canvas) {
@@ -469,38 +502,6 @@ impl Dock<Theme, Renderer> for CanvasDock {
                     })
                     .map(CanvasDockMessage::ToolFunctionMessage)
             }
-            CanvasDockMessage::Tick => {
-                services.service_scope::<CanvasManager, _>(|canvas_manager, services| {
-                    services.service_scope::<LayerPreviewOverriders, _>(|overriders, services| {
-                        let Some(canvas) = canvas_manager.get_mut(&self.canvas) else {
-                            return;
-                        };
-                        let tiles = services.service::<GpuTileStorage>();
-                        let render_context = services.service::<RenderContext>();
-                        let dirty_tiles = canvas.clear_dirty();
-                        if dirty_tiles.is_empty() {
-                            return;
-                        }
-                        self.compositor.create_cache(
-                            overriders,
-                            &canvas.image,
-                            tiles,
-                            services.service::<BlendFunctionRegistry>(),
-                            &render_context.device,
-                            &render_context.queue,
-                        );
-                        self.compositor.composite(
-                            overriders,
-                            dirty_tiles,
-                            &canvas.image,
-                            tiles,
-                            &render_context.device,
-                            &render_context.queue,
-                        );
-                    });
-                });
-                Task::none()
-            }
         }
     }
 
@@ -511,8 +512,7 @@ impl Dock<Theme, Renderer> for CanvasDock {
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
-        // TODO: Any better way to trigger image composition?
-        iced::time::every(Duration::from_secs_f32(1.0 / 240.0)).map(|_| CanvasDockMessage::Tick)
+        CanvasUpdated::listen_to().map(|e| CanvasDockMessage::CanvasUpdated(e.dirty_tiles))
     }
 }
 
