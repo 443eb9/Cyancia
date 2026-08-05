@@ -328,7 +328,7 @@ impl CanvasBrushPresetOperator {
             }
         });
 
-        updates.chain(end.discard())
+        updates.chain(end)
     }
 }
 

@@ -4,6 +4,7 @@ use std::{
     time::Instant,
 };
 
+use anyhow::{Result, anyhow, bail};
 use cyancia_runtime::{Application, Services, plugin::Plugin, service::Service};
 use cyancia_utils::{Deref, DerefMut, log_err::LogErr};
 use downcast_rs::Downcast;
@@ -20,12 +21,20 @@ impl Plugin for UndoPlugin {
 }
 
 pub struct QueuedUndoCommand {
+    stack_id: Uuid,
     tx: Sender<Box<dyn UndoCommand>>,
 }
 
 impl QueuedUndoCommand {
-    pub fn send(self, cmd: Box<dyn UndoCommand>) {
+    pub fn send(self, cmd: Box<dyn UndoCommand>, services: &mut Services) -> Result<()> {
         let _ = self.tx.send(cmd);
+        services.service_scope::<UndoStacks, _>(|stacks, services| {
+            if let Some(stack) = stacks.get_mut(&self.stack_id) {
+                stack.poll(services)
+            } else {
+                bail!("No undo stack found for id: {}", self.stack_id)
+            }
+        })
     }
 }
 
@@ -58,7 +67,10 @@ impl UndoStack {
     pub fn queue(&mut self) -> QueuedUndoCommand {
         let (tx, rx) = oneshot::channel();
         self.queue.push_back(rx);
-        QueuedUndoCommand { tx }
+        QueuedUndoCommand {
+            stack_id: self.id,
+            tx,
+        }
     }
 
     pub fn push<C: UndoCommand>(&mut self, cmd: C, services: &mut Services) -> anyhow::Result<()> {

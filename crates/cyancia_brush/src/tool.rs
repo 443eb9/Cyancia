@@ -13,7 +13,8 @@ use cyancia_shader_graph::graph::{
     slot::ErasedGraphLiteralUpdateMessage, texture::ASSET_GRAPH_TEXTURE_STORAGE,
 };
 use cyancia_tools::{ToolFunction, ToolId};
-use cyancia_undo::QueuedUndoCommand;
+use cyancia_undo::{QueuedUndoCommand, UndoStacks};
+use cyancia_utils::log_err::LogErr;
 use iced::{Element, Length, Task};
 use iced_widget::{column, container, text};
 use log::error;
@@ -213,7 +214,7 @@ impl ToolFunction for BrushTool {
                         result_texture,
                     )
                 };
-                command.send(Box::new(cmd));
+                command.send(Box::new(cmd), services).log_err();
 
                 Task::none()
             }
