@@ -20,7 +20,9 @@ use cyancia_runtime::{
     event::Event,
     windows::{WindowView, WindowViewId},
 };
-use cyancia_tools::{ErasedToolFunctionMessage, ToolFunction, ToolProxies, ToolProxy};
+use cyancia_tools::{
+    ErasedToolFunctionMessage, GlobalToolBindings, ToolFunction, ToolProxies, ToolProxy,
+};
 use iced::keyboard::key;
 use iced::{
     Element, Subscription, Task, Theme, event,
@@ -62,12 +64,29 @@ impl MainView {
             .map(|canvas| canvas.tool_proxy_id());
 
         if let Some(tool_proxy) = tool_proxy {
-            services.service_scope::<ToolProxies, _>(|tool_proxies, services| {
-                let tool_proxy = tool_proxies.get_mut(&tool_proxy);
-                tool_proxy
-                    .update_from_keyboard_state(services, is_keydown)
-                    .map(MainViewMessage::ToolFunctionMessage)
-            })
+            services
+                .service_scope::<ToolProxies, _>(|tool_proxies, services| {
+                    let tool_proxy = tool_proxies.get_mut(&tool_proxy);
+                    let keyboard_state = services.service::<KeyboardState>();
+                    let seq = keyboard_state.get_sequence();
+
+                    let config = services
+                        .service::<GlobalToolBindings>()
+                        .binding_for(seq)
+                        .cloned();
+                    let Some(config) = config else {
+                        return tool_proxy.switch_override_tool(None, services);
+                    };
+
+                    if config.is_temporary {
+                        tool_proxy.switch_override_tool(Some(config.tool.clone()), services)
+                    } else if is_keydown {
+                        tool_proxy.switch_tool(config.tool.clone(), services)
+                    } else {
+                        Task::none()
+                    }
+                })
+                .map(MainViewMessage::ToolFunctionMessage)
         } else {
             Task::none()
         }
