@@ -432,6 +432,17 @@ impl DynamicLayerStorage {
         Some(self.texture_view()?.texture())
     }
 
+    pub fn compute_tile_bounds(&self) -> IRect {
+        let mut bounds = IRect::EMPTY;
+        for (coord, _) in self.tiles.iter() {
+            bounds = bounds.union_point(*coord);
+        }
+        if !bounds.is_empty() {
+            bounds.max += 1;
+        }
+        bounds
+    }
+
     pub fn allocate_pixels(&mut self, pixel_rect: IRect) {
         let tile_area = GpuTileStorage::pixel_rect_to_tile(pixel_rect);
         self.allocate_tiles(tile_area);

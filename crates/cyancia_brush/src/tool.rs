@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use cyancia_assets::asset::AssetHandle;
 use cyancia_canvas::{CanvasAppExt, CanvasUndoStackAppExt, command::TileReplaceCommand};
 use cyancia_image::{composite::LayerPreviewOverriders, tile::TileStorageAppExt};
@@ -68,7 +70,7 @@ impl BrushServicesExt for Services {
 pub struct BrushTool {
     next_stroke_id: u64,
     active_stroke_id: Option<u64>,
-    queued_commands: Vec<(u64, QueuedUndoCommand)>,
+    queued_commands: HashMap<u64, QueuedUndoCommand>,
 }
 
 pub enum BrushToolMessage {
@@ -108,12 +110,8 @@ impl ToolFunction for BrushTool {
             return Task::none();
         };
         self.active_stroke_id = Some(stroke_id);
-        self.queued_commands.push((
-            stroke_id,
-            services
-                .queue_undo_command(&canvas_id)
-                .expect("Current canvas should have an undo stack"),
-        ));
+        self.queued_commands
+            .insert(stroke_id, services.queue_undo_command(&canvas_id).unwrap());
         task.map(BrushToolMessage::Render)
     }
 
@@ -124,10 +122,14 @@ impl ToolFunction for BrushTool {
         mouse: &PressedMouseState,
         services: &mut Services,
     ) -> Task<Self::Message> {
-        services.try_service_scope::<CurrentBrushPreset, _>(|brush, services| {
-            brush.0.update_stroke(mouse, services);
-        });
-        Task::none()
+        services
+            .try_service_scope::<CurrentBrushPreset, _>(|brush, services| {
+                brush
+                    .0
+                    .update_stroke(mouse, services)
+                    .map(BrushToolMessage::Render)
+            })
+            .unwrap_or_else(Task::none)
     }
 
     #[tracing::instrument(skip_all, name = "brush_tool_end")]
@@ -137,11 +139,15 @@ impl ToolFunction for BrushTool {
         mouse: &PressedMouseState,
         services: &mut Services,
     ) -> Task<Self::Message> {
-        services.try_service_scope::<CurrentBrushPreset, _>(|brush, services| {
-            brush.0.end_stroke(mouse, services);
-        });
-        self.active_stroke_id = None;
-        Task::none()
+        services
+            .try_service_scope::<CurrentBrushPreset, _>(|brush, services| {
+                self.active_stroke_id = None;
+                brush
+                    .0
+                    .end_stroke(mouse, services)
+                    .map(BrushToolMessage::Render)
+            })
+            .unwrap_or_else(Task::none)
     }
 
     fn handle_message(
@@ -171,11 +177,7 @@ impl ToolFunction for BrushTool {
                 target_layer_id,
                 result,
             }) => {
-                let command = self
-                    .queued_commands
-                    .iter()
-                    .position(|(id, _)| *id == stroke_id)
-                    .map(|index| self.queued_commands.remove(index).1);
+                let command = self.queued_commands.remove(&stroke_id).unwrap();
                 if self.active_stroke_id == Some(stroke_id) {
                     services
                         .service_mut::<LayerPreviewOverriders>()
@@ -186,7 +188,6 @@ impl ToolFunction for BrushTool {
                     services.recomposite_canvas(&canvas_id);
                     return Task::none();
                 };
-                let command = command.expect("Finished brush stroke should have a queued command");
                 let cmd = {
                     let layer_storage = services
                         .tile_storage()
@@ -203,7 +204,7 @@ impl ToolFunction for BrushTool {
                         result_texture,
                     )
                 };
-                command.send(Box::new(cmd), services).expect("Failed to commit brush stroke");
+                command.send(Box::new(cmd));
             }
             BrushToolMessage::UpdateExternalVariable { id, message } => {
                 services.service_scope::<CurrentBrushPreset, _>(|brush, _| {

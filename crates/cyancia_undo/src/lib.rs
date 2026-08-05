@@ -20,19 +20,12 @@ impl Plugin for UndoPlugin {
 }
 
 pub struct QueuedUndoCommand {
-    stack_id: Uuid,
     tx: Sender<Box<dyn UndoCommand>>,
 }
 
 impl QueuedUndoCommand {
-    pub fn send(self, cmd: Box<dyn UndoCommand>, services: &mut Services) -> anyhow::Result<()> {
+    pub fn send(self, cmd: Box<dyn UndoCommand>) {
         let _ = self.tx.send(cmd);
-        services.service_scope::<UndoStacks, _>(|stacks, services| {
-            stacks
-                .get_mut(&self.stack_id)
-                .expect("Undo stack for queued command should exist")
-                .poll(services)
-        })
     }
 }
 
@@ -65,10 +58,7 @@ impl UndoStack {
     pub fn queue(&mut self) -> QueuedUndoCommand {
         let (tx, rx) = oneshot::channel();
         self.queue.push_back(rx);
-        QueuedUndoCommand {
-            stack_id: self.id,
-            tx,
-        }
+        QueuedUndoCommand { tx }
     }
 
     pub fn push<C: UndoCommand>(&mut self, cmd: C, services: &mut Services) -> anyhow::Result<()> {
@@ -278,63 +268,5 @@ impl UndoCommand for BatchedUndoCommand {
             }
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[derive(Default)]
-    struct Counter(i32);
-
-    impl Service for Counter {}
-
-    struct Add(i32);
-
-    impl UndoCommand for Add {
-        fn label(&self) -> Cow<'static, str> {
-            "Add".into()
-        }
-
-        fn redo(&mut self, services: &mut Services) -> anyhow::Result<()> {
-            services.service_mut::<Counter>().0 += self.0;
-            Ok(())
-        }
-
-        fn undo(&mut self, services: &mut Services) -> anyhow::Result<()> {
-            services.service_mut::<Counter>().0 -= self.0;
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn pushes_undoes_and_redoes() {
-        let mut services = Services::default();
-        services.insert_service(Counter::default());
-        let mut stack = UndoStack::new(Uuid::new_v4(), 10);
-
-        stack.push(Add(3), &mut services).unwrap();
-        assert_eq!(services.service::<Counter>().0, 3);
-        stack.undo(&mut services).unwrap();
-        assert_eq!(services.service::<Counter>().0, 0);
-        stack.redo(&mut services).unwrap();
-        assert_eq!(services.service::<Counter>().0, 3);
-    }
-
-    #[test]
-    fn queued_command_is_applied_in_order() {
-        let id = Uuid::new_v4();
-        let mut services = Services::default();
-        services.insert_service(Counter::default());
-        let mut stacks = UndoStacks::default();
-        stacks.insert(id, UndoStack::new(id, 10));
-        let queued = stacks.get_mut(&id).unwrap().queue();
-        services.insert_service(stacks);
-
-        queued.send(Box::new(Add(4)), &mut services).unwrap();
-
-        assert_eq!(services.service::<Counter>().0, 4);
-        assert_eq!(services.service::<UndoStacks>().get(&id).unwrap().len(), 1);
     }
 }

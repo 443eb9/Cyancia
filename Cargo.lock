@@ -1748,6 +1748,7 @@ dependencies = [
  "iced_wgpu",
  "iced_widget",
  "log",
+ "parking_lot",
  "ringbuffer",
  "serde",
  "thiserror 2.0.19",
