@@ -181,7 +181,11 @@ impl<T: ToolFunction> ErasedToolFunction for T {
     }
 
     fn activate(&mut self, services: &mut Services) -> Task<ErasedToolFunctionMessage> {
-        erased_task(T::id(), self.activate(services))
+        self.activate(services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: T::id(),
+                message: Box::new(message),
+            })
     }
 
     fn hover(
@@ -190,7 +194,11 @@ impl<T: ToolFunction> ErasedToolFunction for T {
         mouse: &HoverMouseState,
         services: &mut Services,
     ) -> Task<ErasedToolFunctionMessage> {
-        erased_task(T::id(), self.hover(keyboard, mouse, services))
+        self.hover(keyboard, mouse, services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: T::id(),
+                message: Box::new(message),
+            })
     }
 
     fn begin(
@@ -199,7 +207,11 @@ impl<T: ToolFunction> ErasedToolFunction for T {
         mouse: &PressedMouseState,
         services: &mut Services,
     ) -> Task<ErasedToolFunctionMessage> {
-        erased_task(T::id(), self.begin(keyboard, mouse, services))
+        self.begin(keyboard, mouse, services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: T::id(),
+                message: Box::new(message),
+            })
     }
 
     fn update(
@@ -208,7 +220,11 @@ impl<T: ToolFunction> ErasedToolFunction for T {
         mouse: &PressedMouseState,
         services: &mut Services,
     ) -> Task<ErasedToolFunctionMessage> {
-        erased_task(T::id(), self.update(keyboard, mouse, services))
+        self.update(keyboard, mouse, services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: T::id(),
+                message: Box::new(message),
+            })
     }
 
     fn end(
@@ -217,11 +233,19 @@ impl<T: ToolFunction> ErasedToolFunction for T {
         mouse: &PressedMouseState,
         services: &mut Services,
     ) -> Task<ErasedToolFunctionMessage> {
-        erased_task(T::id(), self.end(keyboard, mouse, services))
+        self.end(keyboard, mouse, services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: T::id(),
+                message: Box::new(message),
+            })
     }
 
     fn deactivate(&mut self, services: &mut Services) -> Task<ErasedToolFunctionMessage> {
-        erased_task(T::id(), self.deactivate(services))
+        self.deactivate(services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: T::id(),
+                message: Box::new(message),
+            })
     }
 
     fn handle_message(
@@ -232,7 +256,11 @@ impl<T: ToolFunction> ErasedToolFunction for T {
         let message = message
             .downcast::<T::Message>()
             .expect("Invalid message type passed to tool function");
-        erased_task(T::id(), self.handle_message(*message, services))
+        self.handle_message(*message, services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: T::id(),
+                message: Box::new(message),
+            })
     }
 
     fn tool_option_widget<'a>(
@@ -252,18 +280,12 @@ impl<T: ToolFunction> ErasedToolFunction for T {
         canvas_surface: &TextureView,
         services: &mut Services,
     ) -> Task<ErasedToolFunctionMessage> {
-        erased_task(T::id(), self.canvas_overlay(canvas_surface, services))
+        self.canvas_overlay(canvas_surface, services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: T::id(),
+                message: Box::new(message),
+            })
     }
-}
-
-fn erased_task<T: Send + Sync + 'static>(
-    tool_id: ToolId,
-    task: Task<T>,
-) -> Task<ErasedToolFunctionMessage> {
-    task.map(move |message| ErasedToolFunctionMessage {
-        tool_id: tool_id.clone(),
-        message: Box::new(message),
-    })
 }
 
 pub struct ErasedToolFunctionMessage {
