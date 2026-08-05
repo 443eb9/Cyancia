@@ -1,3 +1,4 @@
+use cyancia_runtime::service::Service;
 use iced_core::keyboard::{Modifiers, key};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -50,6 +51,8 @@ impl KeyboardState {
         }
     }
 }
+
+impl Service for KeyboardState {}
 
 #[derive(Debug, thiserror::Error)]
 pub enum KeyParseError {

@@ -17,7 +17,6 @@ use crate::{
     window::OpenBrushEditorAction,
 };
 
-pub mod actions_matcher;
 pub mod edit;
 pub mod file;
 pub mod layer;

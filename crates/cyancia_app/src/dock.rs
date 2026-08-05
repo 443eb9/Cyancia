@@ -1,7 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
 use bevy_math::{IRect, Rect};
-use cyancia_actions::actions_matcher::ActionsMatcher;
 use cyancia_assets::AssetAppExt;
 use cyancia_brush::{asset::BrushPreset, tool::BrushServicesExt, widget::BrushPresetListDelegate};
 use cyancia_canvas::{
@@ -27,12 +26,6 @@ use iced::{
 use iced_core::Point;
 use iced_wgpu::Renderer;
 use parking_lot::Mutex;
-
-// ==============================
-// 以下 dock 依赖尚未回迁的 crate（cyancia_color_selector / cyancia_canvas::widget::layer_stack
-// 的 LayerStackWidget 及其依赖 LayerNodeWidget / DragDropColumn），本阶段无法使用，注释保留
-// GPUI 时代实现，待依赖回迁后恢复。
-// ==============================
 
 // pub struct CurrentCanvasLayersDock {
 //     widget: Option<Entity<LayerStackWidget>>,
@@ -307,8 +300,6 @@ use parking_lot::Mutex;
 //     }
 // }
 
-// ==============================
-
 macro_rules! test_dummy_dock {
     ($name:ident, $id:ident, $text:expr) => {
         pub struct $name;
@@ -398,7 +389,58 @@ impl Dock<Theme, Renderer> for CanvasDock {
 
     fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
         match message {
-            CanvasDockMessage::MouseEvent(event) => Task::none(),
+            CanvasDockMessage::MouseEvent(event) => {
+                let canvas_manager = services.service_mut::<CanvasManager>();
+                if canvas_manager.current_id() != Some(self.canvas) {
+                    return Task::none();
+                }
+
+                let Some(canvas) = canvas_manager.current() else {
+                    return Task::none();
+                };
+                let tool_proxy_id = canvas.tool_proxy_id();
+
+                let task = services.service_scope::<ToolProxies, _>(|tool_proxies, services| {
+                    let tool_proxy = tool_proxies.get_mut(&tool_proxy_id);
+                    let keyboard_state = services.service::<KeyboardState>().clone();
+
+                    match event {
+                        mouse::Event::ButtonPressed(button) => {
+                            if button != mouse::Button::Left {
+                                return Task::none();
+                            }
+
+                            tool_proxy.mouse_pressed(
+                                &keyboard_state,
+                                &PressedMouseState {
+                                    position: self.cursor_position,
+                                },
+                                services,
+                            )
+                        }
+                        mouse::Event::ButtonReleased(button) => {
+                            if button != mouse::Button::Left {
+                                return Task::none();
+                            }
+
+                            tool_proxy.mouse_released(
+                                &keyboard_state,
+                                &PressedMouseState {
+                                    position: self.cursor_position,
+                                },
+                                services,
+                            )
+                        }
+                        mouse::Event::CursorMoved { position } => {
+                            self.cursor_position = position;
+                            tool_proxy.mouse_moved(&keyboard_state, position, services)
+                        }
+                        _ => Task::none(),
+                    }
+                });
+
+                task.map(CanvasDockMessage::ToolFunctionMessage)
+            }
             CanvasDockMessage::CanvasFocus(cursor_pos) => {
                 self.cursor_position = cursor_pos;
                 services

@@ -326,21 +326,16 @@ impl ToolProxy {
 
     pub fn update_from_keyboard_state(
         &mut self,
-        keyboard: &KeyboardState,
         services: &mut Services,
         is_keydown: bool,
     ) -> Task<ErasedToolFunctionMessage> {
-        let seq = keyboard.get_sequence();
+        let keyboard_state = services.service::<KeyboardState>();
+        let seq = keyboard_state.get_sequence();
 
         let config = services
             .service::<GlobalToolBindings>()
             .binding_for(seq)
             .cloned();
-        log::info!(
-            "switch_tool_for_keys: keystroke={:?} binding={:?}",
-            seq,
-            config
-        );
         let Some(config) = config else {
             return self.switch_override_tool(None, services);
         };

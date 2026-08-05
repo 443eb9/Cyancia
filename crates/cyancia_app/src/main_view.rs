@@ -2,7 +2,6 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 
 use cyancia_actions::{
     ActionFunctionRegistry, ActionId,
-    actions_matcher::ActionsMatcher,
     manifest::{ActionCollection, KeyBindingDefManifest},
 };
 use cyancia_assets::AssetAppExt;
@@ -38,7 +37,7 @@ use crate::dock::{
 
 pub struct MainView {
     dock_manager: DockManager<Theme, Renderer>,
-    actions_matcher: ActionsMatcher,
+    action_collection: ActionCollection,
 }
 
 pub enum MainViewMessage {
@@ -66,11 +65,7 @@ impl MainView {
             services.service_scope::<ToolProxies, _>(|tool_proxies, services| {
                 let tool_proxy = tool_proxies.get_mut(&tool_proxy);
                 tool_proxy
-                    .update_from_keyboard_state(
-                        &self.actions_matcher.keyboard_state,
-                        services,
-                        is_keydown,
-                    )
+                    .update_from_keyboard_state(services, is_keydown)
                     .map(MainViewMessage::ToolFunctionMessage)
             })
         } else {
@@ -96,7 +91,7 @@ impl WindowView for MainView {
             manifest.actions.len(),
             manifest.name
         );
-        let actions_matcher = ActionsMatcher::new(ActionCollection::new(&manifest));
+        let action_collection = ActionCollection::new(&manifest);
 
         let (main_window, task) = window::open(Default::default());
         let (mut dock_manager, dock_manager_task) = DockManager::new(main_window);
@@ -116,7 +111,7 @@ impl WindowView for MainView {
         (
             Self {
                 dock_manager,
-                actions_matcher,
+                action_collection,
             },
             Task::batch([
                 task.discard(),
@@ -149,23 +144,12 @@ impl WindowView for MainView {
                 .update(m, services)
                 .map(MainViewMessage::Dock),
             MainViewMessage::WindowEvent(id, event) => {
-                match event {
-                    window::Event::Focused => {
-                        self.actions_matcher.reset_keyboard_state();
-                    }
-                    _ => {}
-                }
-
                 self.dock_manager.on_window_event(id, event).discard()
             }
 
             MainViewMessage::KeyboardEvent(window, event) => {
-                let old_modifier_count = self
-                    .actions_matcher
-                    .keyboard_state
-                    .modifiers()
-                    .bits()
-                    .count_ones();
+                let keyboard_state = services.service_mut::<KeyboardState>();
+                let old_modifier_count = keyboard_state.modifiers().bits().count_ones();
 
                 match &event {
                     keyboard::Event::KeyPressed {
@@ -185,8 +169,12 @@ impl WindowView for MainView {
                         {
                             return Task::none();
                         }
+                        keyboard_state.press(*code);
 
-                        if let Some(action) = self.actions_matcher.key_pressed(*code) {
+                        if let Some(action) = self
+                            .action_collection
+                            .get_action_id(keyboard_state.get_sequence())
+                        {
                             if let Some(action_func) = services
                                 .service_mut::<ActionFunctionRegistry>()
                                 .get(action.clone())
@@ -204,22 +192,13 @@ impl WindowView for MainView {
                         physical_key: key::Physical::Code(code),
                         ..
                     } => {
-                        self.actions_matcher.key_released(*code);
-
+                        keyboard_state.release(*code);
                         self.switch_tool_keys(services, false)
                     }
                     keyboard::Event::ModifiersChanged(modifiers) => {
-                        self.actions_matcher
-                            .keyboard_state
-                            .set_modifiers(*modifiers);
-                        self.actions_matcher.keyboard_state.modifiers();
+                        keyboard_state.set_modifiers(*modifiers);
 
-                        let new_modifier_count = self
-                            .actions_matcher
-                            .keyboard_state
-                            .modifiers()
-                            .bits()
-                            .count_ones();
+                        let new_modifier_count = keyboard_state.modifiers().bits().count_ones();
                         let is_keydown = new_modifier_count > old_modifier_count;
                         self.switch_tool_keys(services, is_keydown)
                     }
