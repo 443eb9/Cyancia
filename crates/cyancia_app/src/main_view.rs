@@ -1,12 +1,13 @@
-use std::{any::Any, sync::Arc};
+use std::{any::Any, collections::HashMap, sync::Arc};
 
 use cyancia_actions::{
     ActionFunctionRegistry, ActionId,
     actions_matcher::ActionsMatcher,
-    manifest::KeyBindingDefManifestCollection,
+    manifest::{ActionCollection, KeyBindingDefManifest},
 };
+use cyancia_assets::AssetAppExt;
 use cyancia_canvas::{
-    CanvasManager,
+    CanvasAppExt, CanvasManager,
     event::{CanvasCreated, CanvasRemoved},
     tools::PanTool,
 };
@@ -14,12 +15,14 @@ use cyancia_dock::{
     DockManager, DockMessage,
     dock::{Dock, DockId},
 };
+use cyancia_input::key::KeyboardState;
 use cyancia_runtime::{
     Services,
     event::Event,
     windows::{WindowView, WindowViewId},
 };
-use cyancia_tools::{ToolFunction, ToolProxies, ToolProxy};
+use cyancia_tools::{ErasedToolFunctionMessage, ToolFunction, ToolProxies, ToolProxy};
+use iced::keyboard::key;
 use iced::{
     Element, Subscription, Task, Theme, event,
     keyboard::{self},
@@ -29,14 +32,13 @@ use iced_wgpu::Renderer;
 use parking_lot::Mutex;
 
 use crate::dock::{
-    BrushPresetDock, CanvasDock, FiltersDock, LayersDock, ToolOptionsDock,
-    construct_canvas_dock_id, BRUSH_PRESETS_DOCK_ID, FILTERS_DOCK_ID, LAYER_DOCK_ID,
-    TOOL_OPTIONS_DOCK_ID,
+    BRUSH_PRESETS_DOCK_ID, BrushPresetDock, CanvasDock, FILTERS_DOCK_ID, FiltersDock,
+    LAYER_DOCK_ID, LayersDock, TOOL_OPTIONS_DOCK_ID, ToolOptionsDock, construct_canvas_dock_id,
 };
 
 pub struct MainView {
     dock_manager: DockManager<Theme, Renderer>,
-    actions_matcher: Arc<Mutex<ActionsMatcher>>,
+    actions_matcher: ActionsMatcher,
 }
 
 pub enum MainViewMessage {
@@ -47,6 +49,34 @@ pub enum MainViewMessage {
     CanvasCreated(CanvasCreated),
     CanvasRemoved(CanvasRemoved),
     ActionMessage(ActionId, Box<dyn Any + Send + Sync>),
+    ToolFunctionMessage(ErasedToolFunctionMessage),
+}
+
+impl MainView {
+    fn switch_tool_keys(
+        &mut self,
+        services: &mut Services,
+        is_keydown: bool,
+    ) -> Task<MainViewMessage> {
+        let tool_proxy = services
+            .current_canvas()
+            .map(|canvas| canvas.tool_proxy_id());
+
+        if let Some(tool_proxy) = tool_proxy {
+            services.service_scope::<ToolProxies, _>(|tool_proxies, services| {
+                let tool_proxy = tool_proxies.get_mut(&tool_proxy);
+                tool_proxy
+                    .update_from_keyboard_state(
+                        &self.actions_matcher.keyboard_state,
+                        services,
+                        is_keydown,
+                    )
+                    .map(MainViewMessage::ToolFunctionMessage)
+            })
+        } else {
+            Task::none()
+        }
+    }
 }
 
 impl WindowView for MainView {
@@ -57,11 +87,16 @@ impl WindowView for MainView {
     }
 
     fn boot(services: &mut Services) -> (Self, Task<Self::Message>) {
-        let actions = services
-            .service::<KeyBindingDefManifestCollection>()
-            .action_collection()
-            .clone();
-        let actions_matcher = Arc::new(Mutex::new(ActionsMatcher::new(actions)));
+        let assets = services.assets();
+        let manifests = assets.all_handles_of::<KeyBindingDefManifest>().unwrap();
+        let manifest = manifests.first().unwrap().get().unwrap();
+
+        log::info!(
+            "Loading {} key bindings from manifest {}",
+            manifest.actions.len(),
+            manifest.name
+        );
+        let actions_matcher = ActionsMatcher::new(ActionCollection::new(&manifest));
 
         let (main_window, task) = window::open(Default::default());
         let (mut dock_manager, dock_manager_task) = DockManager::new(main_window);
@@ -116,7 +151,7 @@ impl WindowView for MainView {
             MainViewMessage::WindowEvent(id, event) => {
                 match event {
                     window::Event::Focused => {
-                        self.actions_matcher.lock().reset_keyboard_state();
+                        self.actions_matcher.reset_keyboard_state();
                     }
                     _ => {}
                 }
@@ -125,20 +160,71 @@ impl WindowView for MainView {
             }
 
             MainViewMessage::KeyboardEvent(window, event) => {
-                if let Some(action) = self.actions_matcher.lock().on_keyboard_event(event) {
-                    if let Some(action_func) = services
-                        .service_mut::<ActionFunctionRegistry>()
-                        .get(action.clone())
-                    {
-                        log::info!("Triggering action: {}", action.0);
-                        return action_func.trigger(services).map(move |message| {
-                            MainViewMessage::ActionMessage(action.clone(), message)
-                        });
-                    } else {
-                        log::warn!("No action function found for action: {}", action.0);
+                let old_modifier_count = self
+                    .actions_matcher
+                    .keyboard_state
+                    .modifiers()
+                    .bits()
+                    .count_ones();
+
+                match &event {
+                    keyboard::Event::KeyPressed {
+                        physical_key: key::Physical::Code(code),
+                        repeat: false,
+                        ..
+                    } => {
+                        if *code == key::Code::ControlLeft
+                            || *code == key::Code::ControlRight
+                            || *code == key::Code::ShiftLeft
+                            || *code == key::Code::ShiftRight
+                            || *code == key::Code::AltLeft
+                            || *code == key::Code::AltRight
+                            || *code == key::Code::SuperLeft
+                            || *code == key::Code::SuperRight
+                            || *code == key::Code::Meta
+                        {
+                            return Task::none();
+                        }
+
+                        if let Some(action) = self.actions_matcher.key_pressed(*code) {
+                            if let Some(action_func) = services
+                                .service_mut::<ActionFunctionRegistry>()
+                                .get(action.clone())
+                            {
+                                log::info!("Triggering action: {}", action.0);
+                                return action_func.trigger(services).map(move |message| {
+                                    MainViewMessage::ActionMessage(action.clone(), message)
+                                });
+                            }
+                        }
+
+                        self.switch_tool_keys(services, true)
                     }
+                    keyboard::Event::KeyReleased {
+                        physical_key: key::Physical::Code(code),
+                        ..
+                    } => {
+                        self.actions_matcher.key_released(*code);
+
+                        self.switch_tool_keys(services, false)
+                    }
+                    keyboard::Event::ModifiersChanged(modifiers) => {
+                        self.actions_matcher
+                            .keyboard_state
+                            .set_modifiers(*modifiers);
+                        self.actions_matcher.keyboard_state.modifiers();
+
+                        let new_modifier_count = self
+                            .actions_matcher
+                            .keyboard_state
+                            .modifiers()
+                            .bits()
+                            .count_ones();
+                        let is_keydown = new_modifier_count > old_modifier_count;
+                        self.switch_tool_keys(services, is_keydown)
+                    }
+                    _ => Task::none(),
                 }
-                Task::none()
             }
             MainViewMessage::MouseEvent(window, event) => {
                 match event {
@@ -172,7 +258,7 @@ impl WindowView for MainView {
                             .switch_tool(PanTool::id(), services)
                     });
                 }
-                let dock = CanvasDock::new(e.id, self.actions_matcher.clone());
+                let dock = CanvasDock::new(e.id);
                 let id = <CanvasDock as Dock<Theme, Renderer>>::id(&dock);
                 self.dock_manager.register_dock(dock);
                 self.dock_manager.open_dock(id).map(MainViewMessage::Dock)
@@ -197,6 +283,20 @@ impl WindowView for MainView {
                 } else {
                     Task::none()
                 }
+            }
+            MainViewMessage::ToolFunctionMessage(message) => {
+                let Some(canvas) = services.current_canvas() else {
+                    return Task::none();
+                };
+
+                let tool_proxy_id = canvas.tool_proxy_id();
+                services
+                    .service_scope::<ToolProxies, _>(|tool_proxies, services| {
+                        tool_proxies
+                            .get_mut(&tool_proxy_id)
+                            .handle_message(message, services)
+                    })
+                    .map(MainViewMessage::ToolFunctionMessage)
             }
         }
     }

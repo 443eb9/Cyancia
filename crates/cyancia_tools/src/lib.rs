@@ -13,6 +13,7 @@ use cyancia_input::{
 use cyancia_runtime::{Application, Services, plugin::Plugin, service::Service};
 use cyancia_utils::wrapper;
 use iced::{Element, Task, keyboard::key};
+use iced_core::keyboard::Modifiers;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -51,11 +52,7 @@ impl Plugin for ToolsPlugin {
             .bindings
             .iter()
             .cloned()
-            .map(|binding| {
-                let shortcut = parse_shortcut(&binding.shortcut)
-                    .unwrap_or_else(|| panic!("Invalid tool shortcut: {}", binding.shortcut));
-                (shortcut, binding)
-            })
+            .map(|binding| (binding.shortcut, binding))
             .collect();
         services.service_mut::<GlobalToolBindings>().bindings = bindings;
     }
@@ -305,6 +302,36 @@ impl ToolProxy {
         Self::default()
     }
 
+    pub fn update_from_keyboard_state(
+        &mut self,
+        keyboard: &KeyboardState,
+        services: &mut Services,
+        is_keydown: bool,
+    ) -> Task<ErasedToolFunctionMessage> {
+        let seq = keyboard.get_sequence();
+
+        let config = services
+            .service::<GlobalToolBindings>()
+            .binding_for(seq)
+            .cloned();
+        log::info!(
+            "switch_tool_for_keys: keystroke={:?} binding={:?}",
+            seq,
+            config
+        );
+        let Some(config) = config else {
+            return self.switch_override_tool(None, services);
+        };
+
+        if config.is_temporary {
+            self.switch_override_tool(Some(config.tool.clone()), services)
+        } else if is_keydown {
+            self.switch_tool(config.tool.clone(), services)
+        } else {
+            Task::none()
+        }
+    }
+
     fn ensure_tool(&mut self, tool: &ToolId, services: &Services) -> bool {
         if self.tool_functions.contains_key(tool) {
             return true;
@@ -332,14 +359,14 @@ impl ToolProxy {
             return Task::none();
         }
 
-        log::info!("Switched tool: {}", tool);
+        log::info!("Switching tool: {}", tool);
         let deactivate = self
             .current_state
             .take()
             .map(|state| {
                 self.tool_functions
                     .get_mut(&state.function)
-                    .expect("Current tool function should exist")
+                    .unwrap()
                     .deactivate(services)
             })
             .unwrap_or_else(Task::none);
@@ -350,7 +377,7 @@ impl ToolProxy {
         let activate = self
             .tool_functions
             .get_mut(&tool)
-            .expect("Registered tool function should exist")
+            .unwrap()
             .activate(services);
         self.current_state = Some(State {
             function: tool,
@@ -368,6 +395,7 @@ impl ToolProxy {
             return Task::none();
         }
 
+        log::info!("Switching override tool: {:?}", tool);
         let deactivate = self
             .override_state
             .as_ref()
@@ -375,7 +403,7 @@ impl ToolProxy {
             .map(|state| {
                 self.tool_functions
                     .get_mut(&state.function)
-                    .expect("Active tool function should exist")
+                    .unwrap()
                     .deactivate(services)
             })
             .unwrap_or_else(Task::none);
@@ -387,7 +415,7 @@ impl ToolProxy {
             let activate = self
                 .tool_functions
                 .get_mut(&tool)
-                .expect("Registered tool function should exist")
+                .unwrap()
                 .activate(services);
             self.override_state = Some(State {
                 function: tool,
@@ -402,7 +430,7 @@ impl ToolProxy {
                 .map(|state| {
                     self.tool_functions
                         .get_mut(&state.function)
-                        .expect("Current tool function should exist")
+                        .unwrap()
                         .activate(services)
                 })
                 .unwrap_or_else(Task::none);
@@ -425,7 +453,7 @@ impl ToolProxy {
         state.is_updating = true;
         self.tool_functions
             .get_mut(&state.function)
-            .expect("Active tool function should exist")
+            .unwrap()
             .begin(keyboard, mouse, services)
     }
 
@@ -438,10 +466,7 @@ impl ToolProxy {
         let Some(state) = self.override_state.as_ref().or(self.current_state.as_ref()) else {
             return Task::none();
         };
-        let function = self
-            .tool_functions
-            .get_mut(&state.function)
-            .expect("Active tool function should exist");
+        let function = self.tool_functions.get_mut(&state.function).unwrap();
         if state.is_updating {
             function.update(keyboard, &PressedMouseState { position }, services)
         } else {
@@ -464,7 +489,7 @@ impl ToolProxy {
         state.is_updating = false;
         self.tool_functions
             .get_mut(&state.function)
-            .expect("Active tool function should exist")
+            .unwrap()
             .end(keyboard, mouse, services)
     }
 
@@ -490,7 +515,7 @@ impl ToolProxy {
         Some(
             self.tool_functions
                 .get(&state.function)
-                .expect("Active tool function should exist")
+                .unwrap()
                 .tool_option_widget(services),
         )
     }
@@ -505,7 +530,7 @@ impl ToolProxy {
         };
         self.tool_functions
             .get_mut(&state.function)
-            .expect("Active tool function should exist")
+            .unwrap()
             .canvas_overlay(canvas_surface, services)
     }
 
@@ -532,11 +557,11 @@ impl Service for ToolProxies {}
 
 impl ToolProxies {
     pub fn get(&self, id: &ToolProxyId) -> &ToolProxy {
-        self.proxies.get(id).expect("Tool proxy should exist")
+        self.proxies.get(id).unwrap()
     }
 
     pub fn get_mut(&mut self, id: &ToolProxyId) -> &mut ToolProxy {
-        self.proxies.get_mut(id).expect("Tool proxy should exist")
+        self.proxies.get_mut(id).unwrap()
     }
 
     pub fn add(&mut self, tool_proxy: ToolProxy) -> ToolProxyId {
@@ -563,46 +588,4 @@ impl GlobalToolBindings {
             .iter()
             .find_map(|(key, binding)| (*key == shortcut).then_some(binding))
     }
-}
-
-fn parse_shortcut(shortcut: &str) -> Option<KeySequence> {
-    let mut codes = Vec::new();
-    for part in shortcut.split('-') {
-        let code = match part.to_ascii_lowercase().as_str() {
-            "ctrl" => key::Code::ControlLeft,
-            "alt" => key::Code::AltLeft,
-            "shift" => key::Code::ShiftLeft,
-            "super" => key::Code::SuperLeft,
-            "space" => key::Code::Space,
-            "a" => key::Code::KeyA,
-            "b" => key::Code::KeyB,
-            "c" => key::Code::KeyC,
-            "d" => key::Code::KeyD,
-            "e" => key::Code::KeyE,
-            "f" => key::Code::KeyF,
-            "g" => key::Code::KeyG,
-            "h" => key::Code::KeyH,
-            "i" => key::Code::KeyI,
-            "j" => key::Code::KeyJ,
-            "k" => key::Code::KeyK,
-            "l" => key::Code::KeyL,
-            "m" => key::Code::KeyM,
-            "n" => key::Code::KeyN,
-            "o" => key::Code::KeyO,
-            "p" => key::Code::KeyP,
-            "q" => key::Code::KeyQ,
-            "r" => key::Code::KeyR,
-            "s" => key::Code::KeyS,
-            "t" => key::Code::KeyT,
-            "u" => key::Code::KeyU,
-            "v" => key::Code::KeyV,
-            "w" => key::Code::KeyW,
-            "x" => key::Code::KeyX,
-            "y" => key::Code::KeyY,
-            "z" => key::Code::KeyZ,
-            _ => return None,
-        };
-        codes.push(code);
-    }
-    KeySequence::from_codes(codes.into_iter()).ok()
 }

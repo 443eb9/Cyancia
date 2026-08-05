@@ -3,17 +3,10 @@ use std::{sync::Arc, time::Duration};
 use bevy_math::{IRect, Rect};
 use cyancia_actions::actions_matcher::ActionsMatcher;
 use cyancia_assets::AssetAppExt;
-use cyancia_brush::{
-    asset::BrushPreset,
-    tool::BrushServicesExt,
-    widget::BrushPresetListDelegate,
-};
+use cyancia_brush::{asset::BrushPreset, tool::BrushServicesExt, widget::BrushPresetListDelegate};
 use cyancia_canvas::{
-    CanvasId, CanvasManager,
-    event::CanvasRemoved,
-    render::ICC_TRANSFORM_SHADER_IDENT,
-    tools::PanTool,
-    widget::canvas::CanvasWidget,
+    CanvasId, CanvasManager, event::CanvasRemoved, render::ICC_TRANSFORM_SHADER_IDENT,
+    tools::PanTool, widget::canvas::CanvasWidget,
 };
 use cyancia_color::shader::IccTransformShader;
 use cyancia_dock::dock::{Dock, DockId};
@@ -28,8 +21,7 @@ use cyancia_input::{
 use cyancia_runtime::{Services, event::Event, service::RenderContext};
 use cyancia_tools::{ErasedToolFunctionMessage, ToolProxies};
 use iced::{
-    Element, Length, Subscription, Theme, Task,
-    mouse,
+    Element, Length, Subscription, Task, Theme, mouse,
     widget::{Space, button, column, text},
 };
 use iced_core::Point;
@@ -359,16 +351,14 @@ pub struct CanvasDock {
 
     compositor: ImageCompositor,
     cursor_position: Point,
-    actions_matcher: Arc<Mutex<ActionsMatcher>>,
 }
 
 impl CanvasDock {
-    pub fn new(canvas: CanvasId, actions_matcher: Arc<Mutex<ActionsMatcher>>) -> Self {
+    pub fn new(canvas: CanvasId) -> Self {
         Self {
             canvas,
             compositor: ImageCompositor::default(),
             cursor_position: Point::default(),
-            actions_matcher,
         }
     }
 }
@@ -388,10 +378,7 @@ impl Dock<Theme, Renderer> for CanvasDock {
         DockId::new(construct_canvas_dock_id(self.canvas).into())
     }
 
-    fn view<'a>(
-        &'a self,
-        services: &'a Services,
-    ) -> Element<'a, Self::Message, Theme, Renderer> {
+    fn view<'a>(&'a self, services: &'a Services) -> Element<'a, Self::Message, Theme, Renderer> {
         let canvas_manager = services.service::<CanvasManager>();
         let Some(canvas) = canvas_manager.get(&self.canvas) else {
             return Space::new().into();
@@ -410,64 +397,8 @@ impl Dock<Theme, Renderer> for CanvasDock {
     }
 
     fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
-        let actions_matcher = self.actions_matcher.lock();
-
         match message {
-            CanvasDockMessage::MouseEvent(event) => {
-                let canvas_manager = services.service_mut::<CanvasManager>();
-                if canvas_manager.current_id() != Some(self.canvas) {
-                    return Task::none();
-                }
-
-                let Some(canvas) = canvas_manager.current() else {
-                    return Task::none();
-                };
-                let tool_proxy_id = canvas.tool_proxy_id();
-
-                let task = services.service_scope::<ToolProxies, _>(|tool_proxies, services| {
-                    let tool_proxy = tool_proxies.get_mut(&tool_proxy_id);
-
-                    match event {
-                        mouse::Event::ButtonPressed(button) => {
-                            if button != mouse::Button::Left {
-                                return Task::none();
-                            }
-
-                            tool_proxy.mouse_pressed(
-                                &actions_matcher.keyboard_state(),
-                                &PressedMouseState {
-                                    position: self.cursor_position,
-                                },
-                                services,
-                            )
-                        }
-                        mouse::Event::ButtonReleased(button) => {
-                            if button != mouse::Button::Left {
-                                return Task::none();
-                            }
-
-                            tool_proxy.mouse_released(
-                                &actions_matcher.keyboard_state(),
-                                &PressedMouseState {
-                                    position: self.cursor_position,
-                                },
-                                services,
-                            )
-                        }
-                        mouse::Event::CursorMoved { position } => {
-                            self.cursor_position = position;
-                            tool_proxy.mouse_moved(
-                                &actions_matcher.keyboard_state(),
-                                position,
-                                services,
-                            )
-                        }
-                        _ => Task::none(),
-                    }
-                });
-
-                task.map(CanvasDockMessage::ToolFunctionMessage)
-            }
+            CanvasDockMessage::MouseEvent(event) => Task::none(),
             CanvasDockMessage::CanvasFocus(cursor_pos) => {
                 self.cursor_position = cursor_pos;
                 services
@@ -539,8 +470,7 @@ impl Dock<Theme, Renderer> for CanvasDock {
 
     fn subscription(&self) -> Subscription<Self::Message> {
         // TODO: Any better way to trigger image composition?
-        iced::time::every(Duration::from_secs_f32(1.0 / 240.0))
-            .map(|_| CanvasDockMessage::Tick)
+        iced::time::every(Duration::from_secs_f32(1.0 / 240.0)).map(|_| CanvasDockMessage::Tick)
     }
 }
 
@@ -572,15 +502,26 @@ impl Dock<Theme, iced_wgpu::Renderer> for ToolOptionsDock {
         };
 
         let tool_proxy_id = canvas.tool_proxy_id();
-        let Some(widget) = services
-            .service::<ToolProxies>()
-            .get(&tool_proxy_id)
-            .tool_option_widget(services)
-        else {
-            return Space::new().into();
+        let tool_proxy = services.service::<ToolProxies>().get(&tool_proxy_id);
+        let indicator = text(format!(
+            "Tool: {} | override: {}",
+            tool_proxy
+                .current_tool()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "-".into()),
+            tool_proxy
+                .override_tool()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "-".into()),
+        ));
+
+        let Some(widget) = tool_proxy.tool_option_widget(services) else {
+            return column![indicator].into();
         };
 
-        widget.map(ToolOptionsDockMessage::ToolFunction).into()
+        column![indicator, widget.map(ToolOptionsDockMessage::ToolFunction)]
+            .spacing(4)
+            .into()
     }
 
     fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
@@ -629,10 +570,7 @@ impl Dock<Theme, Renderer> for BrushPresetDock {
         DockId::new(BRUSH_PRESETS_DOCK_ID.into())
     }
 
-    fn view<'a>(
-        &'a self,
-        services: &'a Services,
-    ) -> Element<'a, Self::Message, Theme, Renderer> {
+    fn view<'a>(&'a self, services: &'a Services) -> Element<'a, Self::Message, Theme, Renderer> {
         let buttons = self
             .brushes
             .items()

@@ -12,7 +12,7 @@ use crate::{
         CreateNewLayerAction, DeleteSelectedLayersAction, GroupSelectedLayersAction,
         MoveLayerDownAction, MoveLayerUpAction, SelectNextLayerAction, SelectPreviousLayerAction,
     },
-    manifest::{KeyBindingDefManifestCollection, KeyBindingDefManifestLoader},
+    manifest::KeyBindingDefManifestLoader,
     selection::DeleteSelectionAction,
     window::OpenBrushEditorAction,
 };
@@ -20,7 +20,6 @@ use crate::{
 pub mod actions_matcher;
 pub mod edit;
 pub mod file;
-pub mod keystroke;
 pub mod layer;
 pub mod manifest;
 pub mod selection;
@@ -56,11 +55,6 @@ impl Plugin for ActionPlugin {
             .add_action_function::<OpenBrushEditorAction>()
             .add_action_function::<UndoAction>()
             .add_action_function::<RedoAction>();
-    }
-
-    fn finish(&self, app: &mut Application) {
-        let mut runtime = app.runtime_mut();
-        runtime.add_service::<KeyBindingDefManifestCollection>();
     }
 }
 

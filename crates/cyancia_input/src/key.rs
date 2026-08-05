@@ -2,462 +2,10 @@ use iced_core::keyboard::{Modifiers, key};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
-pub mod serde_impl {
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Serialize, Deserialize)]
-    #[serde(remote = "iced_core::keyboard::key::Code")]
-    #[non_exhaustive]
-    pub enum Code {
-        /// <kbd>`</kbd> on a US keyboard. This is also called a backtick or grave.
-        /// This is the <kbd>半角</kbd>/<kbd>全角</kbd>/<kbd>漢字</kbd>
-        /// (hankaku/zenkaku/kanji) key on Japanese keyboards
-        Backquote,
-        /// Used for both the US <kbd>\\</kbd> (on the 101-key layout) and also for the key
-        /// located between the <kbd>"</kbd> and <kbd>Enter</kbd> keys on row C of the 102-,
-        /// 104- and 106-key layouts.
-        /// Labeled <kbd>#</kbd> on a UK (102) keyboard.
-        Backslash,
-        /// <kbd>[</kbd> on a US keyboard.
-        BracketLeft,
-        /// <kbd>]</kbd> on a US keyboard.
-        BracketRight,
-        /// <kbd>,</kbd> on a US keyboard.
-        Comma,
-        /// <kbd>0</kbd> on a US keyboard.
-        Digit0,
-        /// <kbd>1</kbd> on a US keyboard.
-        Digit1,
-        /// <kbd>2</kbd> on a US keyboard.
-        Digit2,
-        /// <kbd>3</kbd> on a US keyboard.
-        Digit3,
-        /// <kbd>4</kbd> on a US keyboard.
-        Digit4,
-        /// <kbd>5</kbd> on a US keyboard.
-        Digit5,
-        /// <kbd>6</kbd> on a US keyboard.
-        Digit6,
-        /// <kbd>7</kbd> on a US keyboard.
-        Digit7,
-        /// <kbd>8</kbd> on a US keyboard.
-        Digit8,
-        /// <kbd>9</kbd> on a US keyboard.
-        Digit9,
-        /// <kbd>=</kbd> on a US keyboard.
-        Equal,
-        /// Located between the left <kbd>Shift</kbd> and <kbd>Z</kbd> keys.
-        /// Labeled <kbd>\\</kbd> on a UK keyboard.
-        IntlBackslash,
-        /// Located between the <kbd>/</kbd> and right <kbd>Shift</kbd> keys.
-        /// Labeled <kbd>\\</kbd> (ro) on a Japanese keyboard.
-        IntlRo,
-        /// Located between the <kbd>=</kbd> and <kbd>Backspace</kbd> keys.
-        /// Labeled <kbd>¥</kbd> (yen) on a Japanese keyboard. <kbd>\\</kbd> on a
-        /// Russian keyboard.
-        IntlYen,
-        /// <kbd>a</kbd> on a US keyboard.
-        /// Labeled <kbd>q</kbd> on an AZERTY (e.g., French) keyboard.
-        KeyA,
-        /// <kbd>b</kbd> on a US keyboard.
-        KeyB,
-        /// <kbd>c</kbd> on a US keyboard.
-        KeyC,
-        /// <kbd>d</kbd> on a US keyboard.
-        KeyD,
-        /// <kbd>e</kbd> on a US keyboard.
-        KeyE,
-        /// <kbd>f</kbd> on a US keyboard.
-        KeyF,
-        /// <kbd>g</kbd> on a US keyboard.
-        KeyG,
-        /// <kbd>h</kbd> on a US keyboard.
-        KeyH,
-        /// <kbd>i</kbd> on a US keyboard.
-        KeyI,
-        /// <kbd>j</kbd> on a US keyboard.
-        KeyJ,
-        /// <kbd>k</kbd> on a US keyboard.
-        KeyK,
-        /// <kbd>l</kbd> on a US keyboard.
-        KeyL,
-        /// <kbd>m</kbd> on a US keyboard.
-        KeyM,
-        /// <kbd>n</kbd> on a US keyboard.
-        KeyN,
-        /// <kbd>o</kbd> on a US keyboard.
-        KeyO,
-        /// <kbd>p</kbd> on a US keyboard.
-        KeyP,
-        /// <kbd>q</kbd> on a US keyboard.
-        /// Labeled <kbd>a</kbd> on an AZERTY (e.g., French) keyboard.
-        KeyQ,
-        /// <kbd>r</kbd> on a US keyboard.
-        KeyR,
-        /// <kbd>s</kbd> on a US keyboard.
-        KeyS,
-        /// <kbd>t</kbd> on a US keyboard.
-        KeyT,
-        /// <kbd>u</kbd> on a US keyboard.
-        KeyU,
-        /// <kbd>v</kbd> on a US keyboard.
-        KeyV,
-        /// <kbd>w</kbd> on a US keyboard.
-        /// Labeled <kbd>z</kbd> on an AZERTY (e.g., French) keyboard.
-        KeyW,
-        /// <kbd>x</kbd> on a US keyboard.
-        KeyX,
-        /// <kbd>y</kbd> on a US keyboard.
-        /// Labeled <kbd>z</kbd> on a QWERTZ (e.g., German) keyboard.
-        KeyY,
-        /// <kbd>z</kbd> on a US keyboard.
-        /// Labeled <kbd>w</kbd> on an AZERTY (e.g., French) keyboard, and <kbd>y</kbd> on a
-        /// QWERTZ (e.g., German) keyboard.
-        KeyZ,
-        /// <kbd>-</kbd> on a US keyboard.
-        Minus,
-        /// <kbd>.</kbd> on a US keyboard.
-        Period,
-        /// <kbd>'</kbd> on a US keyboard.
-        Quote,
-        /// <kbd>;</kbd> on a US keyboard.
-        Semicolon,
-        /// <kbd>/</kbd> on a US keyboard.
-        Slash,
-        /// <kbd>Alt</kbd>, <kbd>Option</kbd>, or <kbd>⌥</kbd>.
-        AltLeft,
-        /// <kbd>Alt</kbd>, <kbd>Option</kbd>, or <kbd>⌥</kbd>.
-        /// This is labeled <kbd>AltGr</kbd> on many keyboard layouts.
-        AltRight,
-        /// <kbd>Backspace</kbd> or <kbd>⌫</kbd>.
-        /// Labeled <kbd>Delete</kbd> on Apple keyboards.
-        Backspace,
-        /// <kbd>CapsLock</kbd> or <kbd>⇪</kbd>
-        CapsLock,
-        /// The application context menu key, which is typically found between the right
-        /// <kbd>Super</kbd> key and the right <kbd>Control</kbd> key.
-        ContextMenu,
-        /// <kbd>Control</kbd> or <kbd>⌃</kbd>
-        ControlLeft,
-        /// <kbd>Control</kbd> or <kbd>⌃</kbd>
-        ControlRight,
-        /// <kbd>Enter</kbd> or <kbd>↵</kbd>. Labeled <kbd>Return</kbd> on Apple keyboards.
-        Enter,
-        /// The Windows, <kbd>⌘</kbd>, <kbd>Command</kbd>, or other OS symbol key.
-        SuperLeft,
-        /// The Windows, <kbd>⌘</kbd>, <kbd>Command</kbd>, or other OS symbol key.
-        SuperRight,
-        /// <kbd>Shift</kbd> or <kbd>⇧</kbd>
-        ShiftLeft,
-        /// <kbd>Shift</kbd> or <kbd>⇧</kbd>
-        ShiftRight,
-        /// <kbd> </kbd> (space)
-        Space,
-        /// <kbd>Tab</kbd> or <kbd>⇥</kbd>
-        Tab,
-        /// Japanese: <kbd>変</kbd> (henkan)
-        Convert,
-        /// Japanese: <kbd>カタカナ</kbd>/<kbd>ひらがな</kbd>/<kbd>ローマ字</kbd>
-        /// (katakana/hiragana/romaji)
-        KanaMode,
-        /// Korean: HangulMode <kbd>한/영</kbd> (han/yeong)
-        ///
-        /// Japanese (Mac keyboard): <kbd>か</kbd> (kana)
-        Lang1,
-        /// Korean: Hanja <kbd>한</kbd> (hanja)
-        ///
-        /// Japanese (Mac keyboard): <kbd>英</kbd> (eisu)
-        Lang2,
-        /// Japanese (word-processing keyboard): Katakana
-        Lang3,
-        /// Japanese (word-processing keyboard): Hiragana
-        Lang4,
-        /// Japanese (word-processing keyboard): Zenkaku/Hankaku
-        Lang5,
-        /// Japanese: <kbd>無変換</kbd> (muhenkan)
-        NonConvert,
-        /// <kbd>⌦</kbd>. The forward delete key.
-        /// Note that on Apple keyboards, the key labelled <kbd>Delete</kbd> on the main part of
-        /// the keyboard is encoded as [`Backspace`].
-        ///
-        /// [`Backspace`]: Self::Backspace
-        Delete,
-        /// <kbd>Page Down</kbd>, <kbd>End</kbd>, or <kbd>↘</kbd>
-        End,
-        /// <kbd>Help</kbd>. Not present on standard PC keyboards.
-        Help,
-        /// <kbd>Home</kbd> or <kbd>↖</kbd>
-        Home,
-        /// <kbd>Insert</kbd> or <kbd>Ins</kbd>. Not present on Apple keyboards.
-        Insert,
-        /// <kbd>Page Down</kbd>, <kbd>PgDn</kbd>, or <kbd>⇟</kbd>
-        PageDown,
-        /// <kbd>Page Up</kbd>, <kbd>PgUp</kbd>, or <kbd>⇞</kbd>
-        PageUp,
-        /// <kbd>↓</kbd>
-        ArrowDown,
-        /// <kbd>←</kbd>
-        ArrowLeft,
-        /// <kbd>→</kbd>
-        ArrowRight,
-        /// <kbd>↑</kbd>
-        ArrowUp,
-        /// On the Mac, this is used for the numpad <kbd>Clear</kbd> key.
-        NumLock,
-        /// <kbd>0 Ins</kbd> on a keyboard. <kbd>0</kbd> on a phone or remote control
-        Numpad0,
-        /// <kbd>1 End</kbd> on a keyboard. <kbd>1</kbd> or <kbd>1 QZ</kbd> on a phone or remote
-        /// control
-        Numpad1,
-        /// <kbd>2 ↓</kbd> on a keyboard. <kbd>2 ABC</kbd> on a phone or remote control
-        Numpad2,
-        /// <kbd>3 PgDn</kbd> on a keyboard. <kbd>3 DEF</kbd> on a phone or remote control
-        Numpad3,
-        /// <kbd>4 ←</kbd> on a keyboard. <kbd>4 GHI</kbd> on a phone or remote control
-        Numpad4,
-        /// <kbd>5</kbd> on a keyboard. <kbd>5 JKL</kbd> on a phone or remote control
-        Numpad5,
-        /// <kbd>6 →</kbd> on a keyboard. <kbd>6 MNO</kbd> on a phone or remote control
-        Numpad6,
-        /// <kbd>7 Home</kbd> on a keyboard. <kbd>7 PQRS</kbd> or <kbd>7 PRS</kbd> on a phone
-        /// or remote control
-        Numpad7,
-        /// <kbd>8 ↑</kbd> on a keyboard. <kbd>8 TUV</kbd> on a phone or remote control
-        Numpad8,
-        /// <kbd>9 PgUp</kbd> on a keyboard. <kbd>9 WXYZ</kbd> or <kbd>9 WXY</kbd> on a phone
-        /// or remote control
-        Numpad9,
-        /// <kbd>+</kbd>
-        NumpadAdd,
-        /// Found on the Microsoft Natural Keyboard.
-        NumpadBackspace,
-        /// <kbd>C</kbd> or <kbd>A</kbd> (All Clear). Also for use with numpads that have a
-        /// <kbd>Clear</kbd> key that is separate from the <kbd>NumLock</kbd> key. On the Mac, the
-        /// numpad <kbd>Clear</kbd> key is encoded as [`NumLock`].
-        ///
-        /// [`NumLock`]: Self::NumLock
-        NumpadClear,
-        /// <kbd>C</kbd> (Clear Entry)
-        NumpadClearEntry,
-        /// <kbd>,</kbd> (thousands separator). For locales where the thousands separator
-        /// is a "." (e.g., Brazil), this key may generate a <kbd>.</kbd>.
-        NumpadComma,
-        /// <kbd>. Del</kbd>. For locales where the decimal separator is "," (e.g.,
-        /// Brazil), this key may generate a <kbd>,</kbd>.
-        NumpadDecimal,
-        /// <kbd>/</kbd>
-        NumpadDivide,
-        NumpadEnter,
-        /// <kbd>=</kbd>
-        NumpadEqual,
-        /// <kbd>#</kbd> on a phone or remote control device. This key is typically found
-        /// below the <kbd>9</kbd> key and to the right of the <kbd>0</kbd> key.
-        NumpadHash,
-        /// <kbd>M</kbd> Add current entry to the value stored in memory.
-        NumpadMemoryAdd,
-        /// <kbd>M</kbd> Clear the value stored in memory.
-        NumpadMemoryClear,
-        /// <kbd>M</kbd> Replace the current entry with the value stored in memory.
-        NumpadMemoryRecall,
-        /// <kbd>M</kbd> Replace the value stored in memory with the current entry.
-        NumpadMemoryStore,
-        /// <kbd>M</kbd> Subtract current entry from the value stored in memory.
-        NumpadMemorySubtract,
-        /// <kbd>*</kbd> on a keyboard. For use with numpads that provide mathematical
-        /// operations (<kbd>+</kbd>, <kbd>-</kbd> <kbd>*</kbd> and <kbd>/</kbd>).
-        ///
-        /// Use `NumpadStar` for the <kbd>*</kbd> key on phones and remote controls.
-        NumpadMultiply,
-        /// <kbd>(</kbd> Found on the Microsoft Natural Keyboard.
-        NumpadParenLeft,
-        /// <kbd>)</kbd> Found on the Microsoft Natural Keyboard.
-        NumpadParenRight,
-        /// <kbd>*</kbd> on a phone or remote control device.
-        ///
-        /// This key is typically found below the <kbd>7</kbd> key and to the left of
-        /// the <kbd>0</kbd> key.
-        ///
-        /// Use <kbd>"NumpadMultiply"</kbd> for the <kbd>*</kbd> key on
-        /// numeric keypads.
-        NumpadStar,
-        /// <kbd>-</kbd>
-        NumpadSubtract,
-        /// <kbd>Esc</kbd> or <kbd>⎋</kbd>
-        Escape,
-        /// <kbd>Fn</kbd> This is typically a hardware key that does not generate a separate code.
-        Fn,
-        /// <kbd>FLock</kbd> or <kbd>FnLock</kbd>. Function Lock key. Found on the Microsoft
-        /// Natural Keyboard.
-        FnLock,
-        /// <kbd>PrtScr SysRq</kbd> or <kbd>Print Screen</kbd>
-        PrintScreen,
-        /// <kbd>Scroll Lock</kbd>
-        ScrollLock,
-        /// <kbd>Pause Break</kbd>
-        Pause,
-        /// Some laptops place this key to the left of the <kbd>↑</kbd> key.
-        ///
-        /// This also the "back" button (triangle) on Android.
-        BrowserBack,
-        BrowserFavorites,
-        /// Some laptops place this key to the right of the <kbd>↑</kbd> key.
-        BrowserForward,
-        /// The "home" button on Android.
-        BrowserHome,
-        BrowserRefresh,
-        BrowserSearch,
-        BrowserStop,
-        /// <kbd>Eject</kbd> or <kbd>⏏</kbd>. This key is placed in the function section on some Apple
-        /// keyboards.
-        Eject,
-        /// Sometimes labelled <kbd>My Computer</kbd> on the keyboard
-        LaunchApp1,
-        /// Sometimes labelled <kbd>Calculator</kbd> on the keyboard
-        LaunchApp2,
-        LaunchMail,
-        MediaPlayPause,
-        MediaSelect,
-        MediaStop,
-        MediaTrackNext,
-        MediaTrackPrevious,
-        /// This key is placed in the function section on some Apple keyboards, replacing the
-        /// <kbd>Eject</kbd> key.
-        Power,
-        Sleep,
-        AudioVolumeDown,
-        AudioVolumeMute,
-        AudioVolumeUp,
-        WakeUp,
-        // Legacy modifier key. Also called "Super" in certain places.
-        Meta,
-        // Legacy modifier key.
-        Hyper,
-        Turbo,
-        Abort,
-        Resume,
-        Suspend,
-        /// Found on Sun’s USB keyboard.
-        Again,
-        /// Found on Sun’s USB keyboard.
-        Copy,
-        /// Found on Sun’s USB keyboard.
-        Cut,
-        /// Found on Sun’s USB keyboard.
-        Find,
-        /// Found on Sun’s USB keyboard.
-        Open,
-        /// Found on Sun’s USB keyboard.
-        Paste,
-        /// Found on Sun’s USB keyboard.
-        Props,
-        /// Found on Sun’s USB keyboard.
-        Select,
-        /// Found on Sun’s USB keyboard.
-        Undo,
-        /// Use for dedicated <kbd>ひらがな</kbd> key found on some Japanese word processing keyboards.
-        Hiragana,
-        /// Use for dedicated <kbd>カタカナ</kbd> key found on some Japanese word processing keyboards.
-        Katakana,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F1,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F2,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F3,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F4,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F5,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F6,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F7,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F8,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F9,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F10,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F11,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F12,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F13,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F14,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F15,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F16,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F17,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F18,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F19,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F20,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F21,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F22,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F23,
-        /// General-purpose function key.
-        /// Usually found at the top of the keyboard.
-        F24,
-        /// General-purpose function key.
-        F25,
-        /// General-purpose function key.
-        F26,
-        /// General-purpose function key.
-        F27,
-        /// General-purpose function key.
-        F28,
-        /// General-purpose function key.
-        F29,
-        /// General-purpose function key.
-        F30,
-        /// General-purpose function key.
-        F31,
-        /// General-purpose function key.
-        F32,
-        /// General-purpose function key.
-        F33,
-        /// General-purpose function key.
-        F34,
-        /// General-purpose function key.
-        F35,
-    }
-}
-
 #[derive(Debug, Default, Clone)]
 pub struct KeyboardState {
     pressed: SmallVec<[key::Code; 8]>,
+    modifiers: Modifiers,
 }
 
 impl KeyboardState {
@@ -469,6 +17,10 @@ impl KeyboardState {
 
     pub fn release(&mut self, key: key::Code) {
         self.pressed.retain(|&mut c| c != key);
+    }
+
+    pub fn set_modifiers(&mut self, modifiers: Modifiers) {
+        self.modifiers = modifiers;
     }
 
     pub fn is_pressed(&self, key: key::Code) -> bool {
@@ -483,8 +35,19 @@ impl KeyboardState {
         self.pressed.iter().copied()
     }
 
-    pub fn get_sequence(&self) -> Result<KeySequence, KeyParseError> {
-        KeySequence::from_codes(self.all_pressed())
+    pub fn last_key(&self) -> Option<key::Code> {
+        self.pressed.last().copied()
+    }
+
+    pub fn modifiers(&self) -> Modifiers {
+        self.modifiers
+    }
+
+    pub fn get_sequence(&self) -> KeySequence {
+        KeySequence {
+            key: self.last_key(),
+            modifiers: self.modifiers,
+        }
     }
 }
 
@@ -492,30 +55,23 @@ impl KeyboardState {
 pub enum KeyParseError {
     #[error("Multiple non-modifier keys found: {0:?}")]
     MultipleNonModifierKeys(Vec<key::Code>),
-    #[error("No non-modifier key found")]
-    NoNonModifierKey,
+    #[error("Invalid keystroke: {0:?}")]
+    InvalidKeystroke(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KeySequence {
-    pub key: key::Code,
+    pub key: Option<key::Code>,
     pub modifiers: Modifiers,
 }
-
-#[derive(Serialize, Deserialize)]
-struct Helper(#[serde(with = "serde_impl::Code")] key::Code);
 
 impl Serialize for KeySequence {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let keys = self
-            .into_codes()
-            .into_iter()
-            .map(|k| Helper(k))
-            .collect::<Vec<_>>();
-        keys.serialize(serializer)
+        let string = self.to_string();
+        string.serialize(serializer)
     }
 }
 
@@ -524,10 +80,8 @@ impl<'de> Deserialize<'de> for KeySequence {
     where
         D: serde::Deserializer<'de>,
     {
-        let keys = Vec::<Helper>::deserialize(deserializer)?
-            .into_iter()
-            .map(|Helper(k)| k);
-        KeySequence::from_codes(keys).map_err(serde::de::Error::custom)
+        let string = String::deserialize(deserializer)?;
+        Self::parse(&string).map_err(serde::de::Error::custom)
     }
 }
 
@@ -546,7 +100,9 @@ impl KeySequence {
         if self.modifiers.contains(Modifiers::LOGO) {
             codes.push(key::Code::SuperLeft);
         }
-        codes.push(self.key);
+        if let Some(key) = self.key {
+            codes.push(key);
+        }
         codes
     }
 
@@ -576,13 +132,336 @@ impl KeySequence {
 
         if keys.len() > 1 {
             Err(KeyParseError::MultipleNonModifierKeys(keys.to_vec()))
-        } else if keys.is_empty() {
-            Err(KeyParseError::NoNonModifierKey)
         } else {
             Ok(KeySequence {
-                key: keys[0],
+                key: keys.first().copied(),
                 modifiers,
             })
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Self, KeyParseError> {
+        let mut modifiers = Modifiers::empty();
+        let mut key = None;
+
+        let mut components = s.split('-').peekable();
+        while let Some(component) = components.next() {
+            if component.eq_ignore_ascii_case("ctrl") {
+                modifiers |= Modifiers::CTRL;
+            } else if component.eq_ignore_ascii_case("alt") {
+                modifiers |= Modifiers::ALT;
+            } else if component.eq_ignore_ascii_case("shift") {
+                modifiers |= Modifiers::SHIFT;
+            } else if component.eq_ignore_ascii_case("cmd")
+                || component.eq_ignore_ascii_case("super")
+                || component.eq_ignore_ascii_case("win")
+            {
+                modifiers |= Modifiers::LOGO;
+            } else {
+                if key.is_some() {
+                    return Err(KeyParseError::InvalidKeystroke(s.to_string()));
+                }
+                key = Some(
+                    parse_key_name(&component.to_ascii_lowercase())
+                        .ok_or_else(|| KeyParseError::InvalidKeystroke(s.to_string()))?,
+                );
+            }
+        }
+
+        Ok(KeySequence { key, modifiers })
+    }
+
+    pub fn to_string(&self) -> String {
+        let mut parts = Vec::new();
+        if self.modifiers.contains(Modifiers::CTRL) {
+            parts.push("ctrl");
+        }
+        if self.modifiers.contains(Modifiers::ALT) {
+            parts.push("alt");
+        }
+        if self.modifiers.contains(Modifiers::SHIFT) {
+            parts.push("shift");
+        }
+        if self.modifiers.contains(Modifiers::LOGO) {
+            parts.push("super");
+        }
+        if let Some(key) = self.key {
+            parts.push(key_name(key));
+        }
+        parts.join("-")
+    }
+}
+
+fn parse_key_name(name: &str) -> Option<key::Code> {
+    Some(match name {
+        "a" => key::Code::KeyA,
+        "b" => key::Code::KeyB,
+        "c" => key::Code::KeyC,
+        "d" => key::Code::KeyD,
+        "e" => key::Code::KeyE,
+        "f" => key::Code::KeyF,
+        "g" => key::Code::KeyG,
+        "h" => key::Code::KeyH,
+        "i" => key::Code::KeyI,
+        "j" => key::Code::KeyJ,
+        "k" => key::Code::KeyK,
+        "l" => key::Code::KeyL,
+        "m" => key::Code::KeyM,
+        "n" => key::Code::KeyN,
+        "o" => key::Code::KeyO,
+        "p" => key::Code::KeyP,
+        "q" => key::Code::KeyQ,
+        "r" => key::Code::KeyR,
+        "s" => key::Code::KeyS,
+        "t" => key::Code::KeyT,
+        "u" => key::Code::KeyU,
+        "v" => key::Code::KeyV,
+        "w" => key::Code::KeyW,
+        "x" => key::Code::KeyX,
+        "y" => key::Code::KeyY,
+        "z" => key::Code::KeyZ,
+        "0" => key::Code::Digit0,
+        "1" => key::Code::Digit1,
+        "2" => key::Code::Digit2,
+        "3" => key::Code::Digit3,
+        "4" => key::Code::Digit4,
+        "5" => key::Code::Digit5,
+        "6" => key::Code::Digit6,
+        "7" => key::Code::Digit7,
+        "8" => key::Code::Digit8,
+        "9" => key::Code::Digit9,
+        "," => key::Code::Comma,
+        "." => key::Code::Period,
+        "/" => key::Code::Slash,
+        ";" => key::Code::Semicolon,
+        "'" => key::Code::Quote,
+        "[" => key::Code::BracketLeft,
+        "]" => key::Code::BracketRight,
+        "\\" => key::Code::Backslash,
+        "-" => key::Code::Minus,
+        "=" => key::Code::Equal,
+        "`" => key::Code::Backquote,
+        "space" => key::Code::Space,
+        "enter" => key::Code::Enter,
+        "tab" => key::Code::Tab,
+        "backspace" => key::Code::Backspace,
+        "delete" => key::Code::Delete,
+        "escape" => key::Code::Escape,
+        "home" => key::Code::Home,
+        "end" => key::Code::End,
+        "pageup" => key::Code::PageUp,
+        "pagedown" => key::Code::PageDown,
+        "insert" => key::Code::Insert,
+        "capslock" => key::Code::CapsLock,
+        "printscreen" => key::Code::PrintScreen,
+        "scrolllock" => key::Code::ScrollLock,
+        "pause" => key::Code::Pause,
+        "numlock" => key::Code::NumLock,
+        "up" => key::Code::ArrowUp,
+        "down" => key::Code::ArrowDown,
+        "left" => key::Code::ArrowLeft,
+        "right" => key::Code::ArrowRight,
+        "shift" => key::Code::ShiftLeft,
+        "control" => key::Code::ControlLeft,
+        "alt" => key::Code::AltLeft,
+        "platform" => key::Code::SuperLeft,
+        "menu" => key::Code::ContextMenu,
+        "f1" => key::Code::F1,
+        "f2" => key::Code::F2,
+        "f3" => key::Code::F3,
+        "f4" => key::Code::F4,
+        "f5" => key::Code::F5,
+        "f6" => key::Code::F6,
+        "f7" => key::Code::F7,
+        "f8" => key::Code::F8,
+        "f9" => key::Code::F9,
+        "f10" => key::Code::F10,
+        "f11" => key::Code::F11,
+        "f12" => key::Code::F12,
+        _ => return None,
+    })
+}
+
+fn key_name(code: key::Code) -> &'static str {
+    match code {
+        key::Code::KeyA => "a",
+        key::Code::KeyB => "b",
+        key::Code::KeyC => "c",
+        key::Code::KeyD => "d",
+        key::Code::KeyE => "e",
+        key::Code::KeyF => "f",
+        key::Code::KeyG => "g",
+        key::Code::KeyH => "h",
+        key::Code::KeyI => "i",
+        key::Code::KeyJ => "j",
+        key::Code::KeyK => "k",
+        key::Code::KeyL => "l",
+        key::Code::KeyM => "m",
+        key::Code::KeyN => "n",
+        key::Code::KeyO => "o",
+        key::Code::KeyP => "p",
+        key::Code::KeyQ => "q",
+        key::Code::KeyR => "r",
+        key::Code::KeyS => "s",
+        key::Code::KeyT => "t",
+        key::Code::KeyU => "u",
+        key::Code::KeyV => "v",
+        key::Code::KeyW => "w",
+        key::Code::KeyX => "x",
+        key::Code::KeyY => "y",
+        key::Code::KeyZ => "z",
+        key::Code::Digit0 => "0",
+        key::Code::Digit1 => "1",
+        key::Code::Digit2 => "2",
+        key::Code::Digit3 => "3",
+        key::Code::Digit4 => "4",
+        key::Code::Digit5 => "5",
+        key::Code::Digit6 => "6",
+        key::Code::Digit7 => "7",
+        key::Code::Digit8 => "8",
+        key::Code::Digit9 => "9",
+        key::Code::Comma => ",",
+        key::Code::Period => ".",
+        key::Code::Slash => "/",
+        key::Code::Semicolon => ";",
+        key::Code::Quote => "'",
+        key::Code::BracketLeft => "[",
+        key::Code::BracketRight => "]",
+        key::Code::Backslash => "\\",
+        key::Code::Minus => "-",
+        key::Code::Equal => "=",
+        key::Code::Backquote => "`",
+        key::Code::Space => "space",
+        key::Code::Enter => "enter",
+        key::Code::Tab => "tab",
+        key::Code::Backspace => "backspace",
+        key::Code::Delete => "delete",
+        key::Code::Escape => "escape",
+        key::Code::Home => "home",
+        key::Code::End => "end",
+        key::Code::PageUp => "pageup",
+        key::Code::PageDown => "pagedown",
+        key::Code::Insert => "insert",
+        key::Code::CapsLock => "capslock",
+        key::Code::PrintScreen => "printscreen",
+        key::Code::ScrollLock => "scrolllock",
+        key::Code::Pause => "pause",
+        key::Code::NumLock => "numlock",
+        key::Code::ArrowUp => "up",
+        key::Code::ArrowDown => "down",
+        key::Code::ArrowLeft => "left",
+        key::Code::ArrowRight => "right",
+        key::Code::ShiftLeft => "shift",
+        key::Code::ControlLeft => "control",
+        key::Code::AltLeft => "alt",
+        key::Code::SuperLeft => "platform",
+        key::Code::ContextMenu => "menu",
+        key::Code::F1 => "f1",
+        key::Code::F2 => "f2",
+        key::Code::F3 => "f3",
+        key::Code::F4 => "f4",
+        key::Code::F5 => "f5",
+        key::Code::F6 => "f6",
+        key::Code::F7 => "f7",
+        key::Code::F8 => "f8",
+        key::Code::F9 => "f9",
+        key::Code::F10 => "f10",
+        key::Code::F11 => "f11",
+        key::Code::F12 => "f12",
+        _ => "",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_single_key() {
+        let seq = KeySequence::parse("b").unwrap();
+        assert_eq!(seq.key, Some(key::Code::KeyB));
+        assert_eq!(seq.modifiers, Modifiers::empty());
+    }
+
+    #[test]
+    fn parses_modifiers_and_key() {
+        let seq = KeySequence::parse("ctrl-shift-z").unwrap();
+        assert_eq!(seq.key, Some(key::Code::KeyZ));
+        assert!(seq.modifiers.contains(Modifiers::CTRL));
+        assert!(seq.modifiers.contains(Modifiers::SHIFT));
+        assert!(!seq.modifiers.contains(Modifiers::ALT));
+    }
+
+    #[test]
+    fn parses_uppercase_key_as_shift() {
+        let seq = KeySequence::parse("ctrl-O").unwrap();
+        assert_eq!(seq.key, Some(key::Code::KeyO));
+        assert!(seq.modifiers.contains(Modifiers::CTRL));
+        assert!(seq.modifiers.contains(Modifiers::SHIFT));
+    }
+
+    #[test]
+    fn parses_digit_key() {
+        let seq = KeySequence::parse("5").unwrap();
+        assert_eq!(seq.key, Some(key::Code::Digit5));
+        assert_eq!(seq.modifiers, Modifiers::empty());
+    }
+
+    #[test]
+    fn parses_modifier_only() {
+        let seq = KeySequence::parse("ctrl").unwrap();
+        assert_eq!(seq.key, None);
+        assert_eq!(seq.modifiers, Modifiers::CTRL);
+    }
+
+    #[test]
+    fn parses_named_keys() {
+        let seq = KeySequence::parse("f5").unwrap();
+        assert_eq!(seq.key, Some(key::Code::F5));
+        assert_eq!(seq.modifiers, Modifiers::empty());
+
+        let seq = KeySequence::parse("space").unwrap();
+        assert_eq!(seq.key, Some(key::Code::Space));
+
+        let seq = KeySequence::parse("ctrl-delete").unwrap();
+        assert_eq!(seq.key, Some(key::Code::Delete));
+        assert!(seq.modifiers.contains(Modifiers::CTRL));
+
+        let seq = KeySequence::parse("ctrl-shift-up").unwrap();
+        assert_eq!(seq.key, Some(key::Code::ArrowUp));
+        assert!(seq.modifiers.contains(Modifiers::CTRL));
+        assert!(seq.modifiers.contains(Modifiers::SHIFT));
+    }
+
+    #[test]
+    fn rejects_unsupported_keys() {
+        assert!(KeySequence::parse("f13").is_err());
+        assert!(KeySequence::parse("notakey").is_err());
+        assert!(KeySequence::parse("").is_err());
+        assert!(KeySequence::parse("a-b").is_err());
+    }
+
+    #[test]
+    fn to_string_matches_gpui_style() {
+        let seq = KeySequence::parse("ctrl-shift-o").unwrap();
+        assert_eq!(seq.to_string(), "ctrl-shift-o");
+
+        let seq = KeySequence::parse("b").unwrap();
+        assert_eq!(seq.to_string(), "b");
+
+        let seq = KeySequence::parse("ctrl").unwrap();
+        assert_eq!(seq.to_string(), "ctrl");
+
+        // 大写解析为 shift 前缀，序列化统一为小写样式
+        let seq = KeySequence::parse("ctrl-O").unwrap();
+        assert_eq!(seq.to_string(), "ctrl-shift-o");
+    }
+
+    #[test]
+    fn round_trip() {
+        for source in ["b", "ctrl-o", "ctrl-shift-n", "7", "alt-x", "super-q"] {
+            let seq = KeySequence::parse(source).unwrap();
+            assert_eq!(seq.to_string(), source);
         }
     }
 }

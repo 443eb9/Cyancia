@@ -9,11 +9,11 @@ use cyancia_runtime::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{ActionId, keystroke::parse_keystroke};
+use crate::ActionId;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyBindingDef {
-    pub shortcut: String,
+    pub shortcut: KeySequence,
     pub action_name: String,
     #[serde(default)]
     #[serde(skip_serializing_if = "is_null")]
@@ -70,65 +70,10 @@ impl AssetSerializer for KeyBindingDefManifestLoader {
         Ok(manifest)
     }
 
-    fn write(
-        &self,
-        asset: &Self::Asset,
-        writer: &mut dyn Write,
-    ) -> Result<(), Self::Error> {
+    fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<(), Self::Error> {
         let json = serde_json::to_string(asset)?;
         writer.write_all(json.as_bytes())?;
         Ok(())
-    }
-}
-
-pub struct KeyBindingDefManifestCollection {
-    action_collection: ActionCollection,
-}
-
-impl Service for KeyBindingDefManifestCollection {}
-
-impl FromServices for KeyBindingDefManifestCollection {
-    fn from_services(services: &Services) -> Self {
-        let assets = services.service::<AssetRegistry>();
-        let handles = assets.all_handles_of::<KeyBindingDefManifest>().unwrap();
-        let manifests = handles
-            .into_iter()
-            .map(|handle| handle.get().unwrap())
-            .collect::<Vec<_>>();
-
-        let mut shortcuts = HashMap::new();
-        for manifest in manifests {
-            log::info!(
-                "Loading {} key bindings from manifest {}",
-                manifest.actions.len(),
-                manifest.name
-            );
-            for def in &manifest.actions {
-                match parse_keystroke(&def.shortcut) {
-                    Ok(shortcut) => {
-                        shortcuts.insert(shortcut, ActionId::new(def.action_name.clone().into()));
-                    }
-                    Err(e) => log::error!(
-                        "Error loading keybinding {} triggered by {} with context {:?} and data {}: {}",
-                        def.action_name,
-                        def.shortcut,
-                        def.context,
-                        def.action_data,
-                        e
-                    ),
-                }
-            }
-        }
-
-        Self {
-            action_collection: ActionCollection { shortcuts },
-        }
-    }
-}
-
-impl KeyBindingDefManifestCollection {
-    pub fn action_collection(&self) -> &ActionCollection {
-        &self.action_collection
     }
 }
 
@@ -138,6 +83,19 @@ pub struct ActionCollection {
 }
 
 impl ActionCollection {
+    pub fn new(manifest: &KeyBindingDefManifest) -> Self {
+        let mut shortcuts = HashMap::new();
+
+        for def in &manifest.actions {
+            shortcuts.insert(
+                def.shortcut.clone(),
+                ActionId::new(def.action_name.clone().into()),
+            );
+        }
+
+        Self { shortcuts }
+    }
+
     pub fn get_action_id(&self, shortcut: KeySequence) -> Option<ActionId> {
         self.shortcuts.get(&shortcut).cloned()
     }
