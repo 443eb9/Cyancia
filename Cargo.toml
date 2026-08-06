@@ -1,16 +1,16 @@
 [workspace]
 members = [
-    # "crates/cyancia_abr",
-    # "crates/cyancia_abr_derive",
+    "crates/cyancia_abr",
+    "crates/cyancia_abr_derive",
     "crates/cyancia_actions",
-    # "crates/cyancia_anti_aliasing",
+    "crates/cyancia_anti_aliasing",
     "crates/cyancia_app",
     "crates/cyancia_assets",
     "crates/cyancia_brush",
     # "crates/cyancia_bucket_tool",
     "crates/cyancia_canvas",
     "crates/cyancia_color",
-    # "crates/cyancia_cyan",
+    "crates/cyancia_cyan",
     # "crates/cyancia_color_selector",
     "crates/cyancia_dock",
     "crates/cyancia_image",
@@ -31,7 +31,7 @@ members = [
     "crates/cyancia_widgets",
 ]
 resolver = "3"
-# default-members = ["crates/cyancia_app"]
+default-members = ["crates/cyancia_app"]
 
 [profile.dev]
 opt-level = 1
