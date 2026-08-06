@@ -1434,6 +1434,7 @@ dependencies = [
  "cyancia_actions",
  "cyancia_assets",
  "cyancia_brush",
+ "cyancia_bucket_tool",
  "cyancia_canvas",
  "cyancia_color",
  "cyancia_dock",
@@ -1524,6 +1525,33 @@ dependencies = [
  "wesl",
  "wgpu",
  "zip",
+]
+
+[[package]]
+name = "cyancia_bucket_tool"
+version = "0.1.0"
+dependencies = [
+ "bevy_math 0.18.1 (git+https://github.com/443eb9/bevy.git?branch=release-0.18.1)",
+ "bytemuck",
+ "cyancia_anti_aliasing",
+ "cyancia_canvas",
+ "cyancia_image",
+ "cyancia_input",
+ "cyancia_render",
+ "cyancia_runtime",
+ "cyancia_tools",
+ "cyancia_utils",
+ "cyancia_widgets",
+ "encase",
+ "glam 0.30.10",
+ "iced",
+ "iced_core",
+ "iced_wgpu",
+ "iced_widget",
+ "indexmap",
+ "tracing",
+ "wesl",
+ "wgpu",
 ]
 
 [[package]]
@@ -1846,6 +1874,7 @@ dependencies = [
  "glam 0.30.10",
  "iced_core",
  "iced_graphics",
+ "iced_wgpu",
  "iced_widget",
  "num-traits",
 ]
@@ -7650,11 +7679,6 @@ dependencies = [
 ]
 
 [[patch.unused]]
-name = "iced_highlighter"
-version = "0.14.0"
-source = "git+https://github.com/443eb9/iced.git?rev=3d180b29bcdef61209d62bfa99e5b48e56549a44#3d180b29bcdef61209d62bfa99e5b48e56549a44"
-
-[[patch.unused]]
 name = "gpui"
 version = "0.2.2"
 source = "git+https://github.com/443eb9/gpui-ce?rev=de53e91475147f27b738ed6feb310a01f875a647#de53e91475147f27b738ed6feb310a01f875a647"
@@ -7663,3 +7687,8 @@ source = "git+https://github.com/443eb9/gpui-ce?rev=de53e91475147f27b738ed6feb31
 name = "gpui_macros"
 version = "0.1.0"
 source = "git+https://github.com/443eb9/gpui-ce?rev=de53e91475147f27b738ed6feb310a01f875a647#de53e91475147f27b738ed6feb310a01f875a647"
+
+[[patch.unused]]
+name = "iced_highlighter"
+version = "0.14.0"
+source = "git+https://github.com/443eb9/iced.git?rev=3d180b29bcdef61209d62bfa99e5b48e56549a44#3d180b29bcdef61209d62bfa99e5b48e56549a44"

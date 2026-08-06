@@ -11,6 +11,7 @@ use cyancia_assets::{
     bundle::{ErasedAssetBundle, directory::AssetDirectory, standard::StandardAssetBundle},
 };
 use cyancia_brush::{BrushPlugin, editor::BrushEditor};
+use cyancia_bucket_tool::BucketPlugin;
 use cyancia_canvas::CanvasPlugin;
 use cyancia_image::ImagePlugin;
 use cyancia_input::InputPlugin;
@@ -67,6 +68,7 @@ fn main() {
         .add_plugin(CanvasPlugin)
         .add_plugin(InputPlugin)
         .add_plugin(BrushPlugin)
+        .add_plugin(BucketPlugin)
         .add_plugin(ActionPlugin);
     app.build_plugins();
 
