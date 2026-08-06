@@ -28,7 +28,6 @@ members = [
     "crates/cyancia_undo",
     "crates/cyancia_utils",
     "crates/cyancia_utils_derive",
-    # "crates/cyancia_view",
     "crates/cyancia_widgets",
 ]
 resolver = "3"
@@ -77,7 +76,6 @@ cyancia_tools = { version = "0.1.0", path = "crates/cyancia_tools" }
 cyancia_undo = { version = "0.1.0", path = "crates/cyancia_undo" }
 cyancia_utils = { version = "0.1.0", path = "crates/cyancia_utils" }
 cyancia_utils_derive = { version = "0.1.0", path = "crates/cyancia_utils_derive" }
-cyancia_view = { version = "0.1.0", path = "crates/cyancia_view" }
 cyancia_widgets = { version = "0.1.0", path = "crates/cyancia_widgets" }
 
 anyhow = "1"
