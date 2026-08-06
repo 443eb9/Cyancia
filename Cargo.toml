@@ -9,7 +9,7 @@ members = [
     "crates/cyancia_brush",
     # "crates/cyancia_bucket_tool",
     "crates/cyancia_canvas",
-    # "crates/cyancia_color",
+    "crates/cyancia_color",
     # "crates/cyancia_cyan",
     # "crates/cyancia_color_selector",
     "crates/cyancia_dock",
@@ -161,21 +161,21 @@ zip = "8"
 
 [patch.crates-io]
 naga = { git = "https://github.com/gfx-rs/wgpu", rev = "7a2afeb014cb30a976059717c4ae7c85f01d858e", package = "naga" }
-iced = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
-iced_beacon = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
-iced_core = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
-iced_debug = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
-iced_devtools = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
-iced_futures = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
-iced_graphics = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
-iced_highlighter = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
-iced_program = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
-iced_renderer = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
-iced_runtime = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
-iced_selector = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
-iced_wgpu = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
-iced_widget = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
-iced_winit = { git = "https://github.com/443eb9/iced.git", rev = "fb05143b11fd6763efeff20e52fd9db491b5aff6" }
+iced = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
+iced_beacon = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
+iced_core = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
+iced_debug = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
+iced_devtools = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
+iced_futures = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
+iced_graphics = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
+iced_highlighter = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
+iced_program = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
+iced_renderer = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
+iced_runtime = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
+iced_selector = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
+iced_wgpu = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
+iced_widget = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
+iced_winit = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
 
 [patch."https://github.com/zed-industries/zed"]
 gpui = { git = "https://github.com/443eb9/gpui-ce", rev = "de53e91475147f27b738ed6feb310a01f875a647" }

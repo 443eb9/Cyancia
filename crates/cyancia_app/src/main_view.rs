@@ -256,7 +256,7 @@ impl WindowView for MainView {
                             .switch_tool(PanTool::id(), services)
                     });
                 }
-                let dock = CanvasDock::new(e.id);
+                let dock = CanvasDock::new(e.id, self.dock_manager.main_window().id);
                 let id = <CanvasDock as Dock<Theme, Renderer>>::id(&dock);
                 self.dock_manager.register_dock(dock);
                 self.dock_manager.open_dock(id).map(MainViewMessage::Dock)

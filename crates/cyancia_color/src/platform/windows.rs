@@ -1,7 +1,5 @@
 use anyhow::{Context, Result, anyhow, bail};
-use gpui::Window;
 use moxcms::ColorProfile;
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows::Win32::{
     Devices::Display::{
         DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_PATH_INFO,
@@ -17,12 +15,9 @@ use windows::Win32::{
     },
 };
 
-pub fn get_window_color_profile(window: &mut Window) -> Result<ColorProfile> {
-    let RawWindowHandle::Win32(handle) = window.window_handle()?.as_raw() else {
-        bail!("Unsupported window handle type")
-    };
-
-    let hwnd = HWND(handle.hwnd.get() as _);
+pub fn get_window_color_profile(raw_window_id: u64) -> Result<ColorProfile> {
+    // winit's raw window id on Windows is the `HWND` value.
+    let hwnd = HWND(raw_window_id as *mut core::ffi::c_void);
 
     let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
     if monitor.is_invalid() {

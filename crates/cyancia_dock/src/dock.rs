@@ -17,7 +17,7 @@ use crate::{
     group::{DockGroupData, TabRowWidget},
 };
 
-pub trait Dock<Theme, Renderer>: Send + Sync + 'static
+pub trait Dock<Theme, Renderer>: 'static
 where
     Theme: 'static,
     Renderer: iced_core::Renderer + 'static,
@@ -25,7 +25,11 @@ where
     type Message: Send + Sync + 'static;
 
     fn id(&self) -> DockId;
-    fn view<'a>(&'a self, services: &'a Services) -> Element<'a, Self::Message, Theme, Renderer>;
+    fn view<'a>(
+        &'a self,
+        window_id: window::Id,
+        services: &'a Services,
+    ) -> Element<'a, Self::Message, Theme, Renderer>;
     fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message>;
     fn subscription(&self) -> Subscription<Self::Message> {
         Subscription::none()
@@ -38,10 +42,11 @@ where
     }
 }
 
-pub trait ErasedDock<Theme, Renderer>: Send + Sync + 'static {
+pub trait ErasedDock<Theme, Renderer>: 'static {
     fn id(&self) -> DockId;
     fn view<'a>(
         &'a self,
+        window_id: window::Id,
         services: &'a Services,
     ) -> Element<'a, Box<dyn Any + Send + Sync>, Theme, Renderer>;
     fn update(
@@ -66,9 +71,10 @@ where
 
     fn view<'a>(
         &'a self,
+        window_id: window::Id,
         services: &'a Services,
     ) -> Element<'a, Box<dyn Any + Send + Sync>, Theme, Renderer> {
-        self.view(services)
+        self.view(window_id, services)
             .map(|m| Box::new(m) as Box<dyn Any + Send + Sync>)
     }
 

@@ -97,10 +97,7 @@ pub enum BrushEditorMessage {
     SwitchGraph(BrushPresetGraph),
     NewStrokePostprocess,
     RemoveStrokePostprocess(usize),
-    MoveStrokePostprocess {
-        index: usize,
-        up: bool,
-    },
+    MoveStrokePostprocess { index: usize, up: bool },
     ExternalNameChanged(String),
     ExternalTypeChanged(&'static str),
     CreateExternalVariable,
@@ -142,11 +139,7 @@ impl WindowView for BrushEditor {
         )
     }
 
-    fn view<'a>(
-        &'a self,
-        _: window::Id,
-        _: &'a Services,
-    ) -> EditorElement<'a, Self::Message> {
+    fn view<'a>(&'a self, _: window::Id, _: &'a Services) -> EditorElement<'a, Self::Message> {
         let brush_buttons = self
             .brushes
             .items()
@@ -320,8 +313,7 @@ impl WindowView for BrushEditor {
             match event {
                 iced_futures::subscription::Event::Interaction {
                     window,
-                    event:
-                        iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }),
+                    event: iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }),
                     status: _,
                 } if window == main_window
                     && modifiers.control()
@@ -367,7 +359,9 @@ impl BrushEditor {
         .spacing(6)
         .into();
 
-        let graph: Element<'_, GraphEditorMessage, iced::Theme, iced_wgpu::Renderer> = match brush.viewing_graph {
+        let graph: Element<'_, GraphEditorMessage, iced::Theme, iced_wgpu::Renderer> = match brush
+            .viewing_graph
+        {
             BrushPresetGraph::RequiredSpacing => {
                 GraphEditor::new(brush.instance.required_spacing_graph(), true).into()
             }

@@ -32,6 +32,7 @@ iced_futures.workspace = true
 iced_runtime.workspace = true
 iced_wgpu.workspace = true
 iced_widget.workspace = true
+moxcms.workspace = true
 log.workspace = true
 parking_lot.workspace = true
 tracing-subscriber.workspace = true

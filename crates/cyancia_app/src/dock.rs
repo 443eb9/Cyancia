@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{cell::RefCell, sync::Arc, time::Duration};
 
 use bevy_math::{IRect, Rect};
 use cyancia_assets::AssetAppExt;
@@ -10,7 +10,7 @@ use cyancia_canvas::{
     tools::PanTool,
     widget::canvas::CanvasWidget,
 };
-use cyancia_color::shader::IccTransformShader;
+use cyancia_color::{platform::get_window_color_profile, shader::IccTransformShader};
 use cyancia_dock::dock::{Dock, DockId};
 use cyancia_image::{
     composite::{BlendFunctionRegistry, ImageCompositor, LayerPreviewOverriders},
@@ -24,11 +24,16 @@ use cyancia_render::render_context::RenderContextAppExt;
 use cyancia_runtime::{Services, event::Event, service::RenderContext};
 use cyancia_tools::{ErasedToolFunctionMessage, ToolProxies};
 use iced::{
-    Element, Length, Subscription, Task, Theme, mouse,
+    Element, Length, Subscription, Task, Theme,
+    event::listen_with,
+    mouse,
     widget::{Space, button, column, text},
+    window,
 };
 use iced_core::Point;
+use iced_runtime::task;
 use iced_wgpu::Renderer;
+use moxcms::Layout;
 use parking_lot::Mutex;
 
 // pub struct CurrentCanvasLayersDock {
@@ -317,6 +322,7 @@ macro_rules! test_dummy_dock {
 
             fn view<'a>(
                 &'a self,
+                window_id: window::Id,
                 services: &'a Services,
             ) -> Element<'a, Self::Message, Theme, Renderer> {
                 text($text).into()
@@ -346,24 +352,34 @@ pub struct CanvasDock {
 
     compositor: ImageCompositor,
     cursor_position: Point,
+
+    window_id: RefCell<window::Id>,
+    raw_window_id: Option<u64>,
+    monitor_name: Option<String>,
 }
 
 impl CanvasDock {
-    pub fn new(canvas: CanvasId) -> Self {
+    pub fn new(canvas: CanvasId, window_id: window::Id) -> Self {
         Self {
             canvas,
             compositor: ImageCompositor::default(),
             cursor_position: Point::default(),
+            window_id: RefCell::new(window_id),
+            raw_window_id: None,
+            monitor_name: None,
         }
     }
 }
 
 pub enum CanvasDockMessage {
+    WindowMoved,
     CanvasUpdated(Option<IRect>),
     CanvasFocus(Point),
     MouseEvent(mouse::Event),
     WidgetRectChange(Rect),
     ToolFunctionMessage(ErasedToolFunctionMessage),
+    RawWindowIdUpdate(u64),
+    MonitorNameUpdate(Option<String>),
 }
 
 impl Dock<Theme, Renderer> for CanvasDock {
@@ -373,9 +389,17 @@ impl Dock<Theme, Renderer> for CanvasDock {
         DockId::new(construct_canvas_dock_id(self.canvas).into())
     }
 
-    fn view<'a>(&'a self, services: &'a Services) -> Element<'a, Self::Message, Theme, Renderer> {
+    fn view<'a>(
+        &'a self,
+        window_id: window::Id,
+        services: &'a Services,
+    ) -> Element<'a, Self::Message, Theme, Renderer> {
         let canvas_manager = services.service::<CanvasManager>();
-        let Some(canvas) = canvas_manager.get(&self.canvas) else {
+        self.window_id.replace(window_id);
+
+        let (Some(canvas), Some(window_id), Some(monitor_name)) =
+            (canvas_manager.get(&self.canvas), self.raw_window_id, self.monitor_name.clone())
+        else {
             return Space::new().into();
         };
 
@@ -386,7 +410,10 @@ impl Dock<Theme, Renderer> for CanvasDock {
             on_focus: Box::new(CanvasDockMessage::CanvasFocus),
             on_mouse_event: Box::new(CanvasDockMessage::MouseEvent),
             on_widget_rect_change: Box::new(CanvasDockMessage::WidgetRectChange),
-            icc_transform: IccTransformShader::unmanaged(ICC_TRANSFORM_SHADER_IDENT).function,
+            // TODO wrap in arc?
+            color_profile: canvas.image.profile().clone(),
+            window_id,
+            monitor_name,
         }
         .into()
     }
@@ -502,11 +529,35 @@ impl Dock<Theme, Renderer> for CanvasDock {
                     })
                     .map(CanvasDockMessage::ToolFunctionMessage)
             }
+            CanvasDockMessage::WindowMoved => {
+                let window_id = self.window_id.borrow().clone();
+
+                let monitor_name = task::oneshot(move |channel| {
+                    iced_runtime::Action::Window(window::Action::GetMonitorName(window_id, channel))
+                })
+                .map(CanvasDockMessage::MonitorNameUpdate);
+
+                let window_raw_id =
+                    window::raw_id::<()>(window_id).map(CanvasDockMessage::RawWindowIdUpdate);
+
+                Task::batch([monitor_name, window_raw_id])
+            }
+            CanvasDockMessage::RawWindowIdUpdate(id) => {
+                self.raw_window_id = Some(id);
+                Task::none()
+            }
+            CanvasDockMessage::MonitorNameUpdate(name) => {
+                self.monitor_name = name;
+                Task::none()
+            }
         }
     }
 
     fn on_open(&mut self) -> Task<Self::Message> {
-        Task::done(CanvasDockMessage::CanvasUpdated(None))
+        Task::batch([
+            Task::done(CanvasDockMessage::WindowMoved),
+            Task::done(CanvasDockMessage::CanvasUpdated(None)),
+        ])
     }
 
     fn on_close(&mut self) -> Task<Self::Message> {
@@ -516,7 +567,22 @@ impl Dock<Theme, Renderer> for CanvasDock {
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
-        CanvasUpdated::listen_to().map(|e| CanvasDockMessage::CanvasUpdated(Some(e.dirty_tiles)))
+        let cur_window = self.window_id.borrow().clone();
+
+        let canvas_update = CanvasUpdated::listen_to()
+            .map(|e| CanvasDockMessage::CanvasUpdated(Some(e.dirty_tiles)));
+        let window_moved =
+            window::events()
+                .with(cur_window)
+                .filter_map(|(cur_window, (window_id, event))| {
+                    if matches!(event, window::Event::Moved(_)) && cur_window == window_id {
+                        Some(CanvasDockMessage::WindowMoved)
+                    } else {
+                        None
+                    }
+                });
+
+        Subscription::batch([canvas_update, window_moved])
     }
 }
 
@@ -541,6 +607,7 @@ impl Dock<Theme, iced_wgpu::Renderer> for ToolOptionsDock {
 
     fn view<'a>(
         &'a self,
+        window_id: window::Id,
         services: &'a Services,
     ) -> Element<'a, Self::Message, Theme, iced_wgpu::Renderer> {
         let Some(canvas) = services.service::<CanvasManager>().current() else {
@@ -616,7 +683,11 @@ impl Dock<Theme, Renderer> for BrushPresetDock {
         DockId::new(BRUSH_PRESETS_DOCK_ID.into())
     }
 
-    fn view<'a>(&'a self, services: &'a Services) -> Element<'a, Self::Message, Theme, Renderer> {
+    fn view<'a>(
+        &'a self,
+        window_id: window::Id,
+        services: &'a Services,
+    ) -> Element<'a, Self::Message, Theme, Renderer> {
         let buttons = self
             .brushes
             .items()

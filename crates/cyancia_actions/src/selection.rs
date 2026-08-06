@@ -1,7 +1,4 @@
-use cyancia_canvas::{
-    CanvasAppExt, CanvasUndoStackAppExt,
-    command::TileReplaceCommand,
-};
+use cyancia_canvas::{CanvasAppExt, CanvasUndoStackAppExt, command::TileReplaceCommand};
 use cyancia_image::tile::TileStorageAppExt;
 use cyancia_render::render_context::RenderContextAppExt;
 use cyancia_runtime::Services;

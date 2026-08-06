@@ -43,10 +43,8 @@ impl ActionFunction for CreateNewLayerAction {
                         .instance()
                         .can_have_children_of(TypeId::of::<PixelLayer>())
                     {
-                        let parent_id = canvas
-                            .image
-                            .layer_stack()
-                            .get_layer(cur_parent.parent()?)?;
+                        let parent_id =
+                            canvas.image.layer_stack().get_layer(cur_parent.parent()?)?;
                         cur_position = LayerPosition::above(*cur_parent.id());
                         cur_parent = canvas
                             .image
@@ -91,52 +89,51 @@ impl ActionFunction for GroupSelectedLayersAction {
             return Task::none();
         };
 
-        let cmd = services
-            .update_canvas(&canvas_id, |canvas, _| {
-                let group_name = canvas.image.next_name_of_layer("Group".to_string());
-                let reduced_layers = canvas
-                    .image
-                    .layer_stack()
-                    .reduce_ancestors(canvas.selected_layer_ids().iter().copied());
-                let sorted_selected_layers = canvas
-                    .image
-                    .layer_stack()
-                    .sort_by_depth_and_index(reduced_layers)
-                    .unwrap();
-                let children_layers = sorted_selected_layers
-                    .into_iter()
-                    .map(|l| {
-                        let parent = canvas.image.layer_stack().get_parent_of(&l).unwrap();
-                        let above = parent.child_below(&l);
-                        LayerWithPosition {
-                            id: l,
-                            original_parent: *parent.id(),
-                            original_above: above,
-                        }
-                    })
-                    .collect();
+        let cmd = services.update_canvas(&canvas_id, |canvas, _| {
+            let group_name = canvas.image.next_name_of_layer("Group".to_string());
+            let reduced_layers = canvas
+                .image
+                .layer_stack()
+                .reduce_ancestors(canvas.selected_layer_ids().iter().copied());
+            let sorted_selected_layers = canvas
+                .image
+                .layer_stack()
+                .sort_by_depth_and_index(reduced_layers)
+                .unwrap();
+            let children_layers = sorted_selected_layers
+                .into_iter()
+                .map(|l| {
+                    let parent = canvas.image.layer_stack().get_parent_of(&l).unwrap();
+                    let above = parent.child_below(&l);
+                    LayerWithPosition {
+                        id: l,
+                        original_parent: *parent.id(),
+                        original_above: above,
+                    }
+                })
+                .collect();
 
-                let (active_layer_parent, active_layer_index) = canvas
-                    .image
-                    .layer_stack()
-                    .get_position_of(&canvas.active_layer_id())
-                    .unwrap();
+            let (active_layer_parent, active_layer_index) = canvas
+                .image
+                .layer_stack()
+                .get_position_of(&canvas.active_layer_id())
+                .unwrap();
 
-                let group_layer =
-                    LayerStackNode::without_parent(LayerId::random(), Box::new(GroupLayer), {
-                        let mut props = LayerProperties::new::<GroupLayer>();
-                        props.set(NameProp(group_name));
-                        props
-                    });
+            let group_layer =
+                LayerStackNode::without_parent(LayerId::random(), Box::new(GroupLayer), {
+                    let mut props = LayerProperties::new::<GroupLayer>();
+                    props.set(NameProp(group_name));
+                    props
+                });
 
-                GroupLayerCommand {
-                    canvas: canvas.id(),
-                    group: group_layer,
-                    children: children_layers,
-                    parent_id: *active_layer_parent.id(),
-                    index: active_layer_index,
-                }
-            });
+            GroupLayerCommand {
+                canvas: canvas.id(),
+                group: group_layer,
+                children: children_layers,
+                parent_id: *active_layer_parent.id(),
+                index: active_layer_index,
+            }
+        });
 
         if let Some(cmd) = cmd {
             services.push_undo_command_to_current(cmd).log_err();

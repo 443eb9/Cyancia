@@ -1,17 +1,14 @@
 use std::{any::TypeId, path::PathBuf};
 
-use cyancia_canvas::{
-    CanvasAppExt, CanvasUndoStackAppExt,
-    command::InsertLayerCommand,
-};
+use cyancia_canvas::{CanvasAppExt, CanvasUndoStackAppExt, command::InsertLayerCommand};
 use cyancia_image::{
     CImage,
     layer::{LayerPosition, pixel_layer::PixelLayer},
     tile::TileStorageAppExt,
 };
 use cyancia_runtime::Services;
-use cyancia_utils::log_err::LogErr;
 use cyancia_undo::{BatchedUndoCommand, UndoStacks};
+use cyancia_utils::log_err::LogErr;
 use iced_runtime::{Task, clipboard};
 
 use crate::{ActionFunction, ActionId};
@@ -114,11 +111,8 @@ impl ActionFunction for PasteIntoNewLayerAction {
                         let Some(cur_parent_id) = cur_parent.parent() else {
                             return None;
                         };
-                        let parent_id = canvas
-                            .image
-                            .layer_stack()
-                            .get_layer(cur_parent_id)
-                            .unwrap();
+                        let parent_id =
+                            canvas.image.layer_stack().get_layer(cur_parent_id).unwrap();
                         cur_position = LayerPosition::above(*cur_parent.id());
                         cur_parent = canvas
                             .image
@@ -135,12 +129,8 @@ impl ActionFunction for PasteIntoNewLayerAction {
 
         let mut layers = Vec::new();
         for path in &paths {
-            let Ok(layer) = PixelLayer::from_path(
-                path,
-                services.tile_storage(),
-                &profile,
-            )
-            .logged_err()
+            let Ok(layer) =
+                PixelLayer::from_path(path, services.tile_storage(), &profile).logged_err()
             else {
                 continue;
             };
@@ -156,12 +146,7 @@ impl ActionFunction for PasteIntoNewLayerAction {
                 let mut cur_position = position;
                 for layer in layers {
                     let layer_id = *layer.id();
-                    commands.push(InsertLayerCommand::new(
-                        canvas,
-                        layer,
-                        parent,
-                        cur_position,
-                    ));
+                    commands.push(InsertLayerCommand::new(canvas, layer, parent, cur_position));
                     cur_position = LayerPosition::above(layer_id);
                 }
                 commands

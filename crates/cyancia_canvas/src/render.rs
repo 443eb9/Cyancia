@@ -1,5 +1,6 @@
 use std::{sync::OnceLock, time::Instant};
 
+use anyhow::Result;
 use bevy_math::IRect;
 use cyancia_color::shader::IccTransformShader;
 use cyancia_image::{
@@ -16,8 +17,9 @@ use cyancia_render::{
 };
 use encase::ShaderType;
 use glam::{IVec2, Mat3, UVec2, UVec3};
-use iced_core::Rectangle;
+use iced_core::{Rectangle, window};
 use iced_widget::shader;
+use moxcms::{ColorProfile, Layout};
 use wesl::include_wesl;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
@@ -43,55 +45,48 @@ pub struct CanvasRenderer {
     present_pipeline: CanvasPresentPipeline,
     root_texel_type: TexelType,
     selection_texel_type: TexelType,
-    icc_transform: String,
+    window_id: u64,
+    monitor_name: String,
 }
 
 impl CanvasRenderer {
-    fn with_color_transform(
-        device: &Device,
-        target_format: TextureFormat,
-        root_texel_type: TexelType,
-        selection_texel_type: TexelType,
-        icc_transform: String,
-    ) -> Self {
-        let fullscreen_vertex = FullscreenVertex::new(device);
-        let global_samplers = GlobalSamplers::new(device);
-        let render_pipeline = CanvasRenderPipeline::new(
-            device,
-            root_texel_type,
-            selection_texel_type,
-            &icc_transform,
-        );
-        let present_pipeline =
-            CanvasPresentPipeline::new(device, target_format, &fullscreen_vertex, &global_samplers);
-        Self {
-            texture: None,
-            render_pipeline,
-            present_pipeline,
-            root_texel_type,
-            selection_texel_type,
-            icc_transform,
-        }
-    }
-
     fn ensure_pipeline(
         &mut self,
         device: &Device,
         root_texel_type: TexelType,
         selection_texel_type: TexelType,
-        icc_transform: &str,
-    ) {
+        src_pr: &ColorProfile,
+        window_id: u64,
+        monitor_name: &str,
+    ) -> Result<()> {
         if self.root_texel_type == root_texel_type
             && self.selection_texel_type == selection_texel_type
-            && self.icc_transform == icc_transform
+            && self.window_id == window_id
+            && self.monitor_name == monitor_name
         {
-            return;
+            return Ok(());
         }
-        self.render_pipeline =
-            CanvasRenderPipeline::new(device, root_texel_type, selection_texel_type, icc_transform);
+
+        let dst_pr = cyancia_color::platform::get_window_color_profile(window_id)?;
+        let icc_transform = IccTransformShader::new(
+            ICC_TRANSFORM_SHADER_IDENT,
+            src_pr,
+            Layout::Rgb,
+            &dst_pr,
+            Layout::Rgb,
+            Default::default(),
+        )?;
+        self.render_pipeline = CanvasRenderPipeline::new(
+            device,
+            root_texel_type,
+            selection_texel_type,
+            &icc_transform,
+        );
         self.root_texel_type = root_texel_type;
         self.selection_texel_type = selection_texel_type;
-        self.icc_transform = icc_transform.to_owned();
+        self.window_id = window_id;
+        self.monitor_name = monitor_name.to_owned();
+        Ok(())
     }
 
     fn resize_output_buffer(&mut self, device: &Device, size: UVec2) {
@@ -178,13 +173,25 @@ impl CanvasRenderer {
 
 impl shader::Pipeline for CanvasRenderer {
     fn new(device: &Device, _: &Queue, format: TextureFormat) -> Self {
-        Self::with_color_transform(
+        let fullscreen_vertex = FullscreenVertex::new(device);
+        let global_samplers = GlobalSamplers::new(device);
+        let render_pipeline = CanvasRenderPipeline::new(
             device,
-            format,
             TexelType::RGBA8,
             TexelType::A8,
-            IccTransformShader::unmanaged(ICC_TRANSFORM_SHADER_IDENT).function,
-        )
+            &IccTransformShader::unmanaged(ICC_TRANSFORM_SHADER_IDENT),
+        );
+        let present_pipeline =
+            CanvasPresentPipeline::new(device, format, &fullscreen_vertex, &global_samplers);
+        Self {
+            texture: None,
+            render_pipeline,
+            present_pipeline,
+            root_texel_type: TexelType::RGBA8,
+            selection_texel_type: TexelType::A8,
+            window_id: u64::MAX,
+            monitor_name: Default::default(),
+        }
     }
 }
 
@@ -197,7 +204,9 @@ pub struct CanvasPrimitive {
     pub selection_texel_type: TexelType,
     pub transform: CanvasTransform,
     pub tile_storage: GpuTileStorage,
-    pub icc_transform: String,
+    pub color_profile: ColorProfile,
+    pub window_id: u64,
+    pub monitor_name: String,
 }
 
 impl shader::Primitive for CanvasPrimitive {
@@ -211,12 +220,16 @@ impl shader::Primitive for CanvasPrimitive {
         bounds: &Rectangle,
         _: &shader::Viewport,
     ) {
-        renderer.ensure_pipeline(
-            device,
-            self.root_texel_type,
-            self.selection_texel_type,
-            &self.icc_transform,
-        );
+        renderer
+            .ensure_pipeline(
+                device,
+                self.root_texel_type,
+                self.selection_texel_type,
+                &self.color_profile,
+                self.window_id,
+                &self.monitor_name,
+            )
+            .ok();
         renderer.resize_output_buffer(
             device,
             UVec2::new(bounds.width.max(0.0) as u32, bounds.height.max(0.0) as u32),
@@ -267,7 +280,7 @@ impl CanvasRenderPipeline {
         device: &Device,
         root_texel_type: TexelType,
         selection_texel_type: TexelType,
-        icc_transform: &str,
+        icc_transform: &IccTransformShader,
     ) -> Self {
         let main_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("canvas main layout"),
@@ -299,7 +312,7 @@ impl CanvasRenderPipeline {
             push_constant_ranges: &[],
         });
         let shader = include_str!("shaders/canvas_render.wesl")
-            .replace("//CODEGEN_FLAG_CALIBRATE_COLOR", icc_transform);
+            .replace("//CODEGEN_FLAG_CALIBRATE_COLOR", &icc_transform.function);
         let shader_module = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("canvas shader"),
             source: ShaderSource::Wgsl(

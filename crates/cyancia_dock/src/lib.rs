@@ -646,7 +646,7 @@ where
                         .docks
                         .get(&dock_id)
                         .expect(&format!("Dock not found: {}", dock_id));
-                    dock.view(services)
+                    dock.view(window_id, services)
                         .map(move |m| DockMessage::Dock(dock_id.clone(), m))
                 });
 
@@ -661,12 +661,12 @@ where
                     id: window_id,
                     action,
                 })
-                .content(|dock_id| {
+                .content(move |dock_id| {
                     let dock = self
                         .docks
                         .get(&dock_id)
                         .expect(&format!("Dock not found: {}", dock_id));
-                    dock.view(services)
+                    dock.view(window_id, services)
                         .map(move |m| DockMessage::Dock(dock_id.clone(), m))
                 })
                 .is_merging(match self.current_attach_or_merge_info() {

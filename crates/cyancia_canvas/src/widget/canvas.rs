@@ -7,9 +7,11 @@ use iced_core::{
     layout::{self, Limits},
     mouse, renderer,
     widget::Tree,
+    window,
 };
 use iced_wgpu::primitive::Renderer;
 use iced_widget::{renderer::wgpu::primitive, shader::Program};
+use moxcms::ColorProfile;
 
 use crate::{
     CCanvas,
@@ -23,7 +25,9 @@ pub struct CanvasWidget<'a, Message> {
     pub on_focus: Box<dyn Fn(Point) -> Message + 'a>,
     pub on_mouse_event: Box<dyn Fn(mouse::Event) -> Message + 'a>,
     pub on_widget_rect_change: Box<dyn Fn(Rect) -> Message + 'a>,
-    pub icc_transform: String,
+    pub color_profile: ColorProfile,
+    pub window_id: u64,
+    pub monitor_name: String,
 }
 
 impl<'a, Message> CanvasWidget<'a, Message> {
@@ -33,6 +37,9 @@ impl<'a, Message> CanvasWidget<'a, Message> {
         on_focus: impl Fn(Point) -> Message + 'a,
         on_mouse_event: impl Fn(mouse::Event) -> Message + 'a,
         on_widget_rect_change: impl Fn(Rect) -> Message + 'a,
+        color_profile: ColorProfile,
+        window_id: u64,
+        monitor_name: String,
     ) -> Self {
         Self {
             is_focusing: false,
@@ -41,17 +48,14 @@ impl<'a, Message> CanvasWidget<'a, Message> {
             on_focus: Box::new(on_focus),
             on_mouse_event: Box::new(on_mouse_event),
             on_widget_rect_change: Box::new(on_widget_rect_change),
-            icc_transform: IccTransformShader::unmanaged(ICC_TRANSFORM_SHADER_IDENT).function,
+            color_profile,
+            window_id,
+            monitor_name,
         }
     }
 
     pub fn focusing(mut self, is_focusing: bool) -> Self {
         self.is_focusing = is_focusing;
-        self
-    }
-
-    pub fn color_transform(mut self, transform: IccTransformShader) -> Self {
-        self.icc_transform = transform.function;
         self
     }
 }
@@ -119,7 +123,9 @@ impl<Message, Theme> Widget<Message, Theme, iced_wgpu::Renderer> for CanvasWidge
                 selection_texel_type: TexelType::A8,
                 transform: self.canvas.transform.clone(),
                 tile_storage: self.tile_storage.clone(),
-                icc_transform: self.icc_transform.clone(),
+                color_profile: self.color_profile.clone(),
+                window_id: self.window_id,
+                monitor_name: self.monitor_name.clone(),
             },
         );
     }

@@ -29,7 +29,7 @@ wrapper! {
 
 pub struct Window;
 
-pub trait WindowView: Send + Sync + 'static + Sized {
+pub trait WindowView: 'static + Sized {
     type Message: Send + Sync + 'static;
 
     fn id() -> WindowViewId;
@@ -54,7 +54,7 @@ pub trait WindowView: Send + Sync + 'static + Sized {
     }
 }
 
-pub trait ErasedWindowView: Send + Sync + 'static {
+pub trait ErasedWindowView: 'static {
     fn id(&self) -> WindowViewId;
     fn view<'a>(
         &'a self,
