@@ -98,11 +98,6 @@ flate2 = "1"
 fs_extra = "1"
 futures = "0.3"
 glam = { version = "0.30", features = ["encase", "serde", "bytemuck"] }
-gpui = { git = "https://github.com/443eb9/gpui-ce", rev = "de53e91475147f27b738ed6feb310a01f875a647", features = ["wgpu", "winit"] }
-gpui_wgpu = { git = "https://github.com/443eb9/gpui-ce", rev = "de53e91475147f27b738ed6feb310a01f875a647" }
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "277f220a6196572116a8fd84fba6c36187094cab" }
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "277f220a6196572116a8fd84fba6c36187094cab" }
-gpui_platform = { git = "https://github.com/443eb9/gpui-ce", rev = "de53e91475147f27b738ed6feb310a01f875a647", features = ["font-kit", "winit"] }
 half = "2"
 iced = { version = "0.14", features = ["debug", "canvas", "selector", "smol"] }
 iced_aw = { version = "0.13", features = ["context_menu"] }
@@ -172,7 +167,3 @@ iced_selector = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcd
 iced_wgpu = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
 iced_widget = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
 iced_winit = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
-
-[patch."https://github.com/zed-industries/zed"]
-gpui = { git = "https://github.com/443eb9/gpui-ce", rev = "de53e91475147f27b738ed6feb310a01f875a647" }
-gpui_macros = { git = "https://github.com/443eb9/gpui-ce", rev = "de53e91475147f27b738ed6feb310a01f875a647" }
