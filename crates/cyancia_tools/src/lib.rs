@@ -12,8 +12,10 @@ use cyancia_input::{
 };
 use cyancia_runtime::{Application, Services, plugin::Plugin, service::Service};
 use cyancia_utils::wrapper;
-use iced::{Element, Task, keyboard::key};
-use iced_core::keyboard::Modifiers;
+use iced_core::{Element, Point, Theme, keyboard::Modifiers};
+use iced_runtime::Task;
+use iced_wgpu::Renderer;
+use iced_widget::space;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -126,8 +128,11 @@ pub trait ToolFunction: 'static {
     ) -> Element<'a, Self::Message, iced_core::Theme, iced_wgpu::Renderer> {
         iced_widget::Space::new().into()
     }
-    fn canvas_overlay(&mut self, _: &TextureView, _: &mut Services) -> Task<Self::Message> {
-        Task::none()
+    fn canvas_overlay<'a>(
+        &'a self,
+        _: &'a Services,
+    ) -> Element<'a, Self::Message, Theme, Renderer> {
+        space().into()
     }
 }
 
@@ -167,12 +172,11 @@ pub trait ErasedToolFunction: 'static {
     fn tool_option_widget<'a>(
         &'a self,
         services: &'a Services,
-    ) -> Element<'a, ErasedToolFunctionMessage, iced_core::Theme, iced_wgpu::Renderer>;
-    fn canvas_overlay(
-        &mut self,
-        canvas_surface: &TextureView,
-        services: &mut Services,
-    ) -> Task<ErasedToolFunctionMessage>;
+    ) -> Element<'a, ErasedToolFunctionMessage, Theme, Renderer>;
+    fn canvas_overlay<'a>(
+        &'a self,
+        services: &'a Services,
+    ) -> Element<'a, ErasedToolFunctionMessage, Theme, Renderer>;
 }
 
 impl<T: ToolFunction> ErasedToolFunction for T {
@@ -266,7 +270,7 @@ impl<T: ToolFunction> ErasedToolFunction for T {
     fn tool_option_widget<'a>(
         &'a self,
         services: &'a Services,
-    ) -> Element<'a, ErasedToolFunctionMessage, iced_core::Theme, iced_wgpu::Renderer> {
+    ) -> Element<'a, ErasedToolFunctionMessage, Theme, Renderer> {
         let id = T::id();
         self.tool_option_widget(services)
             .map(move |message| ErasedToolFunctionMessage {
@@ -275,12 +279,11 @@ impl<T: ToolFunction> ErasedToolFunction for T {
             })
     }
 
-    fn canvas_overlay(
-        &mut self,
-        canvas_surface: &TextureView,
-        services: &mut Services,
-    ) -> Task<ErasedToolFunctionMessage> {
-        self.canvas_overlay(canvas_surface, services)
+    fn canvas_overlay<'a>(
+        &'a self,
+        services: &'a Services,
+    ) -> Element<'_, ErasedToolFunctionMessage, Theme, Renderer> {
+        self.canvas_overlay(services)
             .map(move |message| ErasedToolFunctionMessage {
                 tool_id: T::id(),
                 message: Box::new(message),
@@ -447,7 +450,7 @@ impl ToolProxy {
     pub fn mouse_moved(
         &mut self,
         keyboard: &KeyboardState,
-        position: iced::Point,
+        position: Point,
         services: &mut Services,
     ) -> Task<ErasedToolFunctionMessage> {
         let Some(state) = self.override_state.as_ref().or(self.current_state.as_ref()) else {
@@ -507,18 +510,17 @@ impl ToolProxy {
         )
     }
 
-    pub fn canvas_overlay(
-        &mut self,
-        canvas_surface: &TextureView,
-        services: &mut Services,
-    ) -> Task<ErasedToolFunctionMessage> {
+    pub fn canvas_overlay<'a>(
+        &'a self,
+        services: &'a Services,
+    ) -> Element<'a, ErasedToolFunctionMessage, Theme, Renderer> {
         let Some(state) = self.override_state.as_ref().or(self.current_state.as_ref()) else {
-            return Task::none();
+            return space().into();
         };
         self.tool_functions
-            .get_mut(&state.function)
+            .get(&state.function)
             .unwrap()
-            .canvas_overlay(canvas_surface, services)
+            .canvas_overlay(services)
     }
 
     pub fn current_tool(&self) -> Option<&ToolId> {

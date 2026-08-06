@@ -34,7 +34,7 @@ fn vertex(@builtin(vertex_index) vertex_index: u32) -> @builtin(position) vec4f 
     let seg_vertex_index = vertex_index % 6u;
     let position_ps = mesh[seg_vertex_index];
     let position_ws = canvas.pixel_to_widget * vec3f(position_ps, 1.0);
-    let position_ss = position_ws.xy + PERP_OFFSETS[seg_vertex_index] * seg_dir_perp_half;
+    let position_ss = canvas.widget_min + position_ws.xy + PERP_OFFSETS[seg_vertex_index] * seg_dir_perp_half;
     let normalized = position_ss / canvas.screen_size;
     let ndc = normalized * 2.0 - 1.0;
     return vec4f(vec2f(ndc.x, -ndc.y), 0.0, 1.0);

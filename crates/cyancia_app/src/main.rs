@@ -17,6 +17,7 @@ use cyancia_image::ImagePlugin;
 use cyancia_input::InputPlugin;
 use cyancia_render::RenderPlugin;
 use cyancia_runtime::{Application, service::RenderContext, windows::WindowCommandBuffer};
+use cyancia_selection_tool::SelectionPlugin;
 use cyancia_shader_graph::ShaderGraphPlugin;
 use cyancia_tools::ToolsPlugin;
 use cyancia_undo::UndoPlugin;
@@ -69,6 +70,7 @@ fn main() {
         .add_plugin(InputPlugin)
         .add_plugin(BrushPlugin)
         .add_plugin(BucketPlugin)
+        .add_plugin(SelectionPlugin)
         .add_plugin(ActionPlugin);
     app.build_plugins();
 

@@ -20,7 +20,7 @@ members = [
     "crates/cyancia_render",
     "crates/cyancia_runtime",
     "crates/cyancia_runtime_derive",
-    # "crates/cyancia_selection_tool",
+    "crates/cyancia_selection_tool",
     "crates/cyancia_shader_graph",
     "crates/cyancia_shader_graph_derive",
     "crates/cyancia_tools",

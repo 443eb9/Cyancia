@@ -16,20 +16,27 @@ use cyancia_render::{
     buffer::DynamicBuffer,
     render_context::RenderContextAppExt,
 };
+use cyancia_runtime::Services;
 use encase::ShaderType;
 use glam::{IVec2, Mat3, Vec2};
-use gpui::{App, FillOptions, FillRule, Modifiers};
+use iced_core::{
+    Element, Length, Rectangle, Size, Widget, keyboard::Modifiers, layout, mouse, renderer, widget,
+};
+use iced_wgpu::{Primitive, Renderer, graphics::Viewport};
+use iced_widget::shader::Pipeline;
 use indexmap::IndexSet;
 use lyon::{
     path::Path,
-    tessellation::{BuffersBuilder, FillTessellator, FillVertex, VertexBuffers},
+    tessellation::{
+        BuffersBuilder, FillOptions, FillRule, FillTessellator, FillVertex, VertexBuffers,
+    },
 };
 use wesl::include_wesl;
 use wgpu::{
-    BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor, BindingResource, BufferUsages,
-    ColorTargetState, ColorWrites, ComputePassDescriptor, ComputePipeline,
-    ComputePipelineDescriptor, Device, FragmentState, IndexFormat, LoadOp, Operations,
-    PipelineLayoutDescriptor, Queue, RenderPassColorAttachment, RenderPassDescriptor,
+    BindGroup, BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor, BindingResource,
+    BufferUsages, ColorTargetState, ColorWrites, CommandEncoder, ComputePassDescriptor,
+    ComputePipeline, ComputePipelineDescriptor, Device, FragmentState, IndexFormat, LoadOp,
+    Operations, PipelineLayoutDescriptor, Queue, RenderPassColorAttachment, RenderPassDescriptor,
     RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages,
     StorageTextureAccess, StoreOp, TextureFormat, TextureView, VertexAttribute, VertexBufferLayout,
     VertexFormat, VertexState, VertexStepMode,
@@ -42,14 +49,14 @@ pub fn generate_cmd(
     indices: &[u32],
     aabb_ps: IRect,
     op: SelectionOperation,
-    cx: &mut App,
+    services: &mut Services,
 ) -> Option<TileReplaceCommand> {
-    let canvas = cx.read_current_canvas()?;
+    let canvas = services.current_canvas()?;
     let canvas_id = canvas.id();
 
-    let tiles = cx.tile_storage();
-    let device = cx.render_device();
-    let queue = cx.render_queue();
+    let tiles = services.tile_storage();
+    let device = services.render_device();
+    let queue = services.render_queue();
 
     let selection_layer_id = canvas.image.selection_layer();
 
@@ -117,37 +124,10 @@ impl SelectionOperation {
     }
 }
 
-pub const MODIFIERS_INTERSECT: Modifiers = Modifiers {
-    control: false,
-    alt: true,
-    shift: true,
-    platform: false,
-    function: false,
-};
-
-pub const MODIFIERS_UNION: Modifiers = Modifiers {
-    control: false,
-    alt: false,
-    shift: true,
-    platform: false,
-    function: false,
-};
-
-pub const MODIFIERS_SUBTRACT: Modifiers = Modifiers {
-    control: false,
-    alt: true,
-    shift: false,
-    platform: false,
-    function: false,
-};
-
-pub const MODIFIERS_SYMMETRIC_DIFFERENCE: Modifiers = Modifiers {
-    control: true,
-    alt: true,
-    shift: false,
-    platform: false,
-    function: false,
-};
+pub const MODIFIERS_INTERSECT: Modifiers = Modifiers::ALT.union(Modifiers::SHIFT);
+pub const MODIFIERS_UNION: Modifiers = Modifiers::SHIFT;
+pub const MODIFIERS_SUBTRACT: Modifiers = Modifiers::ALT;
+pub const MODIFIERS_SYMMETRIC_DIFFERENCE: Modifiers = Modifiers::CTRL.union(Modifiers::ALT);
 
 #[derive(ShaderType, Debug, Clone, Copy)]
 struct SelectionParams {
@@ -175,8 +155,8 @@ impl SelectionPipeline {
 
         let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("selection_render_pipeline_layout"),
-            bind_group_layouts: &[Some(&render_layout)],
-            immediate_size: 0,
+            bind_group_layouts: &[&render_layout],
+            push_constant_ranges: &[],
         });
 
         let render_shader = device.create_shader_module(ShaderModuleDescriptor {
@@ -215,10 +195,10 @@ impl SelectionPipeline {
                 })],
             }),
             primitive: Default::default(),
-            depth_stencil: Default::default(),
+            depth_stencil: None,
             multisample: Default::default(),
-            multiview_mask: Default::default(),
-            cache: Default::default(),
+            multiview: None,
+            cache: None,
         });
 
         let fxaa_pipeline = FxaaPipeline::new(device, layer_format.wgpu_format());
@@ -250,8 +230,8 @@ impl SelectionPipeline {
 
         let composite_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("selection_composite_pipeline_layout"),
-            bind_group_layouts: &[Some(&composite_layout)],
-            immediate_size: 0,
+            bind_group_layouts: &[&composite_layout],
+            push_constant_ranges: &[],
         });
 
         let composite_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
@@ -429,7 +409,6 @@ impl SelectionPipeline {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
-                multiview_mask: None,
             });
             pass.set_pipeline(&self.render_pipeline);
             pass.set_bind_group(0, &render_bind_group, &[index_buffer_offset as u32]);
@@ -553,13 +532,68 @@ pub struct CanvasUniform {
     pub time: f32,
 }
 
+pub struct SelectionPreviewLayer<'a> {
+    pub line_vertices_ps: Cow<'a, [Vec2]>,
+    pub canvas_transform: &'a CanvasTransform,
+}
+
+impl<'a, Message, Theme> Widget<Message, Theme, Renderer> for SelectionPreviewLayer<'a> {
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fill)
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut widget::Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        layout::atomic(limits, Length::Fill, Length::Fill)
+    }
+
+    fn draw(
+        &self,
+        tree: &widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: layout::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        iced_wgpu::primitive::Renderer::draw_primitive(
+            renderer,
+            *viewport,
+            SelectionPreviewPrimitive {
+                line_vertices_ps: self.line_vertices_ps.clone().into_owned(),
+                canvas_transform: self.canvas_transform.clone(),
+            },
+        );
+    }
+}
+
+impl<'a, Message, Theme> Into<Element<'a, Message, Theme, Renderer>> for SelectionPreviewLayer<'a> {
+    fn into(self) -> Element<'a, Message, Theme, Renderer> {
+        Element::new(self)
+    }
+}
+
+struct PreparedSelectionPreviewPipeline {
+    bind_group: BindGroup,
+    n_vertices: u32,
+}
+
 pub struct SelectionPreviewPipeline {
     layout: BindGroupLayout,
     pipeline: RenderPipeline,
+    prepared: Option<PreparedSelectionPreviewPipeline>,
 }
 
-impl SelectionPreviewPipeline {
-    pub fn new(device: &Device, surface_format: TextureFormat) -> Self {
+impl Pipeline for SelectionPreviewPipeline {
+    fn new(device: &Device, queue: &Queue, format: TextureFormat) -> Self
+    where
+        Self: Sized,
+    {
         let layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("selection_preview_layout"),
             entries: &BindGroupLayoutEntries::sequential(
@@ -575,8 +609,8 @@ impl SelectionPreviewPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("selection_preview_pipeline_layout"),
-            bind_group_layouts: &[Some(&layout)],
-            immediate_size: 0,
+            bind_group_layouts: &[&layout],
+            push_constant_ranges: &[],
         });
 
         let shader = device.create_shader_module(ShaderModuleDescriptor {
@@ -599,27 +633,33 @@ impl SelectionPreviewPipeline {
                 entry_point: Some("fragment"),
                 compilation_options: Default::default(),
                 targets: &[Some(ColorTargetState {
-                    format: surface_format,
+                    format,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
             }),
             primitive: Default::default(),
-            depth_stencil: Default::default(),
+            depth_stencil: None,
             multisample: Default::default(),
-            multiview_mask: Default::default(),
-            cache: Default::default(),
+            multiview: None,
+            cache: None,
         });
 
-        Self { layout, pipeline }
+        Self {
+            layout,
+            pipeline,
+            prepared: None,
+        }
     }
+}
 
-    pub fn draw(
-        &self,
+impl SelectionPreviewPipeline {
+    pub fn prepare(
+        &mut self,
         device: &Device,
         queue: &Queue,
         line_vertices_ps: &[Vec2],
-        canvas_surface: &TextureView,
+        screen_size: Vec2,
         canvas_transform: &CanvasTransform,
     ) {
         if line_vertices_ps.len() < 2 {
@@ -632,8 +672,6 @@ impl SelectionPreviewPipeline {
             usage: BufferUsages::STORAGE,
         });
 
-        let screen_size = canvas_surface.texture().size();
-
         static FIRST_DRAW: OnceLock<Instant> = OnceLock::new();
         let canvas_params_buffer = {
             let mut b =
@@ -641,7 +679,7 @@ impl SelectionPreviewPipeline {
             b.push(&CanvasUniform {
                 pixel_to_widget: canvas_transform.pixel_to_widget,
                 widget_min: canvas_transform.widget_bounds.min,
-                screen_size: Vec2::new(screen_size.width as f32, screen_size.height as f32),
+                screen_size,
                 time: FIRST_DRAW.get_or_init(Instant::now).elapsed().as_secs_f32(),
             });
             b.write_buffer(device, queue);
@@ -657,7 +695,21 @@ impl SelectionPreviewPipeline {
             )),
         });
 
-        let mut ec = device.create_command_encoder(&Default::default());
+        self.prepared = Some(PreparedSelectionPreviewPipeline {
+            bind_group,
+            n_vertices: line_vertices_ps.len() as u32,
+        });
+    }
+
+    pub fn draw(
+        &self,
+        ec: &mut CommandEncoder,
+        canvas_surface: &TextureView,
+        clip_bounds: &Rectangle<u32>,
+    ) {
+        let Some(prepared) = &self.prepared else {
+            return;
+        };
 
         {
             let mut pass = ec.begin_render_pass(&RenderPassDescriptor {
@@ -674,15 +726,18 @@ impl SelectionPreviewPipeline {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
-                multiview_mask: None,
             });
 
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.draw(0..(line_vertices_ps.len() as u32 - 1) * 6, 0..1);
+            pass.set_bind_group(0, &prepared.bind_group, &[]);
+            pass.set_scissor_rect(
+                clip_bounds.x,
+                clip_bounds.y,
+                clip_bounds.width,
+                clip_bounds.height,
+            );
+            pass.draw(0..(prepared.n_vertices - 1) * 6, 0..1);
         }
-
-        queue.submit([ec.finish()]);
     }
 }
 
@@ -714,4 +769,42 @@ pub(crate) fn indices_from_vertices(
         .unwrap();
 
     geometry
+}
+
+#[derive(Debug)]
+pub struct SelectionPreviewPrimitive {
+    pub line_vertices_ps: Vec<Vec2>,
+    pub canvas_transform: CanvasTransform,
+}
+
+impl Primitive for SelectionPreviewPrimitive {
+    type Pipeline = SelectionPreviewPipeline;
+
+    fn prepare(
+        &self,
+        pipeline: &mut Self::Pipeline,
+        device: &Device,
+        queue: &Queue,
+        bounds: &Rectangle,
+        viewport: &Viewport,
+    ) {
+        let screen_size = viewport.logical_size();
+        pipeline.prepare(
+            device,
+            queue,
+            &self.line_vertices_ps,
+            Vec2::new(screen_size.width, screen_size.height),
+            &self.canvas_transform,
+        );
+    }
+
+    fn render(
+        &self,
+        pipeline: &Self::Pipeline,
+        encoder: &mut CommandEncoder,
+        target: &TextureView,
+        clip_bounds: &Rectangle<u32>,
+    ) {
+        pipeline.draw(encoder, target, clip_bounds);
+    }
 }

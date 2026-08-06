@@ -1,4 +1,4 @@
-use std::{cell::RefCell, sync::Arc, time::Duration};
+use std::{any::Any, cell::RefCell, sync::Arc, time::Duration};
 
 use bevy_math::{IRect, Rect};
 use cyancia_assets::AssetAppExt;
@@ -22,7 +22,7 @@ use cyancia_input::{
 };
 use cyancia_render::render_context::RenderContextAppExt;
 use cyancia_runtime::{Services, event::Event, service::RenderContext};
-use cyancia_tools::{ErasedToolFunctionMessage, ToolProxies};
+use cyancia_tools::{ErasedToolFunctionMessage, ToolId, ToolProxies};
 use iced::{
     Element, Length, Subscription, Task, Theme,
     event::listen_with,
@@ -33,6 +33,7 @@ use iced::{
 use iced_core::Point;
 use iced_runtime::task;
 use iced_wgpu::Renderer;
+use iced_widget::stack;
 use moxcms::Layout;
 use parking_lot::Mutex;
 
@@ -397,13 +398,21 @@ impl Dock<Theme, Renderer> for CanvasDock {
         let canvas_manager = services.service::<CanvasManager>();
         self.window_id.replace(window_id);
 
-        let (Some(canvas), Some(window_id), Some(monitor_name)) =
-            (canvas_manager.get(&self.canvas), self.raw_window_id, self.monitor_name.clone())
-        else {
+        let (Some(canvas), Some(window_id), Some(monitor_name)) = (
+            canvas_manager.get(&self.canvas),
+            self.raw_window_id,
+            self.monitor_name.clone(),
+        ) else {
             return Space::new().into();
         };
 
-        CanvasWidget {
+        let canvas_overlay = services
+            .service::<ToolProxies>()
+            .get(&canvas.tool_proxy_id())
+            .canvas_overlay(services)
+            .map(CanvasDockMessage::ToolFunctionMessage);
+
+        let canvas = CanvasWidget {
             is_focusing: canvas_manager.current_id() == Some(self.canvas),
             canvas,
             tile_storage: services.service::<GpuTileStorage>().clone(),
@@ -414,8 +423,9 @@ impl Dock<Theme, Renderer> for CanvasDock {
             color_profile: canvas.image.profile().clone(),
             window_id,
             monitor_name,
-        }
-        .into()
+        };
+
+        stack!(canvas, canvas_overlay).into()
     }
 
     fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {

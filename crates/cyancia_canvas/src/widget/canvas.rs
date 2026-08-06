@@ -30,36 +30,6 @@ pub struct CanvasWidget<'a, Message> {
     pub monitor_name: String,
 }
 
-impl<'a, Message> CanvasWidget<'a, Message> {
-    pub fn unmanaged(
-        canvas: &'a CCanvas,
-        tile_storage: GpuTileStorage,
-        on_focus: impl Fn(Point) -> Message + 'a,
-        on_mouse_event: impl Fn(mouse::Event) -> Message + 'a,
-        on_widget_rect_change: impl Fn(Rect) -> Message + 'a,
-        color_profile: ColorProfile,
-        window_id: u64,
-        monitor_name: String,
-    ) -> Self {
-        Self {
-            is_focusing: false,
-            canvas,
-            tile_storage,
-            on_focus: Box::new(on_focus),
-            on_mouse_event: Box::new(on_mouse_event),
-            on_widget_rect_change: Box::new(on_widget_rect_change),
-            color_profile,
-            window_id,
-            monitor_name,
-        }
-    }
-
-    pub fn focusing(mut self, is_focusing: bool) -> Self {
-        self.is_focusing = is_focusing;
-        self
-    }
-}
-
 impl<Message, Theme> Widget<Message, Theme, iced_wgpu::Renderer> for CanvasWidget<'_, Message> {
     fn size(&self) -> Size<Length> {
         Size::new(Length::Fill, Length::Fill)

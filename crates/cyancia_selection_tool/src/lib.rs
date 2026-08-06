@@ -1,5 +1,5 @@
+use cyancia_runtime::{Application, plugin::Plugin};
 use cyancia_tools::ToolsAppExt;
-use gpui::App;
 
 use crate::{
     freehand::{FreehandSelectionTool, PolygonSelectionTool},
@@ -12,10 +12,16 @@ pub mod magic_wand;
 pub mod render;
 pub mod shape;
 
-pub fn init(cx: &mut App) {
-    cx.add_tool_function::<RectangularSelectionTool>();
-    cx.add_tool_function::<EllipticalSelectionTool>();
-    cx.add_tool_function::<FreehandSelectionTool>();
-    cx.add_tool_function::<PolygonSelectionTool>();
-    cx.add_tool_function::<MagicWandSelectionTool>();
+pub struct SelectionPlugin;
+
+impl Plugin for SelectionPlugin {
+    fn build(&self, app: &mut Application) {
+        app.runtime_mut()
+            .services_mut()
+            .add_tool_function::<RectangularSelectionTool>()
+            .add_tool_function::<EllipticalSelectionTool>()
+            .add_tool_function::<FreehandSelectionTool>()
+            .add_tool_function::<PolygonSelectionTool>()
+            .add_tool_function::<MagicWandSelectionTool>();
+    }
 }

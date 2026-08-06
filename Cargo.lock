@@ -1442,6 +1442,7 @@ dependencies = [
  "cyancia_input",
  "cyancia_render",
  "cyancia_runtime",
+ "cyancia_selection_tool",
  "cyancia_shader_graph",
  "cyancia_tools",
  "cyancia_undo",
@@ -1768,6 +1769,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "cyancia_selection_tool"
+version = "0.1.0"
+dependencies = [
+ "bevy_math 0.18.1 (git+https://github.com/443eb9/bevy.git?branch=release-0.18.1)",
+ "bytemuck",
+ "cyancia_anti_aliasing",
+ "cyancia_bucket_tool",
+ "cyancia_canvas",
+ "cyancia_image",
+ "cyancia_input",
+ "cyancia_render",
+ "cyancia_runtime",
+ "cyancia_tools",
+ "cyancia_utils",
+ "cyancia_widgets",
+ "encase",
+ "glam 0.30.10",
+ "iced_core",
+ "iced_runtime",
+ "iced_wgpu",
+ "iced_widget",
+ "indexmap",
+ "lyon",
+ "tracing",
+ "wesl",
+ "wgpu",
+]
+
+[[package]]
 name = "cyancia_shader_graph"
 version = "0.1.0"
 dependencies = [
@@ -1820,8 +1850,8 @@ dependencies = [
  "cyancia_input",
  "cyancia_runtime",
  "cyancia_utils",
- "iced",
  "iced_core",
+ "iced_runtime",
  "iced_wgpu",
  "iced_widget",
  "log",
