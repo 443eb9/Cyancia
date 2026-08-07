@@ -334,11 +334,12 @@ impl ColorSelectorState {
             profile,
             output_profile,
         };
+        this.rebuild_plane_state(services);
         this.rebuild_bar_states(services);
         this
     }
 
-    pub fn update_output_profile(
+    pub fn set_output_profile(
         &mut self,
         raw_window_id: u64,
         services: &Services,
@@ -375,35 +376,11 @@ impl ColorSelectorState {
         services: &Services,
     ) -> Task<ColorSelectorMessage> {
         self.presets = configs;
-        if self.presets.is_empty() {
-            self.selected_preset = 0;
-            self.planes.clear();
-            self.bars.clear();
-            self.active_selection = None;
-            return Task::none();
-        }
-
         self.selected_preset = self.selected_preset.min(self.presets.len() - 1);
         self.active_selection = None;
-        self.planes.clear();
+        self.rebuild_plane_state(services);
         self.rebuild_bar_states(services);
         self.refresh_clip_bounds(services)
-    }
-
-    fn rebuild_bar_states(&mut self, services: &Services) {
-        self.bars.clear();
-        let Some(preset) = self.presets.get(self.selected_preset) else {
-            return;
-        };
-        let device = services.render_device();
-        self.bars = preset
-            .bars
-            .iter()
-            .map(|_| BarState {
-                mesh: Arc::new(GradientMesh::new_bar(device)),
-                bounds: Rectangle::default(),
-            })
-            .collect();
     }
 
     fn bar_display_value(&self, model: ColorModel, channel: u8) -> f32 {
@@ -506,7 +483,7 @@ impl ColorSelectorState {
 
         self.selected_preset = index;
         self.active_selection = None;
-        self.planes.clear();
+        self.rebuild_plane_state(services);
         self.rebuild_bar_states(services);
         self.refresh_clip_bounds(services)
     }

@@ -6,7 +6,6 @@ use cyancia_render::{
     render_context::RenderContextAppExt,
 };
 use cyancia_runtime::Services;
-use encase::{ShaderType, UniformBuffer};
 use glam::{Mat2, Vec2};
 use iced_core::{Color, Point, Rectangle};
 use iced_runtime::Task;
@@ -15,13 +14,12 @@ use iced_widget::shader;
 use moxcms::ColorProfile;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
-    Buffer, BufferDescriptor, BufferUsages, Device, IndexFormat, Queue, RenderPass, ShaderStages,
-    TextureFormat,
+    BufferUsages, Device, IndexFormat, Queue, RenderPass, ShaderStages, TextureFormat,
 };
 
 use crate::{
-    ColorModel, ColorSelectorMessage, ColorSelectorState, GRADIENT_RING_GAP, GradientPlaneShape,
-    PlaneState,
+    BarState, ColorModel, ColorSelectorMessage, ColorSelectorState, GRADIENT_RING_GAP,
+    GradientPlaneShape, PlaneState,
     config::{GradientPlaneConfig, GradientPlaneFlipAxis},
     pipeline::{GradientMesh, GradientPipeline, GradientRingPipeline, GradientSettings},
 };
@@ -183,39 +181,51 @@ impl ColorSelectorState {
         }
     }
 
+    pub(crate) fn rebuild_plane_state(&mut self, services: &Services) {
+        let Some(preset) = self.presets.get(self.selected_preset) else {
+            self.planes.clear();
+            return;
+        };
+        let device = services.render_device();
+        self.planes = preset
+            .planes
+            .iter()
+            .map(|config| PlaneState {
+                mesh: Arc::new(GradientMesh::new_plane(
+                    device,
+                    config.shape,
+                    plane_scale(config, 0.0),
+                )),
+                size: 0.0,
+                bounds: Rectangle::default(),
+                ranges: (Vec2::new(0.0, 1.0), Vec2::new(0.0, 1.0)),
+                primary_channel_override: None,
+            })
+            .collect();
+    }
+
+    pub(crate) fn rebuild_bar_states(&mut self, services: &Services) {
+        let Some(preset) = self.presets.get(self.selected_preset) else {
+            self.bars.clear();
+            return;
+        };
+        let device = services.render_device();
+        self.bars = preset
+            .bars
+            .iter()
+            .map(|_| BarState {
+                mesh: Arc::new(GradientMesh::new_bar(device)),
+                bounds: Rectangle::default(),
+            })
+            .collect();
+    }
+
     pub(crate) fn update_plane_bounds(&mut self, index: usize, bounds: Rectangle, device: &Device) {
         let size = bounds.width.min(bounds.height).round().max(1.0);
-        if size <= 0.0 {
-            return;
-        }
-        if self
-            .presets
-            .get(self.selected_preset)
-            .and_then(|preset| preset.planes.get(index))
-            .is_none()
-        {
-            return;
-        }
 
-        if self.planes.len() <= index {
-            self.planes.extend((self.planes.len()..=index).map(|i| {
-                let size = if i == index { size } else { 1.0 };
-                let config = &self.presets[self.selected_preset].planes[i];
-                PlaneState {
-                    mesh: Arc::new(GradientMesh::new_plane(
-                        device,
-                        config.shape,
-                        plane_scale(config, size),
-                    )),
-                    size,
-                    ranges: (Vec2::new(0.0, 1.0), Vec2::new(0.0, 1.0)),
-                    bounds: Rectangle::default(),
-                    primary_channel_override: None,
-                }
-            }));
-        }
-
-        let plane = &mut self.planes[index];
+        let Some(plane) = self.planes.get_mut(index) else {
+            return;
+        };
         if plane.bounds == bounds {
             return;
         }

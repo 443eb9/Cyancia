@@ -244,7 +244,7 @@ impl Dock<Theme, Renderer> for ColorSelectorDock {
             }
             ColorSelectorDockMessage::RawWindowId(id) => self
                 .selector
-                .update_output_profile(id, services)
+                .set_output_profile(id, services)
                 .map(ColorSelectorDockMessage::ColorSelector),
             ColorSelectorDockMessage::ColorSelector(m) => self
                 .selector
