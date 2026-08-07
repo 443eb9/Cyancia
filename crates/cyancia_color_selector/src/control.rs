@@ -206,12 +206,17 @@ pub(crate) struct GradientSurface<'a, Message> {
     max_width: f32,
     width: Length,
     height: Length,
+    cur_bounds: Rectangle,
     on_press: Box<dyn Fn(Point) -> Message + 'a>,
     on_bounds_changed: Box<dyn Fn(Rectangle) -> Message + 'a>,
 }
 
 impl<'a, Message> GradientSurface<'a, Message> {
-    pub(crate) fn plane(data: Option<Arc<SurfaceDrawData>>, max_width: f32) -> Self {
+    pub(crate) fn plane(
+        data: Option<Arc<SurfaceDrawData>>,
+        max_width: f32,
+        cur_bounds: Rectangle,
+    ) -> Self {
         Self {
             data,
             plane_indicator: None,
@@ -222,12 +227,17 @@ impl<'a, Message> GradientSurface<'a, Message> {
             max_width,
             width: Length::FillPortion(1),
             height: Length::Fill,
+            cur_bounds,
             on_press: Box::new(|_| unreachable!("on_press must be set")),
             on_bounds_changed: Box::new(|_| unreachable!("on_bounds_changed must be set")),
         }
     }
 
-    pub(crate) fn bar(data: Option<Arc<SurfaceDrawData>>, height: f32) -> Self {
+    pub(crate) fn bar(
+        data: Option<Arc<SurfaceDrawData>>,
+        height: f32,
+        cur_bounds: Rectangle,
+    ) -> Self {
         Self {
             data,
             plane_indicator: None,
@@ -238,6 +248,7 @@ impl<'a, Message> GradientSurface<'a, Message> {
             max_width: f32::INFINITY,
             width: Length::Fill,
             height: Length::Fixed(height),
+            cur_bounds,
             on_press: Box::new(|_| unreachable!("on_press must be set")),
             on_bounds_changed: Box::new(|_| unreachable!("on_bounds_changed must be set")),
         }
@@ -303,9 +314,7 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for GradientSurface<'a, Messa
         _viewport: &Rectangle,
     ) {
         let bounds = layout.bounds();
-        let last_bounds = tree.state.downcast_mut::<Rectangle>();
-        if *last_bounds != bounds {
-            *last_bounds = bounds;
+        if self.cur_bounds != bounds {
             shell.publish((self.on_bounds_changed)(bounds));
         }
 
@@ -315,14 +324,6 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for GradientSurface<'a, Messa
             shell.publish((self.on_press)(position));
             shell.capture_event();
         }
-    }
-
-    fn tag(&self) -> tree::Tag {
-        tree::Tag::of::<Rectangle>()
-    }
-
-    fn state(&self) -> tree::State {
-        tree::State::new::<Rectangle>(Rectangle::default())
     }
 
     fn draw(
@@ -430,7 +431,7 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for PlaneRow<'a, Message> {
         (0..self.surfaces.len())
             .map(|_| Tree {
                 tag: Tag::stateless(),
-                state: tree::State::new::<Rectangle>(Rectangle::default()),
+                state: tree::State::None,
                 children: Vec::new(),
             })
             .collect()

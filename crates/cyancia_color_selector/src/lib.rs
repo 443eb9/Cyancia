@@ -630,9 +630,11 @@ impl ColorSelectorState {
                         .enumerate()
                         .map(|(column_index, _)| {
                             let index = row_index * max_planes_per_row + column_index;
+
                             GradientSurface::plane(
                                 self.plane_surface_data(index),
                                 max_plane_cell_size,
+                                self.planes.get(index).map(|p| p.bounds).unwrap_or_default(),
                             )
                             .plane_indicator(self.plane_indicator_position(index))
                             .ring_indicator(self.ring_indicator_position(index))
@@ -669,6 +671,7 @@ impl ColorSelectorState {
                     GradientSurface::bar(
                         self.bar_surface_data(index),
                         config.bar_height.clamp(10.0, 40.0),
+                        self.bars.get(index).map(|b| b.bounds).unwrap_or_default(),
                     )
                     .bar_indicator(self.bar_indicator_position(index).unwrap_or(-1.0))
                     .indicator_color(indicator_color)
