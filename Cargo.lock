@@ -1618,6 +1618,7 @@ dependencies = [
  "cyancia_widgets",
  "encase",
  "glam 0.30.10",
+ "iced_aw",
  "iced_core",
  "iced_runtime",
  "iced_wgpu",

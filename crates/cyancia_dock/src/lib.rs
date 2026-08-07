@@ -35,6 +35,7 @@ pub struct DockManager<Theme, Renderer> {
     detached: HashMap<window::Id, GroupWindowInfo>,
     docks: HashMap<DockId, Box<dyn ErasedDock<Theme, Renderer>>>,
     cursor_pos: Option<(window::Id, Point)>,
+    sub_windows: HashMap<window::Id, DockId>,
 }
 
 impl<Theme, Renderer> DockManager<Theme, Renderer>
@@ -62,6 +63,7 @@ where
             docks: HashMap::new(),
             detached: HashMap::new(),
             cursor_pos: None,
+            sub_windows: HashMap::new(),
         };
 
         let task = iced_runtime::window::raw_id::<()>(main_window)
@@ -521,6 +523,10 @@ where
         }
     }
 
+    pub fn sub_windows(&self) -> impl Iterator<Item = window::Id> {
+        self.sub_windows.keys().copied()
+    }
+
     pub fn close(self) -> Task<()> {
         let mut task = Task::none();
         for id in self.detached.keys() {
@@ -675,13 +681,20 @@ where
                 })
                 .into(),
             )
+        } else if let Some(dock_id) = self.sub_windows.get(&window_id)
+            && let Some(dock) = self.docks.get(dock_id)
+        {
+            Some(
+                dock.view(window_id, services)
+                    .map(move |m| DockMessage::Dock(dock_id.clone(), m)),
+            )
         } else {
             None
         }
     }
 
     pub fn update(&mut self, action: DockMessage, services: &mut Services) -> Task<DockMessage> {
-        match action {
+        let task = match action {
             DockMessage::Main(dock_action) => self.on_dock_action(dock_action),
             DockMessage::Float { id, action } => self.on_float_action(id, action),
             DockMessage::Dock(dock_id, msg) => {
@@ -708,7 +721,16 @@ where
                 Task::none()
             }
             DockMessage::RedrawRequested => Task::none(),
+        };
+
+        self.sub_windows.clear();
+        for (dock_id, dock) in &self.docks {
+            for sub_window in dock.sub_windows() {
+                self.sub_windows.insert(sub_window, dock_id.clone());
+            }
         }
+
+        task
     }
 
     pub fn subscription(&self) -> Subscription<DockMessage> {

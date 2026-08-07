@@ -261,8 +261,6 @@ pub enum ColorSelectorMessage {
     BarValueChanged(usize, f32),
     SwitchPreset(usize),
     PrimaryChannelLock(ColorModel, u8),
-    WindowMoved,
-    RawWindowId(u64),
     ClipBoundsComputed {
         index: usize,
         x_range: Vec2,
@@ -564,9 +562,6 @@ impl ColorSelectorState {
             ColorSelectorMessage::SwitchPreset(index) => self.switch_preset(index, services),
             ColorSelectorMessage::PrimaryChannelLock(model, channel) => {
                 self.toggle_primary_channel_override(model, channel, services)
-            }
-            ColorSelectorMessage::WindowMoved | ColorSelectorMessage::RawWindowId(_) => {
-                Task::none()
             }
             ColorSelectorMessage::ClipBoundsComputed {
                 index,

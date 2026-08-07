@@ -13,7 +13,10 @@ use cyancia_canvas::{
 use cyancia_color::{Color, model::rgb::Rgb, shader::IccTransformShader};
 use cyancia_color_selector::{
     ColorModel, ColorSelectorMessage, ColorSelectorState, GradientPlaneShape,
-    config::{ColorSelectorConfig, GradientBarConfig, GradientPlaneConfig, GradientPlaneFlipAxis},
+    config::{
+        ColorSelectorConfig, ColorSelectorConfigEditorState, ColorSelectorConfigMessage,
+        GradientBarConfig, GradientPlaneConfig, GradientPlaneFlipAxis,
+    },
 };
 use cyancia_dock::dock::{Dock, DockId};
 use cyancia_image::{
@@ -28,7 +31,7 @@ use cyancia_render::render_context::RenderContextAppExt;
 use cyancia_runtime::{Services, event::Event, service::RenderContext};
 use cyancia_tools::{ErasedToolFunctionMessage, ToolId, ToolProxies};
 use iced::{
-    Element, Length, Subscription, Task, Theme,
+    Element, Length, Size, Subscription, Task, Theme,
     event::listen_with,
     mouse,
     widget::{Space, button, column, text},
@@ -37,7 +40,7 @@ use iced::{
 use iced_core::Point;
 use iced_runtime::task;
 use iced_wgpu::Renderer;
-use iced_widget::{scrollable, stack};
+use iced_widget::{container, scrollable, stack};
 use moxcms::{ColorProfile, Layout};
 use parking_lot::Mutex;
 
@@ -94,16 +97,28 @@ use parking_lot::Mutex;
 //     }
 // }
 
+#[derive(Clone)]
+pub enum ColorSelectorDockMessage {
+    RawWindowId(u64),
+    WindowMoved,
+    ColorSelector(ColorSelectorMessage),
+    ConfigEditor(ColorSelectorConfigMessage),
+    OpenSettings,
+    SettingsWindowClosed,
+}
+
 pub const COLOR_SELECTOR_DOCK_ID: &'static str = "color_selector";
 
 pub struct ColorSelectorDock {
     selector: ColorSelectorState,
+    config_editor: ColorSelectorConfigEditorState,
     window_id: RefCell<window::Id>,
+    settings_window_id: Option<window::Id>,
 }
 
 impl ColorSelectorDock {
     pub fn new(services: &Services) -> Self {
-        let config = ColorSelectorConfig {
+        let configs = vec![ColorSelectorConfig {
             name: "RGB".to_string(),
             max_plane_size: 512,
             max_planes_per_row: 2,
@@ -170,23 +185,25 @@ impl ColorSelectorDock {
             out_of_gamut_color: Rgb::new(0.5, 0.5, 0.5),
             use_out_of_gamut_color: true,
             clip_to_gamut: true,
-        };
+        }];
 
         Self {
             selector: ColorSelectorState::new(
                 Color::Rgb(Rgb::new(0.0, 0.0, 0.0)),
                 ColorProfile::new_srgb(),
-                vec![config],
+                configs.clone(),
                 0,
                 services,
             ),
+            config_editor: ColorSelectorConfigEditorState::new(configs, Some(0)),
             window_id: RefCell::new(window::Id::unique()),
+            settings_window_id: None,
         }
     }
 }
 
 impl Dock<Theme, Renderer> for ColorSelectorDock {
-    type Message = ColorSelectorMessage;
+    type Message = ColorSelectorDockMessage;
 
     fn id(&self) -> DockId {
         DockId::new(COLOR_SELECTOR_DOCK_ID.into())
@@ -198,27 +215,84 @@ impl Dock<Theme, Renderer> for ColorSelectorDock {
         _services: &'a Services,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
         self.window_id.replace(window_id);
-        scrollable(self.selector.view())
-            .width(Length::Fill)
-            .height(Length::Fill)
+        let content = if self.settings_window_id == Some(window_id) {
+            self.config_editor
+                .view()
+                .map(ColorSelectorDockMessage::ConfigEditor)
+        } else {
+            column![
+                scrollable(
+                    self.selector
+                        .view()
+                        .map(ColorSelectorDockMessage::ColorSelector)
+                )
+                .width(Length::Fill)
+                .height(Length::Fill),
+                button("Settings").on_press(ColorSelectorDockMessage::OpenSettings),
+            ]
             .into()
+        };
+
+        container(content).padding(2).into()
     }
 
     fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
         match message {
-            ColorSelectorMessage::WindowMoved => {
+            ColorSelectorDockMessage::WindowMoved => {
                 let window_id = self.window_id.borrow().clone();
-                window::raw_id::<()>(window_id).map(ColorSelectorMessage::RawWindowId)
+                window::raw_id::<()>(window_id).map(ColorSelectorDockMessage::RawWindowId)
             }
-            ColorSelectorMessage::RawWindowId(id) => {
-                self.selector.update_output_profile(id, services)
+            ColorSelectorDockMessage::RawWindowId(id) => self
+                .selector
+                .update_output_profile(id, services)
+                .map(ColorSelectorDockMessage::ColorSelector),
+            ColorSelectorDockMessage::ColorSelector(m) => self
+                .selector
+                .update(m, services)
+                .map(ColorSelectorDockMessage::ColorSelector),
+            ColorSelectorDockMessage::OpenSettings => {
+                if let Some(id) = self.settings_window_id {
+                    window::gain_focus(id)
+                } else {
+                    let (id, task) = window::open(window::Settings {
+                        size: Size {
+                            width: 700.0,
+                            height: 900.0,
+                        },
+                        ..Default::default()
+                    });
+                    self.settings_window_id = Some(id);
+                    self.config_editor = ColorSelectorConfigEditorState::new(
+                        self.selector.configs().to_vec(),
+                        Some(0),
+                    );
+                    task.discard()
+                }
             }
-            message => self.selector.update(message, services),
+            ColorSelectorDockMessage::SettingsWindowClosed => {
+                self.settings_window_id = None;
+                Task::none()
+            }
+            ColorSelectorDockMessage::ConfigEditor(ColorSelectorConfigMessage::Cancelled) => {
+                if let Some(id) = self.settings_window_id {
+                    window::close(id)
+                } else {
+                    Task::none()
+                }
+            }
+            ColorSelectorDockMessage::ConfigEditor(ColorSelectorConfigMessage::Confirmed) => self
+                .selector
+                .set_configs(self.config_editor.configs().to_vec(), services)
+                .map(ColorSelectorDockMessage::ColorSelector),
+            ColorSelectorDockMessage::ConfigEditor(m) => {
+                self.config_editor.update(m);
+                Task::none()
+            }
         }
     }
 
     fn on_open(&mut self) -> Task<Self::Message> {
-        Task::done(ColorSelectorMessage::WindowMoved)
+        Task::done(ColorSelectorDockMessage::WindowMoved)
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
@@ -229,23 +303,43 @@ impl Dock<Theme, Renderer> for ColorSelectorDock {
                 .with(cur_window)
                 .filter_map(|(cur_window, (window_id, event))| {
                     if matches!(event, window::Event::Moved(_)) && cur_window == window_id {
-                        Some(ColorSelectorMessage::WindowMoved)
+                        Some(ColorSelectorDockMessage::WindowMoved)
                     } else {
                         None
                     }
                 });
 
         let mouse_events = listen_with(|event, _status, _window| match event {
-            iced::Event::Mouse(mouse::Event::CursorMoved { position }) => {
-                Some(ColorSelectorMessage::SurfaceMove(position))
+            iced_core::Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                Some(ColorSelectorDockMessage::ColorSelector(
+                    ColorSelectorMessage::SurfaceMove(position),
+                ))
             }
-            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                Some(ColorSelectorMessage::SurfaceRelease)
-            }
+            iced_core::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => Some(
+                ColorSelectorDockMessage::ColorSelector(ColorSelectorMessage::SurfaceRelease),
+            ),
             _ => None,
         });
 
-        Subscription::batch([window_moved, mouse_events])
+        let settings_window_closed = window::events().with(self.settings_window_id).filter_map(
+            |(settings_window_id, (window_id, event))| {
+                if matches!(event, window::Event::Closed) && Some(window_id) == settings_window_id {
+                    Some(ColorSelectorDockMessage::SettingsWindowClosed)
+                } else {
+                    None
+                }
+            },
+        );
+
+        Subscription::batch([window_moved, mouse_events, settings_window_closed])
+    }
+
+    fn sub_windows(&self) -> Vec<window::Id> {
+        if let Some(id) = self.settings_window_id {
+            vec![id]
+        } else {
+            Vec::new()
+        }
     }
 }
 

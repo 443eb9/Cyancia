@@ -40,6 +40,9 @@ where
     fn on_close(&mut self) -> Task<Self::Message> {
         Task::none()
     }
+    fn sub_windows(&self) -> Vec<window::Id> {
+        Vec::new()
+    }
 }
 
 pub trait ErasedDock<Theme, Renderer>: 'static {
@@ -57,6 +60,7 @@ pub trait ErasedDock<Theme, Renderer>: 'static {
     fn subscription(&self) -> Subscription<Box<dyn Any + Send + Sync>>;
     fn on_open(&mut self) -> Task<Box<dyn Any + Send + Sync>>;
     fn on_close(&mut self) -> Task<Box<dyn Any + Send + Sync>>;
+    fn sub_windows(&self) -> Vec<window::Id>;
 }
 
 impl<T, Theme, Renderer> ErasedDock<Theme, Renderer> for T
@@ -103,6 +107,10 @@ where
     fn on_close(&mut self) -> Task<Box<dyn Any + Send + Sync>> {
         self.on_close()
             .map(|m| Box::new(m) as Box<dyn Any + Send + Sync>)
+    }
+
+    fn sub_windows(&self) -> Vec<window::Id> {
+        self.sub_windows()
     }
 }
 

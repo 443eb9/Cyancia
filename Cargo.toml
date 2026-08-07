@@ -99,14 +99,26 @@ fs_extra = "1"
 futures = "0.3"
 glam = { version = "0.30", features = ["encase", "serde", "bytemuck"] }
 half = "2"
-iced = { version = "0.14", features = ["debug", "canvas", "selector", "smol"] }
+iced = { version = "0.14", default-features = false, features = [
+    "wgpu",
+    "crisp",
+    "web-colors",
+    "thread-pool",
+    "linux-theme-detection",
+    "x11",
+    "wayland",
+    "debug",
+    "canvas",
+    "selector",
+    "smol",
+] }
 iced_aw = { version = "0.13", features = ["context_menu"] }
 iced_core = "0.14"
 iced_futures = { version = "0.14", features = ["smol"] }
 iced_graphics = { version = "0.14", features = ["geometry"] }
 iced_runtime = "0.14"
 iced_wgpu = { version = "0.14", features = ["geometry"] }
-iced_widget = { version = "0.14", features = ["wgpu"] }
+iced_widget = { version = "0.14", features = ["wgpu", "canvas"] }
 iced_winit = "0.14"
 image = "0.25"
 indexmap = { version = "2", features = ["serde"] }

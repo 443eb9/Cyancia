@@ -325,6 +325,7 @@ impl WindowView for MainView {
         self.dock_manager
             .window_infos()
             .map(|i| i.id)
+            .chain(self.dock_manager.sub_windows())
             .collect::<Vec<_>>()
             .into()
     }
