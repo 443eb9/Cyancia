@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use cyancia_render::{
     bind_group_layout_entries::{BindGroupLayoutEntries, binding_types},
+    buffer::DynamicBuffer,
     render_context::RenderContextAppExt,
 };
 use cyancia_runtime::Services;
@@ -295,6 +296,7 @@ pub(crate) struct SurfaceDrawData {
     pub(crate) ring_settings: Option<GradientSettings>,
     pub(crate) profile: Arc<ColorProfile>,
     pub(crate) output_profile: Arc<ColorProfile>,
+    // TODO Remove this once cyancia_image uses Arc<ColorProfile> for image profile
     pub(crate) output_profile_version: u64,
 }
 
@@ -347,9 +349,9 @@ impl Primitive for GradientDrawPrimitive {
 }
 
 struct Instance {
-    settings_buffer: Buffer,
+    settings_buffer: DynamicBuffer<GradientSettings>,
     bind_group: BindGroup,
-    ring_settings_buffer: Option<Buffer>,
+    ring_settings_buffer: Option<DynamicBuffer<GradientSettings>>,
     ring_bind_group: Option<BindGroup>,
 }
 
@@ -408,65 +410,64 @@ impl GradientDirectPipeline {
             self.profile_version = data.output_profile_version;
         }
 
-        if !self.instances.contains_key(&data.id) {
-            let settings_buffer = create_settings_buffer(device);
+        let instance = self.instances.entry(data.id).or_insert_with(|| {
+            let mut settings_buffer = DynamicBuffer::new(
+                Some("gradient_settings_uniform".into()),
+                BufferUsages::UNIFORM,
+            );
+            settings_buffer.push(&data.settings);
+            settings_buffer.write_buffer(device, queue);
+
             let bind_group = device.create_bind_group(&BindGroupDescriptor {
                 label: Some("gradient settings bind group"),
                 layout: &self.layout,
                 entries: &[BindGroupEntry {
                     binding: 0,
-                    resource: settings_buffer.as_entire_binding(),
+                    resource: settings_buffer.binding().unwrap(),
                 }],
             });
-            let ring_settings_buffer = data
-                .ring_settings
-                .is_some()
-                .then(|| create_settings_buffer(device));
-            let ring_bind_group = ring_settings_buffer.as_ref().map(|buffer| {
-                device.create_bind_group(&BindGroupDescriptor {
-                    label: Some("gradient ring settings bind group"),
-                    layout: &self.layout,
-                    entries: &[BindGroupEntry {
-                        binding: 0,
-                        resource: buffer.as_entire_binding(),
-                    }],
-                })
-            });
-            self.instances.insert(
-                data.id,
-                Instance {
-                    settings_buffer,
-                    bind_group,
-                    ring_settings_buffer,
-                    ring_bind_group,
-                },
-            );
-        }
 
-        let instance = self
-            .instances
-            .get(&data.id)
-            .expect("instance inserted above");
-        write_settings(queue, &instance.settings_buffer, &data.settings);
+            let (ring_settings_buffer, ring_bind_group) = data
+                .ring_settings
+                .as_ref()
+                .map(|buffer| {
+                    let mut ring_settings_buffer = DynamicBuffer::new(
+                        Some("gradient_ring_settings_uniform".into()),
+                        BufferUsages::UNIFORM,
+                    );
+                    ring_settings_buffer.push(buffer);
+                    ring_settings_buffer.write_buffer(device, queue);
+
+                    let ring_bind_group = device.create_bind_group(&BindGroupDescriptor {
+                        label: Some("gradient ring settings bind group"),
+                        layout: &self.layout,
+                        entries: &[BindGroupEntry {
+                            binding: 0,
+                            resource: ring_settings_buffer.binding().unwrap(),
+                        }],
+                    });
+                    (ring_settings_buffer, ring_bind_group)
+                })
+                .unzip();
+
+            Instance {
+                settings_buffer,
+                bind_group,
+                ring_settings_buffer,
+                ring_bind_group,
+            }
+        });
+
+        instance.settings_buffer.clear();
+        instance.settings_buffer.push(&data.settings);
+        instance.settings_buffer.write_buffer(device, queue);
+
         if let (Some(buffer), Some(settings)) =
-            (&instance.ring_settings_buffer, &data.ring_settings)
+            (&mut instance.ring_settings_buffer, &data.ring_settings)
         {
-            write_settings(queue, buffer, settings);
+            buffer.clear();
+            buffer.push(settings);
+            buffer.write_buffer(device, queue);
         }
     }
-}
-
-fn create_settings_buffer(device: &Device) -> Buffer {
-    device.create_buffer(&BufferDescriptor {
-        label: Some("gradient settings uniform buffer"),
-        size: GradientSettings::min_size().get(),
-        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    })
-}
-
-fn write_settings(queue: &Queue, buffer: &Buffer, settings: &GradientSettings) {
-    let mut writer = UniformBuffer::new(Vec::new());
-    writer.write(settings).expect("gradient settings serialize");
-    queue.write_buffer(buffer, 0, &writer.into_inner());
 }
