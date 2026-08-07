@@ -1,3 +1,5 @@
+use std::convert::identity;
+
 use bevy_math::Rect;
 use cyancia_render::buffer::DynamicBuffer;
 use cyancia_widgets::spin_slider::SpinSlider;
@@ -51,7 +53,10 @@ impl GraphValueType for F32Type {
         &self,
         data: &Self::AssociatedLiteralType,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
-        SpinSlider::new(0.0..=1.0, *data, |x| x).step(0.01).into()
+        SpinSlider::new(0.0..=1.0, *data)
+            .on_confirm(identity)
+            .step(0.01)
+            .into()
     }
 
     fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message) {
@@ -107,8 +112,8 @@ impl GraphValueType for Vec2FType {
         data: &Self::AssociatedLiteralType,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         column![
-            SpinSlider::new(0.0..=1.0, data.x, |x| Vec2FMessage::X(x)).step(0.01),
-            SpinSlider::new(0.0..=1.0, data.y, |x| Vec2FMessage::Y(x)).step(0.01),
+            SpinSlider::new(0.0..=1.0, data.x).on_confirm(Vec2FMessage::X),
+            SpinSlider::new(0.0..=1.0, data.y).on_confirm(Vec2FMessage::Y),
         ]
         .padding(2)
         .into()
@@ -172,10 +177,10 @@ impl GraphValueType for ColorType {
         data: &Self::AssociatedLiteralType,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         column![
-            SpinSlider::new(0.0..=1.0, data.x, |x| ColorMessage::R(x)).step(0.01),
-            SpinSlider::new(0.0..=1.0, data.y, |x| ColorMessage::G(x)).step(0.01),
-            SpinSlider::new(0.0..=1.0, data.z, |x| ColorMessage::B(x)).step(0.01),
-            SpinSlider::new(0.0..=1.0, data.w, |x| ColorMessage::A(x)).step(0.01),
+            SpinSlider::new(0.0..=1.0, data.x).on_confirm(ColorMessage::R),
+            SpinSlider::new(0.0..=1.0, data.y).on_confirm(ColorMessage::G),
+            SpinSlider::new(0.0..=1.0, data.z).on_confirm(ColorMessage::B),
+            SpinSlider::new(0.0..=1.0, data.w).on_confirm(ColorMessage::A),
         ]
         .padding(2)
         .into()
@@ -308,10 +313,10 @@ impl GraphValueType for RectType {
         data: &Self::AssociatedLiteralType,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         column![
-            SpinSlider::new(0.0..=1.0, data.min.x, RectMessage::MinX).step(0.01),
-            SpinSlider::new(0.0..=1.0, data.min.y, RectMessage::MinY).step(0.01),
-            SpinSlider::new(0.0..=1.0, data.max.x, RectMessage::MaxX).step(0.01),
-            SpinSlider::new(0.0..=1.0, data.max.y, RectMessage::MaxY).step(0.01),
+            SpinSlider::new(0.0..=1.0, data.min.x).on_confirm(RectMessage::MinX),
+            SpinSlider::new(0.0..=1.0, data.min.y).on_confirm(RectMessage::MinY),
+            SpinSlider::new(0.0..=1.0, data.max.x).on_confirm(RectMessage::MaxX),
+            SpinSlider::new(0.0..=1.0, data.max.y).on_confirm(RectMessage::MaxY),
         ]
         .padding(2)
         .into()

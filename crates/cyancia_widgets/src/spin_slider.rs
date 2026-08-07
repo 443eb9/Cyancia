@@ -21,8 +21,8 @@ where
     step: T,
     precision: usize,
     scale: SliderScale,
-    default: Option<T>,
-    on_change: Box<dyn Fn(T) -> Message + 'a>,
+    on_change: Option<Box<dyn Fn(T) -> Message + 'a>>,
+    on_confirm: Option<Box<dyn Fn(T) -> Message + 'a>>,
     width: Length,
     height: Length,
     size: f32,
@@ -41,7 +41,7 @@ where
 {
     pub const DEFAULT_HEIGHT: f32 = 24.0;
 
-    pub fn new(range: RangeInclusive<T>, value: T, on_change: impl Fn(T) -> Message + 'a) -> Self {
+    pub fn new(range: RangeInclusive<T>, value: T) -> Self {
         let value = if value < *range.start() {
             *range.start()
         } else if value > *range.end() {
@@ -62,8 +62,8 @@ where
             step,
             precision: 2,
             scale: SliderScale::Linear,
-            default: None,
-            on_change: Box::new(on_change),
+            on_change: None,
+            on_confirm: None,
             width: Length::Fill,
             height: Length::Fixed(Self::DEFAULT_HEIGHT),
             size: Self::DEFAULT_HEIGHT * 0.62,
@@ -75,23 +75,12 @@ where
         }
     }
 
-    pub fn new_01(value: T, on_change: impl Fn(T) -> Message + 'a) -> Self {
-        Self::new(0.0f64.as_()..=1.0f64.as_(), value, on_change)
+    pub fn new_01(value: T) -> Self {
+        Self::new(0.0f64.as_()..=1.0f64.as_(), value)
     }
 
-    pub fn new_percent(value: T, on_change: impl Fn(T) -> Message + 'a) -> Self {
-        Self::new(0.0f64.as_()..=100.0f64.as_(), value, on_change).precision(0)
-    }
-
-    pub fn default(mut self, value: T) -> Self {
-        self.default = Some(if value < *self.range.start() {
-            *self.range.start()
-        } else if value > *self.range.end() {
-            *self.range.end()
-        } else {
-            value
-        });
-        self
+    pub fn new_percent(value: T) -> Self {
+        Self::new(0.0f64.as_()..=100.0f64.as_(), value).precision(0)
     }
 
     pub fn width(mut self, width: impl Into<Length>) -> Self {
@@ -145,6 +134,16 @@ where
 
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    pub fn on_change(mut self, on_change: impl Fn(T) -> Message + 'a) -> Self {
+        self.on_change = Some(Box::new(on_change));
+        self
+    }
+
+    pub fn on_confirm(mut self, on_confirm: impl Fn(T) -> Message + 'a) -> Self {
+        self.on_confirm = Some(Box::new(on_confirm));
         self
     }
 
@@ -380,7 +379,12 @@ where
                         };
                         let value = self.snap(value);
                         if value != self.value {
-                            shell.publish((self.on_change)(value));
+                            if let Some(on_change) = &self.on_change {
+                                shell.publish((*on_change)(value));
+                            }
+                            if let Some(on_confirm) = &self.on_confirm {
+                                shell.publish((*on_confirm)(value));
+                            }
                         }
                         state.interaction = SpinSliderState::Idle;
                     }
@@ -433,7 +437,12 @@ where
                     let this = &self;
                     let value = self.step_value(edited_value.unwrap_or(self.value), -1.0);
                     if value != this.value {
-                        shell.publish((this.on_change)(value));
+                        if let Some(on_change) = &this.on_change {
+                            shell.publish((*on_change)(value));
+                        }
+                        if let Some(on_confirm) = &this.on_confirm {
+                            shell.publish((*on_confirm)(value));
+                        }
                     }
                 };
                 state.interaction = SpinSliderState::Pressing {
@@ -445,7 +454,12 @@ where
                     let this = &self;
                     let value = self.step_value(edited_value.unwrap_or(self.value), 1.0);
                     if value != this.value {
-                        shell.publish((this.on_change)(value));
+                        if let Some(on_change) = &this.on_change {
+                            shell.publish((*on_change)(value));
+                        }
+                        if let Some(on_confirm) = &this.on_confirm {
+                            shell.publish((*on_confirm)(value));
+                        }
                     }
                 };
                 state.interaction = SpinSliderState::Pressing {
@@ -454,7 +468,12 @@ where
                 shell.capture_event();
             } else if let Some(value) = edited_value {
                 if value != self.value {
-                    shell.publish((self.on_change)(value));
+                    if let Some(on_change) = &self.on_change {
+                        shell.publish((*on_change)(value));
+                    }
+                    if let Some(on_confirm) = &self.on_confirm {
+                        shell.publish((*on_confirm)(value));
+                    }
                 }
             }
             return;
@@ -469,7 +488,12 @@ where
                 state.interaction = if minus.contains(position) {
                     let value = self.step_value(self.value, -1.0);
                     if value != self.value {
-                        shell.publish((self.on_change)(value));
+                        if let Some(on_change) = &self.on_change {
+                            shell.publish((*on_change)(value));
+                        }
+                        if let Some(on_confirm) = &self.on_confirm {
+                            shell.publish((*on_confirm)(value));
+                        }
                     }
                     SpinSliderState::Pressing {
                         target: PressTarget::Minus,
@@ -477,23 +501,19 @@ where
                 } else if plus.contains(position) {
                     let value = self.step_value(self.value, 1.0);
                     if value != self.value {
-                        shell.publish((self.on_change)(value));
+                        if let Some(on_change) = &self.on_change {
+                            shell.publish((*on_change)(value));
+                        }
+                        if let Some(on_confirm) = &self.on_confirm {
+                            shell.publish((*on_confirm)(value));
+                        }
                     }
                     SpinSliderState::Pressing {
                         target: PressTarget::Plus,
                     }
                 } else if field.contains(position) {
-                    if state.modifiers.command() {
-                        if let Some(default) = self.default {
-                            if default != self.value {
-                                shell.publish((self.on_change)(default));
-                            }
-                        }
-                        SpinSliderState::Idle
-                    } else {
-                        SpinSliderState::Pressing {
-                            target: PressTarget::Field,
-                        }
+                    SpinSliderState::Pressing {
+                        target: PressTarget::Field,
                     }
                 } else {
                     return;
@@ -514,15 +534,19 @@ where
                 };
                 let value = self.percentage_to_value((position.x - field.x) / field.width);
                 state.interaction = SpinSliderState::Dragging { value };
-                if value != self.value {
-                    shell.publish((self.on_change)(value));
+                if value != self.value
+                    && let Some(on_change) = &self.on_change
+                {
+                    shell.publish((*on_change)(value));
                 }
                 shell.capture_event();
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 match std::mem::take(&mut state.interaction) {
                     SpinSliderState::Dragging { value } => {
-                        shell.publish((self.on_change)(value));
+                        if let Some(on_confirm) = &self.on_confirm {
+                            shell.publish((*on_confirm)(value));
+                        }
                     }
                     SpinSliderState::Pressing {
                         target: PressTarget::Field,
@@ -558,7 +582,12 @@ where
                 };
                 let value = self.step_value(self.value, if delta < 0.0 { -1.0 } else { 1.0 });
                 if value != self.value {
-                    shell.publish((self.on_change)(value));
+                    if let Some(on_change) = &self.on_change {
+                        shell.publish((*on_change)(value));
+                    }
+                    if let Some(on_confirm) = &self.on_confirm {
+                        shell.publish((*on_confirm)(value));
+                    }
                 }
                 shell.capture_event();
             }
@@ -569,14 +598,24 @@ where
                     Key::Named(keyboard::key::Named::ArrowUp) => {
                         let value = self.step_value(self.value, 1.0);
                         if value != self.value {
-                            shell.publish((self.on_change)(value));
+                            if let Some(on_change) = &self.on_change {
+                                shell.publish((*on_change)(value));
+                            }
+                            if let Some(on_confirm) = &self.on_confirm {
+                                shell.publish((*on_confirm)(value));
+                            }
                         }
                         shell.capture_event();
                     }
                     Key::Named(keyboard::key::Named::ArrowDown) => {
                         let value = self.step_value(self.value, -1.0);
                         if value != self.value {
-                            shell.publish((self.on_change)(value));
+                            if let Some(on_change) = &self.on_change {
+                                shell.publish((*on_change)(value));
+                            }
+                            if let Some(on_confirm) = &self.on_confirm {
+                                shell.publish((*on_confirm)(value));
+                            }
                         }
                         shell.capture_event();
                     }

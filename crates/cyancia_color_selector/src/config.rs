@@ -537,21 +537,13 @@ impl ColorSelectorConfigEditorState {
                     .width(Length::Fill),
             ]
             .spacing(10),
-            SpinSlider::new(
-                128..=512,
-                config.max_plane_size,
-                ColorSelectorConfigMessage::MaxPlaneSizeChanged,
-            )
-            .precision(0)
-            .prefix("Max plane size: ")
-            .suffix(" px"),
-            SpinSlider::new(
-                1..=5,
-                config.max_planes_per_row,
-                ColorSelectorConfigMessage::MaxPlanesPerRowChanged,
-            )
-            .precision(0)
-            .prefix("Max planes per row: "),
+            SpinSlider::new(128..=512, config.max_plane_size,)
+                .on_confirm(ColorSelectorConfigMessage::MaxPlaneSizeChanged)
+                .prefix("Max plane size: ")
+                .suffix(" px"),
+            SpinSlider::new(1..=5, config.max_planes_per_row,)
+                .on_confirm(ColorSelectorConfigMessage::MaxPlanesPerRowChanged)
+                .prefix("Max planes per row: "),
             row![
                 checkbox(config.use_out_of_gamut_color)
                     .label("Out-of-gamut color")
@@ -656,12 +648,13 @@ impl ColorSelectorConfigEditorState {
                         }),
                 ]
                 .spacing(16),
-                SpinSlider::new(0.0..=TAU, plane.rotation.rem_euclid(TAU), move |rotation| {
-                    ColorSelectorConfigMessage::PlaneRotationChanged(index, rotation)
-                },)
-                .precision(3)
-                .prefix("Rotation: ")
-                .suffix(" rad"),
+                SpinSlider::new(0.0..=TAU, plane.rotation.rem_euclid(TAU))
+                    .on_confirm(move |rotation| {
+                        ColorSelectorConfigMessage::PlaneRotationChanged(index, rotation)
+                    })
+                    .precision(3)
+                    .prefix("Rotation: ")
+                    .suffix(" rad"),
                 row![
                     checkbox(plane.show_primary_channel_ring)
                         .label("Primary channel ring")
@@ -684,26 +677,24 @@ impl ColorSelectorConfigEditorState {
                         })),
                 ]
                 .spacing(16),
-                SpinSlider::new(
-                    10.0..=40.0,
-                    plane.primary_channel_ring_width,
-                    move |width| ColorSelectorConfigMessage::PlaneRingWidthChanged(index, width),
-                )
-                .precision(1)
-                .disabled(!plane.show_primary_channel_ring)
-                .prefix("Ring width: ")
-                .suffix(" px"),
-                SpinSlider::new(
-                    0.0..=TAU,
-                    plane.ring_rotation.rem_euclid(TAU),
-                    move |rotation| ColorSelectorConfigMessage::PlaneRingRotationChanged(
-                        index, rotation
-                    ),
-                )
-                .precision(3)
-                .disabled(!plane.show_primary_channel_ring)
-                .prefix("Ring rotation: ")
-                .suffix(" rad"),
+                SpinSlider::new(10.0..=40.0, plane.primary_channel_ring_width,)
+                    .on_confirm(
+                        move |width| ColorSelectorConfigMessage::PlaneRingWidthChanged(
+                            index, width
+                        )
+                    )
+                    .precision(1)
+                    .disabled(!plane.show_primary_channel_ring)
+                    .prefix("Ring width: ")
+                    .suffix(" px"),
+                SpinSlider::new(0.0..=TAU, plane.ring_rotation.rem_euclid(TAU),)
+                    .on_confirm(move |rotation| {
+                        ColorSelectorConfigMessage::PlaneRingRotationChanged(index, rotation)
+                    })
+                    .precision(3)
+                    .disabled(!plane.show_primary_channel_ring)
+                    .prefix("Ring rotation: ")
+                    .suffix(" rad"),
             ]
             .spacing(12)
             .into(),
@@ -740,12 +731,13 @@ impl ColorSelectorConfigEditorState {
                     .width(Length::Fill),
                 ]
                 .spacing(10),
-                SpinSlider::new(10.0..=40.0, bar.bar_height, move |height| {
-                    ColorSelectorConfigMessage::BarHeightChanged(index, height)
-                },)
-                .precision(1)
-                .prefix("Bar height: ")
-                .suffix(" px"),
+                SpinSlider::new(10.0..=40.0, bar.bar_height)
+                    .on_confirm(move |height| ColorSelectorConfigMessage::BarHeightChanged(
+                        index, height
+                    ))
+                    .precision(1)
+                    .prefix("Bar height: ")
+                    .suffix(" px"),
                 row![
                     self.column_label("Channel"),
                     row(labels.iter().copied().enumerate().map(|(channel, label)| {

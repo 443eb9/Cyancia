@@ -202,33 +202,23 @@ impl ToolFunction for MagicWandSelectionTool {
         let fields = Form::new()
             .push(
                 "Threshold",
-                SpinSlider::new_01(
-                    self.threshold,
-                    MagicWandSelectionToolMessage::ThresholdChanged,
-                ),
+                SpinSlider::new_01(self.threshold)
+                    .on_confirm(MagicWandSelectionToolMessage::ThresholdChanged),
             )
             .push(
                 "Alpha Threshold",
-                SpinSlider::new_01(
-                    self.alpha_threshold,
-                    MagicWandSelectionToolMessage::AlphaThresholdChanged,
-                ),
+                SpinSlider::new_01(self.alpha_threshold)
+                    .on_confirm(MagicWandSelectionToolMessage::AlphaThresholdChanged),
             )
             .push(
                 "Grow",
-                SpinSlider::new(
-                    -64..=64,
-                    self.grow,
-                    MagicWandSelectionToolMessage::GrowChanged,
-                ),
+                SpinSlider::new(-64..=64, self.grow)
+                    .on_confirm(MagicWandSelectionToolMessage::GrowChanged),
             )
             .push(
                 "Close Gap",
-                SpinSlider::new(
-                    0..=64,
-                    self.close_gap,
-                    MagicWandSelectionToolMessage::CloseGapChanged,
-                ),
+                SpinSlider::new(0..=64, self.close_gap)
+                    .on_confirm(MagicWandSelectionToolMessage::CloseGapChanged),
             )
             .push(
                 "Antialiasing Approach",
@@ -258,12 +248,8 @@ impl ToolFunction for MagicWandSelectionTool {
                 |form| {
                     form.push(
                         "Feather",
-                        SpinSlider::new(
-                            0..=64,
-                            self.cached_feather,
-                            MagicWandSelectionToolMessage::FeatherChanged,
-                        )
-                        .precision(0),
+                        SpinSlider::new(0..=64, self.cached_feather)
+                            .on_confirm(MagicWandSelectionToolMessage::FeatherChanged),
                     )
                 },
             );

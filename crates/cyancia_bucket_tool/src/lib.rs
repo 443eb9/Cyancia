@@ -194,22 +194,21 @@ impl ToolFunction for BucketTool {
         let fields = Form::new()
             .push(
                 "Threshold",
-                SpinSlider::new_01(self.threshold, BucketToolMessage::ThresholdChanged),
+                SpinSlider::new_01(self.threshold).on_confirm(BucketToolMessage::ThresholdChanged),
             )
             .push(
                 "Alpha Threshold",
-                SpinSlider::new_01(
-                    self.alpha_threshold,
-                    BucketToolMessage::AlphaThresholdChanged,
-                ),
+                SpinSlider::new_01(self.alpha_threshold)
+                    .on_confirm(BucketToolMessage::AlphaThresholdChanged),
             )
             .push(
                 "Grow",
-                SpinSlider::new(-64..=64, self.grow, BucketToolMessage::GrowChanged),
+                SpinSlider::new(-64..=64, self.grow).on_confirm(BucketToolMessage::GrowChanged),
             )
             .push(
                 "Close Gap",
-                SpinSlider::new(0..=64, self.close_gap, BucketToolMessage::CloseGapChanged),
+                SpinSlider::new(0..=64, self.close_gap)
+                    .on_confirm(BucketToolMessage::CloseGapChanged),
             )
             .push(
                 "Antialiasing Approach",
@@ -239,12 +238,9 @@ impl ToolFunction for BucketTool {
                 |form| {
                     form.push(
                         "Feather",
-                        SpinSlider::new(
-                            0..=64,
-                            self.cached_feather,
-                            BucketToolMessage::FeatherChanged,
-                        )
-                        .precision(0),
+                        SpinSlider::new(0..=64, self.cached_feather)
+                            .on_confirm(BucketToolMessage::FeatherChanged)
+                            .precision(0),
                     )
                 },
             );

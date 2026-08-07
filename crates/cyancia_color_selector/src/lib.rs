@@ -687,11 +687,12 @@ impl ColorSelectorState {
                     let scale = config.model.display_scale()[channel];
                     let value = self.bar_display_value(config.model, config.channel);
                     r.push(
-                        SpinSlider::new(range.x * scale..=range.y * scale, value, move |value| {
-                            ColorSelectorMessage::BarValueChanged(index, value)
-                        })
-                        .width(90)
-                        .precision(2),
+                        SpinSlider::new(range.x * scale..=range.y * scale, value)
+                            .on_change(move |value| {
+                                ColorSelectorMessage::BarValueChanged(index, value)
+                            })
+                            .width(90)
+                            .precision(2),
                     )
                 })
                 .when(config.show_primary_channel_lock, |r| {
