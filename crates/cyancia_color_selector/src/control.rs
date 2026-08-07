@@ -344,40 +344,21 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for GradientSurface<'a, Messa
             );
         }
 
-        fn draw_indicator_circle(builder: &mut path::Builder, bounds: Rectangle, center: Point) {
-            if bounds.width <= 0.0 || bounds.height <= 0.0 {
-                return;
-            }
-            let diameter = 6.0;
-            let x = center.x.clamp(
-                bounds.x + diameter * 0.5,
-                bounds.x + bounds.width - diameter * 0.5,
-            );
-            let y = center.y.clamp(
-                bounds.y + diameter * 0.5,
-                bounds.y + bounds.height - diameter * 0.5,
-            );
-
-            builder.circle(Point::new(x, y), diameter * 0.5);
-        }
-
         renderer.with_layer(bounds, |renderer| {
             renderer.with_translation(Vector::new(bounds.x, bounds.y), |renderer| {
                 let mut frame = Frame::new(renderer, bounds.size());
 
                 let path = Path::new(|builder| {
                     if let Some(position) = self.plane_indicator {
-                        draw_indicator_circle(
-                            builder,
-                            Rectangle::new(Point::ORIGIN, bounds.size()),
+                        builder.circle(
                             Point::new(position.x * bounds.width, position.y * bounds.height),
+                            3.0,
                         );
                     }
                     if let Some(position) = self.ring_indicator {
-                        draw_indicator_circle(
-                            builder,
-                            Rectangle::new(Point::ORIGIN, bounds.size()),
+                        builder.circle(
                             Point::new(position.x * bounds.width, position.y * bounds.height),
+                            3.0,
                         );
                     }
                     if let Some(fraction) = self.bar_indicator {
