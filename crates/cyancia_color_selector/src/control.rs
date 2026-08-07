@@ -1,26 +1,30 @@
-use glam::Vec2;
-use gpui::{Context, Empty, EntityId, IntoElement, Pixels, Point, Render, Window};
+use std::{cell::RefCell, sync::Arc};
 
-use crate::{ColorSelectorEvent, ColorSelectorState};
+use cyancia_runtime::{Services, event::Event as _};
+use glam::Vec2;
+use iced_core::{
+    Clipboard, Color, Element, Event, Layout, Length, Point, Rectangle, Renderer as _, Shell, Size,
+    Theme, Vector, Widget,
+    layout::{self, Limits},
+    mouse,
+    renderer::{self},
+    widget::{
+        Tree,
+        tree::{self, Tag},
+    },
+};
+use iced_runtime::Task;
+use iced_wgpu::graphics::geometry;
+use iced_wgpu::{Renderer, primitive};
+use iced_widget::canvas::{Frame, Path, Stroke, path};
+
+use crate::render::{GradientDrawPrimitive, SurfaceDrawData};
+use crate::{ColorSelectorEvent, ColorSelectorMessage, ColorSelectorState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SurfaceTarget {
+pub enum SurfaceTarget {
     Plane(usize),
     Bar(usize),
-}
-
-#[derive(Clone)]
-pub(crate) struct SurfaceDrag {
-    pub(crate) selector: EntityId,
-    pub(crate) target: SurfaceTarget,
-}
-
-pub(crate) struct SurfaceDragPreview;
-
-impl Render for SurfaceDragPreview {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        Empty
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,6 +32,17 @@ pub(crate) enum ActiveSelection {
     Plane(usize),
     Ring(usize),
     Bar(usize),
+}
+
+impl ActiveSelection {
+    pub(crate) fn surface_target(self) -> SurfaceTarget {
+        match self {
+            ActiveSelection::Plane(index) | ActiveSelection::Ring(index) => {
+                SurfaceTarget::Plane(index)
+            }
+            ActiveSelection::Bar(index) => SurfaceTarget::Bar(index),
+        }
+    }
 }
 
 fn remap_normalized(value: f32, range: Vec2) -> f32 {
@@ -38,22 +53,21 @@ impl ColorSelectorState {
     pub(crate) fn start_plane_selection(
         &mut self,
         index: usize,
-        position: Point<Pixels>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+        position: Point,
+        services: &Services,
+    ) -> Task<ColorSelectorMessage> {
         let config = &self.presets[self.selected_preset].planes[index];
         let Some(bounds) = self.planes.get(index).map(|plane| plane.bounds) else {
-            return;
+            return Task::none();
         };
-        let size = bounds.size.width.as_f32();
+        let size = bounds.width;
         if size <= 0.0 {
-            return;
+            return Task::none();
         }
 
         let texture_uv = Vec2::new(
-            (position.x - bounds.origin.x).as_f32() / size,
-            1.0 - (position.y - bounds.origin.y).as_f32() / size,
+            (position.x - bounds.x) / size,
+            1.0 - (position.y - bounds.y) / size,
         );
         let radius = (texture_uv - Vec2::splat(0.5)).length();
         let antialias_width = 1.0 / size;
@@ -74,38 +88,36 @@ impl ColorSelectorState {
             None
         };
 
-        self.update_active_selection(position, window, cx);
+        self.update_active_selection(position, services)
     }
 
     pub(crate) fn start_bar_selection(
         &mut self,
         index: usize,
-        position: Point<Pixels>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+        position: Point,
+        services: &Services,
+    ) -> Task<ColorSelectorMessage> {
         if index >= self.bars.len() {
-            return;
+            return Task::none();
         }
         self.active_selection = Some(ActiveSelection::Bar(index));
-        self.update_active_selection(position, window, cx);
+        self.update_active_selection(position, services)
     }
 
     pub(crate) fn update_active_selection(
         &mut self,
-        position: Point<Pixels>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+        position: Point,
+        services: &Services,
+    ) -> Task<ColorSelectorMessage> {
         let Some(selection) = self.active_selection else {
-            return;
+            return Task::none();
         };
 
         match selection {
             ActiveSelection::Plane(index) => {
                 let config = &self.presets[self.selected_preset].planes[index];
                 let Some((uv, _)) = self.plane_uv_from_window_position(index, position) else {
-                    return;
+                    return Task::none();
                 };
                 let (x_range, y_range) = self.plane_normalized_ranges(index);
                 let uv = Vec2::new(
@@ -128,16 +140,16 @@ impl ColorSelectorState {
             ActiveSelection::Ring(index) => {
                 let config = &self.presets[self.selected_preset].planes[index];
                 let Some(bounds) = self.planes.get(index).map(|plane| plane.bounds) else {
-                    return;
+                    return Task::none();
                 };
 
-                let size = bounds.size.width.as_f32();
+                let size = bounds.width;
                 let centered = Vec2::new(
-                    (position.x - bounds.origin.x).as_f32() / size - 0.5,
-                    0.5 - (position.y - bounds.origin.y).as_f32() / size,
+                    (position.x - bounds.x) / size - 0.5,
+                    0.5 - (position.y - bounds.y) / size,
                 );
                 if centered.length_squared() <= f32::EPSILON {
-                    return;
+                    return Task::none();
                 }
                 let mut angle = centered.y.atan2(centered.x) + config.ring_rotation;
                 if config.reversed_ring {
@@ -153,11 +165,10 @@ impl ColorSelectorState {
             ActiveSelection::Bar(index) => {
                 let config = &self.presets[self.selected_preset].bars[index];
                 let Some(bounds) = self.bars.get(index).map(|bar| bar.bounds) else {
-                    return;
+                    return Task::none();
                 };
 
-                let factor = ((position.x - bounds.origin.x).as_f32() / bounds.size.width.as_f32())
-                    .clamp(0.0, 1.0);
+                let factor = ((position.x - bounds.x) / bounds.width).clamp(0.0, 1.0);
                 let channel = config.channel as usize;
                 let mut channels = config.model.channels(self.color, &self.profile);
                 let range = config.model.channel_ranges()[channel];
@@ -166,29 +177,410 @@ impl ColorSelectorState {
             }
         }
 
-        self.sync_bar_inputs(window, cx);
-        self.redraw_config(cx);
+        self.refresh_clip_bounds(services)
     }
 
     pub(crate) fn finish_active_selection(
         &mut self,
         target: SurfaceTarget,
-        position: Point<Pixels>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let matches_target = matches!(
-            (self.active_selection, target),
-            (Some(ActiveSelection::Plane(active)), SurfaceTarget::Plane(target))
-                | (Some(ActiveSelection::Ring(active)), SurfaceTarget::Plane(target))
-                | (Some(ActiveSelection::Bar(active)), SurfaceTarget::Bar(target))
-                if active == target
-        );
-        if !matches_target {
-            return;
+        position: Point,
+        services: &Services,
+    ) -> Task<ColorSelectorMessage> {
+        if self.active_selection.map(|s| s.surface_target()) != Some(target) {
+            return Task::none();
         }
-        self.update_active_selection(position, window, cx);
+        let task = self.update_active_selection(position, services);
         self.active_selection = None;
-        cx.emit(ColorSelectorEvent::Confirmed(self.color));
+        ColorSelectorEvent::broadcast(ColorSelectorEvent::Confirmed(self.color));
+        task
+    }
+}
+
+pub(crate) struct GradientSurface<'a, Message> {
+    data: Option<Arc<SurfaceDrawData>>,
+    plane_indicator: Option<Vec2>,
+    ring_indicator: Option<Vec2>,
+    bar_indicator: Option<f32>,
+    indicator_color: Color,
+    square: bool,
+    max_width: f32,
+    width: Length,
+    height: Length,
+    on_press: Box<dyn Fn(Point) -> Message + 'a>,
+    on_bounds_changed: Box<dyn Fn(Rectangle) -> Message + 'a>,
+}
+
+impl<'a, Message> GradientSurface<'a, Message> {
+    pub(crate) fn plane(data: Option<Arc<SurfaceDrawData>>, max_width: f32) -> Self {
+        Self {
+            data,
+            plane_indicator: None,
+            ring_indicator: None,
+            bar_indicator: None,
+            indicator_color: Color::WHITE,
+            square: true,
+            max_width,
+            width: Length::FillPortion(1),
+            height: Length::Fill,
+            on_press: Box::new(|_| unreachable!("on_press must be set")),
+            on_bounds_changed: Box::new(|_| unreachable!("on_bounds_changed must be set")),
+        }
+    }
+
+    pub(crate) fn bar(data: Option<Arc<SurfaceDrawData>>, height: f32) -> Self {
+        Self {
+            data,
+            plane_indicator: None,
+            ring_indicator: None,
+            bar_indicator: None,
+            indicator_color: Color::WHITE,
+            square: false,
+            max_width: f32::INFINITY,
+            width: Length::Fill,
+            height: Length::Fixed(height),
+            on_press: Box::new(|_| unreachable!("on_press must be set")),
+            on_bounds_changed: Box::new(|_| unreachable!("on_bounds_changed must be set")),
+        }
+    }
+
+    pub(crate) fn plane_indicator(mut self, position: Option<Vec2>) -> Self {
+        self.plane_indicator = position;
+        self
+    }
+
+    pub(crate) fn ring_indicator(mut self, position: Option<Vec2>) -> Self {
+        self.ring_indicator = position;
+        self
+    }
+
+    pub(crate) fn bar_indicator(mut self, position: f32) -> Self {
+        self.bar_indicator = Some(position);
+        self
+    }
+
+    pub(crate) fn indicator_color(mut self, color: Color) -> Self {
+        self.indicator_color = color;
+        self
+    }
+
+    pub(crate) fn on_press(mut self, f: impl Fn(Point) -> Message + 'a) -> Self {
+        self.on_press = Box::new(f);
+        self
+    }
+
+    pub(crate) fn on_bounds_changed(mut self, f: impl Fn(Rectangle) -> Message + 'a) -> Self {
+        self.on_bounds_changed = Box::new(f);
+        self
+    }
+}
+
+impl<'a, Message> Widget<Message, Theme, Renderer> for GradientSurface<'a, Message> {
+    fn size(&self) -> Size<Length> {
+        Size::new(self.width, self.height)
+    }
+
+    fn layout(&mut self, _tree: &mut Tree, _renderer: &Renderer, limits: &Limits) -> layout::Node {
+        let limits = limits.max_width(self.max_width);
+        let size = limits.resolve(self.width, self.height, Size::ZERO);
+        let size = if self.square {
+            let side = size.width.min(size.height).max(1.0);
+            Size::new(side, side)
+        } else {
+            size
+        };
+        layout::Node::new(size)
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        _renderer: &Renderer,
+        _clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        _viewport: &Rectangle,
+    ) {
+        let bounds = layout.bounds();
+        let last_bounds = tree.state.downcast_mut::<Rectangle>();
+        if *last_bounds != bounds {
+            *last_bounds = bounds;
+            shell.publish((self.on_bounds_changed)(bounds));
+        }
+
+        if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event
+            && let Some(position) = cursor.position_over(bounds)
+        {
+            shell.publish((self.on_press)(position));
+            shell.capture_event();
+        }
+    }
+
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<Rectangle>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new::<Rectangle>(Rectangle::default())
+    }
+
+    fn draw(
+        &self,
+        _tree: &Tree,
+        renderer: &mut Renderer,
+        _theme: &Theme,
+        _style: &renderer::Style,
+        layout: Layout<'_>,
+        _cursor: mouse::Cursor,
+        _viewport: &Rectangle,
+    ) {
+        let bounds = layout.bounds();
+        if let Some(data) = &self.data {
+            primitive::Renderer::draw_primitive(
+                renderer,
+                bounds,
+                GradientDrawPrimitive { data: data.clone() },
+            );
+        }
+
+        fn draw_indicator_circle(builder: &mut path::Builder, bounds: Rectangle, center: Point) {
+            if bounds.width <= 0.0 || bounds.height <= 0.0 {
+                return;
+            }
+            let diameter = 6.0;
+            let x = center.x.clamp(
+                bounds.x + diameter * 0.5,
+                bounds.x + bounds.width - diameter * 0.5,
+            );
+            let y = center.y.clamp(
+                bounds.y + diameter * 0.5,
+                bounds.y + bounds.height - diameter * 0.5,
+            );
+
+            builder.circle(Point::new(x, y), diameter * 0.5);
+        }
+
+        renderer.with_layer(bounds, |renderer| {
+            renderer.with_translation(Vector::new(bounds.x, bounds.y), |renderer| {
+                let mut frame = Frame::new(renderer, bounds.size());
+
+                let path = Path::new(|builder| {
+                    if let Some(position) = self.plane_indicator {
+                        draw_indicator_circle(
+                            builder,
+                            Rectangle::new(Point::ORIGIN, bounds.size()),
+                            Point::new(position.x * bounds.width, position.y * bounds.height),
+                        );
+                    }
+                    if let Some(position) = self.ring_indicator {
+                        draw_indicator_circle(
+                            builder,
+                            Rectangle::new(Point::ORIGIN, bounds.size()),
+                            Point::new(position.x * bounds.width, position.y * bounds.height),
+                        );
+                    }
+                    if let Some(fraction) = self.bar_indicator {
+                        let width = 4.0;
+                        let x = fraction * bounds.width;
+
+                        builder.rectangle(
+                            Point::new(x - width * 0.5, 0.0),
+                            Size::new(width, bounds.height),
+                        );
+                    }
+                });
+
+                frame.stroke(
+                    &path,
+                    Stroke {
+                        style: self.indicator_color.into(),
+                        width: 1.0,
+                        ..Default::default()
+                    },
+                );
+
+                geometry::Renderer::draw_geometry(renderer, frame.into_geometry());
+            });
+        });
+    }
+}
+
+pub(crate) struct PlaneRow<'a, Message> {
+    surfaces: Vec<GradientSurface<'a, Message>>,
+    spacing: f32,
+    max_cell_size: f32,
+}
+
+impl<'a, Message> PlaneRow<'a, Message> {
+    pub(crate) fn new(surfaces: Vec<GradientSurface<'a, Message>>) -> Self {
+        Self {
+            surfaces,
+            spacing: 5.0,
+            max_cell_size: f32::INFINITY,
+        }
+    }
+
+    pub(crate) fn spacing(mut self, spacing: f32) -> Self {
+        self.spacing = spacing;
+        self
+    }
+
+    pub(crate) fn max_cell_size(mut self, max_cell_size: f32) -> Self {
+        self.max_cell_size = max_cell_size;
+        self
+    }
+}
+
+impl<'a, Message> Widget<Message, Theme, Renderer> for PlaneRow<'a, Message> {
+    fn tag(&self) -> tree::Tag {
+        self.surfaces
+            .first()
+            .map_or(Tag::stateless(), |surface| surface.tag())
+    }
+
+    fn state(&self) -> tree::State {
+        self.surfaces
+            .first()
+            .map_or(tree::State::new(()), |surface| surface.state())
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        (0..self.surfaces.len())
+            .map(|_| Tree {
+                tag: Tag::stateless(),
+                state: tree::State::new::<Rectangle>(Rectangle::default()),
+                children: Vec::new(),
+            })
+            .collect()
+    }
+
+    fn diff(&self, _tree: &mut Tree) {}
+
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Shrink)
+    }
+
+    fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &Limits) -> layout::Node {
+        let count = self.surfaces.len().max(1);
+        let spacing = if count > 1 {
+            self.spacing * (count - 1) as f32
+        } else {
+            0.0
+        };
+        let width = limits.max().width;
+        let cell = ((width - spacing) / count as f32)
+            .min(self.max_cell_size)
+            .max(1.0);
+        let surface_size = (cell - 5.0).max(1.0);
+
+        let mut nodes: Vec<layout::Node> = Vec::with_capacity(count);
+        let mut height: f32 = 0.0;
+        for (surface, child_tree) in self.surfaces.iter_mut().zip(tree.children.iter_mut()) {
+            let child_limits = Limits::new(Size::ZERO, Size::new(surface_size, f32::INFINITY));
+            let node = surface.layout(child_tree, renderer, &child_limits);
+            height = height.max(node.size().height);
+            nodes.push(node);
+        }
+
+        let mut main = 2.5;
+        for node in nodes.iter_mut() {
+            node.move_to_mut(Point::new(main, 0.0));
+            main += node.size().width + self.spacing;
+        }
+
+        layout::Node::with_children(Size::new(width, height), nodes)
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        for ((surface, child_tree), child_layout) in self
+            .surfaces
+            .iter_mut()
+            .zip(tree.children.iter_mut())
+            .zip(layout.children())
+        {
+            surface.update(
+                child_tree,
+                event,
+                child_layout,
+                cursor,
+                renderer,
+                clipboard,
+                shell,
+                viewport,
+            );
+        }
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        for (surface, (child_tree, child_layout)) in self
+            .surfaces
+            .iter()
+            .zip(tree.children.iter().zip(layout.children()))
+        {
+            surface.draw(
+                child_tree,
+                renderer,
+                theme,
+                style,
+                child_layout,
+                cursor,
+                viewport,
+            );
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        self.surfaces
+            .iter()
+            .zip(tree.children.iter().zip(layout.children()))
+            .map(|(surface, (child_tree, child_layout))| {
+                surface.mouse_interaction(child_tree, child_layout, cursor, viewport, renderer)
+            })
+            .fold(mouse::Interaction::default(), |a, b| a.max(b))
+    }
+}
+
+impl<'a, Message> From<PlaneRow<'a, Message>> for Element<'a, Message, Theme, Renderer>
+where
+    Message: 'a,
+{
+    fn from(row: PlaneRow<'a, Message>) -> Self {
+        Element::new(row)
+    }
+}
+
+impl<'a, Message> From<GradientSurface<'a, Message>> for Element<'a, Message, Theme, Renderer>
+where
+    Message: 'a,
+{
+    fn from(surface: GradientSurface<'a, Message>) -> Self {
+        Element::new(surface)
     }
 }

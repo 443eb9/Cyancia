@@ -33,8 +33,9 @@ use iced_wgpu::Renderer;
 use parking_lot::Mutex;
 
 use crate::dock::{
-    BRUSH_PRESETS_DOCK_ID, BrushPresetDock, CanvasDock, FILTERS_DOCK_ID, FiltersDock,
-    LAYER_DOCK_ID, LayersDock, TOOL_OPTIONS_DOCK_ID, ToolOptionsDock, construct_canvas_dock_id,
+    BRUSH_PRESETS_DOCK_ID, BrushPresetDock, COLOR_SELECTOR_DOCK_ID, CanvasDock, ColorSelectorDock,
+    FILTERS_DOCK_ID, FiltersDock, LAYER_DOCK_ID, LayersDock, TOOL_OPTIONS_DOCK_ID, ToolOptionsDock,
+    construct_canvas_dock_id,
 };
 
 pub struct MainView {
@@ -118,8 +119,10 @@ impl WindowView for MainView {
         dock_manager.register_dock(FiltersDock);
         dock_manager.register_dock(ToolOptionsDock::new(services));
         dock_manager.register_dock(BrushPresetDock::new(services));
+        dock_manager.register_dock(ColorSelectorDock::new(services));
 
         let dock_tasks = Task::batch([
+            dock_manager.open_dock(DockId::new(COLOR_SELECTOR_DOCK_ID.into())),
             dock_manager.open_dock(DockId::new(LAYER_DOCK_ID.into())),
             dock_manager.open_dock(DockId::new(FILTERS_DOCK_ID.into())),
             dock_manager.open_dock(DockId::new(TOOL_OPTIONS_DOCK_ID.into())),
