@@ -10,7 +10,7 @@ use cyancia_color::{
 };
 use cyancia_render::render_context::RenderContextAppExt;
 use cyancia_runtime::{Services, event::Event};
-use cyancia_widgets::spin_slider::SpinSlider;
+use cyancia_widgets::{fluent_builder::When, spin_slider::SpinSlider};
 use glam::{Vec2, Vec3};
 use iced_core::{Element, Length, Point, Rectangle, Theme};
 use iced_runtime::Task;
@@ -690,44 +690,46 @@ impl ColorSelectorState {
             let label = config.model.channel_labels()[channel];
             let locked = self.bar_primary_channel_locked(config.model, config.channel);
 
-            let mut bar_row = Row::new().spacing(4);
-            if config.show_channel_label {
-                bar_row = bar_row.push(text(label).width(12));
-            }
-            bar_row = bar_row.push(
-                GradientSurface::bar(
-                    self.bar_surface_data(index),
-                    config.bar_height.clamp(10.0, 40.0),
-                )
-                .bar_indicator(self.bar_indicator_position(index).unwrap_or(-1.0))
-                .indicator_color(indicator_color)
-                .on_press(move |position| {
-                    ColorSelectorMessage::SurfacePress(SurfaceTarget::Bar(index), position)
-                })
-                .on_bounds_changed(move |bounds| {
-                    ColorSelectorMessage::SurfaceBoundsChanged(SurfaceTarget::Bar(index), bounds)
-                }),
-            );
-            if config.show_precise_spin_box {
-                let range = config.model.channel_ranges()[channel];
-                let scale = config.model.display_scale()[channel];
-                let value = self.bar_display_value(config.model, config.channel);
-                bar_row = bar_row.push(
-                    SpinSlider::new(range.x * scale..=range.y * scale, value, move |value| {
-                        ColorSelectorMessage::BarValueChanged(index, value)
+            Row::new()
+                .spacing(4)
+                .when(config.show_channel_label, |r| r.push(text(label).width(12)))
+                .push(
+                    GradientSurface::bar(
+                        self.bar_surface_data(index),
+                        config.bar_height.clamp(10.0, 40.0),
+                    )
+                    .bar_indicator(self.bar_indicator_position(index).unwrap_or(-1.0))
+                    .indicator_color(indicator_color)
+                    .on_press(move |position| {
+                        ColorSelectorMessage::SurfacePress(SurfaceTarget::Bar(index), position)
                     })
-                    .width(90)
-                    .precision(2),
-                );
-            }
-            if config.show_primary_channel_lock {
-                let model = config.model;
-                let channel = config.channel;
-                bar_row = bar_row.push(radio("", true, locked.then_some(true), move |_| {
-                    ColorSelectorMessage::PrimaryChannelLock(model, channel)
-                }));
-            }
-            bar_row.into()
+                    .on_bounds_changed(move |bounds| {
+                        ColorSelectorMessage::SurfaceBoundsChanged(
+                            SurfaceTarget::Bar(index),
+                            bounds,
+                        )
+                    }),
+                )
+                .when(config.show_precise_spin_box, |r| {
+                    let range = config.model.channel_ranges()[channel];
+                    let scale = config.model.display_scale()[channel];
+                    let value = self.bar_display_value(config.model, config.channel);
+                    r.push(
+                        SpinSlider::new(range.x * scale..=range.y * scale, value, move |value| {
+                            ColorSelectorMessage::BarValueChanged(index, value)
+                        })
+                        .width(90)
+                        .precision(2),
+                    )
+                })
+                .when(config.show_primary_channel_lock, |r| {
+                    let model = config.model;
+                    let channel = config.channel;
+                    r.push(radio("", true, locked.then_some(true), move |_| {
+                        ColorSelectorMessage::PrimaryChannelLock(model, channel)
+                    }))
+                })
+                .into()
         });
 
         let presets_selector =
