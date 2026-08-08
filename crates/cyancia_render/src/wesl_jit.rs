@@ -3,13 +3,13 @@ use std::str::FromStr;
 use anyhow::Result;
 use wesl::{CodegenModule, CodegenPkg, ModulePath, VirtualResolver, Wesl, syntax::PathOrigin};
 
-pub fn compile_wesl(shader: String, dependencies: &[CodegenPkg]) -> Result<String> {
+pub fn compile_wesl(shader: String, dependencies: &[&CodegenPkg]) -> Result<String> {
     compile_wesl_with_config(shader, dependencies, |_| {})
 }
 
 pub fn compile_wesl_with_config(
     shader: String,
-    dependencies: &[CodegenPkg],
+    dependencies: &[&CodegenPkg],
     config: impl Fn(&mut Wesl<VirtualResolver>),
 ) -> Result<String> {
     let mut resolver = VirtualResolver::new();

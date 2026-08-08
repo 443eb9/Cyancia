@@ -1,5 +1,5 @@
 use cyancia_image::{
-    composite::{BlendFunctionId, BlendFunctionRegistry},
+    composite::BlendFunctionRegistry,
     layer::{
         LayerId, LayerPosition,
         properties::{
@@ -8,891 +8,606 @@ use cyancia_image::{
             VisiblePropertyExt,
         },
     },
-    tile::TileStorageAppExt,
+    tile::GpuTileStorage,
 };
-use cyancia_utils::log_err::LogErr;
-use cyancia_widgets::spin_slider::{SpinSlider, SpinSliderEvent, SpinSliderState};
-use gpui::{
-    Action, AppContext, Bounds, Context, DragMoveEvent, Entity, InteractiveElement, IntoElement,
-    Modifiers, MouseButton, ParentElement, Pixels, Point, Render, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, div,
-    prelude::FluentBuilder, px,
+use cyancia_widgets::{
+    drag_drop_column::{DragDropColumn, DragDropInfo},
+    spin_slider::SpinSlider,
 };
-use gpui_component::{
-    ActiveTheme, ElementExt, Selectable, Sizable, StyledExt,
-    button::{Button, ButtonVariants},
-    checkbox::Checkbox,
-    h_flex,
-    input::{Input, InputEvent, InputState},
-    menu::{ContextMenuExt, PopupMenuItem},
-    scroll::ScrollableElement,
-    select::{SearchableVec, Select, SelectEvent, SelectState},
-    v_flex,
+use iced_aw::ContextMenu;
+use iced_core::{
+    Alignment, Element, Font, Layout, Length, Point, Rectangle, Size,
+    font::Weight,
+    layout::{self, Limits},
+    mouse, renderer,
+    widget::Tree,
 };
+use iced_widget::{PickList, TextInput, button, checkbox, column, container, row, stack, text};
 use indexmap::IndexMap;
-use schemars::JsonSchema;
-use serde::Deserialize;
 
-use crate::{
-    CCanvas, CanvasUndoStackAppExt,
-    command::{LayerPropertyChangeCommand, MoveLayersCommand},
-    event::{CanvasActiveLayerChanged, CanvasLayerPropertyChanged, CanvasUpdated},
-};
+use crate::{CCanvas, command::LayerPropertyChangeCommand};
 
-pub const LAYER_STACK_CONTEXT: &str = "layer_stack";
+/// The horizontal indent applied per nesting depth (matches the spacer width
+/// used in the row layout).
+const ROW_INDENT: f32 = 20.0;
 
-#[derive(Action, Clone, PartialEq, JsonSchema, Deserialize)]
-pub struct RenameLayer {
-    pub layer_id: LayerId,
+#[derive(Debug, Clone)]
+pub enum LayerStackMessage {
+    LayerPropertyChanged(LayerPropertyChangeCommand),
+    MoveLayers {
+        layer_ids: Vec<LayerId>,
+        new_parent: LayerId,
+        new_position: LayerPosition,
+    },
+    SelectLayer(LayerId),
+    RenameLayer(LayerId),
+    RenameChanged(String),
+    RenameCommit(LayerId),
+    DropPreview(Option<DropInfo>),
 }
 
 #[derive(Debug, Clone)]
-struct LayerWidgetInfo {
-    layer_id: LayerId,
-    bounds: Bounds<Pixels>,
+pub struct DropInfo {
+    pub parent: LayerId,
+    pub child_position: LayerPosition,
+    pub position: Point,
+    pub length: f32,
 }
 
-struct DropInfo {
-    parent: LayerId,
-    child_position: LayerPosition,
-    position: Point<Pixels>,
-    length: Pixels,
-}
+fn resolve_drop_target(
+    canvas: &CCanvas,
+    rows: &IndexMap<LayerId, Rectangle>,
+    mouse_position: Point,
+    dragged_id: LayerId,
+) -> Option<DropInfo> {
+    let layer_stack = canvas.image.layer_stack();
+    let root_id = *layer_stack.root_id();
 
-pub struct LayerStackWidget {
-    canvas: WeakEntity<CCanvas>,
+    let (target_id, target_bounds) = rows
+        .iter()
+        .filter(|(id, _)| **id != dragged_id && !layer_stack.is_ancestor(&dragged_id, id))
+        .find(|(_, bounds)| mouse_position.y < bounds.y + bounds.height)?;
+    let (target_id, target_bounds) = (*target_id, *target_bounds);
 
-    rename_input_state: Entity<InputState>,
-    renaming_layer: Option<LayerId>,
-    blend_mode_select_state: Entity<SelectState<SearchableVec<BlendFunctionId>>>,
-    layer_widget_info: IndexMap<LayerId, LayerWidgetInfo>,
-    layer_drop_info: Option<DropInfo>,
-    layer_drop_indicator_offset: Point<Pixels>,
-    opacity_state: Entity<SpinSliderState>,
-    recorded_opacity: Option<f32>,
-
-    _subscriptions: Vec<Subscription>,
-}
-
-impl LayerStackWidget {
-    pub fn new(canvas: Entity<CCanvas>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let blend_mode_select_state = cx.new(|cx| {
-            let funcs = BlendFunctionRegistry::global(cx)
-                .all_ids()
-                .cloned()
-                .collect::<Vec<_>>();
-            SelectState::new(funcs.into(), None, window, cx)
-        });
-
-        let rename_input_state = cx.new(|cx| InputState::new(window, cx));
-        let opacity_state = cx.new(|cx| SpinSliderState::new_percent(window, cx));
-
-        let subscriptions = vec![
-            cx.subscribe_in(&canvas, window, Self::on_active_layer_changed),
-            cx.observe_global::<BlendFunctionRegistry>(Self::on_blend_function_registry_changed),
-            cx.subscribe_in(
-                &blend_mode_select_state,
-                window,
-                Self::on_blend_function_changed,
-            ),
-            cx.subscribe_in(&rename_input_state, window, Self::on_rename_input_event),
-            cx.subscribe_in(&opacity_state, window, Self::on_opacity_changed),
-            cx.subscribe_in(&canvas, window, Self::on_layer_property_changed),
-        ];
-
-        Self {
-            rename_input_state,
-            renaming_layer: None,
-            canvas: canvas.downgrade(),
-            blend_mode_select_state,
-            layer_widget_info: IndexMap::new(),
-            layer_drop_info: None,
-            layer_drop_indicator_offset: Point::default(),
-            opacity_state,
-            recorded_opacity: None,
-            _subscriptions: subscriptions,
-        }
-    }
-
-    fn on_blend_function_changed(
-        &mut self,
-        _: &Entity<SelectState<SearchableVec<BlendFunctionId>>>,
-        event: &SelectEvent<SearchableVec<BlendFunctionId>>,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if let SelectEvent::Confirm(Some(value)) = event {
-            let cmd = self
-                .canvas
-                .read_with(cx, |canvas, _| {
-                    let old = canvas.active_layer_node().properties().clone();
-                    let new = {
-                        let mut props = old.clone();
-                        props.set_blend_function(value.clone());
-                        props
-                    };
-                    LayerPropertyChangeCommand {
-                        canvas: canvas.id(),
-                        layer_id: canvas.active_layer_id(),
-                        old,
-                        new,
-                    }
-                })
-                .unwrap();
-            cx.push_undo_command_to_current(cmd).log_err();
-        }
-    }
-
-    fn on_active_layer_changed(
-        &mut self,
-        canvas: &Entity<CCanvas>,
-        _: &CanvasActiveLayerChanged,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let props = canvas.read(cx).active_layer_node().properties().clone();
-        self.sync_layer_properties(props, window, cx);
-    }
-
-    fn on_blend_function_registry_changed(&mut self, cx: &mut Context<Self>) {
-        self.blend_mode_select_state.update(cx, |state, cx| {
-            let funcs = BlendFunctionRegistry::global(cx)
-                .all_ids()
-                .cloned()
-                .collect::<Vec<_>>();
-
-            // TODO This is hacky. gpui-component is not using the window passed in.
-            #[allow(invalid_value)]
-            let dummy_window = unsafe { std::mem::zeroed() };
-            state.set_items(funcs.into(), dummy_window, cx);
+    // The cursor below the last row: drop at the end of the list (the root's
+    // background), previewed at the last row's bottom edge.
+    if target_id == root_id {
+        return Some(DropInfo {
+            parent: root_id,
+            child_position: LayerPosition::background(),
+            position: target_bounds.position(),
+            length: target_bounds.width,
         });
     }
 
-    fn on_layer_drag_move(
-        &mut self,
-        event: &DragMoveEvent<LayerDragInfo>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.layer_drop_info =
-            self.resolve_drop_target(event.dragged_item().downcast_ref().unwrap(), window, cx);
+    if layer_stack.is_ancestor(&dragged_id, &target_id) {
+        return None;
     }
 
-    fn on_layer_drop(&mut self, info: &LayerDragInfo, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(drop_info) = self.layer_drop_info.take() else {
-            return;
-        };
+    let target_node = layer_stack.get_layer(&target_id)?;
+    let center_y = target_bounds.y + target_bounds.height / 2.0;
 
-        let canvas_entity = self.canvas.upgrade().unwrap();
-        let canvas = canvas_entity.read(cx);
-        let layer_stack = canvas.image.layer_stack();
-
-        let Some(dragged_node) = layer_stack.get_layer(&info.id) else {
-            return;
-        };
-        let Some(original_parent) = dragged_node.parent().copied() else {
-            return;
-        };
-        let original_index = layer_stack
-            .get_layer(&original_parent)
-            .and_then(|p| p.child_index(&info.id))
-            .unwrap_or(0);
-
-        let resolved_index = {
-            let parent = canvas
-                .image
-                .layer_stack()
-                .get_layer(&drop_info.parent)
-                .unwrap();
-            parent.resolve_index(drop_info.child_position).unwrap()
-        };
-        if original_parent == drop_info.parent && original_index == resolved_index {
-            return;
-        }
-
-        let canvas_id = canvas.id();
-
-        let command = MoveLayersCommand::new(
-            canvas,
-            canvas.selected_layer_ids().iter().copied(),
-            drop_info.parent,
-            drop_info.child_position,
-        );
-        cx.push_undo_command(&canvas_id, command).ok();
+    if mouse_position.y < center_y {
+        // Above the target's row: drop as a sibling, just above the target.
+        return Some(DropInfo {
+            parent: *target_node.parent()?,
+            child_position: LayerPosition::above(target_id),
+            position: target_bounds.position(),
+            length: target_bounds.width,
+        });
     }
 
-    fn on_opacity_changed(
-        &mut self,
-        _: &Entity<SpinSliderState>,
-        event: &SpinSliderEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        match event {
-            SpinSliderEvent::Change(val) => {
-                self.canvas
-                    .update(cx, |canvas, cx| {
-                        let active_layer = canvas.active_layer_id();
-                        let Some(layer) =
-                            canvas.image.layer_stack_mut().get_layer_mut(&active_layer)
-                        else {
-                            return;
-                        };
+    // Below the target's row.
+    let target_parent = target_node.parent().copied()?;
+    let target_parent_node = layer_stack.get_layer(&target_parent)?;
+    let target_index = target_parent_node.child_index(&target_id)?;
 
-                        let Some(opacity) = layer.properties().get_opacity() else {
-                            return;
-                        };
-                        self.recorded_opacity.get_or_insert(opacity);
-                        // This is only used for preview purpose. The original opacity is recorded and
-                        // is going to be restored on release.
-                        layer.properties_mut().set_opacity(val / 100.0);
-
-                        // TODO use layer bounds
-                        cx.emit(CanvasUpdated {
-                            dirty_tiles: canvas.image.image_tile_rect(),
-                        });
-                    })
-                    .ok();
-            }
-            SpinSliderEvent::Release(val) => {
-                let cmd = self
-                    .canvas
-                    .read_with(cx, |canvas, _| {
-                        let layer = canvas
-                            .image
-                            .layer_stack()
-                            .get_layer(&canvas.active_layer_id())
-                            .unwrap();
-                        let old = {
-                            let mut props = layer.properties().clone();
-                            // Get the recorded opacity, if this event is initiated by end dragging.
-                            // If the value is typed directly, no opacity is recorded, as well as no
-                            // layer opacity is changed before.
-                            if let Some(old_opacity) = self.recorded_opacity.take() {
-                                props.set_opacity(old_opacity);
-                            }
-                            props
-                        };
-                        let new = {
-                            let mut props = old.clone();
-                            props.set_opacity(val / 100.0);
-                            props
-                        };
-                        LayerPropertyChangeCommand {
-                            canvas: canvas.id(),
-                            layer_id: canvas.active_layer_id(),
-                            old,
-                            new,
-                        }
-                    })
-                    .unwrap();
-                cx.push_undo_command_to_current(cmd).log_err();
-            }
-        }
+    // If the target can hold children and the cursor is at the target's own
+    // indent (inside the target's row, not in a shallower ancestor's gutter),
+    // dropping on its lower half nests the dragged layer as the target's new
+    // top child (preview at the target's bottom edge). A shallower cursor
+    // falls through to the x-driven ancestor matching below.
+    if mouse_position.x >= target_bounds.x
+        && layer_stack.can_have_children_of(&target_id, &dragged_id)?
+    {
+        return Some(DropInfo {
+            parent: target_id,
+            child_position: LayerPosition::foreground(),
+            position: Point::new(target_bounds.x, target_bounds.y + target_bounds.height),
+            length: target_bounds.width,
+        });
     }
 
-    fn on_layer_property_changed(
-        &mut self,
-        canvas: &Entity<CCanvas>,
-        event: &CanvasLayerPropertyChanged,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let canvas = canvas.read(cx);
-        if canvas.active_layer_id() != event.layer_id {
-            return;
-        }
-
-        let props = canvas.active_layer_node().properties().clone();
-        self.sync_layer_properties(props, window, cx);
+    // The target can't hold children (or the cursor is at a shallower indent),
+    // so the dragged layer lands below it as a sibling. When the target is the
+    // bottom child of its parent, "below it" is ambiguous: it could mean a new
+    // bottom of the target's parent, or the bottom of an ancestor further up.
+    // The cursor's horizontal indent picks which ancestor's bottom to append to.
+    if target_index != 0 {
+        // Target has a lower sibling, so "below the target" stays inside the
+        // target's parent, just under the target.
+        return Some(DropInfo {
+            parent: target_parent,
+            child_position: LayerPosition::below(target_id),
+            position: Point::new(target_bounds.x, target_bounds.y + target_bounds.height),
+            length: target_bounds.width,
+        });
     }
 
-    fn sync_layer_properties(
-        &mut self,
-        props: LayerProperties,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(opacity) = props.get_opacity() {
-            self.opacity_state.update(cx, |state, cx| {
-                state.set_value(opacity * 100.0, cx);
-            });
-        }
-        if let Some(blend_function) = props.get_blend_function() {
-            self.blend_mode_select_state.update(cx, |state, cx| {
-                state.set_selected_value(blend_function, window, cx);
-            });
-        }
-    }
-
-    fn resolve_drop_target(
-        &self,
-        info: &LayerDragInfo,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<DropInfo> {
-        let mouse_pos = window.mouse_position();
-
-        let LayerWidgetInfo {
-            layer_id: target_id,
-            bounds: target_bounds,
-        } = self
-            .layer_widget_info
-            .values()
-            .find(|l| mouse_pos.y < l.bounds.bottom())?
-            .clone();
-
-        if target_id == info.id {
-            return None;
-        }
-
-        let canvas_entity = self.canvas.upgrade()?;
-        let canvas = canvas_entity.read(cx);
-        let layer_stack = canvas.image.layer_stack();
-
-        if layer_stack.is_ancestor(&info.id, &target_id) {
-            return None;
-        }
-
-        let target_node = layer_stack.get_layer(&target_id)?;
-        let center_y = target_bounds.center().y;
-
-        if mouse_pos.y < center_y {
-            // Above the target's row: drop as a sibling, just above the target.
-            return Some(DropInfo {
-                parent: *target_node.parent()?,
-                child_position: LayerPosition::above(target_id),
-                position: target_bounds.origin,
-                length: target_bounds.size.width,
-            });
-        }
-
-        // Below the target's row.
-        let target_parent = target_node.parent().copied()?;
-        let target_parent_node = layer_stack.get_layer(&target_parent)?;
-        let target_index = target_parent_node.child_index(&target_id)?;
-
-        // If the target can hold children and the cursor is at the target's own
-        // indent (inside the target's row, not in a shallower ancestor's gutter),
-        // dropping on its lower half nests the dragged layer as the target's new
-        // top child (preview at the target's bottom edge). A shallower cursor
-        // falls through to the x-driven ancestor matching below.
-        if mouse_pos.x >= target_bounds.left()
-            && layer_stack.can_have_children_of(&target_id, &info.id)?
-        {
-            return Some(DropInfo {
-                parent: target_id,
-                child_position: LayerPosition::foreground(),
-                position: target_bounds.bottom_left(),
-                length: target_bounds.size.width,
-            });
-        }
-
-        // The target can't hold children (or the cursor is at a shallower indent),
-        // so the dragged layer lands below it as a sibling. When the target is the
-        // bottom child of its parent, "below it" is ambiguous: it could mean a new
-        // bottom of the target's parent, or the bottom of an ancestor further up.
-        // The cursor's horizontal indent picks which ancestor's bottom to append to.
-        if target_index != 0 {
-            // Target has a lower sibling, so "below the target" stays inside the
-            // target's parent, just under the target.
-            return Some(DropInfo {
-                parent: target_parent,
-                child_position: LayerPosition::below(target_id),
-                position: target_bounds.bottom_left(),
-                length: target_bounds.size.width,
-            });
-        }
-
-        // Target is the bottom child. Only ancestors for which the target's
-        // branch is also the bottom child are valid "append to bottom" targets.
-        let ancestors = layer_stack.ancestors(target_id).collect::<Vec<_>>();
-        let mut ambiguous_count = 0;
-        {
-            let mut previous_child = target_id;
-            for ancestor in &ancestors {
-                let ancestor_node = layer_stack.get_layer(ancestor)?;
-                if ancestor_node.child_index(&previous_child) == Some(0) {
-                    ambiguous_count += 1;
-                } else {
-                    break;
-                }
-                previous_child = *ancestor;
-            }
-        }
-
-        // The deepest candidate ancestor whose row the cursor is still inside is
-        // the new parent; the dragged layer becomes its new bottom child. If the
-        // cursor is left of every candidate, append to the shallowest one.
-        let mut resolved_parent_index = ambiguous_count - 1;
-        for (index, ancestor) in ancestors.iter().take(ambiguous_count).enumerate() {
-            let bounds = self.layer_widget_info.get(ancestor)?.bounds;
-            if mouse_pos.x >= bounds.left() {
-                resolved_parent_index = index;
+    // Target is the bottom child. Only ancestors for which the target's
+    // branch is also the bottom child are valid "append to bottom" targets.
+    let ancestors = layer_stack.ancestors(target_id).collect::<Vec<_>>();
+    let mut ambiguous_count = 0;
+    {
+        let mut previous_child = target_id;
+        for ancestor in &ancestors {
+            let ancestor_node = layer_stack.get_layer(ancestor)?;
+            if ancestor_node.child_index(&previous_child) == Some(0) {
+                ambiguous_count += 1;
+            } else {
                 break;
             }
+            previous_child = *ancestor;
         }
-        let resolved_parent = ancestors[resolved_parent_index];
-        if layer_stack.is_ancestor(&info.id, &resolved_parent) {
-            return None;
-        }
-
-        let resolved_preview_bounds = if resolved_parent_index == 0 {
-            target_bounds
-        } else {
-            self.layer_widget_info
-                .get(&ancestors[resolved_parent_index - 1])
-                .unwrap()
-                .bounds
-        };
-
-        Some(DropInfo {
-            parent: resolved_parent,
-            child_position: LayerPosition::background(),
-            position: Point::new(resolved_preview_bounds.origin.x, target_bounds.bottom()),
-            length: resolved_preview_bounds.size.width,
-        })
     }
 
-    fn on_rename_layer(
-        &mut self,
-        action: &RenameLayer,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let layer_name = self
-            .canvas
-            .read_with(cx, |canvas, _| {
-                let layer = canvas.image.layer_stack().get_layer(&action.layer_id)?;
-                Some(layer.properties().get_name()?.to_owned())
-            })
-            .ok()
-            .flatten();
-
-        let Some(layer_name) = layer_name else {
-            return;
-        };
-
-        self.rename_input_state.update(cx, |state, cx| {
-            state.set_value(layer_name, window, cx);
-            cx.focus_self(window);
-        });
-        self.renaming_layer = Some(action.layer_id);
+    if ambiguous_count == 0 {
+        return None;
     }
 
-    fn on_rename_input_event(
-        &mut self,
-        state: &Entity<InputState>,
-        event: &InputEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        match event {
-            InputEvent::PressEnter { .. } | InputEvent::Blur => {
-                let Some(layer_id) = self.renaming_layer.take() else {
-                    return;
-                };
-                let value = state.read(cx).value();
-                let Some(canvas) = self.canvas.upgrade() else {
-                    return;
-                };
-                let canvas = canvas.read(cx);
-                let Some(layer) = canvas.image.layer_stack().get_layer(&layer_id) else {
-                    return;
-                };
+    // The deepest candidate ancestor whose row the cursor is still inside is
+    // the new parent; the dragged layer becomes its new bottom child. If the
+    // cursor is left of every candidate, append to the shallowest one.
+    let mut resolved_parent_index = ambiguous_count - 1;
+    for (index, ancestor) in ancestors.iter().take(ambiguous_count).enumerate() {
+        let bounds = rows.get(ancestor)?;
+        if mouse_position.x >= bounds.x {
+            resolved_parent_index = index;
+            break;
+        }
+    }
+    let resolved_parent = ancestors[resolved_parent_index];
+    if layer_stack.is_ancestor(&dragged_id, &resolved_parent) {
+        return None;
+    }
 
-                let old = layer.properties().clone();
-                let new = {
-                    let mut props = old.clone();
-                    props.set_name(value.to_string());
-                    props
-                };
-                let cmd = LayerPropertyChangeCommand {
-                    canvas: canvas.id(),
-                    layer_id,
-                    old,
-                    new,
-                };
-                cx.push_undo_command_to_current(cmd).log_err();
+    let resolved_preview_bounds = if resolved_parent_index == 0 {
+        target_bounds
+    } else {
+        *rows.get(&ancestors[resolved_parent_index - 1])?
+    };
+
+    Some(DropInfo {
+        parent: resolved_parent,
+        child_position: LayerPosition::background(),
+        position: Point::new(
+            resolved_preview_bounds.x,
+            target_bounds.y + target_bounds.height,
+        ),
+        length: resolved_preview_bounds.width,
+    })
+}
+
+pub fn property_button_style(
+    selected: bool,
+) -> impl Fn(&iced_core::Theme, button::Status) -> button::Style {
+    move |theme: &iced_core::Theme, status| {
+        let palette = theme.extended_palette();
+        if selected {
+            button::Style {
+                background: Some(iced_core::Background::Color(palette.primary.weak.color)),
+                text_color: palette.primary.strong.text,
+                ..Default::default()
             }
-            InputEvent::Change | InputEvent::Focus => {}
+        } else if matches!(status, button::Status::Hovered) {
+            button::Style {
+                background: Some(iced_core::Background::Color(
+                    palette.primary.weak.color.scale_alpha(0.5),
+                )),
+                text_color: palette.background.base.text,
+                ..Default::default()
+            }
+        } else {
+            button::Style {
+                background: None,
+                text_color: palette.background.base.text,
+                ..Default::default()
+            }
         }
     }
 }
 
-impl Render for LayerStackWidget {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(canvas_entity) = self.canvas.upgrade() else {
-            return div().into_any_element();
+fn property_command(
+    canvas: &CCanvas,
+    layer_id: LayerId,
+    old: &LayerProperties,
+    apply: impl Fn(&mut LayerProperties),
+) -> LayerPropertyChangeCommand {
+    let mut layer_props = old.clone();
+    apply(&mut layer_props);
+    LayerPropertyChangeCommand {
+        canvas: canvas.id(),
+        layer_id,
+        old: old.clone(),
+        new: layer_props,
+    }
+}
+
+fn resolve_target<'b>(
+    info: &DragDropInfo<'b>,
+    canvas: &CCanvas,
+    layers: &[LayerId],
+) -> Option<DropInfo> {
+    let layer_stack = canvas.image.layer_stack();
+    let root_id = *layer_stack.root_id();
+    let dragged_id = layers[info.dragged_index];
+    let mut rows = info
+        .column_layout
+        .children()
+        .zip(layers)
+        .map(|(node, id)| {
+            let depth = layer_stack.ancestors(*id).filter(|a| *a != root_id).count() as f32;
+            let bounds = node.bounds();
+            (
+                *id,
+                Rectangle {
+                    x: depth * ROW_INDENT,
+                    y: bounds.y,
+                    width: bounds.width,
+                    height: bounds.height,
+                },
+            )
+        })
+        .collect::<IndexMap<_, _>>();
+    let column_bounds = info.column_layout.bounds();
+    let root_bounds = Rectangle {
+        x: 0.0,
+        y: rows
+            .last()
+            .map(|(_, bounds)| bounds.y + bounds.height)
+            .unwrap_or(0.0),
+        width: column_bounds.size().width,
+        height: (column_bounds.size().height
+            - rows
+                .last()
+                .map(|(_, bounds)| bounds.y + bounds.height)
+                .unwrap_or(0.0))
+        .max(0.0),
+    };
+    rows.insert(root_id, root_bounds);
+    resolve_drop_target(canvas, &rows, info.mouse_position, dragged_id)
+}
+
+pub struct LayerStackView<'a, Message: Clone + 'a> {
+    canvas: &'a CCanvas,
+    blend_functions: &'a BlendFunctionRegistry,
+    tile_storage: &'a GpuTileStorage,
+    renaming_layer: Option<LayerId>,
+    rename_value: &'a str,
+    drop_preview: Option<DropInfo>,
+    on_message: &'a dyn Fn(LayerStackMessage) -> Message,
+}
+
+impl<'a, Message: Clone + 'a> LayerStackView<'a, Message> {
+    pub fn new(
+        canvas: &'a CCanvas,
+        blend_functions: &'a BlendFunctionRegistry,
+        tile_storage: &'a GpuTileStorage,
+        renaming_layer: Option<LayerId>,
+        rename_value: &'a str,
+        drop_preview: Option<DropInfo>,
+        on_message: &'a dyn Fn(LayerStackMessage) -> Message,
+    ) -> Self {
+        Self {
+            canvas,
+            blend_functions,
+            tile_storage,
+            renaming_layer,
+            rename_value,
+            drop_preview,
+            on_message,
+        }
+    }
+}
+
+pub struct DropIndicatorOverlay {
+    drop_preview: Option<DropInfo>,
+}
+
+impl DropIndicatorOverlay {
+    pub fn new(drop_preview: Option<DropInfo>) -> Self {
+        Self { drop_preview }
+    }
+}
+
+impl<Message, Theme, Renderer> iced_core::Widget<Message, Theme, Renderer> for DropIndicatorOverlay
+where
+    Renderer: iced_core::Renderer,
+{
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fill)
+    }
+
+    fn layout(&mut self, _tree: &mut Tree, _renderer: &Renderer, limits: &Limits) -> layout::Node {
+        layout::Node::new(limits.max())
+    }
+
+    fn draw(
+        &self,
+        _tree: &Tree,
+        renderer: &mut Renderer,
+        _theme: &Theme,
+        _style: &renderer::Style,
+        _layout: Layout<'_>,
+        _cursor: mouse::Cursor,
+        _viewport: &Rectangle,
+    ) {
+        let Some(drop_info) = &self.drop_preview else {
+            return;
         };
+        let indicator = Rectangle {
+            x: drop_info.position.x,
+            y: drop_info.position.y,
+            width: drop_info.length.max(0.0),
+            height: 2.0,
+        };
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds: indicator,
+                ..Default::default()
+            },
+            iced_core::Background::Color(iced_core::Color::from_rgb(0.3, 0.6, 1.0)),
+        );
+    }
+}
 
-        self.layer_widget_info.clear();
+impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
+    for Element<'a, Message, iced_core::Theme, iced_wgpu::Renderer>
+{
+    fn from(view: LayerStackView<'a, Message>) -> Self {
+        let canvas = view.canvas;
+        let on_message = view.on_message;
 
-        let canvas = canvas_entity.read(cx);
-
-        let widget = cx.entity().downgrade();
-        let layers = canvas
+        let layer_nodes = canvas
             .image
             .layer_stack()
             .iter_layers_dfs_display_order_without_root()
-            .map(|(node, depth)| {
-                let layer_id = *node.id();
-                let layer_name = node
-                    .properties()
-                    .get_name()
-                    .map(|n| n.to_owned())
-                    .unwrap_or_default();
-                let drag_info = LayerDragInfo::new(layer_id, layer_name.clone().into());
+            .collect::<Vec<_>>();
+        let layers = layer_nodes
+            .iter()
+            .map(|(node, _)| *node.id())
+            .collect::<Vec<_>>();
 
-                let inner = h_flex()
-                    .size_full()
-                    .ml(px(20.0 * depth as f32))
-                    .when_else(
-                        Some(layer_id) == self.renaming_layer,
-                        |d| d.child(Input::new(&self.rename_input_state).w_full()),
-                        |d| d.child(layer_name),
-                    )
-                    .on_prepaint({
-                        let widget = widget.clone();
-                        move |bounds, _, cx| {
-                            widget
-                                .update(cx, |widget, _| {
-                                    widget
-                                        .layer_widget_info
-                                        .insert(layer_id, LayerWidgetInfo { layer_id, bounds });
-                                })
-                                .ok();
-                        }
-                    });
+        let mut rows: Vec<Element<'a, Message, iced_core::Theme, iced_wgpu::Renderer>> =
+            Vec::with_capacity(layer_nodes.len());
 
-                let ancestor_visible = canvas.image.layer_stack().ancestors(layer_id).all(|a| {
-                    canvas
-                        .image
-                        .layer_stack()
-                        .get_layer(&a)
-                        .unwrap()
-                        .properties()
-                        .get_visible()
-                        .unwrap_or(true)
-                });
+        for (node, depth) in &layer_nodes {
+            let layer_id = *node.id();
+            let properties = node.properties();
+            let name = properties
+                .get_name()
+                .map(|n| n.to_owned())
+                .unwrap_or_default();
+            let is_selected = canvas.selected_layer_ids().contains(&layer_id);
+            let is_active = canvas.active_layer_id() == layer_id;
+            let is_renaming = view.renaming_layer == Some(layer_id);
 
-                let visible_checkbox = node.properties().get_visible().map(|visible| {
-                    Checkbox::new("visible-checkbox")
-                        .checked(visible)
-                        .when(!ancestor_visible, |c| c.opacity(0.5))
-                        .block_mouse_except_scroll()
-                        .on_click({
-                            let canvas_entity = canvas_entity.downgrade();
-                            move |checked, _, cx| {
-                                cx.stop_propagation();
-                                let cmd = canvas_entity
-                                    .read_with(cx, |canvas, _| {
-                                        let layer = canvas
-                                            .image
-                                            .layer_stack()
-                                            .get_layer(&layer_id)
-                                            .unwrap();
-                                        let old = layer.properties().clone();
-                                        let new = {
-                                            let mut props = old.clone();
-                                            props.set_visible(*checked);
-                                            props
-                                        };
-                                        LayerPropertyChangeCommand {
-                                            canvas: canvas.id(),
-                                            layer_id,
-                                            old,
-                                            new,
-                                        }
-                                    })
-                                    .unwrap();
-                                cx.push_undo_command_to_current(cmd).log_err();
-                            }
+            let mut children: Vec<Element<'_, Message, iced_core::Theme, iced_wgpu::Renderer>> =
+                vec![];
+
+            if let Some(visible) = properties.get_visible() {
+                children.push(
+                    checkbox(visible)
+                        .on_toggle(move |checked| {
+                            on_message(LayerStackMessage::LayerPropertyChanged(property_command(
+                                canvas,
+                                layer_id,
+                                properties,
+                                move |p| p.set_visible(checked),
+                            )))
                         })
-                });
+                        .into(),
+                );
+            }
 
-                let lock_toggle_button = node.properties().get_locked().map(|locked| {
-                    Button::new("lock-toggle-button")
-                        .aspect_square()
-                        .selected(locked)
-                        .ghost()
-                        // TODO Use icon
-                        .child("L")
-                        .block_mouse_except_scroll()
-                        .on_click({
-                            let canvas_entity = canvas_entity.downgrade();
-                            move |_, _, cx| {
-                                let cmd = canvas_entity
-                                    .read_with(cx, |canvas, _| {
-                                        let layer = canvas
-                                            .image
-                                            .layer_stack()
-                                            .get_layer(&layer_id)
-                                            .unwrap();
-                                        let old = layer.properties().clone();
-                                        let new = {
-                                            let mut props = old.clone();
-                                            props.set_locked(!locked);
-                                            props
-                                        };
-                                        LayerPropertyChangeCommand {
-                                            canvas: canvas.id(),
-                                            layer_id,
-                                            old,
-                                            new,
-                                        }
-                                    })
-                                    .unwrap();
-                                cx.push_undo_command_to_current(cmd).log_err();
-                            }
-                        })
-                });
-
-                let alpha_index = cx
-                    .tile_storage()
-                    .get_layer_info(layer_id)
-                    .map(|info| info.texel_type.alpha_channel_index())
-                    .unwrap_or(canvas.image.texel_type().alpha_channel_index());
-                let inherit_alpha_toggle_button =
-                    node.properties().get_disabled_channels().map(|channels| {
-                        Button::new("inherit-alpha-toggle-button")
-                            .aspect_square()
-                            .selected(channels.is_channel_disabled(alpha_index))
-                            .ghost()
-                            .child("α")
-                            .block_mouse_except_scroll()
-                            .on_click({
-                                let canvas_entity = canvas_entity.downgrade();
-                                move |_, _, cx| {
-                                    let cmd = canvas_entity
-                                        .read_with(cx, |canvas, _| {
-                                            let layer = canvas
-                                                .image
-                                                .layer_stack()
-                                                .get_layer(&layer_id)
-                                                .unwrap();
-                                            let old = layer.properties().clone();
-                                            let new = {
-                                                let mut props = old.clone();
-                                                let mut channels = props.disabled_channels();
-                                                channels.toggle_channel_disabled(alpha_index);
-                                                props.set_disabled_channels(channels);
-                                                props
-                                            };
-                                            LayerPropertyChangeCommand {
-                                                canvas: canvas.id(),
-                                                layer_id,
-                                                old,
-                                                new,
-                                            }
-                                        })
-                                        .unwrap();
-                                    cx.push_undo_command_to_current(cmd).log_err();
-                                }
-                            })
-                    });
-                let lock_alpha_toggle_button =
-                    node.properties().get_locked_channels().map(|channels| {
-                        Button::new("lock-alpha-toggle-button")
-                            .aspect_square()
-                            .selected(channels.is_channel_locked(alpha_index))
-                            .ghost()
-                            .child("A")
-                            .block_mouse_except_scroll()
-                            .on_click({
-                                let canvas_entity = canvas_entity.downgrade();
-                                move |_, _, cx| {
-                                    let cmd = canvas_entity
-                                        .read_with(cx, |canvas, _| {
-                                            let layer = canvas
-                                                .image
-                                                .layer_stack()
-                                                .get_layer(&layer_id)
-                                                .unwrap();
-                                            let old = layer.properties().clone();
-                                            let new = {
-                                                let mut props = old.clone();
-                                                let mut channels = props.locked_channels();
-                                                channels.toggle_channel_locked(alpha_index);
-                                                props.set_locked_channels(channels);
-                                                props
-                                            };
-                                            LayerPropertyChangeCommand {
-                                                canvas: canvas.id(),
-                                                layer_id,
-                                                old,
-                                                new,
-                                            }
-                                        })
-                                        .unwrap();
-                                    cx.push_undo_command_to_current(cmd).log_err();
-                                }
-                            })
-                    });
-
-                h_flex()
-                    .h(px(40.0))
-                    .p_1()
-                    .gap_1()
-                    .items_center()
-                    .id(format!("layer-{}", layer_id))
-                    .when(canvas.selected_layer_ids().contains(&layer_id), |d| {
-                        d.bg(cx.theme().accent)
-                    })
-                    .when(canvas.active_layer == layer_id, |d| d.font_bold())
-                    .when_some(visible_checkbox, |d, checkbox| d.child(checkbox))
-                    .child(inner)
-                    // TODO These property buttons should be provided by specific layer types.
-                    //      For example the preferred api should look like PixelLayer::property_shortcuts
-                    .when_some(lock_toggle_button, |d, button| d.child(button))
-                    .when_some(inherit_alpha_toggle_button, |d, button| d.child(button))
-                    .when_some(lock_alpha_toggle_button, |d, button| d.child(button))
-                    .on_drag(drag_info, |info, position, _, cx| {
-                        cx.new(|_| info.clone().with_position(position))
-                    })
-                    .on_drag_move(cx.listener(Self::on_layer_drag_move))
-                    .on_mouse_down(MouseButton::Left, {
-                        let canvas_entity = canvas_entity.downgrade();
-                        move |event, _, cx| {
-                            canvas_entity
-                                .update(cx, |canvas, cx| {
-                                    if event.modifiers == Modifiers::control() {
-                                        canvas.toggle_layer_selection_and_active(layer_id, cx);
-                                    } else if event.modifiers == Modifiers::shift() {
-                                        let active_layer = canvas.active_layer_id();
-                                        if layer_id == active_layer {
-                                            return;
-                                        }
-                                        let tree = canvas
-                                            .image
-                                            .layer_stack()
-                                            .iter_layers_dfs_display_order_without_root()
-                                            .map(|(n, _)| *n.id())
-                                            .collect::<Vec<_>>();
-                                        let mut on_select = false;
-                                        for layer in tree {
-                                            if on_select {
-                                                canvas.select_layer(layer);
-                                            }
-                                            if layer == layer_id || layer == active_layer {
-                                                on_select = !on_select;
-                                            }
-                                        }
-                                        canvas.set_active_layer(layer_id, cx);
-                                    } else {
-                                        if !canvas.selected_layer_ids().contains(&layer_id) {
-                                            canvas.set_active_layer_and_clear_select(layer_id, cx);
-                                        } else {
-                                            canvas.set_active_layer(layer_id, cx);
-                                        }
-                                    }
-                                })
-                                .ok();
+            let name_element = if is_renaming {
+                TextInput::new("", view.rename_value)
+                    .on_input(move |value| on_message(LayerStackMessage::RenameChanged(value)))
+                    .on_submit(on_message(LayerStackMessage::RenameCommit(layer_id)))
+                    .into()
+            } else {
+                text(name)
+                    .size(14)
+                    .width(Length::Fill)
+                    .font(if is_active {
+                        Font {
+                            weight: Weight::Bold,
+                            ..Font::default()
                         }
+                    } else {
+                        Font::default()
                     })
-                    .on_action(cx.listener(Self::on_rename_layer))
-                    .context_menu(move |menu, _, _| {
-                        menu.item(
-                            PopupMenuItem::new("Rename").action(Box::new(RenameLayer { layer_id })),
-                        )
-                    })
+                    .into()
+            };
+            children.push(
+                row([
+                    iced_widget::Space::new()
+                        .width(Length::Fixed(20.0 * *depth as f32))
+                        .into(),
+                    name_element,
+                ])
+                .width(Length::Fill)
+                .into(),
+            );
+
+            if let Some(locked) = properties.get_locked() {
+                let message = LayerStackMessage::LayerPropertyChanged(property_command(
+                    canvas,
+                    layer_id,
+                    properties,
+                    move |p| p.set_locked(!locked),
+                ));
+                children.push(
+                    button(text("L"))
+                        .width(28)
+                        .height(28)
+                        .style(property_button_style(locked))
+                        .on_press(on_message(message))
+                        .into(),
+                );
+            }
+
+            let alpha_index = view
+                .tile_storage
+                .get_layer_info(layer_id)
+                .map(|info| info.texel_type.alpha_channel_index())
+                .unwrap_or_else(|| canvas.image.texel_type().alpha_channel_index());
+
+            if let Some(channels) = properties.get_disabled_channels() {
+                let message = LayerStackMessage::LayerPropertyChanged(property_command(
+                    canvas,
+                    layer_id,
+                    properties,
+                    move |p| p.set_disabled_channels(channels),
+                ));
+                children.push(
+                    button(text("α"))
+                        .width(28)
+                        .height(28)
+                        .style(property_button_style(
+                            channels.is_channel_disabled(alpha_index),
+                        ))
+                        .on_press(on_message(message))
+                        .into(),
+                );
+            }
+
+            if let Some(channels) = properties.get_locked_channels() {
+                let message = property_command(canvas, layer_id, properties, move |p| {
+                    p.set_locked_channels(channels)
+                });
+                children.push(
+                    button(text("A"))
+                        .width(28)
+                        .height(28)
+                        .style(property_button_style(
+                            channels.is_channel_locked(alpha_index),
+                        ))
+                        .on_press(on_message(LayerStackMessage::LayerPropertyChanged(message)))
+                        .into(),
+                );
+            }
+
+            let content = container(
+                row(children)
+                    .spacing(4)
+                    .align_y(Alignment::Center)
+                    .padding(4)
+                    .height(40),
+            )
+            .width(Length::Fill)
+            .style(move |theme: &iced_core::Theme| container::Style {
+                background: if is_selected {
+                    Some(iced_core::Background::Color(
+                        theme.extended_palette().primary.weak.color,
+                    ))
+                } else {
+                    None
+                },
+                ..Default::default()
             });
 
-        let active_layer_properties = canvas.active_layer_node().properties();
-        let layer_params = v_flex()
-            .p_2()
-            .when(
-                active_layer_properties.get_blend_function().is_some(),
-                |d| d.child(Select::new(&self.blend_mode_select_state)),
-            )
-            .when(active_layer_properties.get_opacity().is_some(), |d| {
-                d.child(
-                    SpinSlider::new(&self.opacity_state)
-                        .small()
-                        .prefix("Opacity: ")
-                        .suffix("%"),
-                )
-            });
-
-        v_flex()
-            .key_context(LAYER_STACK_CONTEXT)
-            .size_full()
-            .gap_2()
-            .child(layer_params)
-            .child(
-                div()
-                    .size_full()
-                    .children(layers)
-                    .on_drop(cx.listener(Self::on_layer_drop))
-                    .overflow_scrollbar(),
-            )
-            .on_prepaint({
-                let widget = widget.clone();
-                let root_id = *canvas.image.layer_stack().root_id();
-                move |bounds, _, cx| {
-                    widget
-                        .update(cx, |widget, _| {
-                            widget.layer_drop_indicator_offset = bounds.origin;
-                            widget.layer_widget_info.insert(
-                                root_id,
-                                LayerWidgetInfo {
-                                    layer_id: root_id,
-                                    bounds,
-                                },
-                            )
-                        })
-                        .ok();
-                }
-            })
-            .when_some(self.layer_drop_info.as_ref(), |d, info| {
-                d.child(
-                    div()
-                        .w(info.length)
-                        .absolute()
-                        .left(info.position.x - self.layer_drop_indicator_offset.x)
-                        .top(info.position.y - self.layer_drop_indicator_offset.y)
-                        .border_1()
-                        .border_color(cx.theme().accent_foreground),
-                )
-            })
-            .into_any_element()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct LayerDragInfo {
-    id: LayerId,
-    position: Point<Pixels>,
-    layer_name: SharedString,
-}
-
-impl LayerDragInfo {
-    pub fn new(id: LayerId, name: SharedString) -> Self {
-        Self {
-            id,
-            position: Default::default(),
-            layer_name: name,
+            let menu = move || {
+                column![
+                    button(text("Rename"))
+                        .on_press(on_message(LayerStackMessage::RenameLayer(layer_id)))
+                ]
+                .into()
+            };
+            rows.push(ContextMenu::new(content, menu).into());
         }
-    }
 
-    pub fn with_position(mut self, position: Point<Pixels>) -> Self {
-        self.position = position;
-        self
-    }
-}
+        let on_press_layers = layers.clone();
+        let on_drag_layers = layers.clone();
+        let on_drop_layers = layers.clone();
+        let on_press = move |info: DragDropInfo| {
+            on_message(LayerStackMessage::SelectLayer(
+                on_press_layers[info.dragged_index],
+            ))
+        };
+        let on_drag = move |info: DragDropInfo| {
+            let target = resolve_target(&info, canvas, &on_drag_layers);
+            on_message(LayerStackMessage::DropPreview(target))
+        };
+        let on_drop = move |info: DragDropInfo| {
+            let target = resolve_target(&info, canvas, &on_drop_layers);
+            on_message(LayerStackMessage::DropPreview(None));
+            match target {
+                Some(target) => on_message(LayerStackMessage::MoveLayers {
+                    layer_ids: canvas.selected_layer_ids().iter().copied().collect(),
+                    new_parent: target.parent,
+                    new_position: target.child_position,
+                }),
+                None => on_message(LayerStackMessage::DropPreview(None)),
+            }
+        };
 
-impl Render for LayerDragInfo {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .bg(cx.theme().background)
-            .p_2()
-            .child(self.layer_name.clone())
-    }
-}
+        let list = DragDropColumn::new(rows)
+            .spacing(1.0)
+            .on_press(on_press)
+            .on_drag(on_drag)
+            .on_drop(on_drop);
+        let overlay = Element::new(DropIndicatorOverlay::new(view.drop_preview));
+        let list_with_overlay = stack![list, overlay]
+            .width(Length::Fill)
+            .height(Length::Fill);
+        let active_layer = canvas.active_layer_node().properties();
+        let active_id = canvas.active_layer_id();
+        let mut params: Vec<Element<'_, Message, iced_core::Theme, iced_wgpu::Renderer>> = vec![];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExpandState {
-    Expanded,
-    Collapsed,
-    Unexpandable,
+        if let Some(blend) = active_layer.get_blend_function() {
+            let all = view.blend_functions.all_ids().cloned().collect::<Vec<_>>();
+            params.push(
+                PickList::new(all, Some(blend), move |id| {
+                    let message = property_command(canvas, active_id, active_layer, |p| {
+                        p.set_blend_function(id.clone())
+                    });
+                    on_message(LayerStackMessage::LayerPropertyChanged(message))
+                })
+                .width(Length::Fill)
+                .into(),
+            );
+        }
+
+        if let Some(opacity) = active_layer.get_opacity() {
+            params.push(
+                SpinSlider::new_percent(opacity * 100.0)
+                    .prefix("Opacity: ")
+                    .suffix("%")
+                    .on_confirm(move |value| {
+                        let message = property_command(canvas, active_id, active_layer, move |p| {
+                            p.set_opacity(value / 100.0)
+                        });
+                        on_message(LayerStackMessage::LayerPropertyChanged(message))
+                    })
+                    .into(),
+            );
+        }
+
+        let params: Element<'_, Message, iced_core::Theme, iced_wgpu::Renderer> =
+            if params.is_empty() {
+                iced_widget::Space::new()
+                    .width(Length::Fill)
+                    .height(Length::Shrink)
+                    .into()
+            } else {
+                container(column(params).spacing(4.0)).padding(8.0).into()
+            };
+
+        column![params, list_with_overlay]
+            .spacing(8.0)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
 }

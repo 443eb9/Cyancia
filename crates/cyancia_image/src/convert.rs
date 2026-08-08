@@ -53,13 +53,13 @@ impl ColorProfileConvertPipeline {
 
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("color_space_convert_shader"),
-            source: ShaderSource::Wgsl(compile_wesl(shader, &[crate::image::PACKAGE])?.into()),
+            source: ShaderSource::Wgsl(compile_wesl(shader, &[&crate::image::PACKAGE])?.into()),
         });
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("color_space_convert_pipeline_layout"),
-            bind_group_layouts: &[Some(&layout)],
-            immediate_size: 0,
+            bind_group_layouts: &[&layout],
+            push_constant_ranges: &[],
         });
 
         let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {

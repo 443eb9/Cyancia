@@ -1,11 +1,9 @@
 use std::f32::consts::FRAC_PI_2;
 
+use crate::render::{ComputedPenInput, PenInput, Time};
 use chrono::{DateTime, Utc};
 use glam::Vec2;
 use ringbuffer::{AllocRingBuffer, RingBuffer};
-use winit::event::{Force, TabletToolData};
-
-use crate::render::{ComputedPenInput, PenInput, Time};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RawPenInput {
@@ -30,32 +28,15 @@ impl RawPenInput {
         },
     };
 
-    pub fn new(
-        position_ps: Vec2,
-        tablet_data: Option<TabletToolData>,
-        stroke_begin: DateTime<Utc>,
-    ) -> Self {
-        let mut input = Self {
+    pub fn new(position_ps: Vec2, stroke_begin: DateTime<Utc>) -> Self {
+        Self {
             position: position_ps,
             time: Time {
                 now: (Utc::now().timestamp_micros() % TIMESTAMP_MOD) as f32,
                 stroke_begin: (stroke_begin.timestamp_micros() % TIMESTAMP_MOD) as f32,
             },
             ..Self::DEFAULT
-        };
-        if let Some(data) = tablet_data {
-            if let Some(Force::Normalized(pressure)) = data.force {
-                input.pressure = pressure as f32;
-            }
-            if let Some(tilt) = data.clone().tilt() {
-                input.tilt = Vec2::new((tilt.x as f32).to_radians(), (tilt.y as f32).to_radians());
-            }
-            if let Some(angle) = data.clone().angle() {
-                input.angle = Vec2::new(angle.altitude as f32, angle.azimuth as f32);
-            }
         }
-
-        input
     }
 }
 

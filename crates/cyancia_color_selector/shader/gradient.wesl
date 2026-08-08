@@ -151,6 +151,23 @@ fn saturate_primary_channel(ch: vec3f) -> vec3f {
     return saturated;
 }
 
+fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.04045 {
+        return c / 12.92;
+    }
+    return pow((c + 0.055) / 1.055, 2.4);
+}
+
+@if(IS_SRGB_OUTPUT)
+fn transform_output(c: vec3f) -> vec3f {
+    return vec3f(srgb_to_linear(c.r), srgb_to_linear(c.g), srgb_to_linear(c.b));
+}
+
+@else
+fn transform_output(c: vec3f) -> vec3f {
+    return c;
+}
+
 @vertex
 fn ring_vertex(in: VertexInput) -> VertexOutput {
     return VertexOutput(vec4f(in.position, 0.0, 1.0), in.uv);
@@ -186,7 +203,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4f {
         }
     }
 
-    return vec4f(channels_into_rgb(ch), 1.0);
+    return vec4f(transform_output(channels_into_rgb(ch)), 1.0);
 }
 
 @fragment
@@ -224,5 +241,5 @@ fn ring_fragment(in: VertexOutput) -> @location(0) vec4f {
         channel_factor,
     );
 
-    return vec4f(channels_into_rgb(ch), alpha);
+    return vec4f(transform_output(channels_into_rgb(ch)), alpha);
 }

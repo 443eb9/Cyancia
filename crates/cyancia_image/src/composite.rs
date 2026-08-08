@@ -1,17 +1,15 @@
 use std::{
     any::Any,
     collections::{HashMap, hash_map::Entry},
-    rc::Rc,
     sync::Arc,
 };
 
 use bevy_math::IRect;
+use cyancia_runtime::{Services, service::Service};
 use cyancia_utils::wrapper;
 use dyn_clone::DynClone;
 use encase::ShaderType;
 use glam::IVec2;
-use gpui::{App, Global, SharedString};
-use gpui_component::searchable_list::SearchableListItem;
 use log::error;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
@@ -31,41 +29,25 @@ wrapper! {
     pub BlendFunctionId : Arc<str>
 }
 
-impl SearchableListItem for BlendFunctionId {
-    type Value = Self;
-
-    fn title(&self) -> SharedString {
-        self.to_string().into()
-    }
-
-    fn value(&self) -> &Self::Value {
-        self
-    }
-}
-
 pub trait BlendFunctionAppExt {
-    fn add_blend_function(&mut self, func: Rc<dyn BlendFunction>);
+    fn add_blend_function(&mut self, func: Arc<dyn BlendFunction>);
 }
 
-impl BlendFunctionAppExt for App {
-    fn add_blend_function(&mut self, func: Rc<dyn BlendFunction>) {
-        self.global_mut::<BlendFunctionRegistry>().register(func);
+impl BlendFunctionAppExt for Services {
+    fn add_blend_function(&mut self, func: Arc<dyn BlendFunction>) {
+        self.service_mut::<BlendFunctionRegistry>().register(func);
     }
 }
 
 #[derive(Default)]
 pub struct BlendFunctionRegistry {
-    functions: HashMap<BlendFunctionId, Rc<dyn BlendFunction>>,
+    functions: HashMap<BlendFunctionId, Arc<dyn BlendFunction>>,
 }
 
-impl Global for BlendFunctionRegistry {}
+impl Service for BlendFunctionRegistry {}
 
 impl BlendFunctionRegistry {
-    pub fn global(cx: &App) -> &Self {
-        cx.global::<Self>()
-    }
-
-    pub fn register(&mut self, func: Rc<dyn BlendFunction>) {
+    pub fn register(&mut self, func: Arc<dyn BlendFunction>) {
         match self.functions.entry(func.id()) {
             Entry::Occupied(e) => {
                 error!("Blend function '{}' is already registered", e.key());
@@ -76,11 +58,11 @@ impl BlendFunctionRegistry {
         }
     }
 
-    pub fn get(&self, name: &BlendFunctionId) -> Option<&Rc<dyn BlendFunction>> {
+    pub fn get(&self, name: &BlendFunctionId) -> Option<&Arc<dyn BlendFunction>> {
         self.functions.get(name)
     }
 
-    pub fn all(&self) -> impl Iterator<Item = &Rc<dyn BlendFunction>> {
+    pub fn all(&self) -> impl Iterator<Item = &Arc<dyn BlendFunction>> {
         self.functions.values()
     }
 
@@ -219,7 +201,7 @@ impl LayerPreviewOverriders {
     }
 }
 
-impl Global for LayerPreviewOverriders {}
+impl Service for LayerPreviewOverriders {}
 
 pub struct PixelPreviewOverrider {
     pub texture: TextureView,

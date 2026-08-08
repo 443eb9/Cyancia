@@ -154,7 +154,7 @@ impl Layer for GroupLayer {
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: "layer blend pipeline layout".into(),
-            bind_group_layouts: &[Some(&layout)],
+            bind_group_layouts: &[&layout],
             ..Default::default()
         });
 

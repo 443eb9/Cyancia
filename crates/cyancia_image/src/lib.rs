@@ -5,14 +5,14 @@ use std::{
     fs::File,
     io::{BufRead, BufReader, Seek},
     path::Path,
-    rc::Rc,
+    sync::Arc,
 };
 
 use anyhow::Result;
 use bevy_math::IRect;
 use cyancia_cyan::CyanArchive;
+use cyancia_runtime::{Application, Services, plugin::Plugin};
 use glam::{IVec2, UVec2};
-use gpui::App;
 use imagers::{ImageDecoder, ImageReader};
 use moxcms::ColorProfile;
 // TODO move CImage to another place to avoid this.
@@ -20,10 +20,10 @@ extern crate image as imagers;
 
 use crate::{
     blend_modes::BlendMode,
-    composite::{BlendFunctionAppExt, BlendFunctionRegistry, LayerPreviewOverriders},
+    composite::{BlendFunctionRegistry, LayerPreviewOverriders},
     layer::{
-        LayerId, LayerNameGenerator, LayerStack, LayerStackNode, SpecialLayers,
-        pixel_layer::PixelLayer, properties::NamePropertyExt,
+        LayerId, LayerNameGenerator, LayerStack, LayerStackNode, LayerTypeRegistry, SpecialLayers,
+        group_layer::GroupLayer, pixel_layer::PixelLayer, properties::NamePropertyExt,
     },
     texel::TexelType,
     tile::{GpuTileStorage, TileStorageAppExt},
@@ -39,17 +39,24 @@ pub mod scan_pixels;
 pub mod texel;
 pub mod tile;
 
-pub fn init(cx: &mut App) {
-    cx.set_global(GpuTileStorage::from_app(cx));
-    cx.set_global(LayerPreviewOverriders::default());
-    cx.set_global(BlendFunctionRegistry::default());
+pub struct ImagePlugin;
 
-    for blend_mode in BlendMode::ALL {
-        cx.add_blend_function(Rc::new(blend_mode));
+impl Plugin for ImagePlugin {
+    fn build(&self, app: &mut Application) {
+        app.add_service::<GpuTileStorage>()
+            .add_service::<LayerPreviewOverriders>();
+
+        let mut blend_functions = BlendFunctionRegistry::default();
+        for blend_mode in BlendMode::ALL {
+            blend_functions.register(Arc::new(blend_mode));
+        }
+        app.add_service_instance(blend_functions);
+
+        let mut layer_types = LayerTypeRegistry::default();
+        layer_types.register::<PixelLayer>();
+        layer_types.register::<GroupLayer>();
+        app.add_service_instance(layer_types);
     }
-
-    tile::init(cx);
-    layer::init(cx);
 }
 
 #[derive(Debug)]
@@ -89,15 +96,15 @@ impl CImage {
         }
     }
 
-    pub fn from_file(path: impl AsRef<Path>, cx: &App) -> Result<(CImage, CyanArchive)> {
+    pub fn from_file(path: impl AsRef<Path>, services: &Services) -> Result<(CImage, CyanArchive)> {
         let path = path.as_ref();
         if path.extension() == Some(OsStr::new("cyan")) {
             let archive = CyanArchive::open(path)?;
-            let img = CImage::read_archive(&archive, cx)?;
+            let img = CImage::read_archive(&archive, services)?;
             Ok((img, archive))
         } else {
             let (img, profile) = Self::load_image_with_profile(BufReader::new(File::open(path)?))?;
-            let img = Self::from_image(img, profile, cx.tile_storage());
+            let img = Self::from_image(img, profile, services.tile_storage());
 
             Ok((img, CyanArchive::new_in_memory()?))
         }

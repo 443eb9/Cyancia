@@ -1,112 +1,119 @@
-use gpui::{
-    AnyElement, App, AppContext, ClickEvent, Context, DragMoveEvent, Empty, Entity, EntityId,
-    EventEmitter, FocusHandle, Focusable, InteractiveElement, IntoElement, KeyBinding, MouseButton,
-    MouseDownEvent, MouseUpEvent, ParentElement, Render, RenderOnce, StatefulInteractiveElement,
-    StyleRefinement, Styled, Subscription, TextAlign, Window, actions, div, prelude::FluentBuilder,
-    px, relative,
+use iced_core::{
+    Background, Border, Clipboard, Color, Element, Event, Layout, Length, Pixels, Point, Rectangle,
+    Shell, Size, Text, Widget,
+    alignment::{Horizontal, Vertical},
+    border::{self},
+    keyboard::{self, key::Key},
+    layout, mouse, renderer,
+    text::{Alignment, LineHeight, Shaping, Wrapping},
+    widget::tree::{self, Tree},
 };
-use gpui_component::{
-    ActiveTheme, Disableable, IconName, Sizable, Size, StyleSized, StyledExt,
-    button::Button,
-    input::{Escape, Input, InputEvent, InputState, StepAction},
-    slider::SliderScale,
-};
+use iced_widget::{TextInput, text_input};
+use num_traits::AsPrimitive;
+use std::{fmt::Display, ops::RangeInclusive, str::FromStr};
 
-const KEY_CONTEXT: &str = "SpinSlider";
-
-actions!(spin_slider, [Increment, Decrement]);
-
-pub fn init(cx: &mut App) {
-    cx.bind_keys(vec![
-        KeyBinding::new("up", Increment, Some(KEY_CONTEXT)),
-        KeyBinding::new("down", Decrement, Some(KEY_CONTEXT)),
-        KeyBinding::new("escape", Escape, Some(KEY_CONTEXT)),
-    ]);
-}
-
-#[derive(Clone)]
-struct DragSlider(EntityId);
-
-impl Render for DragSlider {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        Empty
-    }
-}
-
-pub enum SpinSliderEvent {
-    Change(f32),
-    Release(f32),
-}
-
-pub struct SpinSliderState {
-    input_state: Entity<InputState>,
-
-    value: f32,
-    min: f32,
-    max: f32,
-    step: f32,
+pub struct SpinSlider<'a, T, Message, Theme = iced_core::Theme>
+where
+    Theme: Catalog,
+{
+    range: RangeInclusive<T>,
+    value: T,
+    step: T,
     precision: usize,
     scale: SliderScale,
-    // TODO Hold shift to slide more precisely
-    pending_edit: bool,
-    editing: bool,
-    value_before_edit: f32,
-
-    _subscriptions: Vec<Subscription>,
+    on_change: Option<Box<dyn Fn(T) -> Message + 'a>>,
+    on_confirm: Option<Box<dyn Fn(T) -> Message + 'a>>,
+    width: Length,
+    height: Length,
+    size: f32,
+    rounded: f32,
+    prefix: String,
+    suffix: String,
+    disabled: bool,
+    class: <Theme as Catalog>::Class<'a>,
 }
 
-impl SpinSliderState {
-    const DEFAULT_PRECISION: usize = 2;
+impl<'a, T, Message, Theme> SpinSlider<'a, T, Message, Theme>
+where
+    T: Copy + PartialOrd + Display + FromStr + AsPrimitive<f64>,
+    Theme: Catalog,
+    f64: AsPrimitive<T>,
+{
+    pub const DEFAULT_HEIGHT: f32 = 24.0;
 
-    pub fn new(min: f32, max: f32, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input_state = cx.new(|cx| {
-            InputState::new(window, cx).default_value(format!(
-                "{:.*}",
-                Self::DEFAULT_PRECISION,
-                min
-            ))
-        });
-
-        let _subscriptions = vec![cx.subscribe_in(&input_state, window, Self::on_input_event)];
+    pub fn new(range: RangeInclusive<T>, value: T) -> Self {
+        let value = if value < *range.start() {
+            *range.start()
+        } else if value > *range.end() {
+            *range.end()
+        } else {
+            value
+        };
+        let fractional_step = 0.1f64.as_();
+        let step = if fractional_step > 0.0f64.as_() {
+            fractional_step
+        } else {
+            1.0f64.as_()
+        };
 
         Self {
-            input_state: input_state.clone(),
-            value: min,
-            min,
-            max,
-            step: 0.01,
+            value,
+            range,
+            step,
+            precision: 2,
             scale: SliderScale::Linear,
-            precision: Self::DEFAULT_PRECISION,
-            editing: false,
-            value_before_edit: min,
-            pending_edit: false,
-            _subscriptions,
+            on_change: None,
+            on_confirm: None,
+            width: Length::Fill,
+            height: Length::Fixed(Self::DEFAULT_HEIGHT),
+            size: Self::DEFAULT_HEIGHT * 0.62,
+            rounded: 4.0,
+            prefix: String::new(),
+            suffix: String::new(),
+            disabled: false,
+            class: <Theme as Catalog>::default(),
         }
     }
 
-    pub fn new_01(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::new(0.0, 1.0, window, cx)
+    pub fn new_01(value: T) -> Self {
+        Self::new(0.0f64.as_()..=1.0f64.as_(), value)
     }
 
-    pub fn new_percent(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::new(0.0, 100.0, window, cx).precision(0, window, cx)
+    pub fn new_percent(value: T) -> Self {
+        Self::new(0.0f64.as_()..=100.0f64.as_(), value).precision(0)
     }
 
-    pub fn step(mut self, step: f32, cx: &mut Context<Self>) -> Self {
-        self.step = step;
-        self.set_value(self.value, cx);
+    pub fn width(mut self, width: impl Into<Length>) -> Self {
+        self.width = width.into();
         self
     }
 
-    pub fn precision(
-        mut self,
-        precision: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn height(mut self, height: impl Into<Length>) -> Self {
+        self.height = height.into();
+        self
+    }
+
+    pub fn size(mut self, size: f32) -> Self {
+        self.size = size;
+        self
+    }
+
+    pub fn rounded(mut self, rounded: f32) -> Self {
+        self.rounded = rounded;
+        self
+    }
+
+    pub fn step(mut self, step: T) -> Self {
+        self.step = step;
+        self
+    }
+
+    pub fn precision(mut self, precision: usize) -> Self {
         self.precision = precision;
-        self.step = 0.1f32.powf(self.precision as f32);
-        self.sync_input_from_value(window, cx);
+        let step: T = 10.0_f64.powi(-(precision as i32)).as_();
+        if step > 0.0_f64.as_() {
+            self.step = step;
+        }
         self
     }
 
@@ -115,360 +122,827 @@ impl SpinSliderState {
         self
     }
 
-    pub fn value(mut self, value: f32, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        self.value = value.clamp(self.min, self.max);
-        self.sync_input_from_value(window, cx);
+    pub fn prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.prefix = prefix.into();
         self
     }
 
-    pub fn editing(&self) -> bool {
-        self.editing
-    }
-
-    pub fn set_value(&mut self, value: f32, cx: &mut Context<Self>) {
-        self.value = value.clamp(self.min, self.max);
-        cx.emit(SpinSliderEvent::Change(self.value));
-    }
-
-    fn step_value(&mut self, action: StepAction, window: &mut Window, cx: &mut Context<Self>) {
-        let delta = match action {
-            StepAction::Increment => self.step,
-            StepAction::Decrement => -self.step,
-        };
-        self.set_value(self.value + delta, cx);
-        self.sync_input_from_value(window, cx);
-    }
-
-    fn commit_and_exit_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Ok(parsed) = self.input_state.read(cx).unmask_value().parse::<f32>() else {
-            return;
-        };
-
-        let value = parsed.clamp(self.min, self.max);
-        self.editing = false;
-        self.value = value;
-        self.sync_input_from_value(window, cx);
-
-        cx.emit(SpinSliderEvent::Change(value));
-        cx.emit(SpinSliderEvent::Release(value));
-        cx.notify();
-    }
-
-    fn on_input_event(
-        &mut self,
-        _: &Entity<InputState>,
-        event: &InputEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        match event {
-            InputEvent::PressEnter { .. } | InputEvent::Blur => {
-                if self.editing {
-                    self.commit_and_exit_edit(window, cx);
-                }
-            }
-            InputEvent::Focus | InputEvent::Change => {}
-        }
-    }
-
-    fn on_minus_click(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
-        self.step_value(StepAction::Decrement, window, cx);
-    }
-
-    fn on_plus_click(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
-        self.step_value(StepAction::Increment, window, cx);
-    }
-
-    fn on_action_increment(&mut self, _: &Increment, window: &mut Window, cx: &mut Context<Self>) {
-        self.step_value(StepAction::Increment, window, cx);
-    }
-
-    fn on_action_decrement(&mut self, _: &Decrement, window: &mut Window, cx: &mut Context<Self>) {
-        self.step_value(StepAction::Decrement, window, cx);
-    }
-
-    fn on_action_escape(&mut self, _: &Escape, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.editing {
-            return;
-        }
-        self.editing = false;
-        self.value = self.value_before_edit;
-        self.sync_input_from_value(window, cx);
-        cx.notify();
-        cx.stop_propagation();
-    }
-
-    fn on_drag_move(
-        &mut self,
-        event: &DragMoveEvent<DragSlider>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if event.drag(cx).0 != cx.entity_id() {
-            return;
-        }
-
-        self.pending_edit = false;
-        cx.stop_propagation();
-        let percentage =
-            (window.mouse_position().x - event.bounds.origin.x) / event.bounds.size.width;
-        let value = self.percentage_to_value(percentage);
-        let step = 0.1f32.powf(self.precision as f32);
-        let snapped = (value / step).round() * step;
-        self.set_value(snapped.clamp(self.min, self.max), cx);
-        self.sync_input_from_value(window, cx);
-    }
-
-    fn on_mouse_down(&mut self, _: &MouseDownEvent, _: &mut Window, _: &mut Context<Self>) {
-        self.pending_edit = true;
-    }
-
-    fn on_mouse_up(&mut self, _: &MouseUpEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if self.pending_edit {
-            if self.editing {
-                return;
-            }
-
-            self.value_before_edit = self.value;
-            self.editing = true;
-            self.sync_input_from_value(window, cx);
-            self.input_state.update(cx, |state, cx| {
-                state.focus(window, cx);
-            });
-            cx.notify();
-        } else {
-            cx.stop_propagation();
-            cx.emit(SpinSliderEvent::Release(self.value));
-        }
-    }
-
-    fn sync_input_from_value(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = format!("{:.*}", self.precision, self.value);
-        self.input_state.update(cx, |state, cx| {
-            state.set_value(text, window, cx);
-        });
-    }
-
-    // Copied from gpui-component
-    fn percentage_to_value(&self, percentage: f32) -> f32 {
-        match self.scale {
-            SliderScale::Linear => self.min + (self.max - self.min) * percentage,
-            SliderScale::Logarithmic => {
-                // when percentage is 0, this simplifies to (max/min)^0 * min = 1 * min = min
-                // when percentage is 1, this simplifies to (max/min)^1 * min = (max*min)/min = max
-                // we clamp just to make sure we don't have issue with floating point precision
-                let base = self.max / self.min;
-                (base.powf(percentage) * self.min).clamp(self.min, self.max)
-            }
-        }
-    }
-
-    // Copied from gpui-component
-    fn value_to_percentage(&self, value: f32) -> f32 {
-        match self.scale {
-            SliderScale::Linear => {
-                let range = self.max - self.min;
-                if range <= 0.0 {
-                    0.0
-                } else {
-                    (value - self.min) / range
-                }
-            }
-            SliderScale::Logarithmic => {
-                let base = self.max / self.min;
-                (value / self.min).log(base).clamp(0.0, 1.0)
-            }
-        }
-    }
-}
-
-impl EventEmitter<SpinSliderEvent> for SpinSliderState {}
-
-impl Focusable for SpinSliderState {
-    fn focus_handle(&self, cx: &App) -> FocusHandle {
-        self.input_state.focus_handle(cx)
-    }
-}
-
-#[derive(IntoElement)]
-pub struct SpinSlider {
-    state: Entity<SpinSliderState>,
-    size: Size,
-    disabled: bool,
-    style: StyleRefinement,
-    prefix: Option<AnyElement>,
-    suffix: Option<AnyElement>,
-}
-
-impl SpinSlider {
-    pub fn new(state: &Entity<SpinSliderState>) -> Self {
-        Self {
-            state: state.clone(),
-            size: Size::default(),
-            disabled: false,
-            style: StyleRefinement::default(),
-            prefix: None,
-            suffix: None,
-        }
-    }
-
-    pub fn prefix(mut self, prefix: impl IntoElement) -> Self {
-        self.prefix = Some(prefix.into_any_element());
+    pub fn suffix(mut self, suffix: impl Into<String>) -> Self {
+        self.suffix = suffix.into();
         self
     }
 
-    pub fn suffix(mut self, suffix: impl IntoElement) -> Self {
-        self.suffix = Some(suffix.into_any_element());
-        self
-    }
-}
-
-impl Disableable for SpinSlider {
-    fn disabled(mut self, disabled: bool) -> Self {
+    pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
     }
-}
 
-impl Styled for SpinSlider {
-    fn style(&mut self) -> &mut StyleRefinement {
-        &mut self.style
-    }
-}
-
-impl Sizable for SpinSlider {
-    fn with_size(mut self, size: impl Into<Size>) -> Self {
-        self.size = size.into();
+    pub fn on_change(mut self, on_change: impl Fn(T) -> Message + 'a) -> Self {
+        self.on_change = Some(Box::new(on_change));
         self
     }
-}
 
-impl Focusable for SpinSlider {
-    fn focus_handle(&self, cx: &App) -> FocusHandle {
-        self.state.read(cx).input_state.focus_handle(cx)
+    pub fn on_confirm(mut self, on_confirm: impl Fn(T) -> Message + 'a) -> Self {
+        self.on_confirm = Some(Box::new(on_confirm));
+        self
+    }
+
+    #[must_use]
+    pub fn style(mut self, style: impl Fn(&Theme, Status) -> Style + 'a) -> Self
+    where
+        <Theme as Catalog>::Class<'a>: From<StyleFn<'a, Theme>>,
+    {
+        self.class = (Box::new(style) as StyleFn<'a, Theme>).into();
+        self
+    }
+
+    #[must_use]
+    pub fn class(mut self, class: impl Into<<Theme as Catalog>::Class<'a>>) -> Self {
+        self.class = class.into();
+        self
+    }
+
+    fn text_input<'b, Renderer>(
+        &'b self,
+        value: &'b str,
+    ) -> Element<'b, SpinSliderInputMessage, Theme, Renderer>
+    where
+        Renderer: iced_core::text::Renderer + 'b,
+        for<'c> <Theme as text_input::Catalog>::Class<'c>: From<text_input::StyleFn<'c, Theme>>,
+    {
+        TextInput::new("", value)
+            .on_input(SpinSliderInputMessage::Changed)
+            .on_submit(SpinSliderInputMessage::Submitted)
+            .width(Length::Fill)
+            .padding([0, 4])
+            .size(self.size)
+            .line_height(LineHeight::Relative(1.0))
+            .align_x(Horizontal::Center)
+            .style(|theme, status| {
+                let spin_style = <Theme as Catalog>::style(theme, &self.class, Status::Editing);
+                let input_class = <Theme as text_input::Catalog>::default();
+                let input_style =
+                    <Theme as text_input::Catalog>::style(theme, &input_class, status);
+                let text_color = spin_style.text_color.unwrap_or_else(|| {
+                    <Theme as text_input::Catalog>::style(
+                        theme,
+                        &input_class,
+                        text_input::Status::Active,
+                    )
+                    .value
+                });
+                text_input::Style {
+                    background: Color::TRANSPARENT.into(),
+                    border: Border::default(),
+                    placeholder: text_color,
+                    value: text_color,
+                    ..input_style
+                }
+            })
+            .into()
+    }
+
+    fn step_value(&self, value: T, direction: f64) -> T {
+        self.snap_f64(value.as_() + self.step.as_() * direction)
+    }
+
+    fn snap(&self, value: T) -> T {
+        self.snap_f64(value.as_())
+    }
+
+    fn snap_f64(&self, value: f64) -> T {
+        let start: f64 = (*self.range.start()).as_();
+        let end: f64 = (*self.range.end()).as_();
+        let step: f64 = self.step.as_();
+        let steps = ((value - start) / step).round();
+        (start + steps * step).clamp(start, end).as_()
+    }
+
+    fn value_to_percentage(&self, value: T) -> f32 {
+        let value: f64 = value.as_();
+        let start: f64 = (*self.range.start()).as_();
+        let end: f64 = (*self.range.end()).as_();
+        let percentage = match self.scale {
+            SliderScale::Linear => (value - start) / (end - start),
+            SliderScale::Logarithmic => (value / start).ln() / (end / start).ln(),
+        };
+        <f64 as AsPrimitive<f32>>::as_(percentage.clamp(0.0, 1.0))
+    }
+
+    fn percentage_to_value(&self, percentage: f32) -> T {
+        let percentage = percentage.clamp(0.0, 1.0) as f64;
+        let start: f64 = (*self.range.start()).as_();
+        let end: f64 = (*self.range.end()).as_();
+        let value = match self.scale {
+            SliderScale::Linear => start + (end - start) * percentage,
+            SliderScale::Logarithmic => (end / start).powf(percentage) * start,
+        };
+
+        let step: f64 = self.step.as_();
+        let steps = ((value - start) / step).round();
+        (start + steps * step).clamp(start, end).as_()
     }
 }
 
-impl RenderOnce for SpinSlider {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let theme = cx.theme();
-        let state_ref = self.state.read(cx);
-        let input_state = state_ref.input_state.clone();
-        let fill_fraction = state_ref.value_to_percentage(state_ref.value);
-        let editing = state_ref.editing;
-        let value = state_ref.value;
-        let precision = state_ref.precision;
-        let size = self.size;
-        let disabled = self.disabled;
+impl<T, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for SpinSlider<'_, T, Message, Theme>
+where
+    T: Copy + PartialOrd + Display + FromStr + AsPrimitive<f64> + 'static,
+    Theme: Catalog,
+    f64: AsPrimitive<T>,
+    Renderer: iced_core::Renderer + iced_core::text::Renderer,
+    for<'a> <Theme as text_input::Catalog>::Class<'a>: From<text_input::StyleFn<'a, Theme>>,
+{
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<SpinSliderTreeState<T>>()
+    }
 
-        let bar_color = self
-            .style
-            .background
-            .clone()
-            .and_then(|bg| bg.color())
-            .unwrap_or(theme.accent.into());
-        let track_color = theme.input.opacity(0.12);
-        let text_color = theme.foreground;
+    fn state(&self) -> tree::State {
+        tree::State::new(SpinSliderTreeState::<T>::default())
+    }
 
-        let slider_input = div()
-            .id(("spin-slider-middle", self.state.entity_id()))
-            .relative()
-            .flex_1()
-            .h_full()
-            .min_w(px(0.))
-            .overflow_hidden()
-            .bg(track_color)
-            .border_color(theme.input)
-            .border_1()
-            .child(
-                div()
-                    .absolute()
-                    .top(px(0.))
-                    .left(px(0.))
-                    .h_full()
-                    .w(relative(fill_fraction))
-                    .bg(bar_color),
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(self.text_input::<Renderer>(""))]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        let state = tree.state.downcast_ref::<SpinSliderTreeState<T>>();
+        let value = match &state.interaction {
+            SpinSliderState::Editing { value } => value.clone(),
+            _ => format!("{:.*}", self.precision, self.value),
+        };
+        tree.diff_children(&[&self.text_input::<Renderer>(&value)]);
+    }
+
+    fn size(&self) -> Size<Length> {
+        Size::new(self.width, Length::Shrink)
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        let size = limits.resolve(self.width, self.height, Size::new(0.0, self.size));
+        let button_width = size.height.min(size.width / 3.0);
+        let input_size = Size::new((size.width - button_width * 2.0).max(0.0), size.height);
+        let state = tree.state.downcast_ref::<SpinSliderTreeState<T>>();
+        let value = match &state.interaction {
+            SpinSliderState::Editing { value } => value.clone(),
+            _ => format!("{:.*}", self.precision, self.value),
+        };
+        let mut input = self.text_input::<Renderer>(&value);
+        let input = input
+            .as_widget_mut()
+            .layout(
+                &mut tree.children[0],
+                renderer,
+                &layout::Limits::new(input_size, input_size),
             )
-            .when(editing, |this| {
-                this.child(
-                    Input::new(&input_state)
-                        .appearance(false)
-                        .bordered(false)
-                        .with_size(size)
-                        .disabled(disabled)
-                        .gap_0()
-                        .rounded_none()
-                        .text_align(TextAlign::Center),
-                )
-            })
-            .when(!editing, |this| {
-                this.when(!disabled, |this| {
-                    this.cursor_text()
-                        .on_drag(DragSlider(self.state.entity_id()), |drag, _, _, cx| {
-                            cx.stop_propagation();
-                            cx.new(|_| drag.clone())
-                        })
-                        .on_drag_move(
-                            window.listener_for(&self.state, SpinSliderState::on_drag_move),
-                        )
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            window.listener_for(&self.state, SpinSliderState::on_mouse_down),
-                        )
-                        .on_mouse_up(
-                            MouseButton::Left,
-                            window.listener_for(&self.state, SpinSliderState::on_mouse_up),
-                        )
+            .move_to(Point::new(button_width, 0.0));
+
+        layout::Node::with_children(size, vec![input])
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        let state = tree.state.downcast_mut::<SpinSliderTreeState<T>>();
+        let bounds = layout.bounds();
+        let (minus, field, plus) = split_bounds(bounds);
+
+        if let Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) = event {
+            state.modifiers = *modifiers;
+        }
+
+        if self.disabled {
+            if matches!(state.interaction, SpinSliderState::Editing { .. }) {
+                tree.children[0]
+                    .state
+                    .downcast_mut::<text_input::State<Renderer::Paragraph>>()
+                    .unfocus();
+            }
+            state.interaction = SpinSliderState::Idle;
+            return;
+        }
+
+        if let SpinSliderState::Editing { value } = &state.interaction {
+            let input_value = value.clone();
+            let mut input = self.text_input::<Renderer>(&input_value);
+            let mut input_messages = Vec::new();
+            let mut input_shell = Shell::new(&mut input_messages);
+            input.as_widget_mut().update(
+                &mut tree.children[0],
+                event,
+                layout.child(0),
+                cursor,
+                renderer,
+                clipboard,
+                &mut input_shell,
+                viewport,
+            );
+
+            let event_captured = input_shell.is_event_captured();
+            if input_shell.is_event_captured() {
+                shell.capture_event();
+            }
+            shell.request_redraw_at(input_shell.redraw_request());
+            if input_shell.is_layout_invalid() {
+                shell.invalidate_layout();
+            }
+            if input_shell.are_widgets_invalid() {
+                shell.invalidate_widgets();
+            }
+            shell.input_method_mut().merge(input_shell.input_method());
+            drop(input_shell);
+
+            for message in input_messages {
+                match message {
+                    SpinSliderInputMessage::Changed(value) => {
+                        state.interaction = SpinSliderState::Editing { value };
+                    }
+                    SpinSliderInputMessage::Submitted => {
+                        let SpinSliderState::Editing { value } = &state.interaction else {
+                            continue;
+                        };
+                        let Ok(value) = value.parse::<T>() else {
+                            continue;
+                        };
+                        let value = self.snap(value);
+                        if value != self.value {
+                            if let Some(on_change) = &self.on_change {
+                                shell.publish((*on_change)(value));
+                            }
+                            if let Some(on_confirm) = &self.on_confirm {
+                                shell.publish((*on_confirm)(value));
+                            }
+                        }
+                        state.interaction = SpinSliderState::Idle;
+                    }
+                }
+            }
+
+            if matches!(
+                event,
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: Key::Named(keyboard::key::Named::Escape),
+                    ..
                 })
-                .child(
-                    div()
-                        .input_h(size)
-                        .relative()
-                        .flex_1()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_color(text_color)
-                        .when_some(self.prefix, |this, pre| this.child(pre))
-                        .child(format!("{:.*}", precision, value))
-                        .when_some(self.suffix, |this, suf| this.child(suf)),
-                )
-            });
+            ) {
+                state.interaction = SpinSliderState::Idle;
+            }
 
-        div()
-            .id(("spin-slider", self.state.entity_id()))
-            .key_context(KEY_CONTEXT)
-            .on_action(window.listener_for(&self.state, SpinSliderState::on_action_increment))
-            .on_action(window.listener_for(&self.state, SpinSliderState::on_action_decrement))
-            .on_action(window.listener_for(&self.state, SpinSliderState::on_action_escape))
-            .h_flex()
-            .flex_1()
-            .rounded(cx.theme().radius)
-            .refine_style(&self.style)
-            .when(self.disabled, |this| this.opacity(0.5))
-            .child(
-                Button::new("minus")
-                    .outline()
-                    .with_size(size)
-                    .icon(IconName::Minus)
-                    .compact()
-                    .tab_stop(false)
-                    .disabled(disabled)
-                    .border_0()
-                    // TODO Button styles are incorrect. They have rounded corners and borders at every direction
-                    //      Fix this if gpui-component make border_edges and border_corners public
-                    .on_click(window.listener_for(&self.state, SpinSliderState::on_minus_click)),
-            )
-            .child(slider_input)
-            .child(
-                Button::new("plus")
-                    .outline()
-                    .with_size(size)
-                    .icon(IconName::Plus)
-                    .compact()
-                    .tab_stop(false)
-                    .disabled(disabled)
-                    .on_click(window.listener_for(&self.state, SpinSliderState::on_plus_click)),
-            )
+            if !matches!(state.interaction, SpinSliderState::Editing { .. }) {
+                tree.children[0]
+                    .state
+                    .downcast_mut::<text_input::State<Renderer::Paragraph>>()
+                    .unfocus();
+            }
+
+            shell.request_redraw();
+            if event_captured {
+                return;
+            }
+        }
+
+        if let (
+            SpinSliderState::Editing { value },
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+        ) = (&state.interaction, event)
+        {
+            let position = cursor.position();
+            if position.is_some_and(|position| field.contains(position)) {
+                shell.capture_event();
+                return;
+            }
+
+            let edited_value = value.parse::<T>().ok().map(|value| self.snap(value));
+            state.interaction = SpinSliderState::Idle;
+            tree.children[0]
+                .state
+                .downcast_mut::<text_input::State<Renderer::Paragraph>>()
+                .unfocus();
+
+            if position.is_some_and(|position| minus.contains(position)) {
+                {
+                    let this = &self;
+                    let value = self.step_value(edited_value.unwrap_or(self.value), -1.0);
+                    if value != this.value {
+                        if let Some(on_change) = &this.on_change {
+                            shell.publish((*on_change)(value));
+                        }
+                        if let Some(on_confirm) = &this.on_confirm {
+                            shell.publish((*on_confirm)(value));
+                        }
+                    }
+                };
+                state.interaction = SpinSliderState::Pressing {
+                    target: PressTarget::Minus,
+                };
+                shell.capture_event();
+            } else if position.is_some_and(|position| plus.contains(position)) {
+                {
+                    let this = &self;
+                    let value = self.step_value(edited_value.unwrap_or(self.value), 1.0);
+                    if value != this.value {
+                        if let Some(on_change) = &this.on_change {
+                            shell.publish((*on_change)(value));
+                        }
+                        if let Some(on_confirm) = &this.on_confirm {
+                            shell.publish((*on_confirm)(value));
+                        }
+                    }
+                };
+                state.interaction = SpinSliderState::Pressing {
+                    target: PressTarget::Plus,
+                };
+                shell.capture_event();
+            } else if let Some(value) = edited_value
+                && value != self.value
+            {
+                if let Some(on_change) = &self.on_change {
+                    shell.publish((*on_change)(value));
+                }
+                if let Some(on_confirm) = &self.on_confirm {
+                    shell.publish((*on_confirm)(value));
+                }
+            }
+            return;
+        }
+
+        match event {
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let Some(position) = cursor.position() else {
+                    return;
+                };
+
+                state.interaction = if minus.contains(position) {
+                    let value = self.step_value(self.value, -1.0);
+                    if value != self.value {
+                        if let Some(on_change) = &self.on_change {
+                            shell.publish((*on_change)(value));
+                        }
+                        if let Some(on_confirm) = &self.on_confirm {
+                            shell.publish((*on_confirm)(value));
+                        }
+                    }
+                    SpinSliderState::Pressing {
+                        target: PressTarget::Minus,
+                    }
+                } else if plus.contains(position) {
+                    let value = self.step_value(self.value, 1.0);
+                    if value != self.value {
+                        if let Some(on_change) = &self.on_change {
+                            shell.publish((*on_change)(value));
+                        }
+                        if let Some(on_confirm) = &self.on_confirm {
+                            shell.publish((*on_confirm)(value));
+                        }
+                    }
+                    SpinSliderState::Pressing {
+                        target: PressTarget::Plus,
+                    }
+                } else if field.contains(position) {
+                    SpinSliderState::Pressing {
+                        target: PressTarget::Field,
+                    }
+                } else {
+                    return;
+                };
+
+                shell.capture_event();
+            }
+            Event::Mouse(mouse::Event::CursorMoved { .. })
+                if matches!(
+                    state.interaction,
+                    SpinSliderState::Pressing {
+                        target: PressTarget::Field
+                    } | SpinSliderState::Dragging { .. }
+                ) =>
+            {
+                let Some(position) = cursor.position() else {
+                    return;
+                };
+                let value = self.percentage_to_value((position.x - field.x) / field.width);
+                state.interaction = SpinSliderState::Dragging { value };
+                if value != self.value
+                    && let Some(on_change) = &self.on_change
+                {
+                    shell.publish((*on_change)(value));
+                }
+                shell.capture_event();
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                match std::mem::take(&mut state.interaction) {
+                    SpinSliderState::Dragging { value } => {
+                        if let Some(on_confirm) = &self.on_confirm {
+                            shell.publish((*on_confirm)(value));
+                        }
+                    }
+                    SpinSliderState::Pressing {
+                        target: PressTarget::Field,
+                    } => {
+                        state.interaction = SpinSliderState::Editing {
+                            value: format!("{:.*}", self.precision, self.value),
+                        };
+                        let input_state = tree.children[0]
+                            .state
+                            .downcast_mut::<text_input::State<Renderer::Paragraph>>();
+                        input_state.focus();
+                        input_state.select_all();
+                        shell.invalidate_layout();
+                        shell.request_redraw();
+                    }
+                    SpinSliderState::Pressing { .. } => {}
+                    interaction => {
+                        state.interaction = interaction;
+                        return;
+                    }
+                }
+                shell.request_redraw();
+                shell.capture_event();
+            }
+            Event::Mouse(mouse::Event::WheelScrolled { delta })
+                if matches!(state.interaction, SpinSliderState::Idle)
+                    && state.modifiers.control()
+                    && cursor.is_over(bounds) =>
+            {
+                let delta = match delta {
+                    mouse::ScrollDelta::Lines { y, .. } => *y,
+                    mouse::ScrollDelta::Pixels { y, .. } => *y,
+                };
+                let value = self.step_value(self.value, if delta < 0.0 { -1.0 } else { 1.0 });
+                if value != self.value {
+                    if let Some(on_change) = &self.on_change {
+                        shell.publish((*on_change)(value));
+                    }
+                    if let Some(on_confirm) = &self.on_confirm {
+                        shell.publish((*on_confirm)(value));
+                    }
+                }
+                shell.capture_event();
+            }
+            Event::Keyboard(keyboard::Event::KeyPressed { key, .. })
+                if matches!(state.interaction, SpinSliderState::Idle) && cursor.is_over(bounds) =>
+            {
+                match key {
+                    Key::Named(keyboard::key::Named::ArrowUp) => {
+                        let value = self.step_value(self.value, 1.0);
+                        if value != self.value {
+                            if let Some(on_change) = &self.on_change {
+                                shell.publish((*on_change)(value));
+                            }
+                            if let Some(on_confirm) = &self.on_confirm {
+                                shell.publish((*on_confirm)(value));
+                            }
+                        }
+                        shell.capture_event();
+                    }
+                    Key::Named(keyboard::key::Named::ArrowDown) => {
+                        let value = self.step_value(self.value, -1.0);
+                        if value != self.value {
+                            if let Some(on_change) = &self.on_change {
+                                shell.publish((*on_change)(value));
+                            }
+                            if let Some(on_confirm) = &self.on_confirm {
+                                shell.publish((*on_confirm)(value));
+                            }
+                        }
+                        shell.capture_event();
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        renderer_style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let state = tree.state.downcast_ref::<SpinSliderTreeState<T>>();
+        let bounds = layout.bounds();
+        let (minus, field, plus) = split_bounds(bounds);
+        let status = if self.disabled {
+            Status::Disabled
+        } else if matches!(state.interaction, SpinSliderState::Editing { .. }) {
+            Status::Editing
+        } else if matches!(state.interaction, SpinSliderState::Dragging { .. }) {
+            Status::Dragged
+        } else if cursor.is_over(bounds) {
+            Status::Hovered
+        } else {
+            Status::Active
+        };
+        let style = <Theme as Catalog>::style(theme, &self.class, status);
+
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds: minus,
+                border: Border {
+                    color: style.border_color,
+                    width: 1.0,
+                    radius: border::Radius {
+                        top_left: self.rounded,
+                        bottom_left: self.rounded,
+                        ..Default::default()
+                    },
+                },
+                ..Default::default()
+            },
+            style.button_background,
+        );
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds: field,
+                border: Border {
+                    color: style.border_color,
+                    width: 1.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            style.background,
+        );
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds: plus,
+                border: Border {
+                    color: style.border_color,
+                    width: 1.0,
+                    radius: border::Radius {
+                        top_right: self.rounded,
+                        bottom_right: self.rounded,
+                        ..Default::default()
+                    },
+                },
+                ..Default::default()
+            },
+            style.button_background,
+        );
+
+        let value = match state.interaction {
+            SpinSliderState::Idle
+            | SpinSliderState::Pressing { .. }
+            | SpinSliderState::Editing { .. } => self.value,
+            SpinSliderState::Dragging { value } => value,
+        };
+
+        let percentage = self.value_to_percentage(value);
+        let value_bar = if matches!(state.interaction, SpinSliderState::Editing { .. }) {
+            style.value_bar.scale_alpha(0.2)
+        } else {
+            style.value_bar
+        };
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds: Rectangle {
+                    width: field.width * percentage,
+                    ..field
+                },
+                ..Default::default()
+            },
+            value_bar,
+        );
+
+        let text_color = style.text_color.unwrap_or(renderer_style.text_color);
+        fill_text(renderer, minus, "−", self.size, text_color);
+        if let SpinSliderState::Editing { value } = &state.interaction {
+            self.text_input::<Renderer>(value).as_widget().draw(
+                &tree.children[0],
+                renderer,
+                theme,
+                renderer_style,
+                layout.child(0),
+                cursor,
+                viewport,
+            );
+        } else {
+            fill_text(
+                renderer,
+                field,
+                &format!("{}{:.*}{}", self.prefix, self.precision, value, self.suffix),
+                self.size,
+                text_color,
+            );
+        }
+        fill_text(renderer, plus, "+", self.size, text_color);
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        if self.disabled || !cursor.is_over(layout.bounds()) {
+            return mouse::Interaction::default();
+        }
+        let state = tree.state.downcast_ref::<SpinSliderTreeState<T>>();
+        if let SpinSliderState::Editing { value } = &state.interaction
+            && cursor.is_over(layout.child(0).bounds())
+        {
+            self.text_input::<Renderer>(value)
+                .as_widget()
+                .mouse_interaction(
+                    &tree.children[0],
+                    layout.child(0),
+                    cursor,
+                    viewport,
+                    renderer,
+                )
+        } else if matches!(state.interaction, SpinSliderState::Dragging { .. }) {
+            mouse::Interaction::Grabbing
+        } else {
+            mouse::Interaction::Pointer
+        }
+    }
+}
+
+impl<'a, T, Message, Theme, Renderer> From<SpinSlider<'a, T, Message, Theme>>
+    for Element<'a, Message, Theme, Renderer>
+where
+    T: Copy + PartialOrd + Display + FromStr + AsPrimitive<f64> + 'static,
+    f64: AsPrimitive<T>,
+    Message: 'a,
+    Theme: Catalog + 'a,
+    Renderer: iced_core::Renderer + iced_core::text::Renderer + 'a,
+    for<'b> <Theme as text_input::Catalog>::Class<'b>: From<text_input::StyleFn<'b, Theme>>,
+{
+    fn from(widget: SpinSlider<'a, T, Message, Theme>) -> Self {
+        Element::new(widget)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SliderScale {
+    Linear,
+    Logarithmic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PressTarget {
+    Minus,
+    Field,
+    Plus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Style {
+    pub background: Background,
+    pub value_bar: Background,
+    pub button_background: Background,
+    pub border_color: Color,
+    pub text_color: Option<Color>,
+}
+
+#[derive(Clone)]
+enum SpinSliderInputMessage {
+    Changed(String),
+    Submitted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    Active,
+    Hovered,
+    Dragged,
+    Editing,
+    Disabled,
+}
+
+#[derive(Debug)]
+struct SpinSliderTreeState<T> {
+    interaction: SpinSliderState<T>,
+    modifiers: keyboard::Modifiers,
+}
+
+impl<T> Default for SpinSliderTreeState<T> {
+    fn default() -> Self {
+        Self {
+            interaction: SpinSliderState::Idle,
+            modifiers: keyboard::Modifiers::default(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+enum SpinSliderState<T> {
+    #[default]
+    Idle,
+    Pressing {
+        target: PressTarget,
+    },
+    Dragging {
+        value: T,
+    },
+    Editing {
+        value: String,
+    },
+}
+
+fn split_bounds(bounds: Rectangle) -> (Rectangle, Rectangle, Rectangle) {
+    let button_width = bounds.height.min(bounds.width / 3.0);
+    let minus = Rectangle {
+        width: button_width,
+        ..bounds
+    };
+    let field = Rectangle {
+        x: bounds.x + button_width,
+        width: bounds.width - button_width * 2.0,
+        ..bounds
+    };
+    let plus = Rectangle {
+        x: bounds.x + bounds.width - button_width,
+        width: button_width,
+        ..bounds
+    };
+    (minus, field, plus)
+}
+
+fn fill_text<Renderer>(
+    renderer: &mut Renderer,
+    bounds: Rectangle,
+    content: &str,
+    size: f32,
+    color: Color,
+) where
+    Renderer: iced_core::Renderer + iced_core::text::Renderer,
+{
+    renderer.fill_text(
+        Text {
+            content: content.to_owned(),
+            bounds: bounds.size(),
+            size: Pixels(size),
+            line_height: LineHeight::Relative(1.0),
+            font: renderer.default_font(),
+            align_x: Alignment::Center,
+            align_y: Vertical::Center,
+            shaping: Shaping::Auto,
+            wrapping: Wrapping::None,
+        },
+        Point::new(bounds.center_x(), bounds.center_y()),
+        color,
+        bounds,
+    );
+}
+
+pub trait Catalog: text_input::Catalog + Sized {
+    type Class<'a>;
+
+    fn default<'a>() -> <Self as Catalog>::Class<'a>;
+
+    fn style(&self, class: &<Self as Catalog>::Class<'_>, status: Status) -> Style;
+}
+
+pub type StyleFn<'a, Theme> = Box<dyn Fn(&Theme, Status) -> Style + 'a>;
+
+impl Catalog for iced_core::Theme {
+    type Class<'a> = StyleFn<'a, Self>;
+
+    fn default<'a>() -> <Self as Catalog>::Class<'a> {
+        Box::new(default)
+    }
+
+    fn style(&self, class: &<Self as Catalog>::Class<'_>, status: Status) -> Style {
+        class(self, status)
+    }
+}
+
+pub fn default(theme: &iced_core::Theme, status: Status) -> Style {
+    let palette = theme.extended_palette();
+    let value_bar = match status {
+        Status::Hovered | Status::Editing => palette.primary.strong.color,
+        Status::Dragged => palette.primary.weak.color,
+        Status::Disabled | Status::Active => palette.primary.base.color,
+    };
+    let background = match status {
+        Status::Editing => palette.background.weak.color,
+        _ => palette.background.base.color,
+    };
+    Style {
+        background: background.into(),
+        value_bar: value_bar.into(),
+        button_background: palette.background.weak.color.into(),
+        border_color: palette.background.strong.color,
+        text_color: None,
     }
 }

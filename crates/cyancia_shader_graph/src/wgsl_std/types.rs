@@ -1,26 +1,20 @@
-use std::rc::Rc;
+use std::convert::identity;
 
 use bevy_math::Rect;
 use cyancia_render::buffer::DynamicBuffer;
-use cyancia_utils::random_oklch;
+use cyancia_widgets::spin_slider::SpinSlider;
 use glam::{Vec2, Vec4};
-use gpui::{
-    AnyElement, App, AppContext, Context, ElementId, Entity, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Rgba, Styled, Window, div, px,
-};
-use gpui_component::{
-    Sizable,
-    input::{InputEvent, InputState, MaskPattern, NumberInput, NumberInputEvent, StepAction},
-};
+use iced_core::{Color, Element};
+use iced_widget::{column, space};
 use serde::{Deserialize, Serialize};
 
-use crate::graph::{
-    slot::{GraphInlineLiteralRenderContext, GraphValueType},
-    texture::TextureId,
-    variable::GraphLiteralValue,
+use crate::{
+    GraphRenderer, GraphTheme,
+    graph::{slot::GraphValueType, texture::TextureId},
+    wgsl_std::themed_color,
 };
 
-pub const MIN_INLINE_FLOAT_WIDTH: Pixels = px(120.0);
+// TODO: Boolean and rectangle types
 
 #[derive(Default, Clone)]
 pub struct F32Type;
@@ -28,8 +22,10 @@ pub struct F32Type;
 impl GraphValueType for F32Type {
     type AssociatedLiteralType = f32;
 
-    fn color(&self, cx: &App) -> Rgba {
-        random_oklch!(F32Type, cx)
+    type Message = f32;
+
+    fn color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(F32Type), is_dark)
     }
 
     fn name(&self) -> &'static str {
@@ -53,22 +49,22 @@ impl GraphValueType for F32Type {
         Some(buf.into_inner())
     }
 
-    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String> {
-        Some(format!("{:.5}", data))
+    fn view_literal(
+        &self,
+        data: &Self::AssociatedLiteralType,
+    ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
+        SpinSlider::new(0.0..=1.0, *data)
+            .on_confirm(identity)
+            .step(0.01)
+            .into()
     }
 
-    fn render_inline(
-        &self,
-        literal: &Self::AssociatedLiteralType,
-        mut ctx: GraphInlineLiteralRenderContext<'_>,
-    ) -> AnyElement {
-        let literal = *literal;
-        literal_number_input(
-            format!("slot-literal-{}", ctx.slot_id),
-            &mut ctx,
-            literal,
-            std::convert::identity,
-        )
+    fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message) {
+        *data = message;
+    }
+
+    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String> {
+        Some(format!("{:.5}", data))
     }
 }
 
@@ -84,8 +80,10 @@ pub enum Vec2FMessage {
 impl GraphValueType for Vec2FType {
     type AssociatedLiteralType = Vec2;
 
-    fn color(&self, cx: &App) -> Rgba {
-        random_oklch!(Vec2FType, cx)
+    type Message = Vec2FMessage;
+
+    fn color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(Vec2FType), is_dark)
     }
 
     fn name(&self) -> &'static str {
@@ -109,30 +107,27 @@ impl GraphValueType for Vec2FType {
         Some(buf.into_inner())
     }
 
-    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String> {
-        Some(format!("vec2f({:.5}, {:.5})", data.x, data.y))
+    fn view_literal(
+        &self,
+        data: &Self::AssociatedLiteralType,
+    ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
+        column![
+            SpinSlider::new(0.0..=1.0, data.x).on_confirm(Vec2FMessage::X),
+            SpinSlider::new(0.0..=1.0, data.y).on_confirm(Vec2FMessage::Y),
+        ]
+        .padding(2)
+        .into()
     }
 
-    fn render_inline(
-        &self,
-        literal: &Self::AssociatedLiteralType,
-        mut ctx: GraphInlineLiteralRenderContext<'_>,
-    ) -> AnyElement {
-        let literal = *literal;
-        let x = literal_number_input(
-            format!("slot-literal-x-{}", ctx.slot_id),
-            &mut ctx,
-            literal.x,
-            move |val| literal.with_x(val),
-        );
-        let y = literal_number_input(
-            format!("slot-literal-y-{}", ctx.slot_id),
-            &mut ctx,
-            literal.y,
-            move |val| literal.with_y(val),
-        );
+    fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message) {
+        match message {
+            Vec2FMessage::X(x) => data.x = x,
+            Vec2FMessage::Y(y) => data.y = y,
+        }
+    }
 
-        div().w_full().child(x).child(y).into_any_element()
+    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String> {
+        Some(format!("vec2f({:.5}, {:.5})", data.x, data.y))
     }
 }
 
@@ -150,8 +145,10 @@ pub enum ColorMessage {
 impl GraphValueType for ColorType {
     type AssociatedLiteralType = Vec4;
 
-    fn color(&self, cx: &App) -> Rgba {
-        random_oklch!(ColorType, cx)
+    type Message = ColorMessage;
+
+    fn color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(ColorType), is_dark)
     }
 
     fn name(&self) -> &'static str {
@@ -175,51 +172,34 @@ impl GraphValueType for ColorType {
         Some(buf.into_inner())
     }
 
+    fn view_literal(
+        &self,
+        data: &Self::AssociatedLiteralType,
+    ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
+        column![
+            SpinSlider::new(0.0..=1.0, data.x).on_confirm(ColorMessage::R),
+            SpinSlider::new(0.0..=1.0, data.y).on_confirm(ColorMessage::G),
+            SpinSlider::new(0.0..=1.0, data.z).on_confirm(ColorMessage::B),
+            SpinSlider::new(0.0..=1.0, data.w).on_confirm(ColorMessage::A),
+        ]
+        .padding(2)
+        .into()
+    }
+
+    fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message) {
+        match message {
+            ColorMessage::R(r) => data.x = r,
+            ColorMessage::G(g) => data.y = g,
+            ColorMessage::B(b) => data.z = b,
+            ColorMessage::A(a) => data.w = a,
+        }
+    }
+
     fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String> {
         Some(format!(
             "vec4f({:.5}, {:.5}, {:.5}, {:.5})",
             data.x, data.y, data.z, data.w
         ))
-    }
-
-    fn render_inline(
-        &self,
-        literal: &Self::AssociatedLiteralType,
-        mut ctx: GraphInlineLiteralRenderContext<'_>,
-    ) -> AnyElement {
-        let literal = *literal;
-        let r = literal_number_input(
-            format!("slot-literal-r-{}", ctx.slot_id),
-            &mut ctx,
-            literal.x,
-            move |val| literal.with_x(val),
-        );
-        let g = literal_number_input(
-            format!("slot-literal-g-{}", ctx.slot_id),
-            &mut ctx,
-            literal.y,
-            move |val| literal.with_y(val),
-        );
-        let b = literal_number_input(
-            format!("slot-literal-b-{}", ctx.slot_id),
-            &mut ctx,
-            literal.z,
-            move |val| literal.with_z(val),
-        );
-        let a = literal_number_input(
-            format!("slot-literal-a-{}", ctx.slot_id),
-            &mut ctx,
-            literal.w,
-            move |val| literal.with_w(val),
-        );
-
-        div()
-            .w_full()
-            .child(r)
-            .child(g)
-            .child(b)
-            .child(a)
-            .into_any_element()
     }
 }
 
@@ -248,8 +228,10 @@ impl TextureReference {
 impl GraphValueType for TextureType {
     type AssociatedLiteralType = TextureReference;
 
-    fn color(&self, cx: &App) -> Rgba {
-        random_oklch!(TextureType, cx)
+    type Message = ();
+
+    fn color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(TextureType), is_dark)
     }
 
     fn name(&self) -> &'static str {
@@ -264,20 +246,24 @@ impl GraphValueType for TextureType {
         None
     }
 
-    fn try_write_into_shader_buffer(&self, _: &Self::AssociatedLiteralType) -> Option<Vec<u8>> {
+    fn try_write_into_shader_buffer(
+        &self,
+        _literal: &Self::AssociatedLiteralType,
+    ) -> Option<Vec<u8>> {
         None
     }
 
-    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String> {
-        Some(data.local_index.to_string())
+    fn view_literal(
+        &self,
+        _data: &Self::AssociatedLiteralType,
+    ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
+        Element::new(space())
     }
 
-    fn render_inline(
-        &self,
-        _: &Self::AssociatedLiteralType,
-        _: GraphInlineLiteralRenderContext<'_>,
-    ) -> AnyElement {
-        div().into_any_element()
+    fn update_literal(&self, _data: &mut Self::AssociatedLiteralType, _message: Self::Message) {}
+
+    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String> {
+        Some(data.local_index.to_string())
     }
 }
 
@@ -295,8 +281,10 @@ pub enum RectMessage {
 impl GraphValueType for RectType {
     type AssociatedLiteralType = Rect;
 
-    fn color(&self, cx: &App) -> Rgba {
-        random_oklch!(RectType, cx)
+    type Message = RectMessage;
+
+    fn color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(RectType), is_dark)
     }
 
     fn name(&self) -> &'static str {
@@ -320,159 +308,33 @@ impl GraphValueType for RectType {
         Some(buf.into_inner())
     }
 
+    fn view_literal(
+        &self,
+        data: &Self::AssociatedLiteralType,
+    ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
+        column![
+            SpinSlider::new(0.0..=1.0, data.min.x).on_confirm(RectMessage::MinX),
+            SpinSlider::new(0.0..=1.0, data.min.y).on_confirm(RectMessage::MinY),
+            SpinSlider::new(0.0..=1.0, data.max.x).on_confirm(RectMessage::MaxX),
+            SpinSlider::new(0.0..=1.0, data.max.y).on_confirm(RectMessage::MaxY),
+        ]
+        .padding(2)
+        .into()
+    }
+
+    fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message) {
+        match message {
+            RectMessage::MinX(x) => data.min.x = x,
+            RectMessage::MinY(y) => data.min.y = y,
+            RectMessage::MaxX(x) => data.max.x = x,
+            RectMessage::MaxY(y) => data.max.y = y,
+        }
+    }
+
     fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String> {
         Some(format!(
             "Rect(vec2f({}, {}), vec2f({}, {}))",
             data.min.x, data.min.y, data.max.x, data.max.y
         ))
     }
-
-    fn render_inline(
-        &self,
-        literal: &Self::AssociatedLiteralType,
-        mut ctx: GraphInlineLiteralRenderContext<'_>,
-    ) -> AnyElement {
-        let literal = *literal;
-        let minx = literal_number_input(
-            format!("slot-literal-minx-{}", ctx.slot_id),
-            &mut ctx,
-            literal.min.x,
-            move |val| Rect {
-                min: literal.min.with_x(val),
-                max: literal.max,
-            },
-        );
-        let miny = literal_number_input(
-            format!("slot-literal-miny-{}", ctx.slot_id),
-            &mut ctx,
-            literal.min.y,
-            move |val| Rect {
-                min: literal.min.with_y(val),
-                max: literal.max,
-            },
-        );
-        let maxx = literal_number_input(
-            format!("slot-literal-maxx-{}", ctx.slot_id),
-            &mut ctx,
-            literal.max.x,
-            move |val| Rect {
-                min: literal.min,
-                max: literal.max.with_x(val),
-            },
-        );
-        let maxy = literal_number_input(
-            format!("slot-literal-maxy-{}", ctx.slot_id),
-            &mut ctx,
-            literal.max.y,
-            move |val| Rect {
-                min: literal.min,
-                max: literal.max.with_y(val),
-            },
-        );
-
-        div()
-            .w_full()
-            .child(minx)
-            .child(miny)
-            .child(maxx)
-            .child(maxy)
-            .into_any_element()
-    }
-}
-
-// FIXME This causes problems when the value is rendered in multiple places
-//       and one of them modifies the value.
-struct LiteralNumberInputState {
-    input_state: Entity<InputState>,
-    value: f32,
-}
-
-impl LiteralNumberInputState {
-    fn new<T: GraphLiteralValue>(
-        initial_value: f32,
-        on_update: Rc<dyn Fn(Box<dyn GraphLiteralValue>, &mut App)>,
-        updated_literal: impl Fn(f32) -> T + 'static,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let input_state = cx.new(|cx| {
-            let mut state = InputState::new(window, cx).mask_pattern(MaskPattern::Number {
-                separator: None,
-                fraction: Some(4),
-            });
-            state.set_value(format!("{:.4}", initial_value), window, cx);
-            state
-        });
-
-        cx.subscribe_in(&input_state, window, {
-            let on_update = on_update.clone();
-            move |state, input_state, event: &InputEvent, window, cx| match event {
-                InputEvent::PressEnter { .. } | InputEvent::Blur => {
-                    input_state.update(cx, |input_state, cx| {
-                        if let Ok(value) = input_state.value().parse::<f32>() {
-                            (on_update)(Box::new(updated_literal(value)), cx);
-                            state.value = value;
-                            input_state.set_value(format!("{:.4}", value), window, cx);
-                        } else {
-                            input_state.set_value(format!("{:.4}", state.value), window, cx);
-                        }
-                    });
-                }
-                InputEvent::Change | InputEvent::Focus => {}
-            }
-        })
-        .detach();
-        cx.subscribe_in(&input_state, window, {
-            let on_update = on_update;
-            move |state, input_state, event: &NumberInputEvent, window, cx| match event {
-                NumberInputEvent::Step(step) => {
-                    let delta = match step {
-                        StepAction::Increment => 0.1,
-                        StepAction::Decrement => -0.1,
-                    };
-                    let value = state.input_state.read(cx).value();
-                    let Ok(value) = value.parse::<f32>() else {
-                        return;
-                    };
-                    let value = value + delta;
-                    state.value = value;
-                    input_state.update(cx, |input_state, cx| {
-                        input_state.set_value(format!("{:.4}", value), window, cx);
-                    });
-                    (on_update)(Box::new(value), cx);
-                }
-            }
-        })
-        .detach();
-
-        Self {
-            input_state,
-            value: initial_value,
-        }
-    }
-}
-
-fn literal_number_input<T: GraphLiteralValue>(
-    id: impl Into<ElementId>,
-    ctx: &mut GraphInlineLiteralRenderContext<'_>,
-    initial_value: f32,
-    updated_literal: impl Fn(f32) -> T + 'static,
-) -> AnyElement {
-    let input_state = ctx.window.use_keyed_state(id, ctx.cx, |window, cx| {
-        LiteralNumberInputState::new(
-            initial_value,
-            ctx.on_update.clone(),
-            updated_literal,
-            window,
-            cx,
-        )
-    });
-
-    let input_state = input_state.read(ctx.cx);
-    div()
-        .w_full()
-        .min_w(MIN_INLINE_FLOAT_WIDTH)
-        .child(NumberInput::new(&input_state.input_state).small())
-        .on_any_mouse_down(|_, _, cx| cx.stop_propagation())
-        .into_any_element()
 }

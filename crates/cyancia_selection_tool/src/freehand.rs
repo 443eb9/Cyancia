@@ -1,24 +1,25 @@
+use std::borrow::Cow;
+
 use bevy_math::Rect;
 use cyancia_canvas::{CanvasAppExt, CanvasUndoStackAppExt};
-use cyancia_render::render_context::RenderContextAppExt;
+use cyancia_input::{
+    key::KeyboardState,
+    mouse::{HoverMouseState, PressedMouseState},
+};
+use cyancia_runtime::Services;
 use cyancia_tools::{ToolFunction, ToolId};
 use cyancia_utils::log_err::LogErr;
+use cyancia_widgets::{form::Form, style::ButtonStyle};
 use glam::Vec2;
-use gpui::{
-    AnyElement, App, Context, FillRule, IntoElement, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ParentElement, Styled, Window,
-};
-use gpui_component::{
-    Selectable, Sizable,
-    button::{Button, ButtonGroup},
-    form::{field, v_form},
-    v_flex,
-};
+use iced_core::{Element, Length, Theme};
+use iced_runtime::Task;
+use iced_wgpu::Renderer;
+use iced_widget::{button, container, row, space};
+use lyon::tessellation::FillRule;
 use tracing::info;
-use wgpu::TextureView;
 
 use crate::render::{
-    SelectionOperation, SelectionPreviewPipeline, generate_cmd, indices_from_vertices,
+    SelectionOperation, SelectionPreviewLayer, generate_cmd, indices_from_vertices,
 };
 
 struct FreehandSelectionState {
@@ -27,10 +28,14 @@ struct FreehandSelectionState {
     op: SelectionOperation,
 }
 
+#[derive(Debug, Clone)]
+pub enum FreehandSelectionToolMessage {
+    FillRuleChanged(FillRule),
+}
+
 pub struct FreehandSelectionTool {
     fill_rule: FillRule,
     state: Option<FreehandSelectionState>,
-    preview_pipeline: Option<SelectionPreviewPipeline>,
 }
 
 impl Default for FreehandSelectionTool {
@@ -38,30 +43,32 @@ impl Default for FreehandSelectionTool {
         Self {
             fill_rule: FillRule::EvenOdd,
             state: Default::default(),
-            preview_pipeline: Default::default(),
         }
     }
 }
 
 impl ToolFunction for FreehandSelectionTool {
-    fn new(_: &mut Context<Self>) -> Self {
-        Self::default()
-    }
+    type Message = FreehandSelectionToolMessage;
 
     fn id() -> ToolId {
         ToolId::new("freehand_selection_tool".into())
     }
 
-    fn begin(&mut self, mouse: &MouseDownEvent, cx: &mut Context<Self>) {
-        let Some(canvas) = cx.read_current_canvas() else {
-            return;
+    fn begin(
+        &mut self,
+        keyboard: &KeyboardState,
+        mouse: &PressedMouseState,
+        services: &mut Services,
+    ) -> Task<Self::Message> {
+        let Some(canvas) = services.current_canvas() else {
+            return Task::none();
         };
 
         let Some(point_ps) = canvas
             .transform
-            .window_to_pixel(Vec2::new(mouse.position.x.into(), mouse.position.y.into()))
+            .window_to_pixel(Vec2::new(mouse.position.x, mouse.position.y))
         else {
-            return;
+            return Task::none();
         };
 
         self.state = Some(FreehandSelectionState {
@@ -70,37 +77,51 @@ impl ToolFunction for FreehandSelectionTool {
                 max: point_ps,
             },
             points_ps: vec![point_ps],
-            op: SelectionOperation::from_modifiers(mouse.modifiers),
+            op: SelectionOperation::from_modifiers(keyboard.modifiers()),
         });
+
+        Task::none()
     }
 
-    fn update(&mut self, mouse: &MouseMoveEvent, cx: &mut Context<Self>) {
-        let Some(canvas) = cx.read_current_canvas() else {
-            return;
+    fn update(
+        &mut self,
+        _: &KeyboardState,
+        mouse: &PressedMouseState,
+        services: &mut Services,
+    ) -> Task<Self::Message> {
+        let Some(canvas) = services.current_canvas() else {
+            return Task::none();
         };
 
         let Some(point_ps) = canvas
             .transform
-            .window_to_pixel(Vec2::new(mouse.position.x.into(), mouse.position.y.into()))
+            .window_to_pixel(Vec2::new(mouse.position.x, mouse.position.y))
         else {
-            return;
+            return Task::none();
         };
 
         let Some(state) = self.state.as_mut() else {
-            return;
+            return Task::none();
         };
 
         state.points_ps.push(point_ps);
         state.aabb = state.aabb.union_point(point_ps);
+
+        Task::none()
     }
 
-    fn end(&mut self, _: &MouseUpEvent, cx: &mut Context<Self>) {
+    fn end(
+        &mut self,
+        _: &KeyboardState,
+        _: &PressedMouseState,
+        services: &mut Services,
+    ) -> Task<Self::Message> {
         let Some(state) = self.state.take() else {
-            return;
+            return Task::none();
         };
 
         if state.points_ps.len() < 3 {
-            return;
+            return Task::none();
         }
 
         let geometry = indices_from_vertices(&state.points_ps, self.fill_rule);
@@ -110,83 +131,83 @@ impl ToolFunction for FreehandSelectionTool {
             &geometry.indices,
             state.aabb.as_irect(),
             state.op,
-            cx,
+            services,
         );
 
         if let Some(cmd) = cmd {
-            cx.push_undo_command_to_current(cmd).log_err();
+            services.push_undo_command_to_current(cmd).log_err();
             info!(
                 "Freehand select {} points aabb {:?}",
                 state.points_ps.len(),
                 state.aabb
             );
         }
+
+        Task::none()
     }
 
-    fn tool_option_widget(&mut self, _: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        v_flex()
-            .p_2()
-            .size_full()
-            .child(
-                v_form().size_full().small().text_sm().child(
-                    field().label("Fill Rule").child(
-                        ButtonGroup::new("fill-rule-group")
-                            .child(
-                                Button::new("even-odd")
-                                    .label("Even Odd")
-                                    .small()
-                                    .selected(self.fill_rule == FillRule::EvenOdd)
-                                    .on_click(cx.listener(|tool, _, _, _| {
-                                        tool.fill_rule = FillRule::EvenOdd;
-                                    })),
-                            )
-                            .child(
-                                Button::new("non-zero")
-                                    .label("Non Zero")
-                                    .small()
-                                    .selected(self.fill_rule == FillRule::NonZero)
-                                    .on_click(cx.listener(|tool, _, _, _| {
-                                        tool.fill_rule = FillRule::NonZero;
-                                    })),
-                            ),
-                    ),
-                ),
-            )
-            .into_any_element()
+    fn handle_message(&mut self, message: Self::Message, _: &mut Services) -> Task<Self::Message> {
+        match message {
+            FreehandSelectionToolMessage::FillRuleChanged(fill_rule) => self.fill_rule = fill_rule,
+        }
+
+        Task::none()
     }
 
-    fn canvas_overlay(&mut self, canvas_surface: &TextureView, _: &mut Window, cx: &mut App) {
-        let Some(state) = &self.state else {
-            return;
-        };
-
-        let Some(canvas) = cx.read_current_canvas() else {
-            return;
-        };
-
-        let device = cx.render_device();
-        let queue = cx.render_queue();
-
-        let preview_pipeline = self.preview_pipeline.get_or_insert_with(|| {
-            SelectionPreviewPipeline::new(device, canvas_surface.texture().format())
-        });
-
-        preview_pipeline.draw(
-            device,
-            queue,
-            &state.points_ps,
-            canvas_surface,
-            &canvas.transform,
+    fn tool_option_widget<'a>(
+        &'a self,
+        _: &'a Services,
+    ) -> Element<'a, Self::Message, iced_core::Theme, iced_wgpu::Renderer> {
+        let fields = Form::new().push(
+            "Fill Rule",
+            row![
+                button("Even Odd")
+                    .on_press(FreehandSelectionToolMessage::FillRuleChanged(
+                        FillRule::EvenOdd
+                    ))
+                    .style_pressed(self.fill_rule == FillRule::EvenOdd),
+                button("Non Zero")
+                    .on_press(FreehandSelectionToolMessage::FillRuleChanged(
+                        FillRule::NonZero
+                    ))
+                    .style_pressed(self.fill_rule == FillRule::NonZero),
+            ],
         );
+
+        container(fields).padding(8).width(Length::Fill).into()
+    }
+
+    fn canvas_overlay<'a>(
+        &'a self,
+        services: &'a Services,
+    ) -> Element<'a, Self::Message, Theme, Renderer> {
+        let Some(state) = &self.state else {
+            return space().into();
+        };
+
+        let Some(canvas) = services.current_canvas() else {
+            return space().into();
+        };
+
+        SelectionPreviewLayer {
+            line_vertices_ps: Cow::Borrowed(&state.points_ps),
+            canvas_transform: &canvas.transform,
+        }
+        .into()
     }
 }
 
 const POLYGON_CLOSE_DISTANCE: f32 = 10.0;
 
+#[derive(Debug, Clone)]
+pub enum PolygonSelectionToolMessage {
+    FillRuleChanged(FillRule),
+}
+
 pub struct PolygonSelectionTool {
     fill_rule: FillRule,
     state: Option<FreehandSelectionState>,
-    preview_pipeline: Option<SelectionPreviewPipeline>,
+    cursor_ps: Option<Vec2>,
 }
 
 impl Default for PolygonSelectionTool {
@@ -194,43 +215,69 @@ impl Default for PolygonSelectionTool {
         Self {
             fill_rule: FillRule::EvenOdd,
             state: Default::default(),
-            preview_pipeline: Default::default(),
+            cursor_ps: Default::default(),
         }
     }
 }
 
 impl ToolFunction for PolygonSelectionTool {
-    fn new(_: &mut Context<Self>) -> Self {
-        Self::default()
-    }
+    type Message = PolygonSelectionToolMessage;
 
     fn id() -> ToolId {
         ToolId::new("polygon_selection_tool".into())
     }
 
-    fn begin(&mut self, mouse: &MouseDownEvent, _: &mut Context<Self>) {
+    fn begin(
+        &mut self,
+        keyboard: &KeyboardState,
+        _: &PressedMouseState,
+        _: &mut Services,
+    ) -> Task<Self::Message> {
         if self.state.is_none() {
             self.state = Some(FreehandSelectionState {
                 aabb: Rect::EMPTY,
                 points_ps: Vec::new(),
-                op: SelectionOperation::from_modifiers(mouse.modifiers),
+                op: SelectionOperation::from_modifiers(keyboard.modifiers()),
             });
         }
+
+        Task::none()
     }
 
-    fn end(&mut self, mouse: &MouseUpEvent, cx: &mut Context<Self>) {
-        let Some(canvas) = cx.read_current_canvas() else {
-            return;
+    fn hover(
+        &mut self,
+        _: &KeyboardState,
+        mouse: &HoverMouseState,
+        services: &mut Services,
+    ) -> Task<Self::Message> {
+        let Some(canvas) = services.current_canvas() else {
+            return Task::none();
         };
 
-        let point_ss = Vec2::new(mouse.position.x.into(), mouse.position.y.into());
+        let point_ss = Vec2::new(mouse.position.x, mouse.position.y);
+        self.cursor_ps = canvas.transform.window_to_pixel(point_ss);
+
+        Task::none()
+    }
+
+    fn end(
+        &mut self,
+        _: &KeyboardState,
+        mouse: &PressedMouseState,
+        services: &mut Services,
+    ) -> Task<Self::Message> {
+        let Some(canvas) = services.current_canvas() else {
+            return Task::none();
+        };
+
+        let point_ss = Vec2::new(mouse.position.x, mouse.position.y);
         let Some(point_ps) = canvas.transform.window_to_pixel(point_ss) else {
-            return;
+            return Task::none();
         };
         let point_ws = point_ss - canvas.transform.widget_bounds.min;
 
         let Some(state) = self.state.as_mut() else {
-            return;
+            return Task::none();
         };
 
         if state.points_ps.len() >= 3 {
@@ -248,11 +295,11 @@ impl ToolFunction for PolygonSelectionTool {
                     &geometry.indices,
                     state.aabb.as_irect(),
                     state.op,
-                    cx,
+                    services,
                 );
 
                 if let Some(cmd) = cmd {
-                    cx.push_undo_command_to_current(cmd).log_err();
+                    services.push_undo_command_to_current(cmd).log_err();
                     info!(
                         "Polygon select {} points aabb {:?}",
                         state.points_ps.len(),
@@ -262,67 +309,63 @@ impl ToolFunction for PolygonSelectionTool {
 
                 self.state = None;
 
-                return;
+                return Task::none();
             }
         }
 
         state.points_ps.push(point_ps);
         state.aabb = state.aabb.union_point(point_ps);
+
+        Task::none()
     }
 
-    fn tool_option_widget(&mut self, _: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        v_flex()
-            .p_2()
-            .size_full()
-            .child(
-                v_form().size_full().small().text_sm().child(
-                    field().label("Fill Rule").child(
-                        ButtonGroup::new("fill-rule-group")
-                            .child(
-                                Button::new("even-odd")
-                                    .label("Even Odd")
-                                    .small()
-                                    .selected(self.fill_rule == FillRule::EvenOdd)
-                                    .on_click(cx.listener(|tool, _, _, _| {
-                                        tool.fill_rule = FillRule::EvenOdd;
-                                    })),
-                            )
-                            .child(
-                                Button::new("non-zero")
-                                    .label("Non Zero")
-                                    .small()
-                                    .selected(self.fill_rule == FillRule::NonZero)
-                                    .on_click(cx.listener(|tool, _, _, _| {
-                                        tool.fill_rule = FillRule::NonZero;
-                                    })),
-                            ),
-                    ),
-                ),
-            )
-            .into_any_element()
+    fn handle_message(&mut self, message: Self::Message, _: &mut Services) -> Task<Self::Message> {
+        match message {
+            PolygonSelectionToolMessage::FillRuleChanged(fill_rule) => self.fill_rule = fill_rule,
+        }
+
+        Task::none()
     }
 
-    fn canvas_overlay(&mut self, canvas_surface: &TextureView, window: &mut Window, cx: &mut App) {
+    fn tool_option_widget<'a>(
+        &'a self,
+        _: &'a Services,
+    ) -> Element<'a, Self::Message, iced_core::Theme, iced_wgpu::Renderer> {
+        let fields = Form::new().push(
+            "Fill Rule",
+            row![
+                button("Even Odd")
+                    .on_press(PolygonSelectionToolMessage::FillRuleChanged(
+                        FillRule::EvenOdd
+                    ))
+                    .style_pressed(self.fill_rule == FillRule::EvenOdd),
+                button("Non Zero")
+                    .on_press(PolygonSelectionToolMessage::FillRuleChanged(
+                        FillRule::NonZero
+                    ))
+                    .style_pressed(self.fill_rule == FillRule::NonZero),
+            ],
+        );
+
+        container(fields).padding(8).width(Length::Fill).into()
+    }
+
+    fn canvas_overlay<'a>(
+        &'a self,
+        services: &'a Services,
+    ) -> Element<'a, Self::Message, Theme, Renderer> {
         let Some(state) = &self.state else {
-            return;
+            return space().into();
         };
 
-        let Some(canvas) = cx.read_current_canvas() else {
-            return;
+        let Some(canvas) = services.current_canvas() else {
+            return space().into();
         };
 
-        let mouse = window.mouse_position();
-        let point_ss = Vec2::new(mouse.x.into(), mouse.y.into());
-        let Some(point_ps) = canvas.transform.window_to_pixel(point_ss) else {
-            return;
+        let Some(point_ps) = self.cursor_ps else {
+            return space().into();
         };
 
-        let device = cx.render_device();
-        let queue = cx.render_queue();
-
-        let preview_pipeline = self.preview_pipeline.get_or_insert_with(|| {
-            SelectionPreviewPipeline::new(device, canvas_surface.texture().format())
-        });
         let line_vertices_ps = state
             .points_ps
             .iter()
@@ -330,12 +373,10 @@ impl ToolFunction for PolygonSelectionTool {
             .chain([point_ps])
             .collect::<Vec<_>>();
 
-        preview_pipeline.draw(
-            device,
-            queue,
-            &line_vertices_ps,
-            canvas_surface,
-            &canvas.transform,
-        );
+        SelectionPreviewLayer {
+            line_vertices_ps: Cow::Owned(line_vertices_ps),
+            canvas_transform: &canvas.transform,
+        }
+        .into()
     }
 }

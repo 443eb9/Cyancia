@@ -13,25 +13,29 @@ use cyancia_image::layer::{
     pixel_layer::PixelLayer,
     properties::{LayerProperties, NameProp},
 };
+use cyancia_runtime::Services;
 use cyancia_utils::log_err::LogErr;
-use gpui::{App, actions};
+use iced_runtime::Task;
 
-use crate::ActionFunction;
+use crate::{ActionFunction, ActionId};
 
-actions!([
-    CreateNewLayerAction,
-    GroupSelectedLayersAction,
-    MoveLayerUpAction,
-    MoveLayerDownAction,
-    DeleteSelectedLayersAction,
-    SelectPreviousLayerAction,
-    SelectNextLayerAction,
-]);
+#[derive(Default)]
+pub struct CreateNewLayerAction;
 
 impl ActionFunction for CreateNewLayerAction {
-    fn trigger(&self, cx: &mut App) {
-        let cmd = cx
-            .update_current_canvas(|canvas, _| {
+    type Message = ();
+
+    fn id(&self) -> ActionId {
+        ActionId::new("CreateNewLayerAction".into())
+    }
+
+    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
+        let Some(canvas_id) = services.current_canvas_id() else {
+            return Task::none();
+        };
+
+        let cmd = services
+            .update_canvas(&canvas_id, |canvas, _| {
                 let (parent, position) = {
                     let mut cur_parent = canvas.active_layer_node();
                     let mut cur_position = LayerPosition::foreground();
@@ -63,14 +67,29 @@ impl ActionFunction for CreateNewLayerAction {
             .flatten();
 
         if let Some(cmd) = cmd {
-            cx.push_undo_command_to_current(cmd).log_err();
+            services.push_undo_command_to_current(cmd).log_err();
         }
+
+        Task::none()
     }
 }
 
+#[derive(Default)]
+pub struct GroupSelectedLayersAction;
+
 impl ActionFunction for GroupSelectedLayersAction {
-    fn trigger(&self, cx: &mut App) {
-        let cmd = cx.update_current_canvas(|canvas, _| {
+    type Message = ();
+
+    fn id(&self) -> ActionId {
+        ActionId::new("GroupSelectedLayersAction".into())
+    }
+
+    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
+        let Some(canvas_id) = services.current_canvas_id() else {
+            return Task::none();
+        };
+
+        let cmd = services.update_canvas(&canvas_id, |canvas, _| {
             let group_name = canvas.image.next_name_of_layer("Group".to_string());
             let reduced_layers = canvas
                 .image
@@ -117,137 +136,194 @@ impl ActionFunction for GroupSelectedLayersAction {
         });
 
         if let Some(cmd) = cmd {
-            cx.push_undo_command_to_current(cmd).log_err();
+            services.push_undo_command_to_current(cmd).log_err();
         }
+
+        Task::none()
     }
 }
+
+#[derive(Default)]
+pub struct MoveLayerUpAction;
 
 impl ActionFunction for MoveLayerUpAction {
-    fn trigger(&self, cx: &mut App) {
-        let Some(canvas) = cx.read_current_canvas() else {
-            return;
+    type Message = ();
+
+    fn id(&self) -> ActionId {
+        ActionId::new("MoveLayerUpAction".into())
+    }
+
+    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
+        let Some(canvas_id) = services.current_canvas_id() else {
+            return Task::none();
         };
 
-        let mut layers = canvas
-            .selected_layer_ids()
-            .iter()
-            .copied()
-            .collect::<Vec<_>>();
-        canvas.image.layer_stack().sort_by_visual_index(&mut layers);
+        let cmd = services
+            .update_canvas(&canvas_id, |canvas, _| {
+                let mut layers = canvas
+                    .selected_layer_ids()
+                    .iter()
+                    .copied()
+                    .collect::<Vec<_>>();
+                canvas.image.layer_stack().sort_by_visual_index(&mut layers);
 
-        let head = layers.last().copied().unwrap();
-        let head_parent = canvas.image.layer_stack().get_parent_of(&head).unwrap();
-        let head_parent_node = canvas
-            .image
-            .layer_stack()
-            .get_layer(head_parent.id())
-            .unwrap();
-
-        let (new_parent, new_position) =
-            if let Some(sibling_id) = head_parent_node.child_above(&head) {
-                // Parent node has a sibling. So the node won't go out of parent node.
-                if canvas
+                let head = layers.last().copied().unwrap();
+                let head_parent = canvas.image.layer_stack().get_parent_of(&head).unwrap();
+                let head_parent_node = canvas
                     .image
                     .layer_stack()
-                    .can_have_children_of(&sibling_id, &head)
-                    .unwrap()
-                {
-                    // Sibling node can have active layer as children, so move active layer into sibling node.
-                    (sibling_id, LayerPosition::background())
-                } else {
-                    // If can't, swap them.
-                    (*head_parent.id(), LayerPosition::above(sibling_id))
-                }
-            } else if let Some(head_parent_parent) = head_parent_node.parent().copied() {
-                // Active node is the last child, so we are moving it out of its parent.
-                (head_parent_parent, LayerPosition::above(*head_parent.id()))
-            } else {
-                return;
-            };
+                    .get_layer(head_parent.id())
+                    .unwrap();
 
-        cx.push_undo_command_to_current(MoveLayersCommand::new(
-            canvas,
-            layers,
-            new_parent,
-            new_position,
-        ))
-        .log_err();
+                let (new_parent, new_position) =
+                    if let Some(sibling_id) = head_parent_node.child_above(&head) {
+                        if canvas
+                            .image
+                            .layer_stack()
+                            .can_have_children_of(&sibling_id, &head)
+                            .unwrap()
+                        {
+                            (sibling_id, LayerPosition::background())
+                        } else {
+                            (*head_parent.id(), LayerPosition::above(sibling_id))
+                        }
+                    } else {
+                        let head_parent_parent = head_parent_node.parent().copied()?;
+                        (head_parent_parent, LayerPosition::above(*head_parent.id()))
+                    };
+
+                Some(MoveLayersCommand::new(
+                    canvas,
+                    layers,
+                    new_parent,
+                    new_position,
+                ))
+            })
+            .flatten();
+
+        if let Some(cmd) = cmd {
+            services.push_undo_command_to_current(cmd).log_err();
+        }
+
+        Task::none()
     }
 }
+
+#[derive(Default)]
+pub struct MoveLayerDownAction;
 
 impl ActionFunction for MoveLayerDownAction {
-    fn trigger(&self, cx: &mut App) {
-        let Some(canvas) = cx.read_current_canvas() else {
-            return;
+    type Message = ();
+
+    fn id(&self) -> ActionId {
+        ActionId::new("MoveLayerDownAction".into())
+    }
+
+    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
+        let Some(canvas_id) = services.current_canvas_id() else {
+            return Task::none();
         };
 
-        let mut layers = canvas
-            .selected_layer_ids()
-            .iter()
-            .copied()
-            .collect::<Vec<_>>();
-        canvas.image.layer_stack().sort_by_visual_index(&mut layers);
+        let cmd = services
+            .update_canvas(&canvas_id, |canvas, _| {
+                let mut layers = canvas
+                    .selected_layer_ids()
+                    .iter()
+                    .copied()
+                    .collect::<Vec<_>>();
+                canvas.image.layer_stack().sort_by_visual_index(&mut layers);
 
-        let tail = layers.first().copied().unwrap();
-        let tail_parent = canvas.image.layer_stack().get_parent_of(&tail).unwrap();
-        let tail_parent_node = canvas
-            .image
-            .layer_stack()
-            .get_layer(tail_parent.id())
-            .unwrap();
-
-        let (new_parent, new_position) =
-            if let Some(sibling_id) = tail_parent_node.child_below(&tail) {
-                // Parent node has a sibling. So the node won't go out of parent node.
-                if canvas
+                let tail = layers.first().copied().unwrap();
+                let tail_parent = canvas.image.layer_stack().get_parent_of(&tail).unwrap();
+                let tail_parent_node = canvas
                     .image
                     .layer_stack()
-                    .can_have_children_of(&sibling_id, &tail)
-                    .expect("Sibling layer should always exist")
-                {
-                    // Sibling node can have active layer as children, so move active layer into sibling node.
-                    (sibling_id, LayerPosition::foreground())
-                } else {
-                    // If can't, swap them.
-                    (*tail_parent.id(), LayerPosition::below(sibling_id))
-                }
-            } else if let Some(tail_parent_parent) = tail_parent_node.parent().copied() {
-                // Active node is the first child, so we are moving it out of its parent.
-                (tail_parent_parent, LayerPosition::below(*tail_parent.id()))
-            } else {
-                return;
-            };
+                    .get_layer(tail_parent.id())
+                    .unwrap();
 
-        cx.push_undo_command_to_current(MoveLayersCommand::new(
-            canvas,
-            layers,
-            new_parent,
-            new_position,
-        ))
-        .log_err();
+                let (new_parent, new_position) =
+                    if let Some(sibling_id) = tail_parent_node.child_below(&tail) {
+                        if canvas
+                            .image
+                            .layer_stack()
+                            .can_have_children_of(&sibling_id, &tail)
+                            .expect("Sibling layer should always exist")
+                        {
+                            (sibling_id, LayerPosition::foreground())
+                        } else {
+                            (*tail_parent.id(), LayerPosition::below(sibling_id))
+                        }
+                    } else {
+                        let tail_parent_parent = tail_parent_node.parent().copied()?;
+                        (tail_parent_parent, LayerPosition::below(*tail_parent.id()))
+                    };
+
+                Some(MoveLayersCommand::new(
+                    canvas,
+                    layers,
+                    new_parent,
+                    new_position,
+                ))
+            })
+            .flatten();
+
+        if let Some(cmd) = cmd {
+            services.push_undo_command_to_current(cmd).log_err();
+        }
+
+        Task::none()
     }
 }
+
+#[derive(Default)]
+pub struct DeleteSelectedLayersAction;
 
 impl ActionFunction for DeleteSelectedLayersAction {
-    fn trigger(&self, cx: &mut App) {
-        let Some(canvas) = cx.read_current_canvas() else {
-            return;
+    type Message = ();
+
+    fn id(&self) -> ActionId {
+        ActionId::new("DeleteSelectedLayersAction".into())
+    }
+
+    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
+        let Some(canvas_id) = services.current_canvas_id() else {
+            return Task::none();
         };
 
-        if let Ok(cmd) = DeleteLayersCommand::new(
-            canvas,
-            canvas.selected_layer_ids().iter().copied().collect(),
-        )
-        .logged_err()
-        {
-            cx.push_undo_command_to_current(cmd).log_err();
+        let cmd = services
+            .update_canvas(&canvas_id, |canvas, _| {
+                DeleteLayersCommand::new(
+                    canvas,
+                    canvas.selected_layer_ids().iter().copied().collect(),
+                )
+                .logged_err()
+                .ok()
+            })
+            .flatten();
+
+        if let Some(cmd) = cmd {
+            services.push_undo_command_to_current(cmd).log_err();
         }
+
+        Task::none()
     }
 }
 
+#[derive(Default)]
+pub struct SelectPreviousLayerAction;
+
 impl ActionFunction for SelectPreviousLayerAction {
-    fn trigger(&self, cx: &mut App) {
-        cx.update_current_canvas(|canvas, cx| {
+    type Message = ();
+
+    fn id(&self) -> ActionId {
+        ActionId::new("SelectPreviousLayerAction".into())
+    }
+
+    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
+        let Some(canvas_id) = services.current_canvas_id() else {
+            return Task::none();
+        };
+        services.update_canvas(&canvas_id, |canvas, _| {
             let active_node = canvas.active_layer_node();
             let active_parent_node = canvas
                 .image
@@ -255,27 +331,38 @@ impl ActionFunction for SelectPreviousLayerAction {
                 .get_layer(active_node.parent().unwrap())
                 .unwrap();
             if let Some(layer) = active_parent_node.child_above(active_node.id()) {
-                // Find the closest *visual* sibling
                 let mut current = canvas.image.layer_stack().get_layer(&layer).unwrap();
                 while let Some(child) = current.children().first() {
                     current = canvas.image.layer_stack().get_layer(child).unwrap();
                 }
-                canvas.set_active_layer_and_clear_select(*current.id(), cx);
+                canvas.set_active_layer_and_clear_select(*current.id());
             } else {
-                canvas.set_active_layer_and_clear_select(*active_parent_node.id(), cx);
+                canvas.set_active_layer_and_clear_select(*active_parent_node.id());
             }
         });
-        cx.refresh_windows();
+        Task::none()
     }
 }
 
+#[derive(Default)]
+pub struct SelectNextLayerAction;
+
 impl ActionFunction for SelectNextLayerAction {
-    fn trigger(&self, cx: &mut App) {
-        cx.update_current_canvas(|canvas, cx| {
+    type Message = ();
+
+    fn id(&self) -> ActionId {
+        ActionId::new("SelectNextLayerAction".into())
+    }
+
+    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
+        let Some(canvas_id) = services.current_canvas_id() else {
+            return Task::none();
+        };
+        services.update_canvas(&canvas_id, |canvas, _| {
             let active_node = canvas.active_layer_node();
 
             if let Some(child) = active_node.children().last() {
-                canvas.set_active_layer_and_clear_select(*child, cx);
+                canvas.set_active_layer_and_clear_select(*child);
                 return;
             }
 
@@ -286,24 +373,22 @@ impl ActionFunction for SelectNextLayerAction {
                 .unwrap();
 
             if let Some(layer) = active_parent_node.child_below(active_node.id()) {
-                // Not the last node
-                canvas.set_active_layer_and_clear_select(layer, cx);
+                canvas.set_active_layer_and_clear_select(layer);
                 return;
             }
 
-            // Is the last node, find the next *visual* sibling
             let mut current = active_parent_node;
             while let Some(current_parent) = current
                 .parent()
                 .and_then(|p| canvas.image.layer_stack().get_layer(p))
             {
                 if let Some(layer) = current_parent.child_below(current.id()) {
-                    canvas.set_active_layer_and_clear_select(layer, cx);
+                    canvas.set_active_layer_and_clear_select(layer);
                     return;
                 }
                 current = current_parent;
             }
         });
-        cx.refresh_windows();
+        Task::none()
     }
 }

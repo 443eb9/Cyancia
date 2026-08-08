@@ -1,4 +1,5 @@
 use cyancia_assets::{asset::Asset, loader::AssetSerializer};
+use cyancia_input::key::KeySequence;
 use serde::{Deserialize, Serialize};
 
 use crate::ToolId;
@@ -6,7 +7,7 @@ use crate::ToolId;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolBinding {
     pub tool: ToolId,
-    pub shortcut: String,
+    pub shortcut: KeySequence,
     #[serde(default)]
     #[serde(skip_serializing_if = "is_false")]
     pub is_temporary: bool,

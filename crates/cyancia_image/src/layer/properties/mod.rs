@@ -117,7 +117,7 @@ impl LayerPropertiesDeclaration {
     }
 }
 
-pub trait LayerProperty: DynClone + Downcast + 'static {
+pub trait LayerProperty: DynClone + Downcast + Send + 'static {
     fn ident() -> &'static str
     where
         Self: Sized;

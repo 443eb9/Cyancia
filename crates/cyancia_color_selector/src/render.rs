@@ -1,17 +1,27 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use cyancia_render::render_context::RenderContextAppExt;
+use cyancia_render::{
+    bind_group_layout_entries::{BindGroupLayoutEntries, binding_types},
+    buffer::DynamicBuffer,
+    render_context::RenderContextAppExt,
+};
+use cyancia_runtime::Services;
 use glam::{Mat2, Vec2};
-use gpui::{Bounds, Context, Pixels, Point, rgb};
+use iced_core::{Color, Point, Rectangle};
+use iced_runtime::Task;
+use iced_wgpu::Primitive;
+use iced_widget::shader;
+use moxcms::ColorProfile;
 use wgpu::{
-    Device, Extent3d, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
-    TextureView,
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
+    BufferUsages, Device, IndexFormat, Queue, RenderPass, ShaderStages, TextureFormat,
 };
 
 use crate::{
-    ColorModel, ColorSelectorState, GRADIENT_RING_GAP, GradientPlaneShape, PlaneState,
+    BarState, ColorModel, ColorSelectorMessage, ColorSelectorState, GRADIENT_RING_GAP,
+    GradientPlaneShape, PlaneState,
     config::{GradientPlaneConfig, GradientPlaneFlipAxis},
-    pipeline::{GradientMesh, GradientSettings},
+    pipeline::{GradientMesh, GradientPipeline, GradientRingPipeline, GradientSettings},
 };
 
 fn unmap_normalized(value: f32, range: Vec2) -> f32 {
@@ -23,16 +33,15 @@ fn unmap_normalized(value: f32, range: Vec2) -> f32 {
     }
 }
 
-fn plane_scale(config: &GradientPlaneConfig, texture_size: f32) -> f32 {
+fn plane_scale(config: &GradientPlaneConfig, size: f32) -> f32 {
     if !config.show_primary_channel_ring {
         return 1.0;
     }
 
-    let antialias_width = 1.0 / texture_size;
-    let inner_radius = (0.5
-        - antialias_width
-        - (config.primary_channel_ring_width + GRADIENT_RING_GAP) / texture_size)
-        .max(0.0);
+    let antialias_width = 1.0 / size;
+    let inner_radius =
+        (0.5 - antialias_width - (config.primary_channel_ring_width + GRADIENT_RING_GAP) / size)
+            .max(0.0);
     let circumradius = match config.shape {
         GradientPlaneShape::Square => std::f32::consts::SQRT_2,
         GradientPlaneShape::Triangle => 1.0,
@@ -64,19 +73,19 @@ impl ColorSelectorState {
     pub(crate) fn plane_uv_from_window_position(
         &self,
         index: usize,
-        position: Point<Pixels>,
+        position: Point,
     ) -> Option<(Vec2, bool)> {
         let config = self.presets.get(self.selected_preset)?.planes.get(index)?;
         let bounds = self.planes.get(index)?.bounds;
-        let width = bounds.size.width.as_f32();
-        let height = bounds.size.height.as_f32();
+        let width = bounds.width;
+        let height = bounds.height;
         if width <= 0.0 || height <= 0.0 {
             return None;
         }
 
         let output_position = Vec2::new(
-            2.0 * (position.x - bounds.origin.x).as_f32() / width - 1.0,
-            1.0 - 2.0 * (position.y - bounds.origin.y).as_f32() / height,
+            2.0 * (position.x - bounds.x) / width - 1.0,
+            1.0 - 2.0 * (position.y - bounds.y) / height,
         );
         let mut input_position = Mat2::from_angle(config.rotation) * output_position;
         if config.flip_axis.contains(GradientPlaneFlipAxis::X) {
@@ -98,7 +107,7 @@ impl ColorSelectorState {
 
     pub(crate) fn plane_indicator_position(&self, index: usize) -> Option<Vec2> {
         let config = self.presets.get(self.selected_preset)?.planes.get(index)?;
-        let texture_size = self.planes.get(index)?.texture.width() as f32;
+        let size = self.planes.get(index)?.size;
         let channels = config.model.channels(self.color, &self.profile);
         let ranges = config.model.channel_ranges();
         let variable_channels = self.plane_variable_channels(index, config);
@@ -117,8 +126,7 @@ impl ColorSelectorState {
         uv.y = unmap_normalized(uv.y, y_range);
         uv = uv.clamp(Vec2::ZERO, Vec2::ONE);
 
-        let mut position =
-            plane_uv_to_position(config.shape, uv) * plane_scale(config, texture_size);
+        let mut position = plane_uv_to_position(config.shape, uv) * plane_scale(config, size);
         if config.flip_axis.contains(GradientPlaneFlipAxis::X) {
             position.x = -position.x;
         }
@@ -137,7 +145,7 @@ impl ColorSelectorState {
         if !config.show_primary_channel_ring {
             return None;
         }
-        let texture_size = self.planes.get(index)?.texture.width() as f32;
+        let size = self.planes.get(index)?.size;
         let channel = self.plane_primary_channel(index, config) as usize;
         let channels = config.model.channels(self.color, &self.profile);
         let range = config.model.channel_ranges()[channel];
@@ -147,10 +155,9 @@ impl ColorSelectorState {
         } else {
             factor * std::f32::consts::TAU - config.ring_rotation
         };
-        let antialias_width = 1.0 / texture_size;
+        let antialias_width = 1.0 / size;
         let outer_radius = 0.5 - antialias_width;
-        let inner_radius =
-            (outer_radius - config.primary_channel_ring_width / texture_size).max(0.0);
+        let inner_radius = (outer_radius - config.primary_channel_ring_width / size).max(0.0);
         let radius = (inner_radius + outer_radius) * 0.5;
         Some(Vec2::new(
             0.5 + angle.cos() * radius,
@@ -165,293 +172,312 @@ impl ColorSelectorState {
         Some(((channels[config.channel as usize] - range.x) / (range.y - range.x)).clamp(0.0, 1.0))
     }
 
-    pub(crate) fn indicator_color(&self) -> gpui::Rgba {
+    pub(crate) fn indicator_color(&self) -> Color {
         let value = ColorModel::Gray.channels(self.color, &self.profile).x;
         if value > 0.5 {
-            rgb(0x000000)
+            Color::from_rgb8(0x00, 0x00, 0x00)
         } else {
-            rgb(0xffffff)
+            Color::from_rgb8(0xff, 0xff, 0xff)
         }
     }
 
-    pub(crate) fn update_widget_bounds(&mut self, bounds: Bounds<Pixels>, cx: &mut Context<Self>) {
-        let width_changed = self.widget_bounds.size.width != bounds.size.width;
-        self.widget_bounds = bounds;
-
-        if width_changed && !self.presets.is_empty() {
-            self.update_targets(cx);
-            self.redraw_config(cx);
-        }
+    pub(crate) fn rebuild_plane_state(&mut self, services: &Services) {
+        let Some(preset) = self.presets.get(self.selected_preset) else {
+            self.planes.clear();
+            return;
+        };
+        let device = services.render_device();
+        self.planes = preset
+            .planes
+            .iter()
+            .map(|config| PlaneState {
+                mesh: Arc::new(GradientMesh::new_plane(
+                    device,
+                    config.shape,
+                    plane_scale(config, 0.0),
+                )),
+                size: 0.0,
+                bounds: Rectangle::default(),
+                ranges: (Vec2::new(0.0, 1.0), Vec2::new(0.0, 1.0)),
+                primary_channel_override: None,
+            })
+            .collect();
     }
 
-    pub(crate) fn redraw_config(&self, cx: &mut Context<Self>) {
+    pub(crate) fn rebuild_bar_states(&mut self, services: &Services) {
+        let Some(preset) = self.presets.get(self.selected_preset) else {
+            self.bars.clear();
+            return;
+        };
+        let device = services.render_device();
+        self.bars = preset
+            .bars
+            .iter()
+            .map(|_| BarState {
+                mesh: Arc::new(GradientMesh::new_bar(device)),
+                bounds: Rectangle::default(),
+            })
+            .collect();
+    }
+
+    pub(crate) fn update_plane_bounds(&mut self, index: usize, bounds: Rectangle, device: &Device) {
+        let size = bounds.width.min(bounds.height).round().max(1.0);
+
+        let Some(plane) = self.planes.get_mut(index) else {
+            return;
+        };
+        if plane.bounds == bounds {
+            return;
+        }
+        plane.bounds = bounds;
+        if plane.size == size {
+            return;
+        }
+
+        let config = &self.presets[self.selected_preset].planes[index];
+        plane.mesh = Arc::new(GradientMesh::new_plane(
+            device,
+            config.shape,
+            plane_scale(config, size),
+        ));
+        plane.size = size;
+        plane.ranges = (Vec2::new(0.0, 1.0), Vec2::new(0.0, 1.0));
+    }
+
+    pub(crate) fn refresh_clip_bounds(&self, services: &Services) -> Task<ColorSelectorMessage> {
         let preset = &self.presets[self.selected_preset];
+        if !preset.clip_to_gamut {
+            return Task::none();
+        }
 
-        let device = cx.render_device().clone();
-        let queue = cx.render_queue().clone();
+        let device = services.render_device().clone();
+        let queue = services.render_queue().clone();
+
+        let mut tasks = Vec::new();
 
         for (index, (config, plane)) in preset.planes.iter().zip(&self.planes).enumerate() {
-            let ring_settings = GradientSettings::new_plane(
+            let settings = GradientSettings::new_plane(
                 preset.out_of_gamut_color,
                 preset.use_out_of_gamut_color,
                 config.model.channels(self.color, &self.profile),
                 config,
                 plane.primary_channel_override,
-                plane.texture.width() as f32,
+                plane.size,
             );
-            let plane_settings = GradientSettings {
-                saturate_primary_channel: 0,
-                ..ring_settings.clone()
-            };
 
-            if preset.clip_to_gamut {
-                let readback =
-                    self.compute_bounds_pipeline
-                        .compute(&device, &queue, &plane_settings);
-                let preserve_output = config.show_primary_channel_ring;
-                cx.spawn(async move |state, cx| {
-                    let Ok(Ok(bounds)) = readback.into_inner().await else {
-                        return;
-                    };
+            let readback = self
+                .compute_bounds_pipeline
+                .compute(&device, &queue, &settings);
+            tasks.push(
+                Task::future(async move {
+                    let bounds = readback.into_inner().await.ok()?.ok()?;
                     let (x_range, y_range) = bounds
                         .normalized_ranges()
                         .unwrap_or((Vec2::new(0.0, 1.0), Vec2::new(0.0, 1.0)));
-                    state
-                        .update(cx, move |this, cx| {
-                            let Some(plane) = this.planes.get_mut(index) else {
-                                return;
-                            };
-                            plane.ranges = (x_range, y_range);
-                            let plane_settings = GradientSettings {
-                                x_range,
-                                y_range,
-                                ..plane_settings
-                            };
-                            if preserve_output {
-                                let ring_settings = GradientSettings {
-                                    x_range,
-                                    y_range,
-                                    ..ring_settings
-                                };
-                                this.ring_pipeline.draw(
-                                    cx.render_device(),
-                                    cx.render_queue(),
-                                    &ring_settings,
-                                    &plane.texture_view,
-                                );
-                            }
-                            this.gradient_pipeline.draw(
-                                cx.render_device(),
-                                cx.render_queue(),
-                                &plane.mesh,
-                                &plane_settings,
-                                &plane.texture_view,
-                                preserve_output,
-                            );
-                            cx.notify();
-                        })
-                        .ok();
+                    Some(ColorSelectorMessage::ClipBoundsComputed {
+                        index,
+                        x_range,
+                        y_range,
+                    })
                 })
-                .detach();
-            } else {
-                if config.show_primary_channel_ring {
-                    self.ring_pipeline
-                        .draw(&device, &queue, &ring_settings, &plane.texture_view);
-                }
-                self.gradient_pipeline.draw(
-                    &device,
-                    &queue,
-                    &plane.mesh,
-                    &plane_settings,
-                    &plane.texture_view,
-                    config.show_primary_channel_ring,
-                );
-            }
-        }
-
-        for (config, bar) in preset.bars.iter().zip(&self.bars) {
-            let settings = GradientSettings::new_bar(
-                preset.out_of_gamut_color,
-                preset.use_out_of_gamut_color,
-                config.model.channels(self.color, &self.profile),
-                config,
-                self.bar_uses_saturated_primary_channel(config),
-            );
-            self.gradient_pipeline.draw(
-                &device,
-                &queue,
-                &bar.mesh,
-                &settings,
-                &bar.texture_view,
-                false,
+                .and_then(Task::done),
             );
         }
 
-        cx.notify();
+        Task::batch(tasks)
     }
 
-    pub(crate) fn update_targets(&mut self, cx: &mut Context<Self>) {
-        let Some(preset) = self.presets.get(self.selected_preset) else {
-            self.planes.clear();
-            self.bars.clear();
-            return;
-        };
-
-        let width = self.widget_bounds.size.width.as_f32();
-        if width <= 0.0 {
-            return;
-        }
-        let device = cx.render_device();
-
-        let columns = preset
-            .planes
-            .len()
-            .min(preset.max_planes_per_row.clamp(1, 5));
-        let available_width = (width - 5.0 * columns.saturating_sub(1) as f32).max(columns as f32);
-        let per_size = (available_width / columns as f32)
-            .floor()
-            .max(1.0)
-            .min(preset.max_plane_size.clamp(128, 512) as f32) as u32;
-        let old_planes = std::mem::take(&mut self.planes);
-        self.planes = preset
-            .planes
-            .iter()
-            .enumerate()
-            .map(|(index, config)| {
-                let (texture, texture_view) =
-                    Self::create_gradient_texture("plane_gradient", per_size, per_size, device);
-                PlaneState {
-                    mesh: GradientMesh::new_plane(
-                        device,
-                        config.shape,
-                        plane_scale(config, per_size as f32),
-                    ),
-                    texture,
-                    texture_view,
-                    ranges: (Vec2::new(0.0, 1.0), Vec2::new(0.0, 1.0)),
-                    bounds: old_planes
-                        .get(index)
-                        .map_or_else(Bounds::default, |plane| plane.bounds),
-                    primary_channel_override: old_planes
-                        .get(index)
-                        .and_then(|plane| plane.primary_channel_override),
-                }
-            })
-            .collect();
-
-        let bar_width = width.round().max(1.0) as u32;
-        for (config, bar) in preset.bars.iter().zip(&mut self.bars) {
-            let bar_height = config.bar_height.clamp(10.0, 40.0).round() as u32;
-            let (texture, texture_view) =
-                Self::create_gradient_texture("bar_gradient", bar_width, bar_height, device);
-            bar.mesh = GradientMesh::new_bar(device);
-            bar.texture = texture;
-            bar.texture_view = texture_view;
-        }
-    }
-
-    pub(crate) fn update_bar_target_width(
-        &mut self,
-        index: usize,
-        width: Pixels,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(config) = self
-            .presets
-            .get(self.selected_preset)
-            .and_then(|preset| preset.bars.get(index))
-        else {
-            return;
-        };
-        let Some(bar) = self.bars.get(index) else {
-            return;
-        };
-        let width = width.as_f32().round().max(1.0) as u32;
-        let height = config.bar_height.clamp(10.0, 40.0).round() as u32;
-        if bar.texture.width() == width && bar.texture.height() == height {
-            return;
-        }
-
-        let device = cx.render_device();
-        let (texture, texture_view) =
-            Self::create_gradient_texture("bar_gradient", width, height, device);
-        let bar = &mut self.bars[index];
-        bar.mesh = GradientMesh::new_bar(device);
-        bar.texture = texture;
-        bar.texture_view = texture_view;
-        self.redraw_config(cx);
-    }
-
-    pub(crate) fn update_plane_bounds(
-        &mut self,
-        index: usize,
-        bounds: Bounds<Pixels>,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(plane) = self.planes.get_mut(index) else {
-            return;
-        };
-        plane.bounds = bounds;
-
-        let size = bounds
-            .size
-            .width
-            .as_f32()
-            .min(bounds.size.height.as_f32())
-            .round()
-            .max(1.0) as u32;
-        if plane.texture.width() == size && plane.texture.height() == size {
-            return;
-        }
-
-        let config = &self.presets[self.selected_preset].planes[index];
-        let device = cx.render_device();
-        let (texture, texture_view) =
-            Self::create_gradient_texture("plane_gradient", size, size, device);
-        let plane = &mut self.planes[index];
-        plane.mesh =
-            GradientMesh::new_plane(device, config.shape, plane_scale(config, size as f32));
-        plane.texture = texture;
-        plane.texture_view = texture_view;
-        plane.ranges = (Vec2::new(0.0, 1.0), Vec2::new(0.0, 1.0));
-        self.redraw_config(cx);
-    }
-
-    pub(crate) fn update_bar_bounds(
-        &mut self,
-        index: usize,
-        bounds: Bounds<Pixels>,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn update_bar_bounds(&mut self, index: usize, bounds: Rectangle) {
         let Some(bar) = self.bars.get_mut(index) else {
             return;
         };
+        if bar.bounds == bounds {
+            return;
+        }
         bar.bounds = bounds;
-        self.update_bar_target_width(index, bounds.size.width, cx);
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct SurfaceDrawData {
+    pub(crate) id: u64,
+    pub(crate) mesh: Arc<GradientMesh>,
+    pub(crate) settings: GradientSettings,
+    pub(crate) ring_settings: Option<GradientSettings>,
+    pub(crate) profile: Arc<ColorProfile>,
+    pub(crate) output_profile: Arc<ColorProfile>,
+    // TODO Remove this once cyancia_image uses Arc<ColorProfile> for image profile
+    pub(crate) output_profile_version: u64,
+}
+
+#[derive(Debug)]
+pub(crate) struct GradientDrawPrimitive {
+    pub(crate) data: Arc<SurfaceDrawData>,
+}
+
+impl Primitive for GradientDrawPrimitive {
+    type Pipeline = GradientDirectPipeline;
+
+    fn prepare(
+        &self,
+        pipeline: &mut Self::Pipeline,
+        device: &Device,
+        queue: &Queue,
+        _bounds: &Rectangle,
+        _viewport: &shader::Viewport,
+    ) {
+        pipeline.prepare(device, queue, &self.data);
     }
 
-    pub(crate) fn create_gradient_texture(
-        label: &'static str,
-        width: u32,
-        height: u32,
-        device: &Device,
-    ) -> (Arc<Texture>, TextureView) {
-        let texture = device.create_texture(&TextureDescriptor {
-            label: Some(label),
-            size: Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba16Float,
-            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&Default::default());
+    fn draw(&self, pipeline: &Self::Pipeline, render_pass: &mut RenderPass<'_>) -> bool {
+        let data = &self.data;
+        let Some(instance) = pipeline.instances.get(&data.id) else {
+            return false;
+        };
+        let Some(gradient) = &pipeline.gradient else {
+            return false;
+        };
 
-        (Arc::new(texture), view)
+        render_pass.set_pipeline(&gradient.pipeline);
+        render_pass.set_bind_group(0, &instance.bind_group, &[]);
+        render_pass.set_vertex_buffer(0, data.mesh.vertices.slice(..));
+        render_pass.set_index_buffer(data.mesh.indices.slice(..), IndexFormat::Uint16);
+        render_pass.draw_indexed(0..data.mesh.n_indices, 0, 0..1);
+
+        if let Some(ring_bind_group) = &instance.ring_bind_group
+            && let Some(ring) = &pipeline.ring
+        {
+            render_pass.set_pipeline(&ring.pipeline);
+            render_pass.set_bind_group(0, ring_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, ring.mesh.vertices.slice(..));
+            render_pass.set_index_buffer(ring.mesh.indices.slice(..), IndexFormat::Uint16);
+            render_pass.draw_indexed(0..ring.mesh.n_indices, 0, 0..1);
+        }
+
+        true
+    }
+}
+
+struct Instance {
+    settings_buffer: DynamicBuffer<GradientSettings>,
+    bind_group: BindGroup,
+    ring_settings_buffer: Option<DynamicBuffer<GradientSettings>>,
+    ring_bind_group: Option<BindGroup>,
+}
+
+pub(crate) struct GradientDirectPipeline {
+    format: TextureFormat,
+    layout: BindGroupLayout,
+    gradient: Option<GradientPipeline>,
+    ring: Option<GradientRingPipeline>,
+    profile_version: u64,
+    instances: HashMap<u64, Instance>,
+}
+
+impl shader::Pipeline for GradientDirectPipeline {
+    fn new(device: &Device, _queue: &Queue, format: TextureFormat) -> Self {
+        let layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("gradient settings layout"),
+            entries: BindGroupLayoutEntries::sequential(
+                ShaderStages::VERTEX_FRAGMENT,
+                (binding_types::uniform_buffer::<GradientSettings>(false),),
+            )
+            .as_ref(),
+        });
+
+        Self {
+            format,
+            layout,
+            gradient: None,
+            ring: None,
+            profile_version: 0,
+            instances: HashMap::new(),
+        }
+    }
+
+    fn trim(&mut self) {
+        self.instances.clear();
+    }
+}
+
+impl GradientDirectPipeline {
+    fn prepare(&mut self, device: &Device, queue: &Queue, data: &SurfaceDrawData) {
+        if self.gradient.is_none() || self.profile_version != data.output_profile_version {
+            self.gradient = Some(GradientPipeline::new(
+                device,
+                &self.layout,
+                &data.profile,
+                &data.output_profile,
+                self.format,
+            ));
+            self.ring = Some(GradientRingPipeline::new(
+                device,
+                &self.layout,
+                &data.profile,
+                &data.output_profile,
+                self.format,
+            ));
+            self.profile_version = data.output_profile_version;
+        }
+
+        let instance = self.instances.entry(data.id).or_insert_with(|| {
+            let mut settings_buffer = DynamicBuffer::new(
+                Some("gradient_settings_uniform".into()),
+                BufferUsages::UNIFORM,
+            );
+            settings_buffer.push(&data.settings);
+            settings_buffer.write_buffer(device, queue);
+
+            let bind_group = device.create_bind_group(&BindGroupDescriptor {
+                label: Some("gradient settings bind group"),
+                layout: &self.layout,
+                entries: &[BindGroupEntry {
+                    binding: 0,
+                    resource: settings_buffer.binding().unwrap(),
+                }],
+            });
+
+            let (ring_settings_buffer, ring_bind_group) = data
+                .ring_settings
+                .as_ref()
+                .map(|buffer| {
+                    let mut ring_settings_buffer = DynamicBuffer::new(
+                        Some("gradient_ring_settings_uniform".into()),
+                        BufferUsages::UNIFORM,
+                    );
+                    ring_settings_buffer.push(buffer);
+                    ring_settings_buffer.write_buffer(device, queue);
+
+                    let ring_bind_group = device.create_bind_group(&BindGroupDescriptor {
+                        label: Some("gradient ring settings bind group"),
+                        layout: &self.layout,
+                        entries: &[BindGroupEntry {
+                            binding: 0,
+                            resource: ring_settings_buffer.binding().unwrap(),
+                        }],
+                    });
+                    (ring_settings_buffer, ring_bind_group)
+                })
+                .unzip();
+
+            Instance {
+                settings_buffer,
+                bind_group,
+                ring_settings_buffer,
+                ring_bind_group,
+            }
+        });
+
+        instance.settings_buffer.clear();
+        instance.settings_buffer.push(&data.settings);
+        instance.settings_buffer.write_buffer(device, queue);
+
+        if let (Some(buffer), Some(settings)) =
+            (&mut instance.ring_settings_buffer, &data.ring_settings)
+        {
+            buffer.clear();
+            buffer.push(settings);
+            buffer.write_buffer(device, queue);
+        }
     }
 }

@@ -8,7 +8,7 @@ use cyancia_assets::{
     asset::{Asset, AssetId},
     loader::AssetSerializer,
 };
-use gpui::{App, AppContext, Point};
+use iced_core::Point;
 use serde::{Deserialize, Serialize};
 
 use crate::graph::{
@@ -88,7 +88,6 @@ impl<Data: GraphData> Graph<Data> {
     pub fn from_toml(
         s: &str,
         resources: GraphResources,
-        cx: &App,
     ) -> (Option<Self>, Vec<GraphDeserializeError>) {
         let graph = match toml::from_str::<SerializableGraph>(s) {
             Ok(g) => g,
@@ -96,13 +95,12 @@ impl<Data: GraphData> Graph<Data> {
                 return (None, vec![GraphDeserializeError::DeserializerError(e)]);
             }
         };
-        Self::from_serialized(&graph, resources, cx)
+        Self::from_serialized(&graph, resources)
     }
 
     pub fn from_serialized(
         serialized: &SerializableGraph,
         resources: GraphResources,
-        cx: &App,
     ) -> (Option<Self>, Vec<GraphDeserializeError>) {
         let SerializableGraph {
             nodes,
@@ -136,7 +134,6 @@ impl<Data: GraphData> Graph<Data> {
 
             let raw_inputs = node.create_inputs(GraphNodeCreateSlotsContext {
                 resources: &resources,
-                cx,
                 _marker: PhantomData,
             });
             if raw_inputs.len() != ser_node.inputs.len() {
@@ -189,7 +186,6 @@ impl<Data: GraphData> Graph<Data> {
 
             let raw_outputs = node.create_outputs(GraphNodeCreateSlotsContext {
                 resources: &resources,
-                cx,
                 _marker: PhantomData,
             });
             if raw_outputs.len() != ser_node.outputs.len() {
@@ -224,7 +220,7 @@ impl<Data: GraphData> Graph<Data> {
             graph_nodes.insert(
                 ser_node.id,
                 GraphNodeData {
-                    position: ser_node.position,
+                    position: Point::new(ser_node.position[0], ser_node.position[1]),
                     data: node,
                     inputs: ser_node.inputs.clone(),
                     outputs: ser_node.outputs.clone(),
@@ -273,7 +269,7 @@ impl<Data: GraphData> Graph<Data> {
             .try_fold(Vec::new(), |mut acc, (node_id, node)| {
                 acc.push(SerializableNodeData {
                     id: *node_id,
-                    position: node.position,
+                    position: [node.position.x, node.position.y],
                     inputs: node.inputs.clone(),
                     outputs: node.outputs.clone(),
                     data: GraphNodeTypeId {
@@ -337,7 +333,7 @@ pub struct GraphNodeTypeId {
 pub struct SerializableNodeData {
     pub id: GraphNodeId,
     pub data: GraphNodeTypeId,
-    pub position: Point<f32>,
+    pub position: [f32; 2],
     pub inputs: Arc<[GraphInputSlotId]>,
     pub outputs: Arc<[GraphOutputSlotId]>,
     pub state: toml::Value,
@@ -445,11 +441,11 @@ pub struct SerializableGraphFunction {
 }
 
 impl SerializableGraphFunction {
-    pub fn serialize_func(func: &GraphFunction, cx: &App) -> Result<Self, anyhow::Error> {
+    pub fn serialize_func(func: &GraphFunction) -> Result<Self, anyhow::Error> {
         Ok(SerializableGraphFunction {
             id: func.id,
             name: func.name.clone(),
-            graph: func.graph.read(cx).as_serialized()?,
+            graph: func.graph.as_serialized()?,
         })
     }
 
@@ -458,22 +454,20 @@ impl SerializableGraphFunction {
         textures: SharedGraphTextureStorage,
         functions: SharedGraphFunctionStorage,
         asset_id: Option<AssetId<SerializableGraphFunction>>,
-        cx: &mut App,
     ) -> (Option<GraphFunction>, Vec<GraphDeserializeError>) {
-        // Graph functions don't have external variables
         let resources = GraphResources {
             textures,
             functions,
             external_vars: Arc::new(Default::default()),
         };
 
-        let (maybe_graph, err) = Graph::from_serialized(&self.graph, resources, cx);
+        let (maybe_graph, err) = Graph::from_serialized(&self.graph, resources);
 
         let func = maybe_graph.map(|graph| GraphFunction {
             asset_id,
             id: self.id,
             name: self.name.clone(),
-            graph: cx.new(|_| graph),
+            graph,
         });
 
         (func, err)

@@ -3,9 +3,9 @@ use std::{
     collections::HashMap,
 };
 
+use cyancia_runtime::service::Service;
 use cyancia_utils::wrapper;
 use dyn_clone::DynClone;
-use gpui::{App, Global};
 use indexmap::IndexSet;
 use parse_display::Display;
 use schemars::JsonSchema;
@@ -28,19 +28,12 @@ pub mod group_layer;
 pub mod pixel_layer;
 pub mod properties;
 
-pub(crate) fn init(cx: &mut App) {
-    let mut reg = LayerTypeRegistry::default();
-    reg.register::<PixelLayer>();
-    reg.register::<GroupLayer>();
-    cx.set_global(reg);
-}
-
 #[derive(Default)]
 pub struct LayerTypeRegistry {
     tys: HashMap<u32, Box<dyn Layer>>,
 }
 
-impl Global for LayerTypeRegistry {}
+impl Service for LayerTypeRegistry {}
 
 impl LayerTypeRegistry {
     pub fn register<T: Layer + HasLayerPropertiesDyn + Default>(&mut self) {

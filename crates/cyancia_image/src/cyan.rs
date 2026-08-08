@@ -6,9 +6,9 @@ use std::{
 use anyhow::{Result, anyhow, bail};
 use cyancia_cyan::{CyanArchive, ImageProperties, LayerNode};
 use cyancia_render::render_context::RenderContextAppExt;
+use cyancia_runtime::Services;
 use flate2::{Compression, read::DeflateDecoder, write::DeflateEncoder};
 use glam::{IVec2, UVec2};
-use gpui::App;
 use moxcms::ColorProfile;
 use serde::Serialize;
 use uuid::Uuid;
@@ -27,13 +27,16 @@ use crate::{
 };
 
 impl CImage {
-    pub fn read_archive(archive: &CyanArchive, cx: &App) -> Result<Self> {
+    pub fn read_archive(archive: &CyanArchive, services: &Services) -> Result<Self> {
         let image_props = archive.read_image_properties()?;
-        let layer_stack =
-            LayerStack::read_entire_tree(image_props.root_layer, archive, cx.global())?;
+        let layer_stack = LayerStack::read_entire_tree(
+            image_props.root_layer,
+            archive,
+            services.service::<LayerTypeRegistry>(),
+        )?;
 
-        let queue = cx.render_queue();
-        let tile_storage = cx.tile_storage();
+        let queue = services.render_queue();
+        let tile_storage = services.tile_storage();
         for layer in layer_stack.iter_layers() {
             let Some(texel_type) = layer.properties().get_texel_type() else {
                 continue;
@@ -64,7 +67,7 @@ impl CImage {
         })
     }
 
-    pub async fn write_archive(&self, archive: &CyanArchive, cx: &App) -> Result<()> {
+    pub async fn write_archive(&self, archive: &CyanArchive, services: &Services) -> Result<()> {
         archive.write_image_properties(&ImageProperties {
             width: self.size.x,
             height: self.size.y,
@@ -75,8 +78,8 @@ impl CImage {
         })?;
 
         self.layers.write_entire_tree(archive)?;
-        let render_context = cx.render_context();
-        let tile_storage = cx.tile_storage();
+        let render_context = services.render_context();
+        let tile_storage = services.tile_storage();
 
         let result = futures::future::join_all(
             self.layers

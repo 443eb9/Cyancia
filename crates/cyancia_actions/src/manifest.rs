@@ -1,10 +1,15 @@
+use std::collections::HashMap;
+use std::io::{Read, Write};
+
 use cyancia_assets::{asset::Asset, loader::AssetSerializer};
-use gpui::InvalidKeystrokeError;
+use cyancia_input::key::KeySequence;
 use serde::{Deserialize, Serialize};
+
+use crate::ActionId;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyBindingDef {
-    pub shortcut: String,
+    pub shortcut: KeySequence,
     pub action_name: String,
     #[serde(default)]
     #[serde(skip_serializing_if = "is_null")]
@@ -42,8 +47,6 @@ pub enum KeyBindingDefManifestLoaderError {
     #[error(transparent)]
     String(#[from] std::string::FromUtf8Error),
     #[error(transparent)]
-    InvalidKeystroke(#[from] InvalidKeystrokeError),
-    #[error(transparent)]
     Json(#[from] serde_json::Error),
 }
 
@@ -56,20 +59,37 @@ impl AssetSerializer for KeyBindingDefManifestLoader {
         "actions"
     }
 
-    fn read(&self, reader: &mut dyn std::io::Read) -> Result<Self::Asset, Self::Error> {
+    fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset, Self::Error> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf)?;
         let manifest: KeyBindingDefManifest = serde_json::from_slice(&buf)?;
         Ok(manifest)
     }
 
-    fn write(
-        &self,
-        asset: &Self::Asset,
-        writer: &mut dyn std::io::Write,
-    ) -> Result<(), Self::Error> {
+    fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<(), Self::Error> {
         let json = serde_json::to_string(asset)?;
         writer.write_all(json.as_bytes())?;
         Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct ActionCollection {
+    shortcuts: HashMap<KeySequence, ActionId>,
+}
+
+impl ActionCollection {
+    pub fn new(manifest: &KeyBindingDefManifest) -> Self {
+        let mut shortcuts = HashMap::new();
+
+        for def in &manifest.actions {
+            shortcuts.insert(def.shortcut, ActionId::new(def.action_name.clone().into()));
+        }
+
+        Self { shortcuts }
+    }
+
+    pub fn get_action_id(&self, shortcut: KeySequence) -> Option<ActionId> {
+        self.shortcuts.get(&shortcut).cloned()
     }
 }

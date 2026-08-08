@@ -1,136 +1,162 @@
-use std::{
-    any::TypeId,
-    io::{BufReader, Cursor},
-};
+use std::{any::TypeId, path::PathBuf};
 
 use cyancia_canvas::{CanvasAppExt, CanvasUndoStackAppExt, command::InsertLayerCommand};
 use cyancia_image::{
-    CImage,
-    layer::{LayerPosition, pixel_layer::PixelLayer, properties::NameProp},
+    layer::{LayerPosition, pixel_layer::PixelLayer},
     tile::TileStorageAppExt,
 };
+use cyancia_runtime::Services;
 use cyancia_undo::{BatchedUndoCommand, UndoStacks};
 use cyancia_utils::log_err::LogErr;
-use gpui::{App, BorrowAppContext, ClipboardEntry, actions};
+use iced_runtime::{Task, clipboard};
 
-use crate::ActionFunction;
+use crate::{ActionFunction, ActionId};
 
-actions!([UndoAction, RedoAction, PasteIntoNewLayerAction]);
+#[derive(Default)]
+pub struct UndoAction;
 
 impl ActionFunction for UndoAction {
-    fn trigger(&self, cx: &mut App) {
-        let Some(cur_canvas) = cx.current_canvas_id() else {
-            return;
+    type Message = ();
+
+    fn id(&self) -> ActionId {
+        ActionId::new("UndoAction".into())
+    }
+
+    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
+        let Some(canvas_id) = services.current_canvas_id() else {
+            return Task::none();
         };
-        cx.update_global::<UndoStacks, _>(|stacks, cx| {
-            if let Some(stack) = stacks.get_mut(&*cur_canvas) {
-                stack.undo(cx).log_err();
+        services.service_scope::<UndoStacks, _>(|stacks, services| {
+            if let Some(stack) = stacks.get_mut(&*canvas_id) {
+                stack.undo(services).log_err();
             }
         });
+        Task::none()
     }
 }
 
+#[derive(Default)]
+pub struct RedoAction;
+
 impl ActionFunction for RedoAction {
-    fn trigger(&self, cx: &mut App) {
-        let Some(cur_canvas) = cx.current_canvas_id() else {
-            return;
+    type Message = ();
+
+    fn id(&self) -> ActionId {
+        ActionId::new("RedoAction".into())
+    }
+
+    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
+        let Some(canvas_id) = services.current_canvas_id() else {
+            return Task::none();
         };
-        cx.update_global::<UndoStacks, _>(|stacks, cx| {
-            if let Some(stack) = stacks.get_mut(&*cur_canvas) {
-                stack.redo(cx).log_err();
+        services.service_scope::<UndoStacks, _>(|stacks, services| {
+            if let Some(stack) = stacks.get_mut(&*canvas_id) {
+                stack.redo(services).log_err();
             }
         });
+        Task::none()
     }
+}
+
+#[derive(Default)]
+pub struct PasteIntoNewLayerAction;
+
+pub enum PasteMessage {
+    Clipboard(Option<String>),
 }
 
 impl ActionFunction for PasteIntoNewLayerAction {
-    fn trigger(&self, cx: &mut App) {
-        let Some(clipboard) = cx.read_from_clipboard() else {
-            return;
+    type Message = PasteMessage;
+
+    fn id(&self) -> ActionId {
+        ActionId::new("PasteIntoNewLayerAction".into())
+    }
+
+    fn trigger(&self, _services: &mut Services) -> Task<Self::Message> {
+        clipboard::read().map(PasteMessage::Clipboard)
+    }
+
+    fn handle_message(
+        &self,
+        message: Self::Message,
+        services: &mut Services,
+    ) -> Task<Self::Message> {
+        let PasteMessage::Clipboard(Some(clipboard)) = message else {
+            return Task::none();
         };
 
-        let Some(entry) = clipboard.entries().iter().find(|e| {
-            matches!(
-                e,
-                ClipboardEntry::ExternalPaths(_) | ClipboardEntry::Image(_)
-            )
-        }) else {
-            return;
+        let paths = clipboard
+            .lines()
+            .map(|line| PathBuf::from(line.trim()))
+            .filter(|path| path.exists())
+            .collect::<Vec<_>>();
+        if paths.is_empty() {
+            return Task::none();
+        }
+
+        let Some(canvas_id) = services.current_canvas_id() else {
+            return Task::none();
         };
 
-        let Some(canvas) = cx.read_current_canvas() else {
-            return;
-        };
-
-        let (parent, position) = {
-            let mut cur_parent = canvas.active_layer_node();
-            let mut cur_position = LayerPosition::foreground();
-            while !cur_parent
-                .instance()
-                .can_have_children_of(TypeId::of::<PixelLayer>())
-            {
-                let Some(cur_parent_id) = cur_parent.parent() else {
-                    return;
+        let (parent, position, profile) = services
+            .update_canvas(&canvas_id, |canvas, _| {
+                let (parent, position) = {
+                    let mut cur_parent = canvas.active_layer_node();
+                    let mut cur_position = LayerPosition::foreground();
+                    while !cur_parent
+                        .instance()
+                        .can_have_children_of(TypeId::of::<PixelLayer>())
+                    {
+                        let cur_parent_id = cur_parent.parent()?;
+                        let parent_id =
+                            canvas.image.layer_stack().get_layer(cur_parent_id).unwrap();
+                        cur_position = LayerPosition::above(*cur_parent.id());
+                        cur_parent = canvas
+                            .image
+                            .layer_stack()
+                            .get_layer(parent_id.id())
+                            .unwrap();
+                    }
+                    (*cur_parent.id(), cur_position)
                 };
-                let parent_id = canvas.image.layer_stack().get_layer(cur_parent_id).unwrap();
-                cur_position = LayerPosition::above(*cur_parent.id());
-                cur_parent = canvas
-                    .image
-                    .layer_stack()
-                    .get_layer(parent_id.id())
-                    .unwrap();
-            }
-            (*cur_parent.id(), cur_position)
-        };
+                Some((parent, position, canvas.image.profile().clone()))
+            })
+            .flatten()
+            .unwrap();
 
-        match entry {
-            ClipboardEntry::Image(image) => {
-                let Ok((image, profile)) =
-                    CImage::load_image_with_profile(BufReader::new(Cursor::new(image.bytes())))
-                        .logged_err()
-                else {
-                    return;
-                };
+        let mut layers = Vec::new();
+        for path in &paths {
+            let Ok(layer) =
+                PixelLayer::from_path(path, services.tile_storage(), &profile).logged_err()
+            else {
+                continue;
+            };
+            layers.push(layer);
+        }
+        if layers.is_empty() {
+            return Task::none();
+        }
 
-                let mut layer = PixelLayer::from_image(image, cx.tile_storage());
-                layer.properties_mut().set(NameProp("Pasted Image".into()));
-
-                let layer_storage = cx.tile_storage().get_layer(*layer.id()).unwrap();
-                if layer_storage
-                    .convert_color_space(&profile, canvas.image.profile(), Default::default())
-                    .logged_err()
-                    .is_err()
-                {
-                    return;
-                }
-                drop(layer_storage);
-
-                let cmd = InsertLayerCommand::new(canvas, layer, parent, position);
-                cx.push_undo_command_to_current(cmd).log_err();
-            }
-            ClipboardEntry::ExternalPaths(external_paths) => {
+        let commands = services
+            .update_canvas(&canvas_id, |canvas, _| {
                 let mut commands = Vec::new();
                 let mut cur_position = position;
-
-                for path in external_paths.paths() {
-                    let Ok(layer) =
-                        PixelLayer::from_path(path, cx.tile_storage(), canvas.image.profile())
-                            .logged_err()
-                    else {
-                        continue;
-                    };
+                for layer in layers {
                     let layer_id = *layer.id();
                     commands.push(InsertLayerCommand::new(canvas, layer, parent, cur_position));
                     cur_position = LayerPosition::above(layer_id);
                 }
+                commands
+            })
+            .unwrap();
 
-                cx.push_undo_command_to_current(BatchedUndoCommand::new(
-                    "Paste Images".into(),
-                    commands,
-                ))
-                .log_err();
-            }
-            _ => {}
-        }
+        services
+            .push_undo_command(
+                &canvas_id,
+                BatchedUndoCommand::new("Paste Images".into(), commands),
+            )
+            .log_err();
+
+        Task::none()
     }
 }

@@ -1,11 +1,14 @@
-use gpui::{App, Global};
+use cyancia_runtime::{
+    Services,
+    service::{FromServices, Service},
+};
 use wesl::include_wesl;
 use wgpu::{
-    AddressMode, Device, FilterMode, MipmapFilterMode, Sampler, SamplerDescriptor, ShaderModule,
+    AddressMode, Device, FilterMode, Sampler, SamplerDescriptor, ShaderModule,
     ShaderModuleDescriptor, ShaderSource, VertexState,
 };
 
-use crate::render_context::{RenderContext, RenderContextAppExt};
+use crate::render_context::RenderContextAppExt;
 
 #[derive(Debug)]
 pub struct GlobalSamplers {
@@ -15,14 +18,15 @@ pub struct GlobalSamplers {
     linear_wrap: Sampler,
 }
 
-impl Global for GlobalSamplers {}
+impl Service for GlobalSamplers {}
+
+impl FromServices for GlobalSamplers {
+    fn from_services(services: &Services) -> Self {
+        Self::new(services.render_device())
+    }
+}
 
 impl GlobalSamplers {
-    pub fn from_app(app: &App) -> Self {
-        let render_context = app.global::<RenderContext>();
-        Self::new(&render_context.device)
-    }
-
     pub fn new(device: &Device) -> Self {
         let nearest_clamp = device.create_sampler(&SamplerDescriptor {
             label: Some("nearest clamp sampler"),
@@ -31,7 +35,7 @@ impl GlobalSamplers {
             address_mode_w: AddressMode::ClampToEdge,
             mag_filter: FilterMode::Nearest,
             min_filter: FilterMode::Nearest,
-            mipmap_filter: MipmapFilterMode::Nearest,
+            mipmap_filter: FilterMode::Nearest,
             ..Default::default()
         });
 
@@ -42,7 +46,7 @@ impl GlobalSamplers {
             address_mode_w: AddressMode::ClampToEdge,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: MipmapFilterMode::Linear,
+            mipmap_filter: FilterMode::Linear,
             ..Default::default()
         });
 
@@ -53,7 +57,7 @@ impl GlobalSamplers {
             address_mode_w: AddressMode::Repeat,
             mag_filter: FilterMode::Nearest,
             min_filter: FilterMode::Nearest,
-            mipmap_filter: MipmapFilterMode::Nearest,
+            mipmap_filter: FilterMode::Nearest,
             ..Default::default()
         });
 
@@ -64,7 +68,7 @@ impl GlobalSamplers {
             address_mode_w: AddressMode::Repeat,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: MipmapFilterMode::Linear,
+            mipmap_filter: FilterMode::Linear,
             ..Default::default()
         });
 
@@ -98,14 +102,15 @@ pub struct FullscreenVertex {
     shader: ShaderModule,
 }
 
-impl Global for FullscreenVertex {}
+impl Service for FullscreenVertex {}
+
+impl FromServices for FullscreenVertex {
+    fn from_services(services: &Services) -> Self {
+        Self::new(services.render_device())
+    }
+}
 
 impl FullscreenVertex {
-    pub fn from_app(cx: &App) -> Self {
-        let device = cx.render_device();
-        Self::new(device)
-    }
-
     pub fn new(device: &Device) -> Self {
         let fullscreen_vertex = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("fullscreen vertex shader"),

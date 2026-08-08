@@ -12,19 +12,17 @@ use cyancia_render::{
         AsyncBufferReadback, create_readback_buffer_and_schedule_copy,
         readback_buffer_on_submit_async,
     },
-    wesl_jit::compile_wesl,
+    wesl_jit::{compile_wesl, compile_wesl_with_config},
 };
 use encase::ShaderType;
 use glam::{UVec2, Vec2, Vec3, Vec4};
 use moxcms::{ColorProfile, Layout};
 use wgpu::{
-    BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor, Buffer, BufferUsages, Color,
-    ColorTargetState, ColorWrites, ComputePassDescriptor, ComputePipeline,
-    ComputePipelineDescriptor, Device, FragmentState, IndexFormat, LoadOp, Operations,
-    PipelineLayoutDescriptor, Queue, RenderPassColorAttachment, RenderPassDescriptor,
+    BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor, BlendState, Buffer,
+    BufferUsages, ColorTargetState, ColorWrites, ComputePassDescriptor, ComputePipeline,
+    ComputePipelineDescriptor, Device, FragmentState, PipelineLayoutDescriptor, Queue,
     RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages,
-    StoreOp, TextureFormat, TextureView, VertexAttribute, VertexBufferLayout, VertexFormat,
-    VertexState, VertexStepMode,
+    TextureFormat, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
     util::{BufferInitDescriptor, DeviceExt},
 };
 
@@ -39,17 +37,21 @@ const COMPUTE_BOUNDS_PADDING: u32 = 5;
 fn compile_gradient_shader(
     profile: &ColorProfile,
     output_profile: &ColorProfile,
+    srgb_output: bool,
 ) -> Result<String> {
     let input = IccInputTransformShader::new("picker_to_pcs", profile, Layout::Rgb)?;
     let image = IccOutputTransformShader::new("pcs_to_image", profile, Layout::Rgb)?;
     let output = IccOutputTransformShader::new("pcs_to_output", output_profile, Layout::Rgb)?;
 
-    compile_wesl(
+    compile_wesl_with_config(
         include_str!("../shader/gradient.wesl")
             .replace("//CODEGEN_FLAG_PICKER_TO_PCS", &input.function)
             .replace("//CODEGEN_FLAG_PCS_TO_IMAGE", &image.function)
             .replace("//CODEGEN_FLAG_PCS_TO_OUTPUT", &output.function),
-        &[cyancia_color::color::PACKAGE],
+        &[&cyancia_color::color::PACKAGE],
+        |wesl| {
+            wesl.set_feature("IS_SRGB_OUTPUT", srgb_output);
+        },
     )
 }
 
@@ -61,7 +63,7 @@ fn compile_compute_bounds_shader(profile: &ColorProfile) -> Result<String> {
         include_str!("../shader/compute_bounds.wesl")
             .replace("//CODEGEN_FLAG_PICKER_TO_PCS", &input.function)
             .replace("//CODEGEN_FLAG_PCS_TO_IMAGE", &image.function),
-        &[cyancia_color::color::PACKAGE],
+        &[&cyancia_color::color::PACKAGE],
     )
 }
 
@@ -90,8 +92,8 @@ impl ComputeBoundsPipeline {
         });
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("compute_bounds_pipeline_layout"),
-            bind_group_layouts: &[Some(&layout)],
-            immediate_size: 0,
+            bind_group_layouts: &[&layout],
+            push_constant_ranges: &[],
         });
         let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: Some("compute_bounds_pipeline"),
@@ -219,25 +221,21 @@ impl OutputBounds {
 }
 
 pub struct GradientPipeline {
-    layout: BindGroupLayout,
-    pipeline: RenderPipeline,
+    pub(crate) pipeline: RenderPipeline,
 }
 
 impl GradientPipeline {
-    pub fn new(device: &Device, profile: &ColorProfile, output_profile: &ColorProfile) -> Self {
-        let layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("gradient_layout"),
-            entries: BindGroupLayoutEntries::sequential(
-                ShaderStages::VERTEX_FRAGMENT,
-                (binding_types::uniform_buffer::<GradientSettings>(false),),
-            )
-            .as_ref(),
-        });
-
+    pub fn new(
+        device: &Device,
+        layout: &BindGroupLayout,
+        profile: &ColorProfile,
+        output_profile: &ColorProfile,
+        format: TextureFormat,
+    ) -> Self {
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("gradient_shader"),
             source: ShaderSource::Wgsl(
-                compile_gradient_shader(profile, output_profile)
+                compile_gradient_shader(profile, output_profile, format.is_srgb())
                     .unwrap()
                     .into(),
             ),
@@ -245,8 +243,8 @@ impl GradientPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("gradient_pipeline_layout"),
-            bind_group_layouts: &[Some(&layout)],
-            immediate_size: 0,
+            bind_group_layouts: &[layout],
+            push_constant_ranges: &[],
         });
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -278,7 +276,7 @@ impl GradientPipeline {
                 entry_point: Some("fragment"),
                 compilation_options: Default::default(),
                 targets: &[Some(ColorTargetState {
-                    format: TextureFormat::Rgba16Float,
+                    format,
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
@@ -286,96 +284,39 @@ impl GradientPipeline {
             primitive: Default::default(),
             depth_stencil: Default::default(),
             multisample: Default::default(),
-            multiview_mask: Default::default(),
+            multiview: None,
             cache: Default::default(),
         });
 
-        Self { layout, pipeline }
-    }
-
-    pub fn draw(
-        &self,
-        device: &Device,
-        queue: &Queue,
-        mesh: &GradientMesh,
-        settings: &GradientSettings,
-        output: &TextureView,
-        preserve_output: bool,
-    ) {
-        let mut settings_buffer = DynamicBuffer::new(
-            Some("gradient_settings_buffer".into()),
-            BufferUsages::UNIFORM,
-        );
-        settings_buffer.push(settings);
-        settings_buffer.write_buffer(device, queue);
-
-        let bind_group = device.create_bind_group(&BindGroupDescriptor {
-            label: Some("gradient_bind_group"),
-            layout: &self.layout,
-            entries: BindGroupEntries::sequential((settings_buffer.binding().unwrap(),)).as_ref(),
-        });
-
-        let mut ec = device.create_command_encoder(&Default::default());
-
-        {
-            let mut pass = ec.begin_render_pass(&RenderPassDescriptor {
-                label: Some("gradient_pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: output,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: if preserve_output {
-                            LoadOp::Load
-                        } else {
-                            LoadOp::Clear(Color::TRANSPARENT)
-                        },
-                        store: StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            });
-
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.set_vertex_buffer(0, mesh.vertices.slice(..));
-            pass.set_index_buffer(mesh.indices.slice(..), IndexFormat::Uint16);
-            pass.draw_indexed(0..mesh.n_indices, 0, 0..1);
-        }
-
-        queue.submit([ec.finish()]);
+        Self { pipeline }
     }
 }
 
 pub struct GradientRingPipeline {
-    layout: BindGroupLayout,
-    pipeline: RenderPipeline,
-    mesh: GradientMesh,
+    pub(crate) pipeline: RenderPipeline,
+    pub(crate) mesh: GradientMesh,
 }
 
 impl GradientRingPipeline {
-    pub fn new(device: &Device, profile: &ColorProfile, output_profile: &ColorProfile) -> Self {
-        let layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("gradient_ring_layout"),
-            entries: BindGroupLayoutEntries::sequential(
-                ShaderStages::FRAGMENT,
-                (binding_types::uniform_buffer::<GradientSettings>(false),),
-            )
-            .as_ref(),
-        });
-
+    pub fn new(
+        device: &Device,
+        layout: &BindGroupLayout,
+        profile: &ColorProfile,
+        output_profile: &ColorProfile,
+        format: TextureFormat,
+    ) -> Self {
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("gradient_ring_shader"),
             source: ShaderSource::Wgsl(
-                compile_gradient_shader(profile, output_profile)
+                compile_gradient_shader(profile, output_profile, format.is_srgb())
                     .unwrap()
                     .into(),
             ),
         });
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("gradient_ring_pipeline_layout"),
-            bind_group_layouts: &[Some(&layout)],
-            immediate_size: 0,
+            bind_group_layouts: &[layout],
+            push_constant_ranges: &[],
         });
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: Some("gradient_ring_pipeline"),
@@ -406,68 +347,20 @@ impl GradientRingPipeline {
                 entry_point: Some("ring_fragment"),
                 compilation_options: Default::default(),
                 targets: &[Some(ColorTargetState {
-                    format: TextureFormat::Rgba16Float,
-                    blend: None,
+                    format,
+                    blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
             }),
             primitive: Default::default(),
             depth_stencil: Default::default(),
             multisample: Default::default(),
-            multiview_mask: Default::default(),
+            multiview: None,
             cache: Default::default(),
         });
         let mesh = GradientMesh::new_plane(device, GradientPlaneShape::Square, 1.0);
 
-        Self {
-            layout,
-            pipeline,
-            mesh,
-        }
-    }
-
-    pub fn draw(
-        &self,
-        device: &Device,
-        queue: &Queue,
-        settings: &GradientSettings,
-        output: &TextureView,
-    ) {
-        let mut settings_buffer = DynamicBuffer::new(
-            Some("gradient_ring_settings_buffer".into()),
-            BufferUsages::UNIFORM,
-        );
-        settings_buffer.push(settings);
-        settings_buffer.write_buffer(device, queue);
-
-        let bind_group = device.create_bind_group(&BindGroupDescriptor {
-            label: Some("gradient_ring_bind_group"),
-            layout: &self.layout,
-            entries: BindGroupEntries::sequential((settings_buffer.binding().unwrap(),)).as_ref(),
-        });
-        let mut encoder = device.create_command_encoder(&Default::default());
-        {
-            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("gradient_ring_pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: output,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(Color::TRANSPARENT),
-                        store: StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.set_vertex_buffer(0, self.mesh.vertices.slice(..));
-            pass.set_index_buffer(self.mesh.indices.slice(..), IndexFormat::Uint16);
-            pass.draw_indexed(0..self.mesh.n_indices, 0, 0..1);
-        }
-
-        queue.submit([encoder.finish()]);
+        Self { pipeline, mesh }
     }
 }
 
@@ -478,10 +371,11 @@ struct Vertex {
     uv: Vec2,
 }
 
+#[derive(Debug)]
 pub struct GradientMesh {
-    n_indices: u32,
-    vertices: Buffer,
-    indices: Buffer,
+    pub(crate) n_indices: u32,
+    pub(crate) vertices: Buffer,
+    pub(crate) indices: Buffer,
 }
 
 impl GradientMesh {
@@ -550,7 +444,7 @@ fn vtx(px: f32, py: f32, uvx: f32, uvy: f32) -> Vertex {
     }
 }
 
-#[derive(ShaderType, Clone)]
+#[derive(Debug, Clone, ShaderType)]
 pub struct GradientSettings {
     pub channel_ranges: [Vec4; 3],
     pub base_channels: Vec3,

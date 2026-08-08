@@ -1,539 +1,485 @@
-use std::{panic::Location, rc::Rc};
-
 use cyancia_math::curve::CubicCurve;
 use glam::Vec2;
-use gpui::{
-    App, BorderStyle, Bounds, ContentMask, Context, Corners, Element, ElementId, Entity,
-    EventEmitter, FocusHandle, GlobalElementId, HitboxBehavior, Hsla, InspectorElementId,
-    InteractiveElement, IntoElement, KeyBinding, LayoutId, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, PaintQuad, ParentElement, PathBuilder, Pixels, Point, RenderOnce, Style, Styled,
-    Window, actions, div, fill, hsla, outline, point, px, relative, size,
+use iced_core::{
+    Background, Border, Clipboard, Color, Element, Event, Layout, Length, Point, Rectangle, Shell,
+    Size, Widget,
+    keyboard::{self, key},
+    layout,
+    mouse::{self, Cursor},
+    renderer::{self, Quad},
+    widget::{self, tree},
 };
+use iced_graphics::geometry::{Frame, Path, Stroke};
 
-const DEFAULT_ID: &str = "curve-edit-widget";
-const KEY_CONTEXT: &str = "CurveEditWidget";
 const MIN_POINT_GAP: f32 = 0.001;
 
-actions!(curve_edit, [DeleteSelectedControlPoint]);
-
-pub(crate) fn init(cx: &mut App) {
-    cx.bind_keys(vec![KeyBinding::new(
-        "delete",
-        DeleteSelectedControlPoint,
-        Some(KEY_CONTEXT),
-    )]);
-}
-
-#[derive(Clone)]
-pub struct CurveEditState {
-    selected_index: Option<usize>,
-    drag_index: Option<usize>,
+pub struct CurveEdit<'a, Message, Theme = iced_core::Theme>
+where
+    Theme: Catalog,
+{
     curve: CubicCurve,
-    focus_handle: FocusHandle,
+    on_change: Option<Box<dyn Fn(CubicCurve) -> Message + 'a>>,
+    on_release: Option<Box<dyn Fn(CubicCurve) -> Message + 'a>>,
+    width: Length,
+    height: Length,
+    grid_resolution: usize,
+    curve_resolution: usize,
+    control_point_radius: f32,
+    curve_stroke_width: f32,
+    grid_stroke_width: f32,
+    control_point_stroke_width: f32,
+    class: Theme::Class<'a>,
 }
 
-impl CurveEditState {
-    pub fn new(curve: CubicCurve, cx: &mut Context<Self>) -> Self {
+impl<'a, Message, Theme> CurveEdit<'a, Message, Theme>
+where
+    Theme: Catalog,
+{
+    pub fn new(curve: CubicCurve) -> Self {
         Self {
-            selected_index: None,
-            drag_index: None,
             curve,
-            focus_handle: cx.focus_handle(),
-        }
-    }
-
-    fn delete_selected(&mut self) {
-        let Some(index) = self.selected_index else {
-            return;
-        };
-
-        if self.curve.control_points().len() <= 2 || index >= self.curve.control_points().len() {
-            return;
-        }
-
-        let mut points = self.curve.control_points().to_vec();
-        points.remove(index);
-        self.curve = CubicCurve::new(points);
-        self.selected_index = None;
-        self.drag_index = None;
-    }
-
-    pub fn value(&self) -> &CubicCurve {
-        &self.curve
-    }
-}
-
-impl EventEmitter<CurveEditEvent> for CurveEditState {}
-
-struct CurveEditPalette {
-    background: Hsla,
-    border: Hsla,
-    grid: Hsla,
-    curve: Hsla,
-    control_point: Hsla,
-    selected_control_point: Hsla,
-}
-
-impl CurveEditPalette {
-    pub fn new(window: &Window) -> Self {
-        let foreground = window.text_style().color;
-        let is_dark = foreground.l > 0.5;
-        let background = if is_dark {
-            hsla(foreground.h, foreground.s * 0.25, 0.12, 1.)
-        } else {
-            hsla(foreground.h, foreground.s * 0.12, 0.94, 1.)
-        };
-        let accent = hsla(0.58, 0.85, if is_dark { 0.62 } else { 0.46 }, 1.);
-
-        Self {
-            background,
-            border: foreground.opacity(0.28),
-            grid: foreground.opacity(0.16),
-            curve: foreground.opacity(0.9),
-            control_point: foreground.opacity(0.78),
-            selected_control_point: accent,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct CurveEditStyle {
-    pub grid_resolution: usize,
-    pub curve_resolution: usize,
-    pub control_point_radius: Pixels,
-    pub curve_stroke_width: Pixels,
-    pub grid_stroke_width: Pixels,
-    pub control_point_stroke_width: Pixels,
-    pub border_width: Pixels,
-}
-
-impl Default for CurveEditStyle {
-    fn default() -> Self {
-        Self {
+            on_change: None,
+            on_release: None,
+            width: Length::Fill,
+            height: Length::Fill,
             grid_resolution: 4,
             curve_resolution: 128,
-            control_point_radius: px(4.),
-            curve_stroke_width: px(1.5),
-            grid_stroke_width: px(0.5),
-            control_point_stroke_width: px(1.),
-            border_width: px(1.),
-        }
-    }
-}
-
-pub enum CurveEditEvent {
-    ControlPointsChanged,
-}
-
-type CurveEditEventHandler = dyn Fn(CurveEditEvent, &mut Window, &mut App);
-
-#[derive(IntoElement)]
-pub struct CurveEdit {
-    id: ElementId,
-    style: CurveEditStyle,
-    state: Entity<CurveEditState>,
-    on_event: Rc<CurveEditEventHandler>,
-}
-
-impl CurveEdit {
-    pub fn new(state: &Entity<CurveEditState>) -> Self {
-        Self {
-            id: DEFAULT_ID.into(),
-            style: CurveEditStyle::default(),
-            state: state.clone(),
-            on_event: Rc::new(|_, _, _| {}),
+            control_point_radius: 4.0,
+            curve_stroke_width: 1.5,
+            grid_stroke_width: 0.5,
+            control_point_stroke_width: 1.0,
+            class: Theme::default(),
         }
     }
 
-    pub fn id(mut self, id: impl Into<ElementId>) -> Self {
-        self.id = id.into();
+    pub fn on_change(mut self, callback: impl Fn(CubicCurve) -> Message + 'a) -> Self {
+        self.on_change = Some(Box::new(callback));
         self
     }
 
-    pub fn on_event(
-        mut self,
-        on_event: impl Fn(CurveEditEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.on_event = Rc::new(on_event);
+    pub fn on_release(mut self, callback: impl Fn(CubicCurve) -> Message + 'a) -> Self {
+        self.on_release = Some(Box::new(callback));
         self
     }
 
-    pub fn curve_style(mut self, style: CurveEditStyle) -> Self {
-        self.style = style;
+    pub fn width(mut self, width: impl Into<Length>) -> Self {
+        self.width = width.into();
+        self
+    }
+
+    pub fn height(mut self, height: impl Into<Length>) -> Self {
+        self.height = height.into();
+        self
+    }
+
+    #[must_use]
+    pub fn style(mut self, style: impl Fn(&Theme, Status) -> Style + 'a) -> Self
+    where
+        Theme::Class<'a>: From<StyleFn<'a, Theme>>,
+    {
+        self.class = (Box::new(style) as StyleFn<'a, Theme>).into();
+        self
+    }
+
+    #[must_use]
+    pub fn class(mut self, class: impl Into<Theme::Class<'a>>) -> Self {
+        self.class = class.into();
         self
     }
 
     pub fn grid_resolution(mut self, resolution: usize) -> Self {
-        self.style.grid_resolution = resolution;
+        self.grid_resolution = resolution;
         self
     }
 
     pub fn curve_resolution(mut self, resolution: usize) -> Self {
-        self.style.curve_resolution = resolution.max(1);
+        self.curve_resolution = resolution;
         self
     }
 
-    pub fn control_point_radius(mut self, radius: Pixels) -> Self {
-        self.style.control_point_radius = radius;
+    pub fn control_point_radius(mut self, radius: f32) -> Self {
+        self.control_point_radius = radius;
         self
     }
 
-    pub fn curve_stroke_width(mut self, width: Pixels) -> Self {
-        self.style.curve_stroke_width = width;
+    pub fn curve_stroke_width(mut self, width: f32) -> Self {
+        self.curve_stroke_width = width;
         self
     }
 
-    pub fn grid_stroke_width(mut self, width: Pixels) -> Self {
-        self.style.grid_stroke_width = width;
-        self
-    }
-}
-
-impl RenderOnce for CurveEdit {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let state = self.state.read(cx);
-
-        div()
-            .id(self.id.clone())
-            .key_context(KEY_CONTEXT)
-            .track_focus(&state.focus_handle)
-            .w_full()
-            .h_full()
-            .on_action({
-                let state = self.state.clone();
-                move |_: &DeleteSelectedControlPoint, window, cx| {
-                    state.update(cx, |state, cx| {
-                        state.delete_selected();
-                        window.refresh();
-                        cx.stop_propagation();
-                        cx.emit(CurveEditEvent::ControlPointsChanged);
-                    });
-                }
-            })
-            .child(CurveEditCanvas {
-                id: self.id,
-                state: self.state.clone(),
-                style: self.style,
-                is_focusing: state.focus_handle.is_focused(window),
-            })
-    }
-}
-
-struct CurveEditCanvas {
-    id: ElementId,
-    state: Entity<CurveEditState>,
-    style: CurveEditStyle,
-    is_focusing: bool,
-}
-
-impl IntoElement for CurveEditCanvas {
-    type Element = Self;
-    fn into_element(self) -> Self::Element {
+    pub fn grid_stroke_width(mut self, width: f32) -> Self {
+        self.grid_stroke_width = width;
         self
     }
 }
 
-impl Element for CurveEditCanvas {
-    type RequestLayoutState = Style;
-    type PrepaintState = Bounds<Pixels>;
-
-    fn id(&self) -> Option<ElementId> {
-        Some(self.id.clone())
+impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer> for CurveEdit<'_, Message, Theme>
+where
+    Theme: Catalog,
+    Renderer: iced_core::Renderer + iced_graphics::geometry::Renderer,
+{
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<CurveEditState>()
     }
 
-    fn source_location(&self) -> Option<&'static Location<'static>> {
-        None
+    fn state(&self) -> tree::State {
+        tree::State::new(CurveEditState::default())
     }
 
-    fn request_layout(
+    fn size(&self) -> Size<Length> {
+        Size::new(self.width, self.height)
+    }
+
+    fn layout(
         &mut self,
-        _: Option<&GlobalElementId>,
-        __id: Option<&InspectorElementId>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> (LayoutId, Style) {
-        let style = Style {
-            size: size(relative(1.).into(), relative(1.).into()),
-            ..Default::default()
-        };
-
-        let layout_id = window.request_layout(style.clone(), vec![], cx);
-        (layout_id, style)
+        _tree: &mut widget::Tree,
+        _renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        layout::atomic(limits, self.width, self.height)
     }
 
-    fn prepaint(
+    fn update(
         &mut self,
-        _: Option<&GlobalElementId>,
-        __id: Option<&InspectorElementId>,
-        bounds: Bounds<Pixels>,
-        _: &mut Style,
-        window: &mut Window,
-        _: &mut App,
-    ) -> Bounds<Pixels> {
-        window.with_content_mask(Some(ContentMask { bounds }), |window| {
-            window.insert_hitbox(bounds, HitboxBehavior::Normal);
-        });
-        bounds
-    }
-
-    fn paint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        __id: Option<&InspectorElementId>,
-        _: Bounds<Pixels>,
-        style: &mut Style,
-        bounds: &mut Bounds<Pixels>,
-        window: &mut Window,
-        cx: &mut App,
+        tree: &mut widget::Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: Cursor,
+        _renderer: &Renderer,
+        _clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        _viewport: &Rectangle,
     ) {
-        let bounds = *bounds;
+        let state = tree.state.downcast_mut::<CurveEditState>();
+        let bounds = layout.bounds();
 
-        let palette = CurveEditPalette::new(window);
-        let paint_default_background = style.background.is_none();
-        let paint_default_border = style.border_color.is_none();
+        match event {
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let Some(position) = cursor.position_in(bounds) else {
+                    return;
+                };
 
-        window.with_content_mask(Some(ContentMask { bounds }), |window| {
-            style.paint(bounds, window, cx, |window, cx| {
-                let state = self.state.read(cx);
-                if paint_default_background {
-                    window.paint_quad(fill(bounds, palette.background));
-                }
-
-                if paint_default_border {
-                    self.paint_border(bounds, palette.border, window);
-                }
-
-                self.paint_grid(bounds, palette.grid, window);
-                self.paint_curve(&state.curve, bounds, palette.curve, window);
-
-                for (idx, &pt) in state.curve.control_points().iter().enumerate() {
-                    self.paint_control_point(
-                        bounds,
-                        pt,
-                        state.selected_index == Some(idx) && self.is_focusing,
-                        &palette,
-                        window,
-                    );
-                }
-            });
-        });
-
-        self.handle_mouse_events(bounds, window);
-    }
-}
-
-impl CurveEditCanvas {
-    fn paint_border(&self, bounds: Bounds<Pixels>, color: Hsla, window: &mut Window) {
-        let t = self.style.border_width;
-        window.paint_quad(fill(
-            Bounds {
-                origin: bounds.origin,
-                size: size(bounds.size.width, t),
-            },
-            color,
-        ));
-        window.paint_quad(fill(
-            Bounds {
-                origin: point(bounds.origin.x, bounds.origin.y + bounds.size.height - t),
-                size: size(bounds.size.width, t),
-            },
-            color,
-        ));
-        window.paint_quad(fill(
-            Bounds {
-                origin: bounds.origin,
-                size: size(t, bounds.size.height),
-            },
-            color,
-        ));
-        window.paint_quad(fill(
-            Bounds {
-                origin: point(bounds.origin.x + bounds.size.width - t, bounds.origin.y),
-                size: size(t, bounds.size.height),
-            },
-            color,
-        ));
-    }
-
-    fn paint_grid(&self, bounds: Bounds<Pixels>, color: Hsla, window: &mut Window) {
-        for i in 1..self.style.grid_resolution {
-            let f = i as f32 / self.style.grid_resolution as f32;
-            let x = bounds.origin.x + f * bounds.size.width;
-            let y = bounds.origin.y + f * bounds.size.height;
-            let mut b = PathBuilder::stroke(self.style.grid_stroke_width);
-            b.move_to(point(x, bounds.origin.y));
-            b.line_to(point(x, bounds.origin.y + bounds.size.height));
-            if let Ok(p) = b.build() {
-                window.paint_path(p, color);
-            }
-            let mut b = PathBuilder::stroke(self.style.grid_stroke_width);
-            b.move_to(point(bounds.origin.x, y));
-            b.line_to(point(bounds.origin.x + bounds.size.width, y));
-            if let Ok(p) = b.build() {
-                window.paint_path(p, color);
-            }
-        }
-    }
-
-    fn paint_curve(
-        &self,
-        curve: &CubicCurve,
-        bounds: Bounds<Pixels>,
-        color: Hsla,
-        window: &mut Window,
-    ) {
-        let sampled = curve.subdivide(self.style.curve_resolution);
-        let mut b = PathBuilder::stroke(self.style.curve_stroke_width);
-        b.move_to(normalized_to_screen(sampled[0], bounds));
-        for &pt in &sampled[1..] {
-            b.line_to(normalized_to_screen(pt, bounds));
-        }
-        if let Ok(p) = b.build() {
-            window.paint_path(p, color);
-        }
-    }
-
-    fn paint_control_point(
-        &self,
-        bounds: Bounds<Pixels>,
-        pt: Vec2,
-        selected: bool,
-        palette: &CurveEditPalette,
-        window: &mut Window,
-    ) {
-        let s = normalized_to_screen(pt, bounds);
-        let r = self.style.control_point_radius;
-        let bounds = Bounds {
-            origin: point(s.x - r, s.y - r),
-            size: size(r * 2., r * 2.),
-        };
-        if selected {
-            window.paint_quad(fill(bounds, palette.selected_control_point));
-        } else {
-            window.paint_quad(PaintQuad {
-                corner_radii: Corners::all(r),
-                ..outline(bounds, palette.control_point, BorderStyle::Solid)
-            });
-        }
-    }
-
-    fn handle_mouse_events(&mut self, bounds: Bounds<Pixels>, window: &mut Window) {
-        let state = self.state.clone();
-        window.on_mouse_event(move |ev: &MouseDownEvent, phase, window, cx| {
-            if !phase.bubble() || !bounds.contains(&ev.position) {
-                return;
-            }
-
-            state.update(cx, |state, cx| {
-                window.focus(&state.focus_handle, cx);
-
-                let pick_radius = 8.0_f32;
-                let closest = state
+                let normalized = local_to_normalized(position, bounds.size());
+                let closest = self
                     .curve
                     .control_points()
                     .iter()
                     .enumerate()
-                    .filter_map(|(i, &p)| {
-                        let p = point(
-                            bounds.origin.x + p.x * bounds.size.width,
-                            bounds.origin.y + (1.0 - p.y) * bounds.size.height,
-                        );
-                        let dx = (p.x - ev.position.x) / px(1.);
-                        let dy = (p.y - ev.position.y) / px(1.);
-                        let d = (dx * dx + dy * dy).sqrt();
-                        (d <= pick_radius).then_some((i, d))
+                    .filter_map(|(index, point)| {
+                        let screen = normalized_to_local(*point, bounds.size());
+                        let distance = (screen - Vec2::new(position.x, position.y)).length();
+                        (distance <= self.control_point_radius * 2.0).then_some((index, distance))
                     })
-                    .min_by(|a, b| a.1.total_cmp(&b.1))
-                    .map(|(i, _)| i);
+                    .min_by(|left, right| left.1.total_cmp(&right.1))
+                    .map(|(index, _)| index);
 
-                let index = if let Some(index) = closest {
-                    index
-                } else {
-                    let mut control_points = state.curve.control_points().to_vec();
-                    let point = screen_to_normalized(ev.position, bounds);
-                    let index = control_points.partition_point(|p| p.x < point.x);
+                if let Some(index) = closest {
+                    state.selected_index = Some(index);
+                    state.dragging = true;
+                    state.drag_curve = None;
+                } else if let Some(on_change) = &self.on_change {
+                    let mut points = self.curve.control_points().to_vec();
+                    let index = points.partition_point(|point| point.x < normalized.x);
                     let min = index
                         .checked_sub(1)
-                        .map_or(0., |prev| control_points[prev].x + MIN_POINT_GAP);
-                    let max = control_points
-                        .get(index)
-                        .map_or(1., |next| next.x - MIN_POINT_GAP);
-                    if min > max {
-                        window.refresh();
-                        return;
-                    }
+                        .map_or(0.0, |previous| points[previous].x + MIN_POINT_GAP);
+                    let max = points.get(index).map_or(1.0, |next| next.x - MIN_POINT_GAP);
+                    points.insert(index, Vec2::new(normalized.x.clamp(min, max), normalized.y));
+                    let curve = CubicCurve::new(points);
+                    state.selected_index = Some(index);
+                    state.dragging = true;
+                    state.drag_curve = Some(curve.clone());
+                    shell.publish(on_change(curve));
+                }
 
-                    control_points.insert(
-                        index,
-                        Vec2::new(point.x.clamp(min, max), point.y.clamp(0., 1.)),
-                    );
-                    state.curve = CubicCurve::new(control_points);
-
-                    index
-                };
-
-                state.selected_index = Some(index);
-                state.drag_index = Some(index);
-                window.refresh();
-                cx.emit(CurveEditEvent::ControlPointsChanged);
-                cx.stop_propagation();
-            });
-        });
-
-        let state = self.state.clone();
-        window.on_mouse_event(move |ev: &MouseMoveEvent, phase, _, cx| {
-            if !phase.bubble() || !bounds.contains(&ev.position) {
-                return;
+                shell.request_redraw();
+                shell.capture_event();
             }
-
-            state.update(cx, |state, cx| {
-                let Some(idx) = state.drag_index else {
+            Event::Mouse(mouse::Event::CursorMoved { .. }) if state.dragging => {
+                let Some(position) = cursor.position() else {
                     return;
                 };
+                let index = state
+                    .selected_index
+                    .expect("dragging without a selected point");
+                let mut points = self.curve.control_points().to_vec();
 
-                let norm = screen_to_normalized(ev.position, bounds);
-                if idx >= state.curve.control_points().len() {
-                    state.drag_index = None;
+                let normalized = screen_to_normalized(position, bounds);
+                let min = index
+                    .checked_sub(1)
+                    .map_or(0.0, |previous| points[previous].x + MIN_POINT_GAP);
+                let max = points
+                    .get(index + 1)
+                    .map_or(1.0, |next| next.x - MIN_POINT_GAP);
+                points[index] = Vec2::new(normalized.x.clamp(min, max), normalized.y);
+
+                let curve = CubicCurve::new(points);
+                state.drag_curve = Some(curve.clone());
+                if let Some(on_change) = &self.on_change {
+                    shell.publish(on_change(curve));
+                }
+                shell.capture_event();
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) if state.dragging => {
+                state.dragging = false;
+                let curve = state
+                    .drag_curve
+                    .take()
+                    .unwrap_or_else(|| self.curve.clone());
+                if let Some(on_release) = &self.on_release {
+                    shell.publish(on_release(curve));
+                }
+                shell.capture_event();
+            }
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Named(key::Named::Delete),
+                ..
+            }) if cursor.is_over(bounds) => {
+                let Some(index) = state.selected_index else {
+                    return;
+                };
+                if self.curve.control_points().len() <= 2 {
                     return;
                 }
 
-                let mut control_points = state.curve.control_points().to_vec();
-                let min = idx
-                    .checked_sub(1)
-                    .map_or(0., |prev| control_points[prev].x + MIN_POINT_GAP);
-                let max = control_points
-                    .get(idx + 1)
-                    .map_or(1., |next| next.x - MIN_POINT_GAP);
-                let x = norm.x.clamp(min.min(max), max.max(min));
-                control_points[idx] = Vec2::new(x, norm.y);
-
-                state.curve = CubicCurve::new(control_points);
-                cx.emit(CurveEditEvent::ControlPointsChanged);
-                cx.stop_propagation();
-            });
-        });
-
-        let state = self.state.clone();
-        window.on_mouse_event(move |_: &MouseUpEvent, _, window, cx| {
-            state.update(cx, |state, cx| {
-                if state.drag_index.take().is_some() {
-                    window.refresh();
-                    cx.stop_propagation();
+                let mut points = self.curve.control_points().to_vec();
+                points.remove(index);
+                state.selected_index = None;
+                state.dragging = false;
+                state.drag_curve = None;
+                if let Some(on_change) = &self.on_change {
+                    shell.publish(on_change(CubicCurve::new(points)));
                 }
+                shell.capture_event();
+            }
+            _ => {}
+        }
+    }
+
+    fn draw(
+        &self,
+        tree: &widget::Tree,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        _renderer_style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: Cursor,
+        _viewport: &Rectangle,
+    ) {
+        let bounds = layout.bounds();
+        let state = tree.state.downcast_ref::<CurveEditState>();
+        let status = if state.dragging {
+            Status::Dragged
+        } else if cursor.is_over(bounds) {
+            Status::Hovered
+        } else {
+            Status::Active
+        };
+        let style = theme.style(&self.class, status);
+
+        renderer.fill_quad(
+            Quad {
+                bounds,
+                border: style.border,
+                ..Default::default()
+            },
+            style.background,
+        );
+
+        let mut frame = Frame::new(renderer, bounds.size());
+
+        for index in 1..self.grid_resolution {
+            let fraction = index as f32 / self.grid_resolution as f32;
+            let x = fraction * bounds.width;
+            let y = fraction * bounds.height;
+            let vertical = Path::new(|builder| {
+                builder.move_to(Point::new(x, 0.0));
+                builder.line_to(Point::new(x, bounds.height));
             });
+            let horizontal = Path::new(|builder| {
+                builder.move_to(Point::new(0.0, y));
+                builder.line_to(Point::new(bounds.width, y));
+            });
+            let stroke = Stroke {
+                style: style.grid.into(),
+                width: self.grid_stroke_width,
+                ..Default::default()
+            };
+            frame.stroke(&vertical, stroke);
+            frame.stroke(&horizontal, stroke);
+        }
+
+        let sampled = self.curve.subdivide(self.curve_resolution);
+        let curve = Path::new(|builder| {
+            let first = normalized_to_local(sampled[0], bounds.size());
+            builder.move_to(Point::new(first.x, first.y));
+            for point in &sampled[1..] {
+                let point = normalized_to_local(*point, bounds.size());
+                builder.line_to(Point::new(point.x, point.y));
+            }
         });
+        frame.stroke(
+            &curve,
+            Stroke {
+                style: style.curve.into(),
+                width: self.curve_stroke_width,
+                ..Default::default()
+            },
+        );
+
+        for (index, point) in self.curve.control_points().iter().enumerate() {
+            let center = normalized_to_local(*point, bounds.size());
+            let radius = self.control_point_radius;
+            let origin = Point::new(center.x - radius, center.y - radius);
+            let point_size = Size::new(radius * 2.0, radius * 2.0);
+            if state.selected_index == Some(index) {
+                frame.fill_rectangle(origin, point_size, style.selected_control_point);
+            } else {
+                frame.stroke_rectangle(
+                    origin,
+                    point_size,
+                    Stroke {
+                        style: style.control_point.into(),
+                        width: self.control_point_stroke_width,
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+
+        renderer.with_translation(iced_core::Vector::new(bounds.x, bounds.y), |renderer| {
+            renderer.draw_geometry(frame.into_geometry())
+        });
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &widget::Tree,
+        layout: Layout<'_>,
+        cursor: Cursor,
+        _viewport: &Rectangle,
+        _renderer: &Renderer,
+    ) -> mouse::Interaction {
+        if tree.state.downcast_ref::<CurveEditState>().dragging {
+            mouse::Interaction::Grabbing
+        } else if cursor.is_over(layout.bounds()) {
+            mouse::Interaction::Pointer
+        } else {
+            mouse::Interaction::default()
+        }
     }
 }
 
-fn normalized_to_screen(p: Vec2, bounds: Bounds<Pixels>) -> Point<Pixels> {
-    point(
-        bounds.origin.x + p.x * bounds.size.width,
-        bounds.origin.y + (1.0 - p.y) * bounds.size.height,
+impl<'a, Message, Theme, Renderer> From<CurveEdit<'a, Message, Theme>>
+    for Element<'a, Message, Theme, Renderer>
+where
+    Message: 'a,
+    Theme: Catalog + 'a,
+    Renderer: iced_core::Renderer + iced_graphics::geometry::Renderer + 'a,
+{
+    fn from(widget: CurveEdit<'a, Message, Theme>) -> Self {
+        Element::new(widget)
+    }
+}
+
+#[derive(Default)]
+struct CurveEditState {
+    selected_index: Option<usize>,
+    dragging: bool,
+    drag_curve: Option<CubicCurve>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    Active,
+    Hovered,
+    Dragged,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Style {
+    pub background: Background,
+    pub border: Border,
+    pub grid: Color,
+    pub curve: Color,
+    pub control_point: Color,
+    pub selected_control_point: Color,
+}
+
+pub trait Catalog: Sized {
+    type Class<'a>;
+
+    fn default<'a>() -> Self::Class<'a>;
+
+    fn style(&self, class: &Self::Class<'_>, status: Status) -> Style;
+}
+
+pub type StyleFn<'a, Theme> = Box<dyn Fn(&Theme, Status) -> Style + 'a>;
+
+impl Catalog for iced_core::Theme {
+    type Class<'a> = StyleFn<'a, Self>;
+
+    fn default<'a>() -> Self::Class<'a> {
+        Box::new(default)
+    }
+
+    fn style(&self, class: &Self::Class<'_>, status: Status) -> Style {
+        class(self, status)
+    }
+}
+
+pub fn default(theme: &iced_core::Theme, _status: Status) -> Style {
+    let palette = theme.extended_palette();
+    Style {
+        background: palette.background.base.color.into(),
+        border: Border {
+            color: palette.background.strong.color,
+            width: 1.0,
+            ..Default::default()
+        },
+        grid: palette.background.strong.color,
+        curve: palette.primary.base.color,
+        control_point: palette.primary.base.color,
+        selected_control_point: palette.primary.strong.color,
+    }
+}
+
+fn local_to_normalized(local: Point, size: Size) -> Vec2 {
+    Vec2::new(
+        (local.x / size.width).clamp(0.0, 1.0),
+        (1.0 - local.y / size.height).clamp(0.0, 1.0),
     )
 }
 
-fn screen_to_normalized(screen: Point<Pixels>, bounds: Bounds<Pixels>) -> Vec2 {
-    let x = ((screen.x - bounds.origin.x) / bounds.size.width).clamp(0., 1.);
-    let y = (1.0 - (screen.y - bounds.origin.y) / bounds.size.height).clamp(0., 1.);
-    Vec2::new(x, y)
+fn screen_to_normalized(screen: Point, bounds: Rectangle) -> Vec2 {
+    local_to_normalized(
+        Point::new(screen.x - bounds.x, screen.y - bounds.y),
+        bounds.size(),
+    )
+}
+
+fn normalized_to_local(point: Vec2, size: Size) -> Vec2 {
+    Vec2::new(point.x * size.width, (1.0 - point.y) * size.height)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn converts_between_local_and_normalized_coordinates() {
+        let size = Size::new(200.0, 100.0);
+        let normalized = local_to_normalized(Point::new(50.0, 75.0), size);
+        assert_eq!(normalized, Vec2::new(0.25, 0.25));
+        assert_eq!(normalized_to_local(normalized, size), Vec2::new(50.0, 75.0));
+    }
+
+    #[test]
+    fn converts_screen_coordinates_relative_to_bounds() {
+        let bounds = Rectangle::new(Point::new(100.0, 50.0), Size::new(200.0, 100.0));
+        assert_eq!(
+            screen_to_normalized(Point::new(150.0, 125.0), bounds),
+            Vec2::new(0.25, 0.25)
+        );
+    }
 }

@@ -1,9 +1,10 @@
 use bevy_math::IRect;
 use cyancia_image::layer::{LayerId, properties::LayerProperties};
+use cyancia_runtime::event::Event;
 
 use crate::CanvasId;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Event)]
 pub struct CanvasCreated {
     pub id: CanvasId,
 }
@@ -14,13 +15,14 @@ pub struct CurrentCanvasChanged {
     pub to: Option<CanvasId>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Event)]
 pub struct CanvasRemoved {
     pub id: CanvasId,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Event, Debug, Clone)]
 pub struct CanvasUpdated {
+    pub id: CanvasId,
     pub dirty_tiles: IRect,
 }
 

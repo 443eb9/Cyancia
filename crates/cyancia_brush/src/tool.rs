@@ -1,171 +1,268 @@
-use std::rc::Rc;
+use std::collections::HashMap;
 
 use cyancia_assets::asset::AssetHandle;
-use cyancia_canvas::{CanvasAppExt, CanvasUndoStackAppExt};
+use cyancia_canvas::{
+    CanvasAppExt, CanvasUndoStackAppExt, command::TileReplaceCommand, event::CanvasUpdated,
+};
+use cyancia_image::{composite::LayerPreviewOverriders, tile::TileStorageAppExt};
+use cyancia_input::{key::KeyboardState, mouse::PressedMouseState};
 use cyancia_render::render_context::RenderContextAppExt;
+use cyancia_runtime::{Services, event::Event, service::Service};
 use cyancia_shader_graph::graph::{
-    function::ASSET_GRAPH_FUNCTION_STORAGE, slot::GraphInlineLiteralRenderContext,
-    texture::ASSET_GRAPH_TEXTURE_STORAGE,
+    external::ExternalVariableId, function::ASSET_GRAPH_FUNCTION_STORAGE,
+    slot::ErasedGraphLiteralUpdateMessage, texture::ASSET_GRAPH_TEXTURE_STORAGE,
 };
 use cyancia_tools::{ToolFunction, ToolId};
-use cyancia_utils::wrapper;
-use gpui::{
-    AnyElement, App, BorrowAppContext, Context, Global, IntoElement, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ParentElement, Styled, Window,
-};
-use gpui_component::{scroll::ScrollableElement, v_flex};
+use cyancia_undo::QueuedUndoCommand;
+use cyancia_utils::log_err::LogErr;
+use iced_core::{Element, Length};
+use iced_runtime::Task;
+use iced_widget::{column, container, text};
 use log::error;
 
 use crate::{
     asset::BrushPreset,
     input_processing::{BasicStabilizer, InputProcessor},
     instance::BrushPresetInstance,
-    render::CanvasBrushPresetOperator,
+    render::{BrushRenderUpdate, CanvasBrushPresetOperator},
 };
 
-pub(crate) fn init(cx: &mut App) {
-    cx.observe_global::<CurrentBrushPresetHandle>(|cx| {
-        let Some(handle) = cx.try_global::<CurrentBrushPresetHandle>().cloned() else {
-            cx.remove_global::<CurrentBrushPreset>();
-            return;
-        };
+pub struct CurrentBrushPreset(pub CanvasBrushPresetOperator);
 
-        let (instance, err) = BrushPresetInstance::from_asset(
-            &handle.0,
+impl Service for CurrentBrushPreset {}
+
+#[derive(Clone)]
+pub struct CurrentBrushPresetHandle(pub AssetHandle<BrushPreset>);
+
+impl Service for CurrentBrushPresetHandle {}
+
+pub trait BrushServicesExt {
+    fn set_current_brush_preset(&mut self, handle: AssetHandle<BrushPreset>);
+}
+
+impl BrushServicesExt for Services {
+    fn set_current_brush_preset(&mut self, handle: AssetHandle<BrushPreset>) {
+        let (instance, errors) = BrushPresetInstance::from_asset(
+            &handle,
             ASSET_GRAPH_TEXTURE_STORAGE.clone(),
             ASSET_GRAPH_FUNCTION_STORAGE.clone(),
-            cx,
         );
-
-        for err in err {
-            error!("{}", err);
+        for error in errors {
+            error!("{error}");
         }
 
         let Some(instance) = instance else {
             return;
         };
-
-        let op = CanvasBrushPresetOperator::new(
+        let operator = CanvasBrushPresetOperator::new(
             instance,
-            cx.render_device().clone(),
-            cx.render_queue().clone(),
+            self.render_device().clone(),
+            self.render_queue().clone(),
             InputProcessor::new(256, Box::new(BasicStabilizer)),
         );
         log::info!(
             "Loaded brush preset {} {:?}",
-            op.instance().metadata().name,
-            op.instance().asset_id()
+            operator.instance().metadata().name,
+            operator.instance().asset_id()
         );
-
-        cx.set_global(CurrentBrushPreset::new(op));
-    })
-    .detach();
+        self.insert_service(CurrentBrushPreset(operator));
+        self.insert_service(CurrentBrushPresetHandle(handle));
+    }
 }
 
-// TODO We should derive more tools based on the brush tool.
-//      For example, eraser tool, airbrush tool etc.
-//      They are fundamentally the same tool, but with different default tags.
 #[derive(Default)]
-pub struct BrushTool;
+pub struct BrushTool {
+    next_stroke_id: u64,
+    active_stroke_id: Option<u64>,
+    queued_commands: HashMap<u64, QueuedUndoCommand>,
+}
+
+// TODO
+#[allow(clippy::large_enum_variant)]
+pub enum BrushToolMessage {
+    Render(BrushRenderUpdate),
+    UpdateExternalVariable {
+        id: ExternalVariableId,
+        message: ErasedGraphLiteralUpdateMessage,
+    },
+}
 
 impl ToolFunction for BrushTool {
-    fn new(_cx: &mut Context<Self>) -> Self {
-        Self
-    }
+    type Message = BrushToolMessage;
 
     fn id() -> ToolId {
         ToolId::new("brush_tool".into())
     }
 
     #[tracing::instrument(skip_all, name = "brush_tool_begin")]
-    fn begin(&mut self, mouse: &MouseDownEvent, cx: &mut Context<Self>) {
-        let Some(canvas_entity) = cx.current_canvas() else {
-            return;
+    fn begin(
+        &mut self,
+        _: &KeyboardState,
+        mouse: &PressedMouseState,
+        services: &mut Services,
+    ) -> Task<Self::Message> {
+        let Some(canvas_id) = services.current_canvas_id() else {
+            return Task::none();
         };
-
-        if !cx.has_global::<CurrentBrushPreset>() {
-            return;
+        if services.get_service::<CurrentBrushPreset>().is_none() {
+            return Task::none();
         }
 
-        cx.update_global::<CurrentBrushPreset, _>(|brush, cx| {
-            let Ok(queued_cmd) = cx.queue_undo_command_to_current() else {
-                return;
-            };
-            brush.begin_stroke(mouse, canvas_entity.upgrade().unwrap(), queued_cmd, cx);
-        });
+        self.next_stroke_id += 1;
+        let stroke_id = self.next_stroke_id;
+        self.active_stroke_id = Some(stroke_id);
+        self.queued_commands
+            .insert(stroke_id, services.queue_undo_command(&canvas_id).unwrap());
+
+        services
+            .try_service_scope::<CurrentBrushPreset, _>(|brush, services| {
+                brush
+                    .0
+                    .begin_stroke(mouse, stroke_id, canvas_id, services)
+                    .map(BrushToolMessage::Render)
+            })
+            .unwrap_or_else(Task::none)
     }
 
     #[tracing::instrument(skip_all, name = "brush_tool_update")]
-    fn update(&mut self, mouse: &MouseMoveEvent, cx: &mut Context<Self>) {
-        if !cx.has_global::<CurrentBrushPreset>() {
-            return;
-        }
-
-        cx.update_global::<CurrentBrushPreset, _>(|brush, cx| {
-            brush.update_stroke(mouse, cx);
-        });
+    fn update(
+        &mut self,
+        _: &KeyboardState,
+        mouse: &PressedMouseState,
+        services: &mut Services,
+    ) -> Task<Self::Message> {
+        services
+            .try_service_scope::<CurrentBrushPreset, _>(|brush, services| {
+                brush
+                    .0
+                    .update_stroke(mouse, services)
+                    .map(BrushToolMessage::Render)
+            })
+            .unwrap_or_else(Task::none)
     }
 
     #[tracing::instrument(skip_all, name = "brush_tool_end")]
-    fn end(&mut self, mouse: &MouseUpEvent, cx: &mut Context<Self>) {
-        if !cx.has_global::<CurrentBrushPreset>() {
-            return;
-        }
-
-        cx.update_global::<CurrentBrushPreset, _>(|brush, cx| {
-            brush.end_stroke(mouse, cx);
-        });
+    fn end(
+        &mut self,
+        _: &KeyboardState,
+        mouse: &PressedMouseState,
+        services: &mut Services,
+    ) -> Task<Self::Message> {
+        services
+            .try_service_scope::<CurrentBrushPreset, _>(|brush, services| {
+                self.active_stroke_id = None;
+                brush
+                    .0
+                    .end_stroke(mouse, services)
+                    .map(BrushToolMessage::Render)
+            })
+            .unwrap_or_else(Task::none)
     }
 
-    fn tool_option_widget(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        if !cx.has_global::<CurrentBrushPreset>() {
-            return "No brush selected".into_any_element();
+    fn handle_message(
+        &mut self,
+        message: Self::Message,
+        services: &mut Services,
+    ) -> Task<Self::Message> {
+        match message {
+            BrushToolMessage::Render(BrushRenderUpdate::Preview {
+                stroke_id,
+                canvas_id,
+                target_layer_id,
+                overrider,
+                dirty_tiles,
+            }) => {
+                if self.active_stroke_id != Some(stroke_id) {
+                    return Task::none();
+                }
+                services
+                    .service_mut::<LayerPreviewOverriders>()
+                    .insert_overrider(target_layer_id, overrider);
+                CanvasUpdated::broadcast(CanvasUpdated {
+                    id: canvas_id,
+                    dirty_tiles,
+                });
+
+                Task::none()
+            }
+            BrushToolMessage::Render(BrushRenderUpdate::Finished {
+                stroke_id,
+                canvas_id,
+                target_layer_id,
+                result,
+            }) => {
+                let command = self.queued_commands.remove(&stroke_id).unwrap();
+                if self.active_stroke_id == Some(stroke_id) {
+                    services
+                        .service_mut::<LayerPreviewOverriders>()
+                        .remove_overrider(&target_layer_id);
+                }
+
+                let Some(result_texture) = result.texture().cloned() else {
+                    return Task::none();
+                };
+                let cmd = {
+                    let layer_storage = services
+                        .tile_storage()
+                        .get_layer(target_layer_id)
+                        .expect("Brush target layer should exist");
+                    TileReplaceCommand::new(
+                        "Brush stroke".into(),
+                        canvas_id,
+                        services.render_device(),
+                        services.render_queue(),
+                        target_layer_id,
+                        &layer_storage,
+                        result.iter_tile_indices().collect(),
+                        result_texture,
+                    )
+                };
+                command.send(Box::new(cmd), services).log_err();
+
+                Task::none()
+            }
+            BrushToolMessage::UpdateExternalVariable { id, message } => {
+                services.service_scope::<CurrentBrushPreset, _>(|brush, _| {
+                    brush.0.instance_mut().update_external_var(&id, message);
+                });
+
+                Task::none()
+            }
         }
+    }
 
-        cx.update_global::<CurrentBrushPreset, _>(|brush, cx| {
-            let ext_vars = brush.instance().iter_external_vars().map(|(id, var)| {
-                v_flex()
-                    .gap_1()
-                    .child(var.name.clone())
-                    .child(var.value.ty().render_inline(
-                        var.value.value(),
-                        GraphInlineLiteralRenderContext {
-                            slot_id: (*id).into(),
-                            window,
-                            cx,
-                            on_update: Rc::new(move |value, cx| {
-                                if !cx.has_global::<CurrentBrushPreset>() {
-                                    return;
-                                }
-                                let op = cx.global_mut::<CurrentBrushPreset>();
-                                op.instance_mut().update_external_var(&id, value);
-                            }),
-                        },
-                    ))
-            });
+    fn tool_option_widget<'a>(
+        &'a self,
+        services: &'a Services,
+    ) -> Element<'a, Self::Message, iced_core::Theme, iced_wgpu::Renderer> {
+        let Some(brush) = services.get_service::<CurrentBrushPreset>() else {
+            return container(text("No brush selected")).padding(8).into();
+        };
 
-            v_flex()
-                .p_2()
-                .size_full()
-                .overflow_y_scrollbar()
-                .gap_2()
-                .child("Variables")
-                .child(v_flex().gap_1().children(ext_vars))
-                .into_any_element()
-        })
+        let variables = brush
+            .0
+            .instance()
+            .iter_external_vars()
+            .map(|(id, variable)| {
+                column![
+                    text(variable.name),
+                    variable
+                        .value
+                        .ty()
+                        .view_literal((*id).into(), variable.value.value())
+                        .map(move |message| BrushToolMessage::UpdateExternalVariable {
+                            id,
+                            message
+                        }),
+                ]
+                .spacing(4)
+                .into()
+            })
+            .collect::<Vec<Element<'a, Self::Message, iced_core::Theme, iced_wgpu::Renderer>>>();
+
+        container(column(variables).spacing(8).push(text("Variables")))
+            .padding(8)
+            .width(Length::Fill)
+            .into()
     }
 }
-
-// This needs to share between canvases. So should be a global.
-wrapper! {
-    mut CurrentBrushPreset : CanvasBrushPresetOperator
-}
-
-impl Global for CurrentBrushPreset {}
-
-wrapper! {
-    #[derive(Clone)]
-    pub CurrentBrushPresetHandle : AssetHandle<BrushPreset>
-}
-
-impl Global for CurrentBrushPresetHandle {}

@@ -1,800 +1,967 @@
-use std::collections::{HashMap, HashSet};
-
-use cyancia_math::point::PointExt;
-use gpui::{
-    Action, App, Bounds, Context, Entity, FocusHandle, InteractiveElement, IntoElement, KeyBinding,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, PathBuilder, Pixels,
-    Point, Render, SharedString, Size, Styled, Window, actions, canvas, div, linear_color_stop,
-    linear_gradient, prelude::FluentBuilder, px, solid_background,
-};
-use gpui_component::{ActiveTheme, ElementExt, menu::ContextMenuExt};
-use schemars::JsonSchema;
-use serde::Deserialize;
-
-use crate::graph::{
-    Graph, GraphData,
-    node::GraphNodeId,
-    slot::{GraphInputSlotId, GraphOutputSlotId},
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
 };
 
-#[derive(Action, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
-pub struct AddNodeAction {
-    pub name: SharedString,
+use iced_core::{
+    Background, Border, Clipboard, Color, Element, Event, Layout, Length, Point, Shell, Size,
+    Vector,
+    border::Radius,
+    gradient::ColorStop,
+    keyboard::{self, key},
+    layout::{self, Limits, Node},
+    mouse::{self, Interaction},
+    overlay,
+    renderer::{self, Quad},
+    widget::{Operation, Tree, tree},
+};
+use iced_graphics::{
+    geometry::{self, Frame, Stroke},
+    gradient::Linear,
+};
+use iced_widget::{
+    column, container,
+    core::{Rectangle, Widget, mouse::Cursor},
+    overlay::menu,
+    text,
+};
+use indexmap::IndexMap;
+use uuid::Uuid;
+
+use crate::{
+    GraphRenderer, GraphTheme,
+    editor::slot::{GraphSlotId, GraphSlotPinPositionCollection},
+    graph::{
+        Graph, GraphData, GraphResources,
+        node::{ErasedGraphNodeMessage, GraphNodeData, GraphNodeId},
+        slot::{GraphInputSlotId, GraphOutputSlotId, GraphSlots},
+    },
+};
+
+pub mod slot;
+
+pub const NODE_WIDTH: f32 = 200.0;
+const NODE_BORDER_RADIUS: f32 = 5.0;
+
+#[derive(Debug, Clone)]
+pub enum GraphEditorMessage {
+    NodeCreateRequest(Point, &'static str, GraphNodeId),
+    NodeMoveRequest(Point, GraphNodeId),
+    NodeDeleteRequest(GraphNodeId),
+    EdgeCreateRequest(GraphOutputSlotId, GraphInputSlotId),
+    EdgeRemoveRequest(GraphInputSlotId),
+    NodeUpdate(ErasedGraphNodeMessage),
 }
 
-actions!(graph_editor, [DeleteSelectedNodeAction]);
-
-pub const GRAPH_EDITOR_CONTEXT: &str = "graph_editor";
-
-pub(crate) fn init(cx: &mut App) {
-    cx.bind_keys([KeyBinding::new(
-        "delete",
-        DeleteSelectedNodeAction,
-        Some(GRAPH_EDITOR_CONTEXT),
-    )]);
+impl<Data: GraphData> Graph<Data> {
+    pub fn update(&mut self, message: GraphEditorMessage) {
+        match message {
+            GraphEditorMessage::NodeCreateRequest(position, name, node_id) => {
+                let node = Data::node_registry().get(name).unwrap();
+                self.insert_boxed_node(node_id, position, node);
+            }
+            GraphEditorMessage::NodeMoveRequest(position, id) => {
+                self.get_node_mut(&id).unwrap().position = position;
+            }
+            GraphEditorMessage::NodeDeleteRequest(id) => self.delete_node(&id),
+            GraphEditorMessage::EdgeCreateRequest(from, to) => {
+                self.connect_slots(from, to);
+            }
+            GraphEditorMessage::EdgeRemoveRequest(to) => self.disconnect_slot(to),
+            GraphEditorMessage::NodeUpdate(message) => self.update_node(message),
+        }
+    }
 }
 
-pub const SLOT_HIT_TEST_RADIUS_SQUARED: f64 = 10.0 * 10.0;
-
-const MIN_NODE_WIDTH: Pixels = px(170.0);
-const NODE_RADIUS: Pixels = px(4.0);
-const NODE_HEADER_PADDING_X: Pixels = px(6.0);
-const NODE_HEADER_PADDING_Y: Pixels = px(3.0);
-const NODE_BODY_PADDING: Pixels = px(3.0);
-const CONNECTION_STROKE_WIDTH: Pixels = px(2.0);
-
-pub struct GraphEditor<Data: GraphData> {
-    graph: Entity<Graph<Data>>,
-    node_drag_state: Option<DragState>,
-    marquee_state: Option<MarqueeState>,
-    slot_connect_state: Option<SlotConnectState>,
-    pan_state: Option<PanState>,
-
-    transform: ViewTransform,
-    editor_bounds: Bounds<Pixels>,
-    selected_nodes: HashSet<GraphNodeId>,
-    node_bounds: HashMap<GraphNodeId, Bounds<Pixels>>,
-    input_slot_pos: HashMap<GraphInputSlotId, Point<Pixels>>,
-    output_slot_pos: HashMap<GraphOutputSlotId, Point<Pixels>>,
-
-    focus_handle: FocusHandle,
+pub struct GraphEditor<'a> {
+    graph: DrawableGraph,
+    node_creation_menu_items: Vec<NodeCreationMenuItem>,
+    node_creation_menu_class: <GraphTheme as menu::Catalog>::Class<'a>,
 }
 
-impl<Data: GraphData> GraphEditor<Data> {
-    pub fn new(graph: Entity<Graph<Data>>, cx: &mut Context<Self>) -> Self {
+impl<'a> GraphEditor<'a> {
+    pub fn new<Data: GraphData>(graph: &Graph<Data>, is_dark: bool) -> Self {
         Self {
-            graph,
-            node_drag_state: None,
-            marquee_state: None,
-            slot_connect_state: None,
-            pan_state: None,
-
-            transform: ViewTransform::default(),
-            editor_bounds: Bounds::default(),
-            selected_nodes: HashSet::new(),
-            node_bounds: HashMap::new(),
-            input_slot_pos: HashMap::new(),
-            output_slot_pos: HashMap::new(),
-
-            focus_handle: cx.focus_handle(),
-        }
-    }
-
-    pub fn on_add_node_action(
-        &mut self,
-        event: &AddNodeAction,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(node) = Data::node_registry().get(&event.name) else {
-            log::error!("Node type '{}' not found in registry", event.name);
-            return;
-        };
-
-        let cursor = window.mouse_position() - self.editor_bounds.origin;
-        let pos = Point::new(cursor.x.into(), cursor.y.into()) - self.transform.translation;
-        let node_id = self
-            .graph
-            .update(cx, |graph, cx| graph.add_boxed_node(pos, node, cx));
-        self.selected_nodes.clear();
-        self.selected_nodes.insert(node_id);
-        self.node_drag_state = Some(DragState {
-            cursor_origin: window.mouse_position(),
-            node_origins: HashMap::from([(node_id, pos)]),
-        });
-        cx.notify();
-    }
-
-    pub fn on_delete_selected_node_action(
-        &mut self,
-        _: &DeleteSelectedNodeAction,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        for node_id in self.selected_nodes.drain() {
-            self.graph
-                .update(cx, |graph, _| graph.delete_node(&node_id));
-        }
-        cx.notify();
-    }
-
-    pub fn on_left_mouse_down(
-        &mut self,
-        event: &MouseDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.slot_connect_start(event, window, cx);
-        if self.slot_connect_state.is_some() {
-            return;
-        }
-
-        self.node_drag_start(event, window, cx);
-        if self.node_drag_state.is_some() {
-            return;
-        }
-
-        self.marquee_start(event, window, cx);
-        if self.marquee_state.is_some() {
-            return;
-        }
-
-        cx.notify();
-    }
-
-    pub fn on_middle_mouse_down(
-        &mut self,
-        event: &MouseDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.pan_start(event, window, cx);
-        if self.pan_state.is_some() {}
-    }
-
-    pub fn on_middle_mouse_up(
-        &mut self,
-        event: &MouseUpEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.pan_state.is_some() {
-            self.pan_end(event, window, cx);
-        }
-    }
-
-    pub fn on_mouse_move(
-        &mut self,
-        event: &MouseMoveEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.node_drag_state.is_some() {
-            self.node_drag(event, window, cx);
-        } else if self.slot_connect_state.is_some() {
-            self.slot_connect_drag(event, window, cx);
-        } else if self.marquee_state.is_some() {
-            self.marquee_drag(event, window, cx);
-        } else if self.pan_state.is_some() {
-            self.pan_drag(event, window, cx);
-        }
-    }
-
-    pub fn on_left_mouse_up(
-        &mut self,
-        event: &MouseUpEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.node_drag_state.is_some() {
-            self.node_drag_end(event, window, cx);
-        } else if self.slot_connect_state.is_some() {
-            self.slot_connect_end(event, window, cx);
-        } else if self.marquee_state.is_some() {
-            self.marquee_end(event, window, cx);
-        }
-    }
-
-    pub fn node_drag_start(
-        &mut self,
-        event: &MouseDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let cursor_position = event.position - self.editor_bounds.origin;
-        let mut node_id = None;
-        for (id, bounds) in &self.node_bounds {
-            if bounds.contains(&cursor_position) {
-                node_id = Some(*id);
-                break;
-            }
-        }
-        let Some(node_id) = node_id else {
-            return;
-        };
-
-        if self.selected_nodes.is_empty() {
-            self.add_node_selection(node_id);
-        } else {
-            if event.modifiers.shift {
-                self.add_node_selection(node_id);
-            } else if event.modifiers.control {
-                self.toggle_node_selection(node_id);
-            } else if !self.selected_nodes.contains(&node_id) {
-                self.selected_nodes.clear();
-                self.add_node_selection(node_id);
-            }
-        }
-
-        let graph = self.graph.read(cx);
-        self.node_drag_state = Some(DragState {
-            cursor_origin: window.mouse_position(),
-            node_origins: self
-                .selected_nodes
-                .iter()
-                .filter_map(|id| Some((*id, graph.get_node(id)?.position)))
+            graph: DrawableGraph::new(graph, is_dark),
+            node_creation_menu_items: Data::node_registry()
+                .all()
+                .keys()
+                .map(|title| NodeCreationMenuItem { node_title: title })
                 .collect(),
-        });
-        self.focus_handle.focus(window, cx);
-    }
-
-    pub fn node_drag(&mut self, _: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(drag) = &mut self.node_drag_state else {
-            return;
-        };
-
-        let offset = window.mouse_position() - drag.cursor_origin;
-        let node_offset = Point::new(offset.x.into(), offset.y.into());
-
-        for (id, origin) in &drag.node_origins {
-            let pos = *origin + node_offset;
-            self.graph.update(cx, |graph, _| {
-                if let Some(node) = graph.get_node_mut(id) {
-                    node.position = pos;
-                }
-            });
+            node_creation_menu_class: <GraphTheme as menu::Catalog>::default(),
         }
-
-        cx.notify();
-    }
-
-    pub fn node_drag_end(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
-        self.node_drag_state = None;
-        cx.notify();
-    }
-
-    pub fn marquee_start(
-        &mut self,
-        event: &MouseDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let marquee_mode = if event.modifiers.shift {
-            MarqueeMode::Add
-        } else {
-            MarqueeMode::Replace
-        };
-
-        if marquee_mode == MarqueeMode::Replace {
-            self.selected_nodes.clear();
-        }
-
-        self.marquee_state = Some(MarqueeState {
-            cursor_origin: window.mouse_position(),
-            mode: marquee_mode,
-            originally_selected: self.selected_nodes.clone(),
-        });
-        self.focus_handle.focus(window, cx);
-    }
-
-    pub fn marquee_drag(
-        &mut self,
-        _: &MouseMoveEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(marquee) = &mut self.marquee_state else {
-            return;
-        };
-
-        let marquee_bounds = marquee.bounds(self.editor_bounds, window.mouse_position());
-        let mut selected_nodes = match marquee.mode {
-            MarqueeMode::Replace => HashSet::new(),
-            MarqueeMode::Add => marquee.originally_selected.clone(),
-        };
-
-        for (id, bounds) in &self.node_bounds {
-            if !marquee_bounds.intersects(bounds) {
-                continue;
-            }
-
-            selected_nodes.insert(*id);
-        }
-
-        self.selected_nodes = selected_nodes;
-
-        cx.notify();
-    }
-
-    pub fn marquee_end(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
-        self.marquee_state = None;
-        cx.notify();
-    }
-
-    pub fn slot_connect_start(
-        &mut self,
-        event: &MouseDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let cursor_pos = event.position - self.editor_bounds.origin;
-        let mut start_slot = None;
-        for (id, pos) in &self.input_slot_pos {
-            if cursor_pos.relative_to(pos).magnitude_squared() <= SLOT_HIT_TEST_RADIUS_SQUARED {
-                start_slot = Some(GraphSlotId::Input(*id));
-                break;
-            }
-        }
-        for (id, pos) in &self.output_slot_pos {
-            if cursor_pos.relative_to(pos).magnitude_squared() <= SLOT_HIT_TEST_RADIUS_SQUARED {
-                start_slot = Some(GraphSlotId::Output(*id));
-                break;
-            }
-        }
-
-        let Some(mut start_slot) = start_slot else {
-            return;
-        };
-
-        match start_slot {
-            GraphSlotId::Input(slot_id) => {
-                let graph = self.graph.read(cx);
-                if let Some(connected) = graph.slots.get_input(&slot_id).and_then(|n| n.connected) {
-                    self.graph.update(cx, |graph, _| {
-                        graph.disconnect_slot(slot_id);
-                    });
-                    start_slot = GraphSlotId::Output(connected);
-                }
-            }
-            GraphSlotId::Output(_) => {}
-        }
-
-        self.slot_connect_state = Some(SlotConnectState { start_slot });
-
-        self.focus_handle.focus(window, cx);
-        cx.notify();
-    }
-
-    pub fn slot_connect_drag(
-        &mut self,
-        _: &MouseMoveEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(__connect_state) = &self.slot_connect_state else {
-            return;
-        };
-
-        cx.notify();
-    }
-
-    pub fn slot_connect_end(
-        &mut self,
-        event: &MouseUpEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(slot_connect_state) = self.slot_connect_state.take() else {
-            return;
-        };
-
-        cx.notify();
-
-        let cursor_pos = event.position - self.editor_bounds.origin;
-        let mut end_slot = None;
-        for (slot_id, pos) in &self.input_slot_pos {
-            if cursor_pos.relative_to(pos).magnitude_squared() <= SLOT_HIT_TEST_RADIUS_SQUARED {
-                end_slot = Some(GraphSlotId::Input(*slot_id));
-                break;
-            }
-        }
-        for (slot_id, pos) in &self.output_slot_pos {
-            if cursor_pos.relative_to(pos).magnitude_squared() <= SLOT_HIT_TEST_RADIUS_SQUARED {
-                end_slot = Some(GraphSlotId::Output(*slot_id));
-                break;
-            }
-        }
-
-        let Some(end_slot) = end_slot else {
-            return;
-        };
-
-        match (slot_connect_state.start_slot, end_slot) {
-            (GraphSlotId::Input(to), GraphSlotId::Output(from)) => {
-                self.graph.update(cx, |graph, _| {
-                    graph.connect_slots(from, to);
-                });
-            }
-            (GraphSlotId::Output(from), GraphSlotId::Input(to)) => {
-                self.graph.update(cx, |graph, _| {
-                    graph.connect_slots(from, to);
-                });
-            }
-            _ => (),
-        }
-    }
-
-    pub fn pan_start(
-        &mut self,
-        event: &MouseDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.pan_state = Some(PanState {
-            cursor_origin: event.position,
-            original_translation: self.transform.translation,
-        });
-        self.focus_handle.focus(window, cx);
-    }
-
-    pub fn pan_drag(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(pan_state) = &mut self.pan_state else {
-            return;
-        };
-
-        let offset = event.position - pan_state.cursor_origin;
-        self.transform.translation =
-            pan_state.original_translation + Point::new(offset.x.into(), offset.y.into());
-        cx.notify();
-    }
-
-    pub fn pan_end(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
-        self.pan_state = None;
-    }
-
-    pub fn add_node_selection(&mut self, id: GraphNodeId) {
-        self.selected_nodes.insert(id);
-    }
-
-    pub fn toggle_node_selection(&mut self, id: GraphNodeId) {
-        if self.selected_nodes.contains(&id) {
-            self.selected_nodes.remove(&id);
-        } else {
-            self.selected_nodes.insert(id);
-        }
-    }
-
-    pub fn add_input_slot_pos(&mut self, id: GraphInputSlotId, pos: Point<Pixels>) {
-        self.input_slot_pos
-            .insert(id, pos - self.editor_bounds.origin);
-    }
-
-    pub fn add_output_slot_pos(&mut self, id: GraphOutputSlotId, pos: Point<Pixels>) {
-        self.output_slot_pos
-            .insert(id, pos - self.editor_bounds.origin);
     }
 }
 
-impl<Data: GraphData> Render for GraphEditor<Data> {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let editor = cx.entity().downgrade();
-        let (nodes, node_ids) = self.graph.update(cx, |graph, cx| {
-            let mut nodes = Vec::with_capacity(graph.nodes.len());
-            let mut node_ids = Vec::with_capacity(graph.nodes.len());
+#[derive(Clone)]
+pub struct NodeCreationMenuItem {
+    pub node_title: &'static str,
+}
 
-            for (id, node) in &graph.nodes {
-                let body = node.render(
-                    *id,
-                    &graph.slots,
-                    &graph.resources,
-                    editor.clone(),
-                    window,
-                    cx,
-                );
-                let position = node.position + self.transform.translation;
+impl std::fmt::Display for NodeCreationMenuItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.node_title)
+    }
+}
 
-                let node = div()
-                    .id(**id)
-                    .absolute()
-                    .bg(cx.theme().group_box)
-                    .left(px(position.x))
-                    .top(px(position.y))
-                    .min_w(MIN_NODE_WIDTH)
-                    .rounded(NODE_RADIUS)
-                    .shadow_md()
-                    .border_2()
-                    .when(self.selected_nodes.contains(id), |d| {
-                        d.border_color(cx.theme().foreground)
-                    })
-                    .child(
-                        div()
-                            .w_full()
-                            .px(NODE_HEADER_PADDING_X)
-                            .py(NODE_HEADER_PADDING_Y)
-                            .bg(node.data.header_color(cx))
-                            .rounded_t(NODE_RADIUS)
-                            .child(node.data.name()),
-                    )
-                    .child(div().flex().flex_col().p(NODE_BODY_PADDING).child(body))
-                    .into_any_element();
+pub struct GraphNodeStyle {
+    pub background: Background,
+    pub padding: f32,
+    pub line_height: f32,
+    pub line_spacing: f32,
+}
 
-                nodes.push(node);
-                node_ids.push(*id);
-            }
+pub struct DrawableGraph {
+    pub nodes: IndexMap<GraphNodeId, DrawableNode>,
+    pub slots: HashMap<GraphSlotId, SlotData>,
+    pub edges: HashMap<GraphInputSlotId, DrawableEdge>,
+    pub vert_in_loop: HashSet<GraphNodeId>,
+}
 
-            (nodes, node_ids)
-        });
+impl DrawableGraph {
+    pub fn new<Data: GraphData>(graph: &Graph<Data>, is_dark: bool) -> Self {
+        let mut nodes = IndexMap::with_capacity(graph.nodes.len());
+        let mut node_indices = HashMap::with_capacity(graph.nodes.len());
+        for (index, (id, node)) in graph.nodes.iter().enumerate() {
+            nodes.insert(
+                *id,
+                DrawableNode::new(*id, node, &graph.slots, graph.resources(), is_dark),
+            );
+            node_indices.insert(*id, index);
+        }
 
-        let graph = self.graph.read(cx);
-        let canvas = canvas(|_, _, _| {}, {
-            let connecting = self.slot_connect_state.and_then(|st| match st.start_slot {
-                GraphSlotId::Input(input_id) => {
-                    let pos = self.input_slot_pos.get(&input_id)?;
-                    let slot = graph.slots.inputs.get(&input_id)?;
-                    Some((
-                        *pos + self.editor_bounds.origin,
-                        window.mouse_position(),
-                        solid_background(slot.data.ty().color(cx)),
-                    ))
-                }
-                GraphSlotId::Output(output_id) => {
-                    let pos = self.output_slot_pos.get(&output_id)?;
-                    let slot = graph.slots.outputs.get(&output_id)?;
-                    Some((
-                        *pos + self.editor_bounds.origin,
-                        window.mouse_position(),
-                        solid_background(slot.data_ty.color(cx)),
-                    ))
-                }
-            });
-            let segments = graph
-                .slots
-                .inputs
-                .iter()
-                .filter_map(|(input_id, input)| {
-                    let output_id = &input.connected?;
-                    let from = self.input_slot_pos.get(input_id)?;
-                    let to = self.output_slot_pos.get(output_id)?;
-                    let from_slot = graph.slots.inputs.get(input_id)?;
-                    let to_slot = graph.slots.outputs.get(output_id)?;
-                    let color = if from_slot.data.ty().name() != to_slot.data_ty.name() {
-                        let from_color = from_slot.data.ty().color(cx);
-                        let to_color = to_slot.data_ty.color(cx);
-                        let d = *to - *from;
-                        let angle = d.y.as_f32().atan2(d.x.as_f32());
-                        linear_gradient(
-                            angle.to_degrees(),
-                            linear_color_stop(from_color, 0.0),
-                            linear_color_stop(to_color, 1.0),
-                        )
-                    } else {
-                        solid_background(input.data.ty().color(cx))
-                    };
-                    Some((
-                        *from + self.editor_bounds.origin,
-                        *to + self.editor_bounds.origin,
-                        color,
-                    ))
-                })
-                .chain(connecting)
-                .collect::<Vec<_>>();
+        let edges = graph
+            .slots
+            .inputs
+            .iter()
+            .filter_map(|(to, to_slot)| {
+                let from = graph.slots.inputs.get(to)?.connected?;
+                let from_slot = graph.slots.outputs.get(&from)?;
 
-            self.input_slot_pos.clear();
-            self.output_slot_pos.clear();
+                let from_color = from_slot.data_ty.color(is_dark);
+                let to_color = to_slot.data.ty().color(is_dark);
+                let style = if from_color == to_color {
+                    geometry::Style::Solid(from_color)
+                } else {
+                    let g = Linear::new(Point::new(0.0, 0.0), Point::new(1000.0, 1000.0))
+                        .add_stops([
+                            ColorStop {
+                                offset: 0.0,
+                                color: from_color,
+                            },
+                            ColorStop {
+                                offset: 1.0,
+                                color: to_color,
+                            },
+                        ]);
+                    geometry::Style::Gradient(g.into())
+                };
 
-            let editor = cx.entity().downgrade();
-            move |_, _, window, _| {
-                window.on_mouse_event({
-                    let editor = editor.clone();
-                    move |event: &MouseMoveEvent, phase, window, cx| {
-                        if !phase.capture() {
-                            return;
-                        }
-
-                        let should_stop_propagation = editor
-                            .update(cx, |editor, cx| {
-                                let is_handling_editor_interaction =
-                                    editor.node_drag_state.is_some()
-                                        || editor.slot_connect_state.is_some()
-                                        || editor.marquee_state.is_some()
-                                        || editor.pan_state.is_some();
-                                editor.on_mouse_move(event, window, cx);
-                                is_handling_editor_interaction
-                            })
-                            .unwrap_or(false);
-
-                        if should_stop_propagation {
-                            cx.stop_propagation();
-                        }
-                    }
-                });
-
-                window.on_mouse_event({
-                    let editor = editor.clone();
-                    move |event: &MouseUpEvent, phase, window, cx| {
-                        if !phase.capture() {
-                            return;
-                        }
-
-                        editor
-                            .update(cx, |editor, cx| match event.button {
-                                MouseButton::Left => {
-                                    editor.on_left_mouse_up(event, window, cx);
-                                }
-                                MouseButton::Middle => {
-                                    editor.on_middle_mouse_up(event, window, cx);
-                                }
-                                _ => {}
-                            })
-                            .ok();
-                    }
-                });
-
-                for (from, to, color) in segments {
-                    let mut builder = PathBuilder::stroke(CONNECTION_STROKE_WIDTH);
-
-                    builder.move_to(from);
-                    builder.line_to(to);
-
-                    if let Ok(path) = builder.build() {
-                        window.paint_path(path, color);
-                    }
-                }
-            }
-        })
-        .absolute()
-        .size_full();
-
-        let all_nodes = Data::node_registry()
-            .all()
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
-        let focus_handle = self.focus_handle.clone();
-        div()
-            .w_full()
-            .h_full()
-            .relative()
-            .key_context(GRAPH_EDITOR_CONTEXT)
-            .track_focus(&self.focus_handle)
-            .bg(cx.theme().background)
-            .when_some(self.marquee_state.as_ref(), |d, marquee| {
-                let marquee_bounds = marquee.bounds(self.editor_bounds, window.mouse_position());
-                d.child(
-                    div()
-                        .absolute()
-                        .left(marquee_bounds.origin.x)
-                        .top(marquee_bounds.origin.y)
-                        .w(marquee_bounds.size.width)
-                        .h(marquee_bounds.size.height)
-                        .bg(cx.theme().foreground.opacity(0.32))
-                        .border_2()
-                        .border_color(cx.theme().foreground),
-                )
+                Some((*to, DrawableEdge { from, style }))
             })
-            .child(canvas)
-            .child(
-                div()
-                    .absolute()
-                    .size_full()
-                    .children(nodes)
-                    .on_children_prepainted({
-                        let editor = cx.entity().downgrade();
-                        move |bounds, _, cx| {
-                            editor
-                                .update(cx, |editor, _| {
-                                    editor.node_bounds.clear();
-                                    for (node_id, bounds) in node_ids.iter().zip(bounds) {
-                                        editor.node_bounds.insert(
-                                            *node_id,
-                                            Bounds::new(
-                                                bounds.origin - editor.editor_bounds.origin,
-                                                bounds.size,
-                                            ),
-                                        );
-                                    }
-                                })
-                                .ok();
-                        }
-                    }),
-            )
-            .on_action(cx.listener(move |editor, event, window, cx| {
-                editor.on_add_node_action(event, window, cx)
-            }))
-            .on_action(cx.listener(move |editor, event, window, cx| {
-                editor.on_delete_selected_node_action(event, window, cx)
-            }))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |editor, event, window, cx| {
-                    editor.on_left_mouse_down(event, window, cx)
-                }),
-            )
-            .on_mouse_down(MouseButton::Middle, cx.listener(Self::on_middle_mouse_down))
-            .on_prepaint({
-                let editor = cx.entity().downgrade();
+            .collect();
 
-                move |bounds, _, cx| {
-                    editor
-                        .update(cx, |editor, _| {
-                            editor.editor_bounds = bounds;
-                        })
-                        .ok();
-                }
-            })
-            .context_menu(move |menu, window, cx| {
-                let all_nodes = all_nodes.clone();
-                let submenu_focus_handle = focus_handle.clone();
-                menu.action_context(focus_handle.clone()).submenu(
-                    "Add Node",
-                    window,
-                    cx,
-                    move |mut menu, _, _| {
-                        menu = menu.action_context(submenu_focus_handle.clone());
-                        for node in all_nodes.iter() {
-                            menu = menu.menu(
-                                *node,
-                                Box::new(AddNodeAction {
-                                    name: (*node).into(),
-                                }),
-                            )
-                        }
-                        menu
+        let slots = graph
+            .slots
+            .inputs
+            .iter()
+            .map(|(id, slot)| {
+                (
+                    (*id).into(),
+                    SlotData {
+                        color: slot.data.ty().color(is_dark),
                     },
                 )
             })
-            .into_any_element()
+            .chain(graph.slots.outputs.iter().map(|(id, slot)| {
+                (
+                    (*id).into(),
+                    SlotData {
+                        color: slot.data_ty.color(is_dark),
+                    },
+                )
+            }))
+            .collect();
+
+        Self {
+            nodes,
+            edges,
+            slots,
+            vert_in_loop: graph.find_loops().into_iter().flatten().collect(),
+        }
     }
 }
 
-struct DragState {
-    cursor_origin: Point<Pixels>,
-    node_origins: HashMap<GraphNodeId, Point<f32>>,
+pub struct SlotData {
+    pub color: Color,
 }
 
-struct MarqueeState {
-    cursor_origin: Point<Pixels>,
-    originally_selected: HashSet<GraphNodeId>,
-    mode: MarqueeMode,
+pub struct DrawableEdge {
+    from: GraphOutputSlotId,
+    style: geometry::Style,
 }
 
-impl MarqueeState {
-    fn bounds(
+pub struct DrawableNode {
+    pub node_id: GraphNodeId,
+    pub position: Point,
+    pub widget: Element<'static, GraphEditorMessage, GraphTheme, GraphRenderer>,
+    pub input_slots: Arc<[GraphInputSlotId]>,
+    pub output_slots: Arc<[GraphOutputSlotId]>,
+}
+
+impl DrawableNode {
+    pub fn new<Data: GraphData>(
+        node_id: GraphNodeId,
+        node: &GraphNodeData<Data>,
+        slots: &GraphSlots,
+        resources: &GraphResources,
+        is_dark: bool,
+    ) -> Self {
+        let header_color = node.data.header_color(is_dark);
+        let header = container(text(node.data.name()))
+            .style(move |_| container::Style {
+                background: Some(header_color.into()),
+                border: Border {
+                    radius: Radius {
+                        top_left: NODE_BORDER_RADIUS,
+                        top_right: NODE_BORDER_RADIUS,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .width(Length::Fill)
+            .padding(5);
+
+        let widget = container(
+            column![
+                header,
+                node.view(node_id, slots, resources, is_dark)
+                    .map(GraphEditorMessage::NodeUpdate),
+            ]
+            .width(NODE_WIDTH),
+        )
+        .style(|t| container::Style {
+            background: Some(t.extended_palette().background.strong.color.into()),
+            border: Border::default().rounded(NODE_BORDER_RADIUS),
+            ..Default::default()
+        });
+
+        Self {
+            node_id,
+            position: node.position,
+            widget: Element::new(widget),
+            input_slots: node.inputs.clone(),
+            output_slots: node.outputs.clone(),
+        }
+    }
+}
+
+impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'a> {
+    fn children(&self) -> Vec<Tree> {
+        self.graph
+            .nodes
+            .values()
+            .map(|node| Tree::new(&node.widget))
+            .collect()
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(
+            &self
+                .graph
+                .nodes
+                .values()
+                .map(|n| &n.widget)
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fill)
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(State::default())
+    }
+
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<State>()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &GraphRenderer,
+        limits: &layout::Limits,
+    ) -> Node {
+        let state = tree.state.downcast_ref::<State>();
+        let children = self
+            .graph
+            .nodes
+            .values_mut()
+            .zip(&mut tree.children)
+            .map(|(node, tree)| {
+                node.widget
+                    .as_widget_mut()
+                    .layout(tree, renderer, &Limits::NONE)
+                    .translate(Vector::new(node.position.x, node.position.y))
+                    .translate(state.view_translation)
+            })
+            .collect();
+        Node::with_children(
+            limits.resolve(Length::Fill, Length::Fill, Size::ZERO),
+            children,
+        )
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &GraphRenderer,
+        operation: &mut dyn Operation,
+    ) {
+        operation.container(None, layout.bounds());
+        operation.traverse(&mut |operation| {
+            self.graph
+                .nodes
+                .values_mut()
+                .zip(&mut tree.children)
+                .zip(layout.children())
+                .for_each(|((child, state), layout)| {
+                    child
+                        .widget
+                        .as_widget_mut()
+                        .operate(state, layout, renderer, operation);
+                });
+        });
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &GraphRenderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, GraphEditorMessage>,
+        viewport: &Rectangle,
+    ) {
+        let state = tree.state.downcast_mut::<State>();
+        if let Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) = event {
+            state.keyboard_modifiers = *modifiers;
+        }
+        state.slot_pins.clear();
+        let mut messages = Vec::new();
+        let mut children_shell = Shell::new(&mut messages);
+        for ((child, tree), layout) in self
+            .graph
+            .nodes
+            .values_mut()
+            .zip(&mut tree.children)
+            .zip(layout.children())
+        {
+            child.widget.as_widget_mut().update(
+                tree,
+                event,
+                layout,
+                cursor,
+                renderer,
+                clipboard,
+                &mut children_shell,
+                viewport,
+            );
+
+            child
+                .widget
+                .as_widget_mut()
+                .operate(tree, layout, renderer, &mut state.slot_pins);
+        }
+        shell.merge(children_shell, |m| m);
+
+        if shell.is_event_captured() {
+            return;
+        }
+
+        const SLOT_PIN_SNAP: f32 = 3.0 * 3.0;
+        match event {
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
+                let Some(cursor) = cursor.position_over(layout.bounds()) else {
+                    return;
+                };
+                state.node_creation_menu.position = Some(cursor);
+                shell.capture_event();
+                shell.request_redraw();
+            }
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Middle)) => {
+                let Some(cursor) = cursor.position_over(layout.bounds()) else {
+                    return;
+                };
+
+                state.interaction = InteractionState::ViewDragging {
+                    cursor_origin: cursor,
+                    translation_origin: state.view_translation,
+                };
+                shell.capture_event();
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Middle)) => {
+                if matches!(state.interaction, InteractionState::ViewDragging { .. }) {
+                    state.interaction = InteractionState::Idle;
+                    shell.capture_event();
+                }
+            }
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let Some(cursor) = cursor.position_over(layout.bounds()) else {
+                    return;
+                };
+
+                for (slot_id, slot_pos) in state.slot_pins.all() {
+                    let d = slot_pos.distance(cursor);
+                    if d < SLOT_PIN_SNAP {
+                        let resolved_source = match slot_id {
+                            GraphSlotId::Input(id) => {
+                                shell.publish(GraphEditorMessage::EdgeRemoveRequest(*id));
+
+                                self.graph
+                                    .edges
+                                    .get(id)
+                                    .map(|e| GraphSlotId::Output(e.from))
+                                    .unwrap_or(GraphSlotId::Input(*id))
+                            }
+                            GraphSlotId::Output(id) => GraphSlotId::Output(*id),
+                        };
+                        let Some(slot_data) = self.graph.slots.get(slot_id) else {
+                            continue;
+                        };
+
+                        state.interaction = InteractionState::EdgeConnecting {
+                            resolved_source,
+                            color: slot_data.color,
+                        };
+                        shell.capture_event();
+                        return;
+                    }
+                }
+
+                for (node_index, node_layout) in layout.children().enumerate() {
+                    if node_layout.bounds().contains(cursor) {
+                        let node_id = self.graph.nodes[node_index].node_id;
+                        if state.selected_nodes.is_empty() || state.keyboard_modifiers.shift() {
+                            state.selected_nodes.insert(node_id);
+                        } else if state.keyboard_modifiers.control() {
+                            if !state.selected_nodes.remove(&node_id) {
+                                state.selected_nodes.insert(node_id);
+                            }
+                        } else if !state.selected_nodes.contains(&node_id) {
+                            state.selected_nodes.clear();
+                            state.selected_nodes.insert(node_id);
+                        }
+                        state.interaction = InteractionState::NodeDragging {
+                            cursor_origin: cursor,
+                            node_origin: state
+                                .selected_nodes
+                                .iter()
+                                .filter_map(|id| {
+                                    self.graph.nodes.get_index_of(id).map(|index| (id, index))
+                                })
+                                .map(|(id, index)| (*id, layout.child(index).position()))
+                                .collect(),
+                            skip_next_release: false,
+                        };
+                        shell.request_redraw();
+                        shell.capture_event();
+                        return;
+                    }
+                }
+
+                let mode = if state.keyboard_modifiers.shift() {
+                    MarqueeMode::Add
+                } else {
+                    state.selected_nodes.clear();
+                    MarqueeMode::Replace
+                };
+                state.interaction = InteractionState::SelectionDragging {
+                    cursor_origin: cursor,
+                    originally_selected: state.selected_nodes.clone(),
+                    mode,
+                };
+                shell.capture_event();
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                match std::mem::take(&mut state.interaction) {
+                    InteractionState::NodeDragging {
+                        cursor_origin,
+                        node_origin,
+                        skip_next_release,
+                    } => {
+                        if skip_next_release {
+                            state.interaction = InteractionState::NodeDragging {
+                                cursor_origin,
+                                node_origin,
+                                skip_next_release: false,
+                            };
+                        }
+                        shell.capture_event();
+                    }
+                    InteractionState::EdgeConnecting {
+                        resolved_source, ..
+                    } => {
+                        let mut found = None;
+                        for (slot_id, slot_pos) in state.slot_pins.all() {
+                            let cursor = cursor.position().unwrap();
+                            if slot_pos.distance(cursor) < SLOT_PIN_SNAP {
+                                found = Some(*slot_id);
+                                break;
+                            }
+                        }
+
+                        if let Some(end) = found {
+                            match (resolved_source, end) {
+                                (GraphSlotId::Input(to), GraphSlotId::Output(from))
+                                | (GraphSlotId::Output(from), GraphSlotId::Input(to)) => {
+                                    shell.publish(GraphEditorMessage::EdgeCreateRequest(from, to));
+                                }
+                                _ => {}
+                            }
+                        }
+                        shell.capture_event();
+                        shell.request_redraw();
+                    }
+                    InteractionState::SelectionDragging {
+                        cursor_origin,
+                        originally_selected,
+                        mode,
+                    } => {
+                        let Some(cursor) = cursor.position() else {
+                            state.interaction = InteractionState::SelectionDragging {
+                                cursor_origin,
+                                originally_selected,
+                                mode,
+                            };
+                            return;
+                        };
+                        let selection_rect = Rectangle {
+                            x: cursor_origin.x.min(cursor.x),
+                            y: cursor_origin.y.min(cursor.y),
+                            width: (cursor_origin.x - cursor.x).abs(),
+                            height: (cursor_origin.y - cursor.y).abs(),
+                        };
+                        state.selected_nodes = match mode {
+                            MarqueeMode::Replace => HashSet::new(),
+                            MarqueeMode::Add => originally_selected,
+                        };
+                        for (node, layout) in self.graph.nodes.keys().zip(layout.children()) {
+                            if selection_rect.intersects(&layout.bounds()) {
+                                state.selected_nodes.insert(*node);
+                            }
+                        }
+                        shell.request_redraw();
+                        shell.capture_event();
+                    }
+                    interaction => state.interaction = interaction,
+                }
+            }
+            Event::Mouse(mouse::Event::CursorMoved { .. }) => match &state.interaction {
+                InteractionState::Idle => {}
+                InteractionState::EdgeConnecting { .. } => {
+                    shell.request_redraw();
+                    shell.capture_event();
+                }
+                InteractionState::NodeDragging {
+                    cursor_origin,
+                    node_origin,
+                    ..
+                } => {
+                    let Some(cursor) = cursor.position() else {
+                        return;
+                    };
+                    for selected in &state.selected_nodes {
+                        if let Some(node_origin) = node_origin.get(selected) {
+                            shell.publish(GraphEditorMessage::NodeMoveRequest(
+                                *node_origin + (cursor - *cursor_origin)
+                                    - Vector::new(layout.position().x, layout.position().y)
+                                    - state.view_translation,
+                                *selected,
+                            ));
+                        }
+                    }
+                    shell.capture_event();
+                }
+                InteractionState::SelectionDragging {
+                    cursor_origin,
+                    originally_selected,
+                    mode,
+                } => {
+                    let Some(cursor) = cursor.position() else {
+                        return;
+                    };
+                    let selection_rect = Rectangle {
+                        x: cursor_origin.x.min(cursor.x),
+                        y: cursor_origin.y.min(cursor.y),
+                        width: (cursor_origin.x - cursor.x).abs(),
+                        height: (cursor_origin.y - cursor.y).abs(),
+                    };
+                    state.selected_nodes = match mode {
+                        MarqueeMode::Replace => HashSet::new(),
+                        MarqueeMode::Add => originally_selected.clone(),
+                    };
+                    for (node, layout) in self.graph.nodes.keys().zip(layout.children()) {
+                        if selection_rect.intersects(&layout.bounds()) {
+                            state.selected_nodes.insert(*node);
+                        }
+                    }
+                    shell.request_redraw();
+                    shell.capture_event();
+                }
+                InteractionState::ViewDragging {
+                    cursor_origin,
+                    translation_origin,
+                } => {
+                    let Some(cursor) = cursor.position() else {
+                        return;
+                    };
+                    state.view_translation = *translation_origin + (cursor - *cursor_origin);
+                    shell.capture_event();
+                    shell.invalidate_layout();
+                    shell.request_redraw();
+                }
+            },
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                physical_key,
+                modifiers,
+                repeat,
+                ..
+            }) => {
+                if *repeat {
+                    return;
+                }
+                let key::Physical::Code(key) = *physical_key else {
+                    return;
+                };
+
+                // TODO: make them configurable
+                match key {
+                    key::Code::Delete => {
+                        for node_id in state.selected_nodes.drain() {
+                            shell.publish(GraphEditorMessage::NodeDeleteRequest(node_id));
+                        }
+                        shell.capture_event();
+                        shell.request_redraw();
+                    }
+                    key::Code::KeyA if modifiers.contains(keyboard::Modifiers::SHIFT) => {
+                        state.node_creation_menu.position = cursor.position();
+                        shell.capture_event();
+                        shell.request_redraw();
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn mouse_interaction(
         &self,
-        editor_bounds: Bounds<Pixels>,
-        cursor_current: Point<Pixels>,
-    ) -> Bounds<Pixels> {
-        let origin = self.cursor_origin - editor_bounds.origin;
-        let current = cursor_current - editor_bounds.origin;
-        let min = current.min(&origin);
-        let max = current.max(&origin);
-        Bounds::new(min, Size::new(max.x - min.x, max.y - min.y))
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: Cursor,
+        viewport: &Rectangle,
+        renderer: &GraphRenderer,
+    ) -> Interaction {
+        let state = tree.state.downcast_ref::<State>();
+
+        if matches!(state.interaction, InteractionState::NodeDragging { .. }) {
+            mouse::Interaction::Grabbing
+        } else {
+            self.graph
+                .nodes
+                .values()
+                .zip(&tree.children)
+                .zip(layout.children())
+                .map(|((child, tree), layout)| {
+                    child
+                        .widget
+                        .as_widget()
+                        .mouse_interaction(tree, layout, cursor, viewport, renderer)
+                })
+                .max()
+                .unwrap_or_default()
+        }
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut GraphRenderer,
+        theme: &iced_core::Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: Cursor,
+        viewport: &Rectangle,
+    ) {
+        let state = tree.state.downcast_ref::<State>();
+        {
+            use iced_core::Renderer;
+
+            renderer.fill_quad(
+                Quad {
+                    bounds: layout.bounds(),
+                    ..Default::default()
+                },
+                theme.extended_palette().background.base.color,
+            );
+        }
+
+        let mut frame = Frame::with_bounds(renderer, layout.bounds());
+        for (to, edge) in &self.graph.edges {
+            let from_pos = state.slot_pins.get_output(&edge.from);
+            let to_pos = state.slot_pins.get_input(to);
+            if let (Some(from_pos), Some(to_pos)) = (from_pos, to_pos) {
+                let style = match edge.style {
+                    geometry::Style::Solid(color) => color.into(),
+                    geometry::Style::Gradient(gradient) => match gradient {
+                        geometry::Gradient::Linear(linear) => geometry::Style::Gradient(
+                            Linear {
+                                start: *from_pos,
+                                end: *to_pos,
+                                ..linear
+                            }
+                            .into(),
+                        ),
+                    },
+                };
+
+                frame.stroke(
+                    &geometry::Path::line(*from_pos, *to_pos),
+                    Stroke {
+                        style,
+                        width: 2.0,
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+
+        {
+            use iced_core::Renderer;
+
+            renderer.with_layer(layout.bounds(), |renderer| {
+                use iced_graphics::geometry::Renderer;
+                renderer.draw_geometry(frame.into_geometry());
+            });
+        }
+
+        for ((child, node_tree), node_layout) in self
+            .graph
+            .nodes
+            .values()
+            .zip(&tree.children)
+            .zip(layout.children())
+            .filter(|(_, layout)| layout.bounds().intersects(viewport))
+        {
+            use iced_core::Renderer;
+            renderer.with_layer(layout.bounds(), |renderer| {
+                if state.selected_nodes.contains(&child.node_id) {
+                    renderer.fill_quad(
+                        Quad {
+                            bounds: node_layout.bounds().expand(2.0),
+                            border: Border::default().rounded(NODE_BORDER_RADIUS),
+                            ..Default::default()
+                        },
+                        Color::WHITE,
+                    );
+                }
+                child.widget.as_widget().draw(
+                    node_tree,
+                    renderer,
+                    theme,
+                    style,
+                    node_layout,
+                    cursor,
+                    viewport,
+                );
+                if self.graph.vert_in_loop.contains(&child.node_id) {
+                    renderer.fill_quad(
+                        Quad {
+                            bounds: node_layout.bounds(),
+                            border: Border::default().rounded(NODE_BORDER_RADIUS),
+                            ..Default::default()
+                        },
+                        Color::from_rgb8(255, 0, 0).scale_alpha(0.3),
+                    );
+                }
+            });
+        }
+
+        if let (
+            InteractionState::EdgeConnecting {
+                resolved_source,
+                color,
+            },
+            Some(cursor_pos),
+        ) = (&state.interaction, cursor.position())
+            && let Some(start_pos) = state.slot_pins.get(resolved_source)
+        {
+            let mut frame = Frame::with_bounds(renderer, layout.bounds());
+            frame.stroke(
+                &geometry::Path::line(*start_pos, cursor_pos),
+                Stroke {
+                    style: (*color).into(),
+                    width: 2.0,
+                    ..Default::default()
+                },
+            );
+
+            use iced_core::Renderer;
+            renderer.with_layer(layout.bounds(), |renderer| {
+                use iced_graphics::geometry::Renderer;
+                renderer.draw_geometry(frame.into_geometry());
+            });
+        };
+
+        if let InteractionState::SelectionDragging { cursor_origin, .. } = &state.interaction {
+            let Some(cursor_pos) = cursor.position() else {
+                return;
+            };
+            use iced_core::Renderer;
+            renderer.with_layer(layout.bounds(), |renderer| {
+                renderer.fill_quad(
+                    Quad {
+                        bounds: Rectangle {
+                            x: cursor_origin.x.min(cursor_pos.x),
+                            y: cursor_origin.y.min(cursor_pos.y),
+                            width: (cursor_origin.x - cursor_pos.x).abs(),
+                            height: (cursor_origin.y - cursor_pos.y).abs(),
+                        },
+                        border: Border::default().width(2.0).color(
+                            theme
+                                .extended_palette()
+                                .primary
+                                .strong
+                                .color
+                                .scale_alpha(0.5),
+                        ),
+                        ..Default::default()
+                    },
+                    theme.extended_palette().primary.base.color.scale_alpha(0.3),
+                );
+            });
+        }
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &GraphRenderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<overlay::Element<'b, GraphEditorMessage, GraphTheme, GraphRenderer>> {
+        for ((child, tree), layout) in self
+            .graph
+            .nodes
+            .values_mut()
+            .zip(&mut tree.children)
+            .zip(layout.children())
+        {
+            if let Some(overlay) =
+                child
+                    .widget
+                    .as_widget_mut()
+                    .overlay(tree, layout, renderer, viewport, translation)
+            {
+                return Some(overlay);
+            }
+        }
+
+        let state = tree.state.downcast_mut::<State>();
+        if let Some(menu_position) = state.node_creation_menu.position {
+            let menu = menu::Menu::new(
+                &mut state.node_creation_menu.state,
+                &self.node_creation_menu_items,
+                &mut state.node_creation_menu.hovered,
+                |name| {
+                    let position = state.node_creation_menu.position.take().unwrap();
+                    let node_id = GraphNodeId::new(Uuid::new_v4());
+                    state.selected_nodes.clear();
+                    state.selected_nodes.insert(node_id);
+                    state.interaction = InteractionState::NodeDragging {
+                        cursor_origin: position,
+                        node_origin: HashMap::from([(node_id, position)]),
+                        skip_next_release: true,
+                    };
+                    GraphEditorMessage::NodeCreateRequest(
+                        position - state.view_translation,
+                        name.node_title,
+                        node_id,
+                    )
+                },
+                None,
+                &self.node_creation_menu_class,
+            )
+            .width(200.0)
+            .padding(2);
+
+            return Some(menu.overlay(menu_position, *viewport, 0.0, Length::Shrink));
+        }
+
+        None
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MarqueeMode {
-    Replace,
-    Add,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct SlotConnectState {
-    start_slot: GraphSlotId,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum GraphSlotId {
-    Input(GraphInputSlotId),
-    Output(GraphOutputSlotId),
-}
-
-struct PanState {
-    cursor_origin: Point<Pixels>,
-    original_translation: Point<f32>,
+impl<'a> From<GraphEditor<'a>> for Element<'a, GraphEditorMessage, GraphTheme, GraphRenderer> {
+    fn from(value: GraphEditor<'a>) -> Self {
+        Element::new(value)
+    }
 }
 
 #[derive(Default)]
-struct ViewTransform {
-    translation: Point<f32>,
+struct State {
+    view_translation: Vector,
+    keyboard_modifiers: keyboard::Modifiers,
+
+    node_creation_menu: NodeCreationMenuState,
+    selected_nodes: HashSet<GraphNodeId>,
+    interaction: InteractionState,
+    slot_pins: GraphSlotPinPositionCollection,
+}
+
+#[derive(Default)]
+struct NodeCreationMenuState {
+    position: Option<Point>,
+    state: menu::State,
+    hovered: Option<usize>,
+}
+
+#[derive(Default)]
+enum InteractionState {
+    #[default]
+    Idle,
+    NodeDragging {
+        cursor_origin: Point,
+        node_origin: HashMap<GraphNodeId, Point>,
+        skip_next_release: bool,
+    },
+    EdgeConnecting {
+        resolved_source: GraphSlotId,
+        color: Color,
+    },
+    SelectionDragging {
+        cursor_origin: Point,
+        originally_selected: HashSet<GraphNodeId>,
+        mode: MarqueeMode,
+    },
+    ViewDragging {
+        cursor_origin: Point,
+        translation_origin: Vector,
+    },
+}
+
+#[derive(Clone, Copy)]
+enum MarqueeMode {
+    Replace,
+    Add,
 }

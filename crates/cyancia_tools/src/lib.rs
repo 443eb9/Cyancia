@@ -1,64 +1,67 @@
-use std::{
-    collections::{HashMap, hash_map::Entry},
-    rc::Rc,
-    sync::Arc,
-};
+use std::{any::Any, collections::HashMap, rc::Rc, sync::Arc};
 
 use cyancia_assets::AssetAppExt;
-use cyancia_utils::wrapper;
-use gpui::{
-    AnyElement, App, AppContext, BorrowAppContext, Context, Entity, Global, InteractiveElement,
-    IntoElement, Keystroke, Modifiers, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement,
-    RenderOnce, Styled, Window, div,
+use cyancia_input::{
+    key::{KeySequence, KeyboardState},
+    mouse::{HoverMouseState, PressedMouseState},
 };
-use indexmap::IndexSet;
-use log::info;
+use cyancia_runtime::{Application, Services, plugin::Plugin, service::Service};
+use cyancia_utils::wrapper;
+use iced_core::{Element, Point, Theme};
+use iced_runtime::Task;
+use iced_wgpu::Renderer;
+use iced_widget::space;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use wgpu::TextureView;
 
 use crate::manifest::{ToolBinding, ToolBindingManifest, ToolBindingManifestSerializer};
 
 pub mod manifest;
 
-pub fn init(cx: &mut App) {
-    cx.set_global(ToolFunctionRegistry::default());
-    cx.set_global(ToolProxies::default());
-    cx.set_global(TrackedKeys::default());
+pub struct ToolsPlugin;
 
-    cx.add_asset_serializer::<ToolBindingManifestSerializer>();
-}
-
-pub fn finish(cx: &mut App) {
-    let manifests = cx.assets().all_handles_of::<ToolBindingManifest>().unwrap();
-    // TODO select other manifests on demand
-    let manifest = manifests.first().unwrap().get().unwrap();
-
-    let mut bindings = GlobalToolBindings::default();
-    for binding in &manifest.bindings {
-        let keystroke = Keystroke::parse(&binding.shortcut).unwrap();
-        bindings.bindings.insert(keystroke, binding.clone());
+impl Plugin for ToolsPlugin {
+    fn build(&self, app: &mut Application) {
+        app.add_service::<ToolFunctionRegistry>()
+            .add_service::<ToolProxies>()
+            .add_service::<GlobalToolBindings>();
+        app.runtime_mut()
+            .services_mut()
+            .add_asset_serializer::<ToolBindingManifestSerializer>();
     }
-    cx.set_global(bindings);
+
+    fn finish(&self, app: &mut Application) {
+        let mut runtime = app.runtime_mut();
+        let services = runtime.services_mut();
+        let manifest = services
+            .assets()
+            .all_handles_of::<ToolBindingManifest>()
+            .expect("Failed to read tool binding manifests")
+            .into_iter()
+            .next()
+            .expect("At least one tool binding manifest should exist")
+            .get()
+            .expect("Failed to load tool binding manifest");
+
+        let bindings = manifest
+            .bindings
+            .iter()
+            .cloned()
+            .map(|binding| (binding.shortcut, binding))
+            .collect();
+        services.service_mut::<GlobalToolBindings>().bindings = bindings;
+    }
 }
-
-// pub struct ToolsPlugin;
-
-// impl Plugin for ToolsPlugin {
-//     fn build(&self, app: &mut Application) {
-//         app.add_service::<ToolFunctionRegistry>()
-//             .add_service::<ToolProxies>();
-//     }
-// }
 
 pub trait ToolsAppExt {
-    fn add_tool_function<T: ToolFunction + Default>(&mut self);
+    fn add_tool_function<T: ToolFunction + Default>(&mut self) -> &mut Self;
 }
 
-impl ToolsAppExt for App {
-    fn add_tool_function<T: ToolFunction + Default>(&mut self) {
-        self.global_mut::<ToolFunctionRegistry>().register::<T>();
+impl ToolsAppExt for Services {
+    fn add_tool_function<T: ToolFunction + Default>(&mut self) -> &mut Self {
+        self.service_mut::<ToolFunctionRegistry>().register::<T>();
+        self
     }
 }
 
@@ -68,279 +71,450 @@ wrapper! {
     pub ToolId : Arc<str>
 }
 
-pub trait ToolFunction: 'static + Sized {
-    fn new(cx: &mut Context<Self>) -> Self;
+pub trait ToolFunction: 'static {
+    type Message: Send + Sync + 'static;
+
     fn id() -> ToolId;
-    fn activate(&mut self, _: &mut Context<Self>) {}
-    fn hover(&mut self, _: &MouseMoveEvent, _: &mut Context<Self>) {}
-    fn begin(&mut self, _: &MouseDownEvent, _: &mut Context<Self>) {}
-    fn update(&mut self, _: &MouseMoveEvent, _: &mut Context<Self>) {}
-    fn end(&mut self, _: &MouseUpEvent, _: &mut Context<Self>) {}
-    fn deactivate(&mut self, _: &mut Context<Self>) {}
-    // TODO Add on_keyboard that received keyboard events if the key strokes is not matching any
-    //      actions.
-    fn tool_option_widget(&mut self, _: &mut Window, _: &mut Context<Self>) -> AnyElement {
-        div().into_any_element()
+    fn activate(&mut self, _: &mut Services) -> Task<Self::Message> {
+        Task::none()
     }
-    // TODO This should return gpui element and take canvas bounds + window + cx as parameter only,
-    //      once gpui supports wgpu backend and allow custom shaders.
-    fn canvas_overlay(&mut self, _: &TextureView, _: &mut Window, _: &mut App) {}
+    fn hover(
+        &mut self,
+        _: &KeyboardState,
+        _: &HoverMouseState,
+        _: &mut Services,
+    ) -> Task<Self::Message> {
+        Task::none()
+    }
+    fn begin(
+        &mut self,
+        _: &KeyboardState,
+        _: &PressedMouseState,
+        _: &mut Services,
+    ) -> Task<Self::Message> {
+        Task::none()
+    }
+    fn update(
+        &mut self,
+        _: &KeyboardState,
+        _: &PressedMouseState,
+        _: &mut Services,
+    ) -> Task<Self::Message> {
+        Task::none()
+    }
+    fn end(
+        &mut self,
+        _: &KeyboardState,
+        _: &PressedMouseState,
+        _: &mut Services,
+    ) -> Task<Self::Message> {
+        Task::none()
+    }
+    fn deactivate(&mut self, _: &mut Services) -> Task<Self::Message> {
+        Task::none()
+    }
+    fn handle_message(&mut self, _: Self::Message, _: &mut Services) -> Task<Self::Message> {
+        Task::none()
+    }
+    fn tool_option_widget<'a>(
+        &'a self,
+        _: &'a Services,
+    ) -> Element<'a, Self::Message, iced_core::Theme, iced_wgpu::Renderer> {
+        iced_widget::Space::new().into()
+    }
+    fn canvas_overlay<'a>(
+        &'a self,
+        _: &'a Services,
+    ) -> Element<'a, Self::Message, Theme, Renderer> {
+        space().into()
+    }
 }
 
-pub struct ToolFunctionEntity<T: ToolFunction> {
-    entity: Entity<T>,
-}
-
-pub trait ErasedToolFunction {
+pub trait ErasedToolFunction: 'static {
     fn id(&self) -> ToolId;
-    fn activate(&mut self, cx: &mut App);
-    fn hover(&mut self, mouse: &MouseMoveEvent, cx: &mut App);
-    fn begin(&mut self, mouse: &MouseDownEvent, cx: &mut App);
-    fn update(&mut self, mouse: &MouseMoveEvent, cx: &mut App);
-    fn end(&mut self, mouse: &MouseUpEvent, cx: &mut App);
-    fn deactivate(&mut self, cx: &mut App);
-    fn tool_option_widget(&mut self, window: &mut Window, cx: &mut App) -> AnyElement;
-    fn canvas_overlay(&mut self, canvas_surface: &TextureView, window: &mut Window, cx: &mut App);
+    fn activate(&mut self, services: &mut Services) -> Task<ErasedToolFunctionMessage>;
+    fn hover(
+        &mut self,
+        keyboard: &KeyboardState,
+        mouse: &HoverMouseState,
+        services: &mut Services,
+    ) -> Task<ErasedToolFunctionMessage>;
+    fn begin(
+        &mut self,
+        keyboard: &KeyboardState,
+        mouse: &PressedMouseState,
+        services: &mut Services,
+    ) -> Task<ErasedToolFunctionMessage>;
+    fn update(
+        &mut self,
+        keyboard: &KeyboardState,
+        mouse: &PressedMouseState,
+        services: &mut Services,
+    ) -> Task<ErasedToolFunctionMessage>;
+    fn end(
+        &mut self,
+        keyboard: &KeyboardState,
+        mouse: &PressedMouseState,
+        services: &mut Services,
+    ) -> Task<ErasedToolFunctionMessage>;
+    fn deactivate(&mut self, services: &mut Services) -> Task<ErasedToolFunctionMessage>;
+    fn handle_message(
+        &mut self,
+        message: Box<dyn Any + Send + Sync>,
+        services: &mut Services,
+    ) -> Task<ErasedToolFunctionMessage>;
+    fn tool_option_widget<'a>(
+        &'a self,
+        services: &'a Services,
+    ) -> Element<'a, ErasedToolFunctionMessage, Theme, Renderer>;
+    fn canvas_overlay<'a>(
+        &'a self,
+        services: &'a Services,
+    ) -> Element<'a, ErasedToolFunctionMessage, Theme, Renderer>;
 }
 
-impl<T: ToolFunction> ErasedToolFunction for ToolFunctionEntity<T> {
+impl<T: ToolFunction> ErasedToolFunction for T {
     fn id(&self) -> ToolId {
         T::id()
     }
 
-    fn activate(&mut self, cx: &mut App) {
-        self.entity.update(cx, |entity, cx| entity.activate(cx));
+    fn activate(&mut self, services: &mut Services) -> Task<ErasedToolFunctionMessage> {
+        self.activate(services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: T::id(),
+                message: Box::new(message),
+            })
     }
 
-    fn hover(&mut self, mouse: &MouseMoveEvent, cx: &mut App) {
-        self.entity.update(cx, |entity, cx| entity.hover(mouse, cx));
+    fn hover(
+        &mut self,
+        keyboard: &KeyboardState,
+        mouse: &HoverMouseState,
+        services: &mut Services,
+    ) -> Task<ErasedToolFunctionMessage> {
+        self.hover(keyboard, mouse, services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: T::id(),
+                message: Box::new(message),
+            })
     }
 
-    fn begin(&mut self, mouse: &MouseDownEvent, cx: &mut App) {
-        self.entity.update(cx, |entity, cx| entity.begin(mouse, cx));
+    fn begin(
+        &mut self,
+        keyboard: &KeyboardState,
+        mouse: &PressedMouseState,
+        services: &mut Services,
+    ) -> Task<ErasedToolFunctionMessage> {
+        self.begin(keyboard, mouse, services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: T::id(),
+                message: Box::new(message),
+            })
     }
 
-    fn update(&mut self, mouse: &MouseMoveEvent, cx: &mut App) {
-        self.entity
-            .update(cx, |entity, cx| entity.update(mouse, cx));
+    fn update(
+        &mut self,
+        keyboard: &KeyboardState,
+        mouse: &PressedMouseState,
+        services: &mut Services,
+    ) -> Task<ErasedToolFunctionMessage> {
+        self.update(keyboard, mouse, services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: T::id(),
+                message: Box::new(message),
+            })
     }
 
-    fn end(&mut self, mouse: &MouseUpEvent, cx: &mut App) {
-        self.entity.update(cx, |entity, cx| entity.end(mouse, cx));
+    fn end(
+        &mut self,
+        keyboard: &KeyboardState,
+        mouse: &PressedMouseState,
+        services: &mut Services,
+    ) -> Task<ErasedToolFunctionMessage> {
+        self.end(keyboard, mouse, services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: T::id(),
+                message: Box::new(message),
+            })
     }
 
-    fn deactivate(&mut self, cx: &mut App) {
-        self.entity.update(cx, |entity, cx| entity.deactivate(cx));
+    fn deactivate(&mut self, services: &mut Services) -> Task<ErasedToolFunctionMessage> {
+        self.deactivate(services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: T::id(),
+                message: Box::new(message),
+            })
     }
 
-    fn tool_option_widget(&mut self, window: &mut Window, cx: &mut App) -> AnyElement {
-        self.entity
-            .update(cx, |entity, cx| entity.tool_option_widget(window, cx))
+    fn handle_message(
+        &mut self,
+        message: Box<dyn Any + Send + Sync>,
+        services: &mut Services,
+    ) -> Task<ErasedToolFunctionMessage> {
+        let message = message
+            .downcast::<T::Message>()
+            .expect("Invalid message type passed to tool function");
+        self.handle_message(*message, services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: T::id(),
+                message: Box::new(message),
+            })
     }
 
-    fn canvas_overlay(&mut self, canvas_surface: &TextureView, window: &mut Window, cx: &mut App) {
-        self.entity.update(cx, |entity, cx| {
-            entity.canvas_overlay(canvas_surface, window, cx)
-        });
+    fn tool_option_widget<'a>(
+        &'a self,
+        services: &'a Services,
+    ) -> Element<'a, ErasedToolFunctionMessage, Theme, Renderer> {
+        let id = T::id();
+        self.tool_option_widget(services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: id.clone(),
+                message: Box::new(message),
+            })
     }
+
+    fn canvas_overlay<'a>(
+        &'a self,
+        services: &'a Services,
+    ) -> Element<'a, ErasedToolFunctionMessage, Theme, Renderer> {
+        self.canvas_overlay(services)
+            .map(move |message| ErasedToolFunctionMessage {
+                tool_id: T::id(),
+                message: Box::new(message),
+            })
+    }
+}
+
+pub struct ErasedToolFunctionMessage {
+    pub tool_id: ToolId,
+    pub message: Box<dyn Any + Send + Sync>,
 }
 
 #[derive(Default)]
 pub struct ToolFunctionRegistry {
-    spawners: HashMap<ToolId, Rc<dyn Fn(&mut App) -> Box<dyn ErasedToolFunction> + Send + Sync>>,
+    spawners: HashMap<ToolId, Rc<dyn Fn() -> Box<dyn ErasedToolFunction>>>,
 }
-
-impl Global for ToolFunctionRegistry {}
 
 impl ToolFunctionRegistry {
-    pub fn global(cx: &App) -> &Self {
-        cx.global::<Self>()
-    }
-
     pub fn register<T: ToolFunction + Default>(&mut self) {
-        self.spawners.insert(
-            T::id(),
-            Rc::new(|cx| {
-                let entity = cx.new(|cx| T::new(cx));
-                Box::new(ToolFunctionEntity { entity })
-            }),
-        );
+        self.spawners
+            .insert(T::id(), Rc::new(|| Box::new(T::default())));
     }
 }
+
+impl Service for ToolFunctionRegistry {}
 
 struct State {
     function: ToolId,
     is_updating: bool,
 }
 
-#[derive(Default)]
 pub struct ToolProxy {
     current_state: Option<State>,
     override_state: Option<State>,
-    // TODO all tool states should be initialized once a proxy initialize.
     tool_functions: HashMap<ToolId, Box<dyn ErasedToolFunction>>,
 }
 
 impl ToolProxy {
-    pub fn switch_tool(&mut self, tool: ToolId, cx: &mut App) {
+    pub fn new(registry: &ToolFunctionRegistry) -> Self {
+        let tool_functions = registry
+            .spawners
+            .iter()
+            .map(|(id, spawner)| (id.clone(), spawner()))
+            .collect();
+
+        Self {
+            current_state: None,
+            override_state: None,
+            tool_functions,
+        }
+    }
+
+    pub fn switch_tool(
+        &mut self,
+        tool: ToolId,
+        services: &mut Services,
+    ) -> Task<ErasedToolFunctionMessage> {
         if Some(&tool) == self.current_tool() {
-            return;
+            return Task::none();
         }
 
-        info!("Switched tool: {}", tool);
+        log::info!("Switching tool: {}", tool);
+        let deactivate = self
+            .current_state
+            .take()
+            .map(|state| {
+                self.tool_functions
+                    .get_mut(&state.function)
+                    .unwrap()
+                    .deactivate(services)
+            })
+            .unwrap_or_else(Task::none);
 
-        if let Some(st) = self.current_state.take() {
-            self.tool_functions
-                .get_mut(&st.function)
-                .unwrap()
-                .deactivate(cx);
+        if !self.tool_functions.contains_key(&tool) {
+            log::error!("Unable to switch to tool {:?}: not found in registry", tool);
+            return deactivate;
         }
 
-        let new_tool = match self.tool_functions.entry(tool.clone()) {
-            Entry::Occupied(e) => e.into_mut(),
-            Entry::Vacant(e) => {
-                let registry = ToolFunctionRegistry::global(cx);
-                if let Some(new_tool) = registry.spawners.get(&tool).cloned() {
-                    e.insert(new_tool(cx))
-                } else {
-                    log::error!(
-                        "Unable to switch to tool {:?}: not found in registry.",
-                        tool
-                    );
-                    return;
-                }
-            }
-        };
-
-        new_tool.activate(cx);
+        let activate = self
+            .tool_functions
+            .get_mut(&tool)
+            .unwrap()
+            .activate(services);
         self.current_state = Some(State {
             function: tool,
             is_updating: false,
         });
+        deactivate.chain(activate)
     }
 
-    pub fn switch_override_tool(&mut self, tool: Option<ToolId>, cx: &mut App) {
+    pub fn switch_override_tool(
+        &mut self,
+        tool: Option<ToolId>,
+        services: &mut Services,
+    ) -> Task<ErasedToolFunctionMessage> {
         if tool.as_ref() == self.override_tool() {
-            return;
+            return Task::none();
         }
 
-        info!("Switched override tool: {:?}", tool);
-
-        if let Some(tool) = tool {
-            if let Some(state) = self.override_state.as_mut().or(self.current_state.as_mut()) {
+        log::info!("Switching override tool: {:?}", tool);
+        let deactivate = self
+            .override_state
+            .as_ref()
+            .or(self.current_state.as_ref())
+            .map(|state| {
                 self.tool_functions
                     .get_mut(&state.function)
                     .unwrap()
-                    .deactivate(cx);
+                    .deactivate(services)
+            })
+            .unwrap_or_else(Task::none);
+
+        if let Some(tool) = tool {
+            if !self.tool_functions.contains_key(&tool) {
+                log::error!("Unable to switch to tool {:?}: not found in registry", tool);
+                return deactivate;
             }
 
-            let new_tool = match self.tool_functions.entry(tool.clone()) {
-                Entry::Occupied(e) => e.into_mut(),
-                Entry::Vacant(e) => {
-                    let registry = ToolFunctionRegistry::global(cx);
-                    if let Some(new_tool) = registry.spawners.get(&tool).cloned() {
-                        e.insert(new_tool(cx))
-                    } else {
-                        log::error!(
-                            "Unable to switch to tool {:?}: not found in registry.",
-                            tool
-                        );
-                        return;
-                    }
-                }
-            };
-            new_tool.activate(cx);
-
+            let activate = self
+                .tool_functions
+                .get_mut(&tool)
+                .unwrap()
+                .activate(services);
             self.override_state = Some(State {
                 function: tool,
                 is_updating: false,
             });
+            deactivate.chain(activate)
         } else {
-            if let Some(state) = self.override_state.as_mut() {
-                self.tool_functions
-                    .get_mut(&state.function)
-                    .unwrap()
-                    .deactivate(cx);
-            }
-            if let Some(state) = self.current_state.as_mut() {
-                self.tool_functions
-                    .get_mut(&state.function)
-                    .unwrap()
-                    .activate(cx);
-            }
             self.override_state = None;
+            let activate = self
+                .current_state
+                .as_ref()
+                .map(|state| {
+                    self.tool_functions
+                        .get_mut(&state.function)
+                        .unwrap()
+                        .activate(services)
+                })
+                .unwrap_or_else(Task::none);
+            deactivate.chain(activate)
         }
     }
 
-    pub fn mouse_pressed(&mut self, mouse: &MouseDownEvent, cx: &mut App) {
-        if let Some(state) = self.override_state.as_mut().or(self.current_state.as_mut()) {
-            if state.is_updating {
-                return;
-            }
-            state.is_updating = true;
+    pub fn mouse_pressed(
+        &mut self,
+        keyboard: &KeyboardState,
+        mouse: &PressedMouseState,
+        services: &mut Services,
+    ) -> Task<ErasedToolFunctionMessage> {
+        let Some(state) = self.override_state.as_mut().or(self.current_state.as_mut()) else {
+            return Task::none();
+        };
+        if state.is_updating {
+            return Task::none();
+        }
+        state.is_updating = true;
+        self.tool_functions
+            .get_mut(&state.function)
+            .unwrap()
+            .begin(keyboard, mouse, services)
+    }
 
-            self.tool_functions
-                .get_mut(&state.function)
-                .unwrap()
-                .begin(mouse, cx);
+    pub fn mouse_moved(
+        &mut self,
+        keyboard: &KeyboardState,
+        position: Point,
+        services: &mut Services,
+    ) -> Task<ErasedToolFunctionMessage> {
+        let Some(state) = self.override_state.as_ref().or(self.current_state.as_ref()) else {
+            return Task::none();
+        };
+        let function = self.tool_functions.get_mut(&state.function).unwrap();
+        if state.is_updating {
+            function.update(keyboard, &PressedMouseState { position }, services)
+        } else {
+            function.hover(keyboard, &HoverMouseState { position }, services)
         }
     }
 
-    pub fn mouse_moved(&mut self, mouse: &MouseMoveEvent, cx: &mut App) {
-        if let Some(state) = self.override_state.as_ref().or(self.current_state.as_ref()) {
-            if state.is_updating {
-                self.tool_functions
-                    .get_mut(&state.function)
-                    .unwrap()
-                    .update(mouse, cx);
-            } else {
-                self.tool_functions
-                    .get_mut(&state.function)
-                    .unwrap()
-                    .hover(mouse, cx);
-            }
+    pub fn mouse_released(
+        &mut self,
+        keyboard: &KeyboardState,
+        mouse: &PressedMouseState,
+        services: &mut Services,
+    ) -> Task<ErasedToolFunctionMessage> {
+        let Some(state) = self.override_state.as_mut().or(self.current_state.as_mut()) else {
+            return Task::none();
+        };
+        if !state.is_updating {
+            return Task::none();
         }
+        state.is_updating = false;
+        self.tool_functions
+            .get_mut(&state.function)
+            .unwrap()
+            .end(keyboard, mouse, services)
     }
 
-    pub fn mouse_released(&mut self, mouse: &MouseUpEvent, cx: &mut App) {
-        if let Some(state) = self.override_state.as_mut().or(self.current_state.as_mut()) {
-            if !state.is_updating {
-                return;
-            }
-
-            state.is_updating = false;
-            self.tool_functions
-                .get_mut(&state.function)
-                .unwrap()
-                .end(mouse, cx);
-        }
+    pub fn handle_message(
+        &mut self,
+        message: ErasedToolFunctionMessage,
+        services: &mut Services,
+    ) -> Task<ErasedToolFunctionMessage> {
+        let Some(function) = self.tool_functions.get_mut(&message.tool_id) else {
+            return Task::none();
+        };
+        function.handle_message(message.message, services)
     }
 
-    pub fn tool_option_widget(&mut self, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
+    pub fn tool_option_widget<'a>(
+        &'a self,
+        services: &'a Services,
+    ) -> Option<Element<'a, ErasedToolFunctionMessage, iced_core::Theme, iced_wgpu::Renderer>> {
         let state = self
             .override_state
-            .as_mut()
-            .or(self.current_state.as_mut())?;
+            .as_ref()
+            .or(self.current_state.as_ref())?;
         Some(
             self.tool_functions
-                .get_mut(&state.function)
+                .get(&state.function)
                 .unwrap()
-                .tool_option_widget(window, cx),
+                .tool_option_widget(services),
         )
     }
 
-    pub fn canvas_overlay(
-        &mut self,
-        canvas_surface: &TextureView,
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        if let Some(state) = self.override_state.as_mut().or(self.current_state.as_mut()) {
-            self.tool_functions
-                .get_mut(&state.function)
-                .unwrap()
-                .canvas_overlay(canvas_surface, window, cx);
-        }
+    pub fn canvas_overlay<'a>(
+        &'a self,
+        services: &'a Services,
+    ) -> Element<'a, ErasedToolFunctionMessage, Theme, Renderer> {
+        let Some(state) = self.override_state.as_ref().or(self.current_state.as_ref()) else {
+            return space().into();
+        };
+        self.tool_functions
+            .get(&state.function)
+            .unwrap()
+            .canvas_overlay(services)
     }
 
     pub fn current_tool(&self) -> Option<&ToolId> {
@@ -353,7 +527,7 @@ impl ToolProxy {
 }
 
 wrapper! {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq,Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub ToolProxyId : Uuid
 }
 
@@ -362,7 +536,7 @@ pub struct ToolProxies {
     proxies: HashMap<ToolProxyId, ToolProxy>,
 }
 
-impl Global for ToolProxies {}
+impl Service for ToolProxies {}
 
 impl ToolProxies {
     pub fn get(&self, id: &ToolProxyId) -> &ToolProxy {
@@ -376,178 +550,25 @@ impl ToolProxies {
     pub fn add(&mut self, tool_proxy: ToolProxy) -> ToolProxyId {
         let id = ToolProxyId::new(Uuid::new_v4());
         self.proxies.insert(id, tool_proxy);
-
         id
+    }
+
+    pub fn remove(&mut self, id: &ToolProxyId) -> Option<ToolProxy> {
+        self.proxies.remove(id)
     }
 }
 
 #[derive(Default)]
 pub struct GlobalToolBindings {
-    bindings: HashMap<Keystroke, ToolBinding>,
+    bindings: Vec<(KeySequence, ToolBinding)>,
 }
 
-impl Global for GlobalToolBindings {}
+impl Service for GlobalToolBindings {}
 
-#[derive(Default)]
-pub struct TrackedKeys {
-    keys: IndexSet<String>,
-    modifiers: Modifiers,
-}
-
-impl Global for TrackedKeys {}
-
-#[derive(IntoElement, Default)]
-pub struct ToolLayer {
-    children: Vec<AnyElement>,
-    target_tool_proxy: Option<ToolProxyId>,
-}
-
-impl ToolLayer {
-    pub fn tool_proxy(mut self, tool_proxy: ToolProxyId) -> Self {
-        self.target_tool_proxy = Some(tool_proxy);
-        self
+impl GlobalToolBindings {
+    pub fn binding_for(&self, shortcut: KeySequence) -> Option<&ToolBinding> {
+        self.bindings
+            .iter()
+            .find_map(|(key, binding)| (*key == shortcut).then_some(binding))
     }
-}
-
-impl ParentElement for ToolLayer {
-    fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
-        self.children.extend(elements);
-    }
-}
-
-impl RenderOnce for ToolLayer {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        let target_tool_proxy = self.target_tool_proxy;
-
-        // window.on_key_event(|event: &KeyDownEvent, phase, window, cx| {
-        //     dbg!(&event.keystroke);
-        // });
-
-        div()
-            .size_full()
-            .children(self.children)
-            .on_key_down(move |event, _, cx| {
-                if event.is_held {
-                    return;
-                }
-
-                cx.update_global::<TrackedKeys, _>(|tracked, cx| {
-                    tracked.keys.insert(event.keystroke.key.clone());
-
-                    switch_tool(target_tool_proxy, tracked, cx, true);
-                });
-            })
-            .on_key_up(move |event, _, cx| {
-                cx.update_global::<TrackedKeys, _>(|tracked, cx| {
-                    tracked.keys.shift_remove(&event.keystroke.key);
-
-                    switch_tool(target_tool_proxy, tracked, cx, false);
-                });
-            })
-            .on_modifiers_changed(move |event, _, cx| {
-                cx.update_global::<TrackedKeys, _>(|tracked, cx| {
-                    let old_count = count_modifiers(&tracked.modifiers);
-                    tracked.modifiers = event.modifiers;
-                    let new_count = count_modifiers(&tracked.modifiers);
-                    switch_tool(target_tool_proxy, tracked, cx, new_count > old_count);
-                });
-            })
-    }
-}
-
-fn count_modifiers(m: &Modifiers) -> u32 {
-    let mut n = 0;
-    if m.shift {
-        n += 1;
-    }
-    if m.control {
-        n += 1;
-    }
-    if m.alt {
-        n += 1;
-    }
-    if m.platform {
-        n += 1;
-    }
-    if m.function {
-        n += 1;
-    }
-
-    n
-}
-
-fn switch_tool(
-    tool_proxy: Option<ToolProxyId>,
-    tracked_keys: &TrackedKeys,
-    cx: &mut App,
-    is_keydown: bool,
-) {
-    let Some(tool_proxy) = tool_proxy else {
-        return;
-    };
-
-    let current_key = tracked_keys.keys.last().cloned();
-    let mut modifiers = tracked_keys.modifiers;
-
-    let current_keystroke = if let Some(key) = current_key {
-        Some(Keystroke {
-            modifiers,
-            key,
-            key_char: None,
-        })
-    } else {
-        use std::mem;
-
-        let key = if mem::take(&mut modifiers.shift) {
-            Some("shift".to_string())
-        } else if mem::take(&mut modifiers.control) {
-            Some("control".to_string())
-        } else if mem::take(&mut modifiers.alt) {
-            Some("alt".to_string())
-        } else if mem::take(&mut modifiers.platform) {
-            Some("platform".to_string())
-        } else if mem::take(&mut modifiers.function) {
-            Some("function".to_string())
-        } else {
-            None
-        };
-
-        key.map(|key| Keystroke {
-            modifiers,
-            key,
-            key_char: None,
-        })
-    };
-
-    let bindings = cx.global::<GlobalToolBindings>();
-    let Some(config) = current_keystroke.and_then(|k| bindings.bindings.get(&k)) else {
-        cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
-            let tool_proxy = tool_proxies.get_mut(&tool_proxy);
-            tool_proxy.switch_override_tool(None, cx);
-        });
-        return;
-    };
-
-    let tool_id = config.tool.clone();
-    if config.is_temporary {
-        cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
-            let tool_proxy = tool_proxies.get_mut(&tool_proxy);
-            tool_proxy.switch_override_tool(Some(tool_id), cx);
-        });
-    } else if is_keydown {
-        cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
-            let tool_proxy = tool_proxies.get_mut(&tool_proxy);
-            tool_proxy.switch_tool(tool_id, cx);
-        });
-    }
-
-    // let tool_id = config.tool_id;
-    // cx.update_global::<ToolProxies, _>(|tool_proxies, cx| {
-    //     let tool_proxy = tool_proxies.get_mut(&tool_proxy);
-    //     if is_override {
-    //         tool_proxy.switch_override_tool(Some(tool_id), cx);
-    //     } else {
-    //         tool_proxy.switch_tool(tool_id, cx);
-    //     }
-    // });
 }

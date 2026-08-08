@@ -7,12 +7,9 @@ use arc_swap::ArcSwap;
 use cyancia_assets::asset::{AssetHandle, AssetId};
 use cyancia_render::texture::Image;
 use cyancia_utils::wrapper;
-use gpui::SharedString;
-use gpui_component::searchable_list::SearchableListItem;
 use indexmap::IndexMap;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
-
 wrapper! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Display)]
     #[display("{0:?}")]
@@ -31,15 +28,15 @@ pub struct TextureObject {
     pub handle: AssetHandle<Image>,
 }
 
-impl SearchableListItem for TextureObject {
-    type Value = AssetId<Image>;
-
-    fn title(&self) -> SharedString {
-        self.name.clone().into()
+impl PartialEq for TextureObject {
+    fn eq(&self, other: &Self) -> bool {
+        self.external_id == other.external_id
     }
+}
 
-    fn value(&self) -> &Self::Value {
-        &self.external_id
+impl std::fmt::Display for TextureObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.name)
     }
 }
 

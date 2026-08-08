@@ -13,6 +13,5 @@ bevy_color.workspace = true
 cyancia_utils_derive.workspace = true
 downcast-rs.workspace = true
 dyn-clone.workspace = true
-gpui.workspace = true
-gpui-component.workspace = true
+iced_core.workspace = true
 tracing.workspace = true

@@ -10,12 +10,15 @@ use cyancia_render::{
     buffer::BufferVec, readback::readback_buffer_raw_on_submit_async,
     render_context::RenderContextAppExt, util::DevicePollExt,
 };
+use cyancia_runtime::{
+    Services,
+    service::{FromServices, Service},
+};
 use cyancia_utils::Deref;
 use dashmap::{DashMap, Entry};
 use encase::ShaderType;
 use futures::{FutureExt, future::join_all};
 use glam::{IVec2, UVec2};
-use gpui::{App, Global};
 use image::{DynamicImage, GenericImageView};
 use indexmap::{IndexMap, IndexSet};
 use moxcms::{ColorProfile, TransformOptions};
@@ -36,27 +39,13 @@ pub trait TileStorageAppExt {
     fn tile_storage(&self) -> &GpuTileStorage;
 }
 
-impl TileStorageAppExt for App {
+impl TileStorageAppExt for Services {
     fn tile_storage(&self) -> &GpuTileStorage {
-        self.global::<GpuTileStorage>()
+        self.service::<GpuTileStorage>()
     }
 }
 
 static EMPTY_LAYER_BINDINGS: OnceLock<HashMap<TexelType, LayerBinding>> = OnceLock::new();
-
-pub fn init(cx: &mut App) {
-    let device = cx.render_device();
-    let queue = cx.render_queue();
-
-    let mut dummy_layers = HashMap::new();
-    for texel_type in TexelType::ALL_POSSIBLE_FORMATS {
-        let mut st =
-            DynamicLayerStorage::new(device.clone(), queue.clone(), GpuLayerInfo { texel_type });
-        st.get_tile_or_allocate(GpuTileInfo::NULL.index);
-        dummy_layers.insert(texel_type, st.binding().unwrap());
-    }
-    EMPTY_LAYER_BINDINGS.set(dummy_layers).unwrap();
-}
 
 #[derive(Clone, Deref)]
 pub struct GpuTileStorage {
@@ -69,7 +58,27 @@ impl std::fmt::Debug for GpuTileStorage {
     }
 }
 
-impl Global for GpuTileStorage {}
+impl Service for GpuTileStorage {}
+
+impl FromServices for GpuTileStorage {
+    fn from_services(services: &Services) -> Self {
+        let device = services.render_device();
+        let queue = services.render_queue();
+        let mut dummy_layers = HashMap::new();
+        for texel_type in TexelType::ALL_POSSIBLE_FORMATS {
+            let mut storage = DynamicLayerStorage::new(
+                device.clone(),
+                queue.clone(),
+                GpuLayerInfo { texel_type },
+            );
+            storage.get_tile_or_allocate(GpuTileInfo::NULL.index);
+            dummy_layers.insert(texel_type, storage.binding().unwrap());
+        }
+        EMPTY_LAYER_BINDINGS.set(dummy_layers).unwrap();
+
+        Self::new(device.clone(), queue.clone())
+    }
+}
 
 impl GpuTileStorage {
     pub const TILE_SIZE: u32 = 256;
@@ -78,12 +87,6 @@ impl GpuTileStorage {
         height: Self::TILE_SIZE,
         depth_or_array_layers: 1,
     };
-
-    pub fn from_app(cx: &App) -> Self {
-        let device = cx.render_device().clone();
-        let queue = cx.render_queue().clone();
-        Self::new(device, queue)
-    }
 
     pub fn new(device: Device, queue: Queue) -> Self {
         Self {
@@ -427,6 +430,17 @@ impl DynamicLayerStorage {
 
     pub fn texture(&self) -> Option<&Texture> {
         Some(self.texture_view()?.texture())
+    }
+
+    pub fn compute_tile_bounds(&self) -> IRect {
+        let mut bounds = IRect::EMPTY;
+        for (coord, _) in self.tiles.iter() {
+            bounds = bounds.union_point(*coord);
+        }
+        if !bounds.is_empty() {
+            bounds.max += 1;
+        }
+        bounds
     }
 
     pub fn allocate_pixels(&mut self, pixel_rect: IRect) {
