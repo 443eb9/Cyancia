@@ -697,7 +697,14 @@ where
             style.button_background,
         );
 
-        let percentage = self.value_to_percentage(self.value);
+        let value = match state.interaction {
+            SpinSliderState::Idle
+            | SpinSliderState::Pressing { .. }
+            | SpinSliderState::Editing { .. } => self.value,
+            SpinSliderState::Dragging { value } => value,
+        };
+
+        let percentage = self.value_to_percentage(value);
         let value_bar = if matches!(state.interaction, SpinSliderState::Editing { .. }) {
             style.value_bar.scale_alpha(0.2)
         } else {
@@ -730,10 +737,7 @@ where
             fill_text(
                 renderer,
                 field,
-                &format!(
-                    "{}{:.*}{}",
-                    self.prefix, self.precision, self.value, self.suffix
-                ),
+                &format!("{}{:.*}{}", self.prefix, self.precision, value, self.suffix),
                 self.size,
                 text_color,
             );
