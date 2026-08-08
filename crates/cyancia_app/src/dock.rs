@@ -4,11 +4,15 @@ use bevy_math::{IRect, Rect};
 use cyancia_assets::AssetAppExt;
 use cyancia_brush::{asset::BrushPreset, tool::BrushServicesExt, widget::BrushPresetListDelegate};
 use cyancia_canvas::{
-    CanvasAppExt, CanvasId, CanvasManager,
+    CanvasAppExt, CanvasId, CanvasManager, CanvasUndoStackAppExt,
+    command::{LayerPropertyChangeCommand, MoveLayersCommand},
     event::{CanvasRemoved, CanvasUpdated},
     render::ICC_TRANSFORM_SHADER_IDENT,
     tools::PanTool,
-    widget::canvas::CanvasWidget,
+    widget::{
+        canvas::CanvasWidget,
+        layer_stack::{DropInfo, LayerStackMessage, LayerStackView},
+    },
 };
 use cyancia_color::{Color, model::rgb::Rgb, shader::IccTransformShader};
 use cyancia_color_selector::{
@@ -21,6 +25,10 @@ use cyancia_color_selector::{
 use cyancia_dock::dock::{Dock, DockId};
 use cyancia_image::{
     composite::{BlendFunctionRegistry, ImageCompositor, LayerPreviewOverriders},
+    layer::{
+        LayerId,
+        properties::{LayerProperties, NamePropertyExt},
+    },
     tile::{GpuTileStorage, TileStorageAppExt},
 };
 use cyancia_input::{
@@ -30,9 +38,11 @@ use cyancia_input::{
 use cyancia_render::render_context::RenderContextAppExt;
 use cyancia_runtime::{Services, event::Event, service::RenderContext};
 use cyancia_tools::{ErasedToolFunctionMessage, ToolId, ToolProxies};
+use cyancia_utils::log_err::LogErr;
 use iced::{
     Element, Length, Size, Subscription, Task, Theme,
     event::listen_with,
+    keyboard::{self, Modifiers},
     mouse,
     widget::{Space, button, column, text},
     window,
@@ -371,8 +381,241 @@ macro_rules! test_dummy_dock {
     };
 }
 
-test_dummy_dock!(LayersDock, LAYER_DOCK_ID, "Layers");
 test_dummy_dock!(FiltersDock, FILTERS_DOCK_ID, "Filters");
+
+pub const LAYER_DOCK_ID: &'static str = "Layers";
+
+/// A dock showing the layer stack of the current canvas: layer list with
+/// drag-to-reorder, plus blend mode / opacity parameters for the active layer.
+pub struct LayersDock {
+    renaming_layer: Option<LayerId>,
+    rename_value: String,
+    drop_preview: Option<DropInfo>,
+}
+
+impl LayersDock {
+    pub fn new() -> Self {
+        Self {
+            renaming_layer: None,
+            rename_value: String::new(),
+            drop_preview: None,
+        }
+    }
+
+    fn push_property_change(
+        services: &mut Services,
+        layer_id: LayerId,
+        apply: impl FnOnce(&mut LayerProperties),
+    ) {
+        let Some(canvas_id) = services.current_canvas_id() else {
+            return;
+        };
+        // Build the command inside the canvas scope (needs the current
+        // properties), but push it *outside*: `push_undo_command` runs
+        // `cmd.redo` synchronously, which itself takes the canvas scope
+        // again, and nesting would panic.
+        let cmd = services.update_canvas(&canvas_id, |canvas, _services| {
+            let Some(layer) = canvas.image.layer_stack().get_layer(&layer_id) else {
+                return None;
+            };
+            let old = layer.properties().clone();
+            let new = {
+                let mut props = old.clone();
+                apply(&mut props);
+                props
+            };
+            Some(LayerPropertyChangeCommand {
+                canvas: canvas_id,
+                layer_id,
+                old,
+                new,
+            })
+        });
+        if let Some(cmd) = cmd.flatten() {
+            services.push_undo_command(&canvas_id, cmd).log_err();
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum LayersDockMessage {
+    Layer(LayerStackMessage),
+    EscapePressed,
+}
+
+impl Dock<Theme, Renderer> for LayersDock {
+    type Message = LayersDockMessage;
+
+    fn id(&self) -> DockId {
+        DockId::new(LAYER_DOCK_ID.into())
+    }
+
+    fn view<'a>(
+        &'a self,
+        _window_id: window::Id,
+        services: &'a Services,
+    ) -> Element<'a, Self::Message, Theme, Renderer> {
+        let Some(canvas) = services.current_canvas() else {
+            return Space::new().into();
+        };
+        let blend_functions = services.service::<BlendFunctionRegistry>();
+        let tile_storage = services.tile_storage();
+        LayerStackView::new(
+            canvas,
+            blend_functions,
+            tile_storage,
+            self.renaming_layer,
+            &self.rename_value,
+            self.drop_preview.clone(),
+            &|m| LayersDockMessage::Layer(m),
+        )
+        .into()
+    }
+
+    fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
+        match message {
+            LayersDockMessage::EscapePressed => {
+                if self.renaming_layer.is_some() {
+                    self.renaming_layer = None;
+                    self.rename_value.clear();
+                }
+            }
+            LayersDockMessage::Layer(LayerStackMessage::LayerPropertyChanged(command)) => {
+                let canvas_id = command.canvas;
+                services.push_undo_command(&canvas_id, command).log_err();
+            }
+            LayersDockMessage::Layer(LayerStackMessage::DropPreview(drop_preview)) => {
+                self.drop_preview = drop_preview;
+            }
+            LayersDockMessage::Layer(LayerStackMessage::SelectLayer(layer_id)) => {
+                let Some(canvas_id) = services.current_canvas_id() else {
+                    return Task::none();
+                };
+                let modifiers = services.service::<KeyboardState>().modifiers();
+                services.update_canvas(&canvas_id, |canvas, _| {
+                    if modifiers.contains(Modifiers::CTRL) {
+                        canvas.toggle_layer_selection_and_active(layer_id);
+                    } else if modifiers.contains(Modifiers::SHIFT) {
+                        let active_layer = canvas.active_layer_id();
+                        if layer_id == active_layer {
+                            return;
+                        }
+                        let tree = canvas
+                            .image
+                            .layer_stack()
+                            .iter_layers_dfs_display_order_without_root()
+                            .map(|(n, _)| *n.id())
+                            .collect::<Vec<_>>();
+                        let mut on_select = false;
+                        for layer in tree {
+                            if on_select {
+                                canvas.select_layer(layer);
+                            }
+                            if layer == layer_id || layer == active_layer {
+                                on_select = !on_select;
+                            }
+                        }
+                        canvas.set_active_layer(layer_id);
+                    } else if !canvas.selected_layer_ids().contains(&layer_id) {
+                        canvas.set_active_layer_and_clear_select(layer_id);
+                    } else {
+                        canvas.set_active_layer(layer_id);
+                    }
+                });
+            }
+            LayersDockMessage::Layer(LayerStackMessage::MoveLayers {
+                layer_ids,
+                new_parent,
+                new_position,
+            }) => {
+                self.drop_preview = None;
+                let Some(canvas_id) = services.current_canvas_id() else {
+                    return Task::none();
+                };
+                let cmd = services.update_canvas(&canvas_id, |canvas, _services| {
+                    let Some(dragged) = layer_ids.first() else {
+                        return None;
+                    };
+                    let Some(original_parent) = canvas
+                        .image
+                        .layer_stack()
+                        .get_layer(dragged)
+                        .and_then(|n| n.parent().copied())
+                    else {
+                        return None;
+                    };
+                    let original_index = canvas
+                        .image
+                        .layer_stack()
+                        .get_layer(&original_parent)
+                        .and_then(|p| p.child_index(dragged))
+                        .unwrap_or(0);
+                    let resolved_index = canvas
+                        .image
+                        .layer_stack()
+                        .get_layer(&new_parent)
+                        .and_then(|p| p.resolve_index(new_position));
+                    if let Some(resolved_index) = resolved_index
+                        && original_parent == new_parent
+                        && original_index == resolved_index
+                    {
+                        return None;
+                    }
+                    Some(MoveLayersCommand::new(
+                        canvas,
+                        layer_ids.iter().copied(),
+                        new_parent,
+                        new_position,
+                    ))
+                });
+                if let Some(cmd) = cmd.flatten() {
+                    services.push_undo_command(&canvas_id, cmd).log_err();
+                }
+            }
+            LayersDockMessage::Layer(LayerStackMessage::RenameLayer(layer_id)) => {
+                let name = services.current_canvas().and_then(|canvas| {
+                    canvas
+                        .image
+                        .layer_stack()
+                        .get_layer(&layer_id)
+                        .and_then(|layer| layer.properties().get_name())
+                        .map(ToOwned::to_owned)
+                });
+                if let Some(name) = name {
+                    self.renaming_layer = Some(layer_id);
+                    self.rename_value = name;
+                }
+            }
+            LayersDockMessage::Layer(LayerStackMessage::RenameChanged(value)) => {
+                if self.renaming_layer.is_some() {
+                    self.rename_value = value;
+                }
+            }
+            LayersDockMessage::Layer(LayerStackMessage::RenameCommit(layer_id)) => {
+                if self.renaming_layer != Some(layer_id) {
+                    return Task::none();
+                }
+                let name = std::mem::take(&mut self.rename_value);
+                self.renaming_layer = None;
+                Self::push_property_change(services, layer_id, move |props| {
+                    props.set_name(name);
+                });
+            }
+        }
+        Task::none()
+    }
+
+    fn subscription(&self) -> Subscription<Self::Message> {
+        let keyboard = listen_with(|event, _status, _window| match event {
+            iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Named(keyboard::key::Named::Escape),
+                ..
+            }) => Some(LayersDockMessage::EscapePressed),
+            _ => None,
+        });
+        keyboard
+    }
+}
 
 pub const TOOL_OPTIONS_DOCK_ID: &'static str = "tool_options";
 pub const BRUSH_PRESETS_DOCK_ID: &'static str = "brush_presets";

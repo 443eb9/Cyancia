@@ -22,7 +22,7 @@ where
     Theme: 'static,
     Renderer: iced_core::Renderer + 'static,
 {
-    type Message: Send + Sync + 'static;
+    type Message: Send + 'static;
 
     fn id(&self) -> DockId;
     fn view<'a>(
@@ -51,15 +51,15 @@ pub trait ErasedDock<Theme, Renderer>: 'static {
         &'a self,
         window_id: window::Id,
         services: &'a Services,
-    ) -> Element<'a, Box<dyn Any + Send + Sync>, Theme, Renderer>;
+    ) -> Element<'a, Box<dyn Any + Send>, Theme, Renderer>;
     fn update(
         &mut self,
-        message: Box<dyn Any + Send + Sync>,
+        message: Box<dyn Any + Send>,
         services: &mut Services,
-    ) -> Task<Box<dyn Any + Send + Sync>>;
-    fn subscription(&self) -> Subscription<Box<dyn Any + Send + Sync>>;
-    fn on_open(&mut self) -> Task<Box<dyn Any + Send + Sync>>;
-    fn on_close(&mut self) -> Task<Box<dyn Any + Send + Sync>>;
+    ) -> Task<Box<dyn Any + Send>>;
+    fn subscription(&self) -> Subscription<Box<dyn Any + Send>>;
+    fn on_open(&mut self) -> Task<Box<dyn Any + Send>>;
+    fn on_close(&mut self) -> Task<Box<dyn Any + Send>>;
     fn sub_windows(&self) -> Vec<window::Id>;
 }
 
@@ -77,36 +77,34 @@ where
         &'a self,
         window_id: window::Id,
         services: &'a Services,
-    ) -> Element<'a, Box<dyn Any + Send + Sync>, Theme, Renderer> {
+    ) -> Element<'a, Box<dyn Any + Send>, Theme, Renderer> {
         self.view(window_id, services)
-            .map(|m| Box::new(m) as Box<dyn Any + Send + Sync>)
+            .map(|m| Box::new(m) as Box<dyn Any + Send>)
     }
 
     fn update(
         &mut self,
-        message: Box<dyn Any + Send + Sync>,
+        message: Box<dyn Any + Send>,
         services: &mut Services,
-    ) -> Task<Box<dyn Any + Send + Sync>> {
+    ) -> Task<Box<dyn Any + Send>> {
         let msg = *message
             .downcast::<T::Message>()
             .expect("invalid message type");
         self.update(msg, services)
-            .map(|m| Box::new(m) as Box<dyn Any + Send + Sync>)
+            .map(|m| Box::new(m) as Box<dyn Any + Send>)
     }
 
-    fn subscription(&self) -> Subscription<Box<dyn Any + Send + Sync>> {
+    fn subscription(&self) -> Subscription<Box<dyn Any + Send>> {
         self.subscription()
-            .map(|m| Box::new(m) as Box<dyn Any + Send + Sync>)
+            .map(|m| Box::new(m) as Box<dyn Any + Send>)
     }
 
-    fn on_open(&mut self) -> Task<Box<dyn Any + Send + Sync>> {
-        self.on_open()
-            .map(|m| Box::new(m) as Box<dyn Any + Send + Sync>)
+    fn on_open(&mut self) -> Task<Box<dyn Any + Send>> {
+        self.on_open().map(|m| Box::new(m) as Box<dyn Any + Send>)
     }
 
-    fn on_close(&mut self) -> Task<Box<dyn Any + Send + Sync>> {
-        self.on_close()
-            .map(|m| Box::new(m) as Box<dyn Any + Send + Sync>)
+    fn on_close(&mut self) -> Task<Box<dyn Any + Send>> {
+        self.on_close().map(|m| Box::new(m) as Box<dyn Any + Send>)
     }
 
     fn sub_windows(&self) -> Vec<window::Id> {

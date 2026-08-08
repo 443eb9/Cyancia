@@ -794,7 +794,7 @@ fn snap(pos_a: Point, size_a: Size, pos_b: Point, size_b: Size) -> Point {
 pub enum DockMessage {
     Main(DockAction),
     Float { id: window::Id, action: FloatAction },
-    Dock(DockId, Box<dyn Any + Send + Sync + 'static>),
+    Dock(DockId, Box<dyn Any + Send>),
     RawWindowGet(window::Id, u64),
     RedrawRequested,
 }

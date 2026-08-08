@@ -30,7 +30,7 @@ wrapper! {
 pub struct Window;
 
 pub trait WindowView: 'static + Sized {
-    type Message: Send + Sync + 'static;
+    type Message: Send + 'static;
 
     fn id() -> WindowViewId;
     fn boot(services: &mut Services) -> (Self, Task<Self::Message>);
@@ -60,14 +60,14 @@ pub trait ErasedWindowView: 'static {
         &'a self,
         window: window::Id,
         services: &'a Services,
-    ) -> Element<'a, Box<dyn Any + Send + Sync>, Theme, iced_wgpu::Renderer>;
+    ) -> Element<'a, Box<dyn Any + Send>, Theme, iced_wgpu::Renderer>;
     fn update(
         &mut self,
-        message: Box<dyn Any + Send + Sync>,
+        message: Box<dyn Any + Send>,
         services: &mut Services,
-    ) -> Task<Box<dyn Any + Send + Sync>>;
+    ) -> Task<Box<dyn Any + Send>>;
     fn close(self: Box<Self>, services: &mut Services) -> Task<()>;
-    fn subscription(&self) -> Subscription<Box<dyn Any + Send + Sync>>;
+    fn subscription(&self) -> Subscription<Box<dyn Any + Send>>;
     fn windows(&self) -> Arc<[window::Id]>;
     fn root_window(&self) -> Option<window::Id>;
 }
@@ -84,31 +84,31 @@ where
         &'a self,
         window: window::Id,
         services: &'a Services,
-    ) -> Element<'a, Box<dyn Any + Send + Sync>, Theme, iced_wgpu::Renderer> {
+    ) -> Element<'a, Box<dyn Any + Send>, Theme, iced_wgpu::Renderer> {
         <T as WindowView>::view(self, window, services)
             .into()
-            .map(|msg| Box::new(msg) as Box<dyn Any + Send + Sync>)
+            .map(|msg| Box::new(msg) as Box<dyn Any + Send>)
     }
 
     fn update(
         &mut self,
-        message: Box<dyn Any + Send + Sync>,
+        message: Box<dyn Any + Send>,
         services: &mut Services,
-    ) -> Task<Box<dyn Any + Send + Sync>> {
+    ) -> Task<Box<dyn Any + Send>> {
         let msg = *message
             .downcast::<T::Message>()
             .expect("Cast window message failed");
         <T as WindowView>::update(self, msg, services)
             .into()
-            .map(|msg| Box::new(msg) as Box<dyn Any + Send + Sync>)
+            .map(|msg| Box::new(msg) as Box<dyn Any + Send>)
     }
 
     fn close(self: Box<Self>, services: &mut Services) -> Task<()> {
         <T as WindowView>::close(*self, services)
     }
 
-    fn subscription(&self) -> Subscription<Box<dyn Any + Send + Sync>> {
-        <T as WindowView>::subscription(self).map(|msg| Box::new(msg) as Box<dyn Any + Send + Sync>)
+    fn subscription(&self) -> Subscription<Box<dyn Any + Send>> {
+        <T as WindowView>::subscription(self).map(|msg| Box::new(msg) as Box<dyn Any + Send>)
     }
 
     fn windows(&self) -> Arc<[window::Id]> {
@@ -123,7 +123,7 @@ where
 #[derive(Debug)]
 pub struct ErasedWindowViewMessage {
     view: WindowViewId,
-    message: Box<dyn Any + Send + Sync>,
+    message: Box<dyn Any + Send>,
 }
 
 pub enum WindowViewManagerMessage {
@@ -184,7 +184,7 @@ where
                     Box::new(view),
                     task.map(|o| ErasedWindowViewMessage {
                         view: T::id(),
-                        message: Box::new(o) as Box<dyn Any + Send + Sync>,
+                        message: Box::new(o) as Box<dyn Any + Send>,
                     }),
                 )
             }),

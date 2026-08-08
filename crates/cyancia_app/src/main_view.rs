@@ -115,7 +115,7 @@ impl WindowView for MainView {
 
         let (main_window, task) = window::open(Default::default());
         let (mut dock_manager, dock_manager_task) = DockManager::new(main_window);
-        dock_manager.register_dock(LayersDock);
+        dock_manager.register_dock(LayersDock::new());
         dock_manager.register_dock(FiltersDock);
         dock_manager.register_dock(ToolOptionsDock::new(services));
         dock_manager.register_dock(BrushPresetDock::new(services));

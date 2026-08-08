@@ -731,6 +731,7 @@ impl UndoCommand for DeleteLayersCommand {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct LayerPropertyChangeCommand {
     pub canvas: CanvasId,
     pub layer_id: LayerId,
