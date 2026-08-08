@@ -304,7 +304,7 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for GradientSurface<'a, Messa
 
     fn update(
         &mut self,
-        tree: &mut Tree,
+        _tree: &mut Tree,
         event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
