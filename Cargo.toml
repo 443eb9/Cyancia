@@ -171,7 +171,6 @@ iced_debug = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef6
 iced_devtools = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
 iced_futures = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
 iced_graphics = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
-iced_highlighter = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
 iced_program = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
 iced_renderer = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }
 iced_runtime = { git = "https://github.com/443eb9/iced.git", rev = "3d180b29bcdef61209d62bfa99e5b48e56549a44" }

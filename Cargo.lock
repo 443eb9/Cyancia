@@ -7734,8 +7734,3 @@ dependencies = [
  "syn 2.0.119",
  "winnow 1.0.4",
 ]
-
-[[patch.unused]]
-name = "iced_highlighter"
-version = "0.14.0"
-source = "git+https://github.com/443eb9/iced.git?rev=3d180b29bcdef61209d62bfa99e5b48e56549a44#3d180b29bcdef61209d62bfa99e5b48e56549a44"

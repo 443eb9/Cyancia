@@ -54,58 +54,6 @@ use iced_widget::{container, scrollable, stack};
 use moxcms::{ColorProfile, Layout};
 use parking_lot::Mutex;
 
-// pub struct CurrentCanvasLayersDock {
-//     widget: Option<Entity<LayerStackWidget>>,
-//     focus_handle: FocusHandle,
-// }
-//
-// impl CurrentCanvasLayersDock {
-//     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-//         let focus_handle = cx.focus_handle();
-//         cx.subscribe_in(
-//             &cx.global_canvas_events_entity(),
-//             window,
-//             |dock, _, _: &CurrentCanvasChanged, window, cx| {
-//                 if let Some(canvas) = cx.current_canvas().and_then(|e| e.upgrade()) {
-//                     dock.widget = Some(cx.new(|cx| LayerStackWidget::new(canvas, window, cx)));
-//                 }
-//             },
-//         )
-//         .detach();
-//
-//         Self {
-//             widget: None,
-//             focus_handle,
-//         }
-//     }
-// }
-//
-// impl EventEmitter<PanelEvent> for CurrentCanvasLayersDock {}
-//
-// impl Focusable for CurrentCanvasLayersDock {
-//     fn focus_handle(&self, _: &App) -> FocusHandle {
-//         self.focus_handle.clone()
-//     }
-// }
-//
-// impl Panel for CurrentCanvasLayersDock {
-//     fn panel_name(&self) -> &'static str {
-//         "current_canvas_layers"
-//     }
-//
-//     fn tab_name(&self, _: &App) -> Option<SharedString> {
-//         Some("Current Canvas Layers".into())
-//     }
-// }
-//
-// impl Render for CurrentCanvasLayersDock {
-//     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-//         self.widget
-//             .as_ref()
-//             .map(|w| w.clone().into_any_element())
-//             .unwrap_or_else(|| div().into_any_element())
-//     }
-// }
 
 #[derive(Clone)]
 pub enum ColorSelectorDockMessage {
