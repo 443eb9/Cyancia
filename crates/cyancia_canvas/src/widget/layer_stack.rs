@@ -23,8 +23,13 @@ use iced_core::{
     widget::Tree,
 };
 use iced_widget::{PickList, TextInput, button, checkbox, column, container, row, stack, text};
+use indexmap::IndexMap;
 
 use crate::{CCanvas, command::LayerPropertyChangeCommand};
+
+/// The horizontal indent applied per nesting depth (matches the spacer width
+/// used in the row layout).
+const ROW_INDENT: f32 = 20.0;
 
 #[derive(Debug, Clone)]
 pub enum LayerStackMessage {
@@ -51,19 +56,16 @@ pub struct DropInfo {
 
 fn resolve_drop_target(
     canvas: &CCanvas,
-    rows: &[(LayerId, Rectangle)],
-    root_bounds: Rectangle,
+    rows: &IndexMap<LayerId, Rectangle>,
     mouse_position: Point,
     dragged_id: LayerId,
 ) -> Option<DropInfo> {
     let layer_stack = canvas.image.layer_stack();
-    let mut all_rows = rows.to_vec();
     let root_id = *layer_stack.root_id();
-    all_rows.push((root_id, root_bounds));
 
-    let (target_id, target_bounds) = all_rows
+    let (target_id, target_bounds) = rows
         .iter()
-        .filter(|(id, _)| *id != dragged_id && !layer_stack.is_ancestor(&dragged_id, id))
+        .filter(|(id, _)| **id != dragged_id && !layer_stack.is_ancestor(&dragged_id, id))
         .find(|(_, bounds)| mouse_position.y < bounds.y + bounds.height)?;
     let (target_id, target_bounds) = (*target_id, *target_bounds);
 
@@ -158,10 +160,7 @@ fn resolve_drop_target(
     // cursor is left of every candidate, append to the shallowest one.
     let mut resolved_parent_index = ambiguous_count - 1;
     for (index, ancestor) in ancestors.iter().take(ambiguous_count).enumerate() {
-        let bounds = rows
-            .iter()
-            .find(|(id, _)| id == ancestor)
-            .map(|(_, bounds)| *bounds)?;
+        let bounds = rows.get(ancestor)?;
         if mouse_position.x >= bounds.x {
             resolved_parent_index = index;
             break;
@@ -175,9 +174,7 @@ fn resolve_drop_target(
     let resolved_preview_bounds = if resolved_parent_index == 0 {
         target_bounds
     } else {
-        rows.iter()
-            .find(|(id, _)| id == &ancestors[resolved_parent_index - 1])
-            .map(|(_, bounds)| *bounds)?
+        *rows.get(&ancestors[resolved_parent_index - 1])?
     };
 
     Some(DropInfo {
@@ -241,13 +238,27 @@ fn resolve_target<'b>(
     canvas: &CCanvas,
     layers: &[LayerId],
 ) -> Option<DropInfo> {
+    let layer_stack = canvas.image.layer_stack();
+    let root_id = *layer_stack.root_id();
     let dragged_id = layers[info.dragged_index];
-    let rows = info
+    let mut rows = info
         .column_layout
         .children()
         .zip(layers)
-        .map(|(node, id)| (*id, node.bounds()))
-        .collect::<Vec<_>>();
+        .map(|(node, id)| {
+            let depth = layer_stack.ancestors(*id).filter(|a| *a != root_id).count() as f32;
+            let bounds = node.bounds();
+            (
+                *id,
+                Rectangle {
+                    x: depth * ROW_INDENT,
+                    y: bounds.y,
+                    width: bounds.width,
+                    height: bounds.height,
+                },
+            )
+        })
+        .collect::<IndexMap<_, _>>();
     let column_bounds = info.column_layout.bounds();
     let root_bounds = Rectangle {
         x: 0.0,
@@ -263,7 +274,8 @@ fn resolve_target<'b>(
                 .unwrap_or(0.0))
         .max(0.0),
     };
-    resolve_drop_target(canvas, &rows, root_bounds, info.mouse_position, dragged_id)
+    rows.insert(root_id, root_bounds);
+    resolve_drop_target(canvas, &rows, info.mouse_position, dragged_id)
 }
 
 pub struct LayerStackView<'a, Message: Clone + 'a> {
