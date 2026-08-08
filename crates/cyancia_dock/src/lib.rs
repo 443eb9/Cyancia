@@ -706,7 +706,7 @@ where
                         log::error!("Main window raw ID is not available. This should not happen.");
                         return Task::none();
                     };
-                    cyancia_platform::window::set_window_parent(main_raw_id, raw_id);
+                    cyancia_runtime::platform::set_window_parent(main_raw_id, raw_id);
                 }
 
                 Task::none()

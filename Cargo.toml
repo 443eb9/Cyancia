@@ -16,7 +16,6 @@ members = [
     "crates/cyancia_image",
     "crates/cyancia_input",
     "crates/cyancia_math",
-    "crates/cyancia_platform",
     "crates/cyancia_render",
     "crates/cyancia_runtime",
     "crates/cyancia_runtime_derive",
@@ -63,7 +62,6 @@ cyancia_dock = { version = "0.1.0", path = "crates/cyancia_dock" }
 cyancia_image = { version = "0.1.0", path = "crates/cyancia_image" }
 cyancia_input = { version = "0.1.0", path = "crates/cyancia_input" }
 cyancia_math = { version = "0.1.0", path = "crates/cyancia_math" }
-cyancia_platform = { version = "0.1.0", path = "crates/cyancia_platform" }
 cyancia_render = { version = "0.1.0", path = "crates/cyancia_render" }
 cyancia_runtime = { version = "0.1.0", path = "crates/cyancia_runtime" }
 cyancia_runtime_derive = { version = "0.1.0", path = "crates/cyancia_runtime_derive" }

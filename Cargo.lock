@@ -1645,7 +1645,6 @@ dependencies = [
 name = "cyancia_dock"
 version = "0.1.0"
 dependencies = [
- "cyancia_platform",
  "cyancia_runtime",
  "cyancia_utils",
  "iced",
@@ -1730,14 +1729,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cyancia_platform"
-version = "0.1.0"
-dependencies = [
- "log",
- "windows 0.62.2",
-]
-
-[[package]]
 name = "cyancia_render"
 version = "0.1.0"
 dependencies = [
@@ -1782,6 +1773,7 @@ dependencies = [
  "rustc-hash 1.1.0",
  "smol",
  "wgpu",
+ "windows 0.62.2",
  "winit",
 ]
 
