@@ -1,4 +1,4 @@
-use std::{cell::Ref, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 use cyancia_runtime::{Application, Services, plugin::Plugin};
 

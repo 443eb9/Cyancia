@@ -1,13 +1,11 @@
 use std::{
     borrow::Cow,
-    cell::RefCell,
     f32::consts::{PI, TAU},
 };
 
 use bevy_math::IRect;
 use cyancia_canvas::{CanvasAppExt, CanvasUndoStackAppExt};
 use cyancia_input::{key::KeyboardState, mouse::PressedMouseState};
-use cyancia_render::render_context::RenderContextAppExt;
 use cyancia_runtime::Services;
 use cyancia_tools::{ToolFunction, ToolId};
 use cyancia_utils::log_err::LogErr;
@@ -15,14 +13,12 @@ use glam::{IVec2, Vec2};
 use iced_core::{Element, Theme};
 use iced_runtime::Task;
 use iced_wgpu::Renderer;
-use iced_widget::{shader, space};
+use iced_widget::space;
 use lyon::tessellation::FillRule;
 use tracing::info;
-use wgpu::TextureView;
 
 use crate::render::{
-    SelectionOperation, SelectionPreviewLayer, SelectionPreviewPipeline, generate_cmd,
-    indices_from_vertices,
+    SelectionOperation, SelectionPreviewLayer, generate_cmd, indices_from_vertices,
 };
 
 fn common_begin(

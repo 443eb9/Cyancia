@@ -4,7 +4,7 @@ use std::{
     time::Instant,
 };
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use cyancia_runtime::{Application, Services, plugin::Plugin, service::Service};
 use cyancia_utils::{Deref, DerefMut, log_err::LogErr};
 use downcast_rs::Downcast;

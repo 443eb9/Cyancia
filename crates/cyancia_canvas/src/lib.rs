@@ -1,15 +1,11 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::Result;
-use bevy_math::IRect;
 use cyancia_cyan::CyanArchive;
 use cyancia_image::{
     CImage,
-    composite::{BlendFunctionRegistry, ImageCompositor, LayerPreviewOverriders},
     layer::{LayerId, LayerStackNode},
-    tile::TileStorageAppExt,
 };
-use cyancia_render::render_context::RenderContextAppExt;
 use cyancia_runtime::{Application, Services, plugin::Plugin, service::Service};
 use cyancia_tools::{ToolProxyId, ToolsAppExt};
 use cyancia_undo::{QueuedUndoCommand, UndoCommand, UndoStack, UndoStacks};
@@ -64,7 +60,6 @@ impl CCanvas {
             .first()
             .expect("Root layer should have at least one child");
 
-        let dirty_tiles = image.image_tile_rect();
         Self {
             id: CanvasId::new(Uuid::new_v4()),
             tool_proxy_id,
@@ -280,7 +275,7 @@ pub trait CanvasAppExt {
 }
 
 impl CanvasAppExt for Services {
-    fn add_canvas(&mut self, mut canvas: CCanvas) -> CanvasId {
+    fn add_canvas(&mut self, canvas: CCanvas) -> CanvasId {
         self.service_mut::<CanvasManager>().add_canvas(canvas)
     }
 

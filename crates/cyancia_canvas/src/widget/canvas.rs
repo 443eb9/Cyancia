@@ -1,5 +1,4 @@
 use bevy_math::Rect;
-use cyancia_color::shader::IccTransformShader;
 use cyancia_image::{texel::TexelType, tile::GpuTileStorage};
 use glam::Vec2;
 use iced_core::{
@@ -7,16 +6,11 @@ use iced_core::{
     layout::{self, Limits},
     mouse, renderer,
     widget::Tree,
-    window,
 };
 use iced_wgpu::primitive::Renderer;
-use iced_widget::{renderer::wgpu::primitive, shader::Program};
 use moxcms::ColorProfile;
 
-use crate::{
-    CCanvas,
-    render::{CanvasPrimitive, ICC_TRANSFORM_SHADER_IDENT},
-};
+use crate::{CCanvas, render::CanvasPrimitive};
 
 pub struct CanvasWidget<'a, Message> {
     pub is_focusing: bool,
@@ -61,13 +55,13 @@ impl<Message, Theme> Widget<Message, Theme, iced_wgpu::Renderer> for CanvasWidge
 
         if let Event::Mouse(event) = event {
             if self.is_focusing {
-                shell.publish((self.on_mouse_event)(event.clone()));
+                shell.publish((self.on_mouse_event)(*event));
                 shell.capture_event();
             } else if let mouse::Event::ButtonPressed(mouse::Button::Left) = event
                 && let Some(cursor_pos) = cursor.position_over(bounds)
             {
                 shell.publish((self.on_focus)(cursor_pos));
-                shell.publish((self.on_mouse_event)(event.clone()));
+                shell.publish((self.on_mouse_event)(*event));
                 shell.capture_event();
             }
         }

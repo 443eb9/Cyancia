@@ -1,4 +1,4 @@
-use std::{borrow::Cow, cell::RefCell};
+use std::borrow::Cow;
 
 use bevy_math::Rect;
 use cyancia_canvas::{CanvasAppExt, CanvasUndoStackAppExt};
@@ -6,7 +6,6 @@ use cyancia_input::{
     key::KeyboardState,
     mouse::{HoverMouseState, PressedMouseState},
 };
-use cyancia_render::render_context::RenderContextAppExt;
 use cyancia_runtime::Services;
 use cyancia_tools::{ToolFunction, ToolId};
 use cyancia_utils::log_err::LogErr;
@@ -18,11 +17,9 @@ use iced_wgpu::Renderer;
 use iced_widget::{button, container, row, space};
 use lyon::tessellation::FillRule;
 use tracing::info;
-use wgpu::TextureView;
 
 use crate::render::{
-    SelectionOperation, SelectionPreviewLayer, SelectionPreviewPipeline, generate_cmd,
-    indices_from_vertices,
+    SelectionOperation, SelectionPreviewLayer, generate_cmd, indices_from_vertices,
 };
 
 struct FreehandSelectionState {

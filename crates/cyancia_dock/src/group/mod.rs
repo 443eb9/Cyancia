@@ -2,7 +2,7 @@ pub mod tab_row;
 
 pub use tab_row::TabRowWidget;
 
-use crate::dock::{self, DockId};
+use crate::dock::DockId;
 use indexmap::IndexSet;
 use serde::Serialize;
 
@@ -32,10 +32,7 @@ impl DockGroupData {
                 return;
             }
 
-            self.active = self
-                .docks
-                .get_index(index.checked_sub(1).unwrap_or_default())
-                .cloned();
+            self.active = self.docks.get_index(index.saturating_sub(1)).cloned();
         } else {
             self.docks.shift_remove(dock_id);
         }

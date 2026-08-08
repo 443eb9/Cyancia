@@ -280,7 +280,7 @@ impl ColorSelectorState {
                         y_range,
                     })
                 })
-                .and_then(|message| Task::done(message)),
+                .and_then(Task::done),
             );
         }
 

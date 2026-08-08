@@ -147,8 +147,8 @@ impl KeySequence {
         let mut modifiers = Modifiers::empty();
         let mut key = None;
 
-        let mut components = s.split('-').peekable();
-        while let Some(component) = components.next() {
+        let components = s.split('-').peekable();
+        for component in components {
             if component.eq_ignore_ascii_case("ctrl") {
                 modifiers |= Modifiers::CTRL;
             } else if component.eq_ignore_ascii_case("alt") {
@@ -173,8 +173,10 @@ impl KeySequence {
 
         Ok(KeySequence { key, modifiers })
     }
+}
 
-    pub fn to_string(&self) -> String {
+impl std::fmt::Display for KeySequence {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut parts = Vec::new();
         if self.modifiers.contains(Modifiers::CTRL) {
             parts.push("ctrl");
@@ -191,7 +193,7 @@ impl KeySequence {
         if let Some(key) = self.key {
             parts.push(key_name(key));
         }
-        parts.join("-")
+        write!(f, "{}", parts.join("-"))
     }
 }
 

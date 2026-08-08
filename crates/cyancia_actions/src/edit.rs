@@ -2,7 +2,6 @@ use std::{any::TypeId, path::PathBuf};
 
 use cyancia_canvas::{CanvasAppExt, CanvasUndoStackAppExt, command::InsertLayerCommand};
 use cyancia_image::{
-    CImage,
     layer::{LayerPosition, pixel_layer::PixelLayer},
     tile::TileStorageAppExt,
 };
@@ -108,9 +107,7 @@ impl ActionFunction for PasteIntoNewLayerAction {
                         .instance()
                         .can_have_children_of(TypeId::of::<PixelLayer>())
                     {
-                        let Some(cur_parent_id) = cur_parent.parent() else {
-                            return None;
-                        };
+                        let cur_parent_id = cur_parent.parent()?;
                         let parent_id =
                             canvas.image.layer_stack().get_layer(cur_parent_id).unwrap();
                         cur_position = LayerPosition::above(*cur_parent.id());

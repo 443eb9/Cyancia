@@ -10,8 +10,7 @@ use cyancia_widgets::{
 };
 use glam::{Vec2, Vec4};
 use iced::{Element, Length, Task};
-use iced_core::font::{Font, Weight};
-use iced_widget::{button, column, container, row, text};
+use iced_widget::{button, container, row};
 
 use crate::bucket::{Bucket, BucketAntialiasApproach, BucketParams};
 

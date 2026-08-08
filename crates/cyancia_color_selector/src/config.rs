@@ -589,7 +589,7 @@ impl ColorSelectorConfigEditorState {
                         (index > 0).then_some(ColorSelectorConfigMessage::MovePlaneUp(index))
                     ),
                     button(text("Down")).on_press_maybe(
-                        (!is_last).then(|| ColorSelectorConfigMessage::MovePlaneDown(index))
+                        (!is_last).then_some(ColorSelectorConfigMessage::MovePlaneDown(index))
                     ),
                     button(text("Remove"))
                         .style(button::danger)
@@ -670,7 +670,7 @@ impl ColorSelectorConfigEditorState {
                         }),
                     checkbox(plane.reversed_ring)
                         .label("Reversed ring")
-                        .on_toggle_maybe(plane.show_primary_channel_ring.then(|| {
+                        .on_toggle_maybe(plane.show_primary_channel_ring.then_some({
                             move |checked| {
                                 ColorSelectorConfigMessage::PlaneReversedRingChanged(index, checked)
                             }
@@ -715,7 +715,7 @@ impl ColorSelectorConfigEditorState {
                         (index > 0).then_some(ColorSelectorConfigMessage::MoveBarUp(index))
                     ),
                     button(text("Down")).on_press_maybe(
-                        (!is_last).then(|| ColorSelectorConfigMessage::MoveBarDown(index))
+                        (!is_last).then_some(ColorSelectorConfigMessage::MoveBarDown(index))
                     ),
                     button(text("Remove"))
                         .style(button::danger)

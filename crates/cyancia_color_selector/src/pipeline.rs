@@ -243,7 +243,7 @@ impl GradientPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("gradient_pipeline_layout"),
-            bind_group_layouts: &[&layout],
+            bind_group_layouts: &[layout],
             push_constant_ranges: &[],
         });
 
@@ -315,7 +315,7 @@ impl GradientRingPipeline {
         });
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("gradient_ring_pipeline_layout"),
-            bind_group_layouts: &[&layout],
+            bind_group_layouts: &[layout],
             push_constant_ranges: &[],
         });
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {

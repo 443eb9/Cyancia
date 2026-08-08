@@ -75,8 +75,8 @@ pub trait ActionFunction: Send + Sync + 'static {
     fn trigger(&self, services: &mut Services) -> Task<Self::Message>;
     fn handle_message(
         &self,
-        message: Self::Message,
-        services: &mut Services,
+        _message: Self::Message,
+        _services: &mut Services,
     ) -> Task<Self::Message> {
         Task::none()
     }
@@ -87,8 +87,8 @@ pub trait ErasedActionFunction: Send + Sync + 'static {
     fn trigger(&self, services: &mut Services) -> Task<Box<dyn Any + Send + Sync>>;
     fn handle_message(
         &self,
-        message: Box<dyn Any + Send + Sync>,
-        services: &mut Services,
+        _message: Box<dyn Any + Send + Sync>,
+        _services: &mut Services,
     ) -> Task<Box<dyn Any + Send + Sync>> {
         Task::none()
     }

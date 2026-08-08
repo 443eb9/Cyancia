@@ -4,14 +4,12 @@ use crate::{
     style::DockCatalog,
 };
 use iced_core::{
-    Element, Event, Font, Layout, Length, Pixels, Point, Rectangle, Shell, Size, alignment,
+    Element, Event, Layout, Length, Pixels, Point, Rectangle, Shell, Size, alignment,
     clipboard::Clipboard,
     layout, mouse, renderer,
     text::{self, LineHeight, Shaping, paragraph},
     widget::{Tree, tree},
 };
-
-const CLOSE_SIZE: f32 = 16.0;
 
 #[derive(Debug, Default, Clone, Copy)]
 enum TabAction {

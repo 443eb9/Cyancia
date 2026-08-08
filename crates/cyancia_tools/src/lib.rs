@@ -1,9 +1,4 @@
-use std::{
-    any::Any,
-    collections::{HashMap, hash_map::Entry},
-    rc::Rc,
-    sync::Arc,
-};
+use std::{any::Any, collections::HashMap, rc::Rc, sync::Arc};
 
 use cyancia_assets::AssetAppExt;
 use cyancia_input::{
@@ -12,14 +7,13 @@ use cyancia_input::{
 };
 use cyancia_runtime::{Application, Services, plugin::Plugin, service::Service};
 use cyancia_utils::wrapper;
-use iced_core::{Element, Point, Theme, keyboard::Modifiers};
+use iced_core::{Element, Point, Theme};
 use iced_runtime::Task;
 use iced_wgpu::Renderer;
 use iced_widget::space;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use wgpu::TextureView;
 
 use crate::manifest::{ToolBinding, ToolBindingManifest, ToolBindingManifestSerializer};
 
@@ -282,7 +276,7 @@ impl<T: ToolFunction> ErasedToolFunction for T {
     fn canvas_overlay<'a>(
         &'a self,
         services: &'a Services,
-    ) -> Element<'_, ErasedToolFunctionMessage, Theme, Renderer> {
+    ) -> Element<'a, ErasedToolFunctionMessage, Theme, Renderer> {
         self.canvas_overlay(services)
             .map(move |message| ErasedToolFunctionMessage {
                 tool_id: T::id(),

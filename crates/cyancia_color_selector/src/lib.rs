@@ -711,7 +711,7 @@ impl ColorSelectorState {
                     preset.name.clone(),
                     index,
                     Some(self.selected_preset),
-                    move |index| ColorSelectorMessage::SwitchPreset(index),
+                    ColorSelectorMessage::SwitchPreset,
                 )
                 .into()
             }))

@@ -544,8 +544,8 @@ impl<'a, Message, Theme> Widget<Message, Theme, Renderer> for SelectionPreviewLa
 
     fn layout(
         &mut self,
-        tree: &mut widget::Tree,
-        renderer: &Renderer,
+        _tree: &mut widget::Tree,
+        _renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
         layout::atomic(limits, Length::Fill, Length::Fill)
@@ -553,12 +553,12 @@ impl<'a, Message, Theme> Widget<Message, Theme, Renderer> for SelectionPreviewLa
 
     fn draw(
         &self,
-        tree: &widget::Tree,
+        _tree: &widget::Tree,
         renderer: &mut Renderer,
-        theme: &Theme,
-        style: &renderer::Style,
-        layout: layout::Layout<'_>,
-        cursor: mouse::Cursor,
+        _theme: &Theme,
+        _style: &renderer::Style,
+        _layout: layout::Layout<'_>,
+        _cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
         iced_wgpu::primitive::Renderer::draw_primitive(
@@ -572,9 +572,9 @@ impl<'a, Message, Theme> Widget<Message, Theme, Renderer> for SelectionPreviewLa
     }
 }
 
-impl<'a, Message, Theme> Into<Element<'a, Message, Theme, Renderer>> for SelectionPreviewLayer<'a> {
-    fn into(self) -> Element<'a, Message, Theme, Renderer> {
-        Element::new(self)
+impl<'a, Message, Theme> From<SelectionPreviewLayer<'a>> for Element<'a, Message, Theme, Renderer> {
+    fn from(val: SelectionPreviewLayer<'a>) -> Element<'a, Message, Theme, Renderer> {
+        Element::new(val)
     }
 }
 
@@ -590,7 +590,7 @@ pub struct SelectionPreviewPipeline {
 }
 
 impl Pipeline for SelectionPreviewPipeline {
-    fn new(device: &Device, queue: &Queue, format: TextureFormat) -> Self
+    fn new(device: &Device, _queue: &Queue, format: TextureFormat) -> Self
     where
         Self: Sized,
     {
@@ -785,7 +785,7 @@ impl Primitive for SelectionPreviewPrimitive {
         pipeline: &mut Self::Pipeline,
         device: &Device,
         queue: &Queue,
-        bounds: &Rectangle,
+        _bounds: &Rectangle,
         viewport: &Viewport,
     ) {
         let screen_size = viewport.logical_size();

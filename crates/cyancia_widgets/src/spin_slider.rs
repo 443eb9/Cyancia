@@ -262,7 +262,7 @@ where
     }
 
     fn children(&self) -> Vec<Tree> {
-        vec![Tree::new(&self.text_input::<Renderer>(""))]
+        vec![Tree::new(self.text_input::<Renderer>(""))]
     }
 
     fn diff(&self, tree: &mut Tree) {
@@ -466,14 +466,14 @@ where
                     target: PressTarget::Plus,
                 };
                 shell.capture_event();
-            } else if let Some(value) = edited_value {
-                if value != self.value {
-                    if let Some(on_change) = &self.on_change {
-                        shell.publish((*on_change)(value));
-                    }
-                    if let Some(on_confirm) = &self.on_confirm {
-                        shell.publish((*on_confirm)(value));
-                    }
+            } else if let Some(value) = edited_value
+                && value != self.value
+            {
+                if let Some(on_change) = &self.on_change {
+                    shell.publish((*on_change)(value));
+                }
+                if let Some(on_confirm) = &self.on_confirm {
+                    shell.publish((*on_confirm)(value));
                 }
             }
             return;
@@ -840,18 +840,19 @@ impl<T> Default for SpinSliderTreeState<T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 enum SpinSliderState<T> {
+    #[default]
     Idle,
-    Pressing { target: PressTarget },
-    Dragging { value: T },
-    Editing { value: String },
-}
-
-impl<T> Default for SpinSliderState<T> {
-    fn default() -> Self {
-        Self::Idle
-    }
+    Pressing {
+        target: PressTarget,
+    },
+    Dragging {
+        value: T,
+    },
+    Editing {
+        value: String,
+    },
 }
 
 fn split_bounds(bounds: Rectangle) -> (Rectangle, Rectangle, Rectangle) {

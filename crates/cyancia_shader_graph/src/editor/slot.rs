@@ -48,7 +48,7 @@ impl Operation for GraphSlotPinPositionCollection {
 
     fn custom(&mut self, _id: Option<&iced_widget::Id>, bounds: Rectangle, state: &mut dyn Any) {
         if let Some(state) = state.downcast_ref::<SlotPinState>() {
-            self.slots.insert(state.id.clone(), bounds.center());
+            self.slots.insert(state.id, bounds.center());
         }
     }
 }

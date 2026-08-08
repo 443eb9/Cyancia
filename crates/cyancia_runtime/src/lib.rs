@@ -2,8 +2,6 @@ use std::{
     any::{Any, TypeId},
     cell::{Ref, RefCell, RefMut},
     collections::{HashMap, VecDeque},
-    marker::PhantomData,
-    sync::{Arc, Mutex, OnceLock},
 };
 
 use iced_core::{Element, window};
@@ -12,15 +10,11 @@ use iced_futures::{Subscription, backend::native};
 use iced_runtime::{Task, window::close_events};
 use iced_wgpu::window::compositor::WgpuContext;
 use iced_winit::program::Program;
-use parking_lot::RwLock;
 
 use crate::{
     plugin::Plugin,
     service::{FromServices, RenderContext, Service},
-    windows::{
-        ErasedWindowViewMessage, WindowCommandBuffer, WindowViewId, WindowViewManager,
-        WindowViewManagerMessage,
-    },
+    windows::{WindowCommandBuffer, WindowViewManager, WindowViewManagerMessage},
 };
 
 pub mod event;
@@ -183,8 +177,8 @@ impl Program for Application {
 
             fn layout(
                 &mut self,
-                tree: &mut iced_core::widget::Tree,
-                renderer: &Renderer,
+                _tree: &mut iced_core::widget::Tree,
+                _renderer: &Renderer,
                 limits: &iced_core::layout::Limits,
             ) -> iced_core::layout::Node {
                 iced_core::layout::atomic(limits, Length::Fill, Length::Fill)
@@ -192,13 +186,13 @@ impl Program for Application {
 
             fn draw(
                 &self,
-                tree: &iced_core::widget::Tree,
-                renderer: &mut Renderer,
-                theme: &Theme,
-                style: &iced_core::renderer::Style,
-                layout: iced_core::Layout<'_>,
-                cursor: iced_core::mouse::Cursor,
-                viewport: &iced_core::Rectangle,
+                _tree: &iced_core::widget::Tree,
+                _renderer: &mut Renderer,
+                _theme: &Theme,
+                _style: &iced_core::renderer::Style,
+                _layout: iced_core::Layout<'_>,
+                _cursor: iced_core::mouse::Cursor,
+                _viewport: &iced_core::Rectangle,
             ) {
             }
         }
@@ -280,29 +274,27 @@ impl Services {
     pub fn service<T: Service>(&self) -> &T {
         self.services
             .get(&TypeId::of::<T>())
-            .expect(&format!(
-                "Service of type {} not found",
-                std::any::type_name::<T>()
-            ))
+            .unwrap_or_else(|| panic!("Service of type {} not found", std::any::type_name::<T>()))
             .downcast_ref()
-            .expect(&format!(
-                "Service of type {} has wrong type. This should not happen.",
-                std::any::type_name::<T>()
-            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "Service of type {} has wrong type. This should not happen.",
+                    std::any::type_name::<T>()
+                )
+            })
     }
 
     pub fn service_mut<T: Service>(&mut self) -> &mut T {
         self.services
             .get_mut(&TypeId::of::<T>())
-            .expect(&format!(
-                "Service of type {} not found",
-                std::any::type_name::<T>()
-            ))
+            .unwrap_or_else(|| panic!("Service of type {} not found", std::any::type_name::<T>()))
             .downcast_mut()
-            .expect(&format!(
-                "Service of type {} has wrong type. This should not happen.",
-                std::any::type_name::<T>()
-            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "Service of type {} has wrong type. This should not happen.",
+                    std::any::type_name::<T>()
+                )
+            })
     }
 
     pub fn get_service<T: Service>(&self) -> Option<&T> {
@@ -318,10 +310,10 @@ impl Services {
     }
 
     pub fn remove_service<T: Service>(&mut self) -> T {
-        let s = self.services.remove(&TypeId::of::<T>()).expect(&format!(
-            "Service of type {} not found",
-            std::any::type_name::<T>()
-        ));
+        let s = self
+            .services
+            .remove(&TypeId::of::<T>())
+            .unwrap_or_else(|| panic!("Service of type {} not found", std::any::type_name::<T>()));
 
         match s.downcast() {
             Ok(s) => *s,

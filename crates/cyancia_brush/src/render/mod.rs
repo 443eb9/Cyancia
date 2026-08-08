@@ -7,7 +7,7 @@ use anyhow::Result;
 use bevy_math::IRect;
 use chrono::{DateTime, Utc};
 use cyancia_assets::{AssetAppExt, store::AssetRegistry};
-use cyancia_canvas::{CanvasAppExt, CanvasId, command::TileReplaceCommand};
+use cyancia_canvas::{CanvasAppExt, CanvasId};
 use cyancia_image::{
     composite::{LayerPreviewOverriders, PixelPreviewOverrider},
     layer::{LayerId, properties::LayerTexelTypeProp},
@@ -27,19 +27,11 @@ use cyancia_render::{
     texture_atlas::{TextureAtlas, TextureAtlasBuilder},
 };
 use cyancia_runtime::Services;
-use cyancia_undo::QueuedUndoCommand;
 use cyancia_utils::log_err::LogErr;
 use encase::ShaderType;
-use futures::{
-    StreamExt,
-    channel::{
-        mpsc::{UnboundedReceiver, UnboundedSender},
-        oneshot,
-    },
-    stream,
-};
+use futures::channel::oneshot;
 use glam::{IVec2, Vec2};
-use iced::Task;
+use iced_runtime::Task;
 use parking_lot::Mutex;
 use wgpu::{
     BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
@@ -192,7 +184,6 @@ impl CanvasBrushPresetOperator {
                 renderer
                     .update(&self.device, &self.queue, sample)
                     .map({
-                        let canvas_id = canvas_id;
                         let target_layer_id = session.target_layer_id;
 
                         move |result| {
@@ -208,7 +199,7 @@ impl CanvasBrushPresetOperator {
                             })
                         }
                     })
-                    .then(|msg| msg.map(|m| Task::done(m)).unwrap_or(Task::none()))
+                    .then(|msg| msg.map(Task::done).unwrap_or(Task::none()))
             }
         });
 
@@ -262,7 +253,7 @@ impl CanvasBrushPresetOperator {
                     })
                 }
             })
-            .then(|msg| msg.map(|m| Task::done(m)).unwrap_or(Task::none()))
+            .then(|msg| msg.map(Task::done).unwrap_or(Task::none()))
     }
 
     pub fn end_stroke(
@@ -317,7 +308,7 @@ impl CanvasBrushPresetOperator {
                     })
                 }
             })
-            .then(|msg| msg.map(|m| Task::done(m)).unwrap_or(Task::none()));
+            .then(|msg| msg.map(Task::done).unwrap_or(Task::none()));
 
         let end = end_task.map({
             move |result| BrushRenderUpdate::Finished {

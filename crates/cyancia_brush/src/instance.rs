@@ -13,8 +13,9 @@ use cyancia_shader_graph::{
         },
         function::{GraphFunction, SharedGraphFunctionStorage},
         node::GraphNodeRegistry,
+        slot::ErasedGraphLiteralUpdateMessage,
         texture::{GraphTextureUsageRecorder, SharedGraphTextureStorage, TextureId},
-        variable::{GraphLiteralValue, GraphTypeRegistry},
+        variable::GraphTypeRegistry,
     },
     save::{GraphDeserializeError, SerializableExternalVariable},
     wgsl_std::{builtin_nodes, builtin_types, nodes::TimeNode},
@@ -349,9 +350,9 @@ impl BrushPresetInstance {
     pub fn update_external_var(
         &self,
         id: &ExternalVariableId,
-        new_value: Box<dyn GraphLiteralValue>,
+        message: ErasedGraphLiteralUpdateMessage,
     ) {
-        self.external_vars.update(id, new_value);
+        self.external_vars.update(id, message);
     }
 
     pub fn remove_external_var(&mut self, id: &ExternalVariableId) {

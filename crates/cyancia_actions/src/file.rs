@@ -4,7 +4,7 @@ use cyancia_canvas::{CCanvas, CanvasAppExt, event::CanvasCreated};
 use cyancia_image::{
     CImage,
     texel::TexelType,
-    tile::{GpuLayerInfo, GpuTileStorage, TileStorageAppExt},
+    tile::{GpuLayerInfo, TileStorageAppExt},
 };
 use cyancia_runtime::{Services, event::Event};
 use cyancia_tools::{ToolFunctionRegistry, ToolProxies, ToolProxy};

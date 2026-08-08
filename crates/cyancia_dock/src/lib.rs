@@ -10,24 +10,20 @@ use std::{
 };
 
 use cyancia_runtime::Services;
-use cyancia_utils::cloneable_any::ClonableAnySync;
 use dock::{DockAction, DockId, FloatAction, TabEvent};
-use group::{DockGroupData, TabRowWidget};
+use group::DockGroupData;
 use iced::Subscription;
-use iced_core::{
-    Element, Layout, Length, Point, Rectangle, Size, Vector, layout, mouse, renderer, widget,
-    window,
-};
+use iced_core::{Element, Point, Size, Vector, window};
 use iced_runtime::Task;
-use iced_widget::{pane_grid, space};
+use iced_widget::pane_grid;
 use state::DockState;
-use style::{DockCatalog, DockStatus, DockStyle, TabBarStyle, TabStyle};
+use style::DockCatalog;
 
-use crate::dock::{Dock, DockWidget, ErasedDock, FloatingDockWidget, PaneEvent};
+use crate::dock::{Dock, DockWidget, ErasedDock, FloatingDockWidget};
 
 const ATTACH_DWELL: Duration = Duration::from_millis(200);
 const MERGE_DISTANCE: f32 = 30.0;
-const FLOATING_WINDOW_SNAP_DISTANCE: f32 = 10.0;
+const _FLOATING_WINDOW_SNAP_DISTANCE: f32 = 10.0;
 
 pub struct DockManager<Theme, Renderer> {
     main_window: GroupWindowInfo,
@@ -219,7 +215,7 @@ where
     pub fn on_float_window_drag_end(&mut self) -> Task<DockMessage> {
         let mut try_attach_or_merge = None;
         for (id, info) in &mut self.detached {
-            if !info.dragging_cursor_relative.is_some() {
+            if info.dragging_cursor_relative.is_none() {
                 continue;
             }
 
@@ -476,13 +472,10 @@ where
                 self.main_window.position.x + cursor.x,
                 self.main_window.position.y + cursor.y,
             ))
-        } else if let Some(info) = self.detached.get(&window) {
-            Some(Point::new(
-                info.position.x + cursor.x,
-                info.position.y + cursor.y,
-            ))
         } else {
-            None
+            self.detached
+                .get(&window)
+                .map(|info| Point::new(info.position.x + cursor.x, info.position.y + cursor.y))
         }
     }
 
@@ -562,7 +555,7 @@ where
         };
         let regions = node.pane_regions(SPACING, 0.0, self.main_window.size);
 
-        let target = regions
+        regions
             .iter()
             .find(|(_, r)| r.contains(relative_window_pos))
             .map(|(&pane, r)| {
@@ -595,9 +588,7 @@ where
                         result_edge: edge,
                     }
                 }
-            });
-
-        target
+            })
     }
 
     pub fn floating_merge_info(&self, src_window: window::Id) -> Option<window::Id> {
@@ -651,7 +642,7 @@ where
                     let dock = self
                         .docks
                         .get(&dock_id)
-                        .expect(&format!("Dock not found: {}", dock_id));
+                        .unwrap_or_else(|| panic!("Dock not found: {}", dock_id));
                     dock.view(window_id, services)
                         .map(move |m| DockMessage::Dock(dock_id.clone(), m))
                 });
@@ -671,7 +662,7 @@ where
                     let dock = self
                         .docks
                         .get(&dock_id)
-                        .expect(&format!("Dock not found: {}", dock_id));
+                        .unwrap_or_else(|| panic!("Dock not found: {}", dock_id));
                     dock.view(window_id, services)
                         .map(move |m| DockMessage::Dock(dock_id.clone(), m))
                 })
@@ -749,42 +740,43 @@ fn overlaps(pos_a: Point, size_a: Size, pos_b: Point, size_b: Size) -> bool {
         && pos_a.y + size_a.height > pos_b.y
 }
 
-fn snap(pos_a: Point, size_a: Size, pos_b: Point, size_b: Size) -> Point {
+fn _snap(pos_a: Point, size_a: Size, pos_b: Point, size_b: Size) -> Point {
     let mut result = pos_a;
 
     // snap left to left
-    if (pos_a.x - pos_b.x).abs() < FLOATING_WINDOW_SNAP_DISTANCE {
+    if (pos_a.x - pos_b.x).abs() < _FLOATING_WINDOW_SNAP_DISTANCE {
         result.x = pos_b.x;
     }
     // snap left to right
-    else if (pos_a.x - (pos_b.x + size_b.width)).abs() < FLOATING_WINDOW_SNAP_DISTANCE {
+    else if (pos_a.x - (pos_b.x + size_b.width)).abs() < _FLOATING_WINDOW_SNAP_DISTANCE {
         result.x = pos_b.x + size_b.width;
     }
 
     // snap right to right
-    if (pos_a.x + size_a.width - (pos_b.x + size_b.width)).abs() < FLOATING_WINDOW_SNAP_DISTANCE {
+    if (pos_a.x + size_a.width - (pos_b.x + size_b.width)).abs() < _FLOATING_WINDOW_SNAP_DISTANCE {
         result.x = pos_b.x + size_b.width - size_a.width;
     }
     // snap right to left
-    else if (pos_a.x + size_a.width - pos_b.x).abs() < FLOATING_WINDOW_SNAP_DISTANCE {
+    else if (pos_a.x + size_a.width - pos_b.x).abs() < _FLOATING_WINDOW_SNAP_DISTANCE {
         result.x = pos_b.x - size_a.width;
     }
 
     // snap top to top
-    if (pos_a.y - pos_b.y).abs() < FLOATING_WINDOW_SNAP_DISTANCE {
+    if (pos_a.y - pos_b.y).abs() < _FLOATING_WINDOW_SNAP_DISTANCE {
         result.y = pos_b.y;
     }
     // snap top to bottom
-    else if (pos_a.y - (pos_b.y + size_b.height)).abs() < FLOATING_WINDOW_SNAP_DISTANCE {
+    else if (pos_a.y - (pos_b.y + size_b.height)).abs() < _FLOATING_WINDOW_SNAP_DISTANCE {
         result.y = pos_b.y + size_b.height;
     }
 
     // snap bottom to bottom
-    if (pos_a.y + size_a.height - (pos_b.y + size_b.height)).abs() < FLOATING_WINDOW_SNAP_DISTANCE {
+    if (pos_a.y + size_a.height - (pos_b.y + size_b.height)).abs() < _FLOATING_WINDOW_SNAP_DISTANCE
+    {
         result.y = pos_b.y + size_b.height - size_a.height;
     }
     // snap bottom to top
-    else if (pos_a.y + size_a.height - pos_b.y).abs() < FLOATING_WINDOW_SNAP_DISTANCE {
+    else if (pos_a.y + size_a.height - pos_b.y).abs() < _FLOATING_WINDOW_SNAP_DISTANCE {
         result.y = pos_b.y - size_a.height;
     }
 
@@ -808,7 +800,7 @@ impl std::fmt::Debug for DockMessage {
                 .field("id", id)
                 .field("action", action)
                 .finish(),
-            Self::Dock(arg0, arg1) => f.debug_tuple("Dock").field(arg0).finish(),
+            Self::Dock(arg0, _) => f.debug_tuple("Dock").field(arg0).finish(),
             Self::RawWindowGet(id, raw_id) => f
                 .debug_struct("RawWindowGet")
                 .field("id", id)

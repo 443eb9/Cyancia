@@ -17,7 +17,7 @@ use cyancia_render::{
 };
 use encase::ShaderType;
 use glam::{IVec2, Mat3, UVec2, UVec3};
-use iced_core::{Rectangle, window};
+use iced_core::Rectangle;
 use iced_widget::shader;
 use moxcms::{ColorProfile, Layout};
 use wesl::include_wesl;
@@ -30,7 +30,7 @@ use wgpu::{
     RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor,
     ShaderModuleDescriptor, ShaderSource, ShaderStages, StorageTextureAccess, StoreOp,
     TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
-    TextureView, TextureViewDescriptor, TextureViewDimension, VertexState,
+    TextureView, TextureViewDescriptor, TextureViewDimension,
 };
 
 use crate::control::CanvasTransform;

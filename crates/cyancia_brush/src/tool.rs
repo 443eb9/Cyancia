@@ -13,9 +13,10 @@ use cyancia_shader_graph::graph::{
     slot::ErasedGraphLiteralUpdateMessage, texture::ASSET_GRAPH_TEXTURE_STORAGE,
 };
 use cyancia_tools::{ToolFunction, ToolId};
-use cyancia_undo::{QueuedUndoCommand, UndoStacks};
+use cyancia_undo::QueuedUndoCommand;
 use cyancia_utils::log_err::LogErr;
-use iced::{Element, Length, Task};
+use iced_core::{Element, Length};
+use iced_runtime::Task;
 use iced_widget::{column, container, text};
 use log::error;
 
@@ -76,6 +77,8 @@ pub struct BrushTool {
     queued_commands: HashMap<u64, QueuedUndoCommand>,
 }
 
+// TODO
+#[allow(clippy::large_enum_variant)]
 pub enum BrushToolMessage {
     Render(BrushRenderUpdate),
     UpdateExternalVariable {
@@ -220,15 +223,7 @@ impl ToolFunction for BrushTool {
             }
             BrushToolMessage::UpdateExternalVariable { id, message } => {
                 services.service_scope::<CurrentBrushPreset, _>(|brush, _| {
-                    let instance = brush.0.instance_mut();
-                    let variable = instance
-                        .iter_external_vars()
-                        .find(|(variable_id, _)| *variable_id == id)
-                        .map(|(_, variable)| variable)
-                        .expect("Brush external variable should exist");
-                    let mut value = dyn_clone::clone_box(variable.value.value());
-                    variable.value.ty().update_literal(&mut *value, message);
-                    instance.update_external_var(&id, value);
+                    brush.0.instance_mut().update_external_var(&id, message);
                 });
 
                 Task::none()

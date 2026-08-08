@@ -1,12 +1,8 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 
-use cyancia_assets::{asset::Asset, loader::AssetSerializer, store::AssetRegistry};
+use cyancia_assets::{asset::Asset, loader::AssetSerializer};
 use cyancia_input::key::KeySequence;
-use cyancia_runtime::{
-    Services,
-    service::{FromServices, Service},
-};
 use serde::{Deserialize, Serialize};
 
 use crate::ActionId;
@@ -87,10 +83,7 @@ impl ActionCollection {
         let mut shortcuts = HashMap::new();
 
         for def in &manifest.actions {
-            shortcuts.insert(
-                def.shortcut.clone(),
-                ActionId::new(def.action_name.clone().into()),
-            );
+            shortcuts.insert(def.shortcut, ActionId::new(def.action_name.clone().into()));
         }
 
         Self { shortcuts }

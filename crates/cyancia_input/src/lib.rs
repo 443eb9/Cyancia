@@ -1,4 +1,3 @@
-use cyancia_assets::AssetAppExt;
 use cyancia_runtime::{Application, plugin::Plugin};
 
 use crate::key::KeyboardState;
@@ -13,5 +12,5 @@ impl Plugin for InputPlugin {
         app.add_service::<KeyboardState>();
     }
 
-    fn finish(&self, app: &mut Application) {}
+    fn finish(&self, _app: &mut Application) {}
 }

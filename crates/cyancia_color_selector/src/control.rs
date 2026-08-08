@@ -1,4 +1,4 @@
-use std::{cell::RefCell, sync::Arc};
+use std::sync::Arc;
 
 use cyancia_runtime::{Services, event::Event as _};
 use glam::Vec2;
@@ -16,7 +16,7 @@ use iced_core::{
 use iced_runtime::Task;
 use iced_wgpu::graphics::geometry;
 use iced_wgpu::{Renderer, primitive};
-use iced_widget::canvas::{Frame, Path, Stroke, path};
+use iced_widget::canvas::{Frame, Path, Stroke};
 
 use crate::render::{GradientDrawPrimitive, SurfaceDrawData};
 use crate::{ColorSelectorEvent, ColorSelectorMessage, ColorSelectorState};

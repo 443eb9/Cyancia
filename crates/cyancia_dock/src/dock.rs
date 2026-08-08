@@ -146,10 +146,15 @@ pub enum FloatAction {
     StartResize(window::Direction),
 }
 
+type DockContentView<'a, Message, Theme, Renderer> =
+    Box<dyn Fn(pane_grid::Pane, DockId) -> Element<'a, Message, Theme, Renderer> + 'a>;
+
+type FloatContentView<'a, Message, Theme, Renderer> =
+    Box<dyn Fn(DockId) -> Element<'a, Message, Theme, Renderer> + 'a>;
+
 pub struct DockWidget<'a, Message, Theme, Renderer> {
     state: &'a DockState,
-    content:
-        Option<Box<dyn Fn(pane_grid::Pane, DockId) -> Element<'a, Message, Theme, Renderer> + 'a>>,
+    content: Option<DockContentView<'a, Message, Theme, Renderer>>,
     on_action: Box<dyn Fn(DockAction) -> Message + 'a>,
     spacing: f32,
     attach_info: Option<AttachInfo>,
@@ -271,7 +276,7 @@ where
 
 pub struct FloatingDockWidget<'a, Message, Theme, Renderer> {
     group_data: &'a DockGroupData,
-    content: Option<Box<dyn Fn(DockId) -> Element<'a, Message, Theme, Renderer> + 'a>>,
+    content: Option<FloatContentView<'a, Message, Theme, Renderer>>,
     on_action: Box<dyn Fn(FloatAction) -> Message + 'a>,
     is_attaching: bool,
 }
@@ -624,11 +629,11 @@ where
                     shell.capture_event();
                 }
             }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                if state.is_resizing {
-                    state.is_resizing = false;
-                    shell.capture_event();
-                }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+                if state.is_resizing =>
+            {
+                state.is_resizing = false;
+                shell.capture_event();
             }
             _ => {}
         }

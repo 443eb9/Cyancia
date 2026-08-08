@@ -4,7 +4,7 @@ use parse_display::Display;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::graph::variable::{GraphLiteral, GraphLiteralValue};
+use crate::graph::{slot::ErasedGraphLiteralUpdateMessage, variable::GraphLiteral};
 
 pub fn generate_external_variable_name(var: &ExternalVariable) -> String {
     let sanitized_name = var
@@ -66,12 +66,12 @@ impl GraphExternalVariableStorage {
         }
     }
 
-    pub fn update(&self, id: &ExternalVariableId, new_value: Box<dyn GraphLiteralValue>) {
+    pub fn update(&self, id: &ExternalVariableId, message: ErasedGraphLiteralUpdateMessage) {
         let Some(mut var) = self.contents.get_mut(id) else {
             return;
         };
 
-        var.value.set_boxed(new_value);
+        var.value.update(message);
     }
 
     pub fn remove(&self, id: &ExternalVariableId) {

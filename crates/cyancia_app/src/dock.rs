@@ -1,4 +1,4 @@
-use std::{any::Any, cell::RefCell, sync::Arc, time::Duration};
+use std::cell::RefCell;
 
 use bevy_math::{IRect, Rect};
 use cyancia_assets::AssetAppExt;
@@ -7,14 +7,12 @@ use cyancia_canvas::{
     CanvasAppExt, CanvasId, CanvasManager, CanvasUndoStackAppExt,
     command::{LayerPropertyChangeCommand, MoveLayersCommand},
     event::{CanvasRemoved, CanvasUpdated},
-    render::ICC_TRANSFORM_SHADER_IDENT,
-    tools::PanTool,
     widget::{
         canvas::CanvasWidget,
         layer_stack::{DropInfo, LayerStackMessage, LayerStackView},
     },
 };
-use cyancia_color::{Color, model::rgb::Rgb, shader::IccTransformShader};
+use cyancia_color::{Color, model::rgb::Rgb};
 use cyancia_color_selector::{
     ColorModel, ColorSelectorMessage, ColorSelectorState, GradientPlaneShape,
     config::{
@@ -31,13 +29,10 @@ use cyancia_image::{
     },
     tile::{GpuTileStorage, TileStorageAppExt},
 };
-use cyancia_input::{
-    key::KeyboardState,
-    mouse::{HoverMouseState, PressedMouseState},
-};
+use cyancia_input::{key::KeyboardState, mouse::PressedMouseState};
 use cyancia_render::render_context::RenderContextAppExt;
-use cyancia_runtime::{Services, event::Event, service::RenderContext};
-use cyancia_tools::{ErasedToolFunctionMessage, ToolId, ToolProxies};
+use cyancia_runtime::{Services, event::Event};
+use cyancia_tools::{ErasedToolFunctionMessage, ToolProxies};
 use cyancia_utils::log_err::LogErr;
 use iced::{
     Element, Length, Size, Subscription, Task, Theme,
@@ -51,9 +46,7 @@ use iced_core::Point;
 use iced_runtime::task;
 use iced_wgpu::Renderer;
 use iced_widget::{container, scrollable, stack};
-use moxcms::{ColorProfile, Layout};
-use parking_lot::Mutex;
-
+use moxcms::ColorProfile;
 
 #[derive(Clone)]
 pub enum ColorSelectorDockMessage {
@@ -65,7 +58,7 @@ pub enum ColorSelectorDockMessage {
     SettingsWindowClosed,
 }
 
-pub const COLOR_SELECTOR_DOCK_ID: &'static str = "color_selector";
+pub const COLOR_SELECTOR_DOCK_ID: &str = "color_selector";
 
 pub struct ColorSelectorDock {
     selector: ColorSelectorState,
@@ -197,7 +190,7 @@ impl Dock<Theme, Renderer> for ColorSelectorDock {
     fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
         match message {
             ColorSelectorDockMessage::WindowMoved => {
-                let window_id = self.window_id.borrow().clone();
+                let window_id = *self.window_id.borrow();
                 window::raw_id::<()>(window_id).map(ColorSelectorDockMessage::RawWindowId)
             }
             ColorSelectorDockMessage::RawWindowId(id) => self
@@ -254,7 +247,7 @@ impl Dock<Theme, Renderer> for ColorSelectorDock {
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
-        let cur_window = self.window_id.borrow().clone();
+        let cur_window = *self.window_id.borrow();
 
         let window_moved =
             window::events()
@@ -314,13 +307,13 @@ macro_rules! test_dummy_dock {
 
             fn view<'a>(
                 &'a self,
-                window_id: window::Id,
-                services: &'a Services,
+                _window_id: window::Id,
+                _services: &'a Services,
             ) -> Element<'a, Self::Message, Theme, Renderer> {
                 text($text).into()
             }
 
-            fn update(&mut self, _message: (), services: &mut Services) -> Task<()> {
+            fn update(&mut self, _message: (), _services: &mut Services) -> Task<()> {
                 Task::none()
             }
         }
@@ -331,10 +324,8 @@ macro_rules! test_dummy_dock {
 
 test_dummy_dock!(FiltersDock, FILTERS_DOCK_ID, "Filters");
 
-pub const LAYER_DOCK_ID: &'static str = "Layers";
+pub const LAYER_DOCK_ID: &str = "Layers";
 
-/// A dock showing the layer stack of the current canvas: layer list with
-/// drag-to-reorder, plus blend mode / opacity parameters for the active layer.
 pub struct LayersDock {
     renaming_layer: Option<LayerId>,
     rename_value: String,
@@ -358,14 +349,8 @@ impl LayersDock {
         let Some(canvas_id) = services.current_canvas_id() else {
             return;
         };
-        // Build the command inside the canvas scope (needs the current
-        // properties), but push it *outside*: `push_undo_command` runs
-        // `cmd.redo` synchronously, which itself takes the canvas scope
-        // again, and nesting would panic.
         let cmd = services.update_canvas(&canvas_id, |canvas, _services| {
-            let Some(layer) = canvas.image.layer_stack().get_layer(&layer_id) else {
-                return None;
-            };
+            let layer = canvas.image.layer_stack().get_layer(&layer_id)?;
             let old = layer.properties().clone();
             let new = {
                 let mut props = old.clone();
@@ -481,17 +466,12 @@ impl Dock<Theme, Renderer> for LayersDock {
                     return Task::none();
                 };
                 let cmd = services.update_canvas(&canvas_id, |canvas, _services| {
-                    let Some(dragged) = layer_ids.first() else {
-                        return None;
-                    };
-                    let Some(original_parent) = canvas
+                    let dragged = layer_ids.first()?;
+                    let original_parent = canvas
                         .image
                         .layer_stack()
                         .get_layer(dragged)
-                        .and_then(|n| n.parent().copied())
-                    else {
-                        return None;
-                    };
+                        .and_then(|n| n.parent().copied())?;
                     let original_index = canvas
                         .image
                         .layer_stack()
@@ -554,19 +534,18 @@ impl Dock<Theme, Renderer> for LayersDock {
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
-        let keyboard = listen_with(|event, _status, _window| match event {
+        listen_with(|event, _status, _window| match event {
             iced::Event::Keyboard(keyboard::Event::KeyPressed {
                 key: keyboard::Key::Named(keyboard::key::Named::Escape),
                 ..
             }) => Some(LayersDockMessage::EscapePressed),
             _ => None,
-        });
-        keyboard
+        })
     }
 }
 
-pub const TOOL_OPTIONS_DOCK_ID: &'static str = "tool_options";
-pub const BRUSH_PRESETS_DOCK_ID: &'static str = "brush_presets";
+pub const TOOL_OPTIONS_DOCK_ID: &str = "tool_options";
+pub const BRUSH_PRESETS_DOCK_ID: &str = "brush_presets";
 
 pub fn construct_canvas_dock_id(canvas: CanvasId) -> String {
     format!("canvas_dock_{}", canvas)
@@ -764,7 +743,7 @@ impl Dock<Theme, Renderer> for CanvasDock {
                     .map(CanvasDockMessage::ToolFunctionMessage)
             }
             CanvasDockMessage::WindowMoved => {
-                let window_id = self.window_id.borrow().clone();
+                let window_id = *self.window_id.borrow();
 
                 let monitor_name = task::oneshot(move |channel| {
                     iced_runtime::Action::Window(window::Action::GetMonitorName(window_id, channel))
@@ -801,7 +780,7 @@ impl Dock<Theme, Renderer> for CanvasDock {
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
-        let cur_window = self.window_id.borrow().clone();
+        let cur_window = *self.window_id.borrow();
 
         let canvas_update = CanvasUpdated::listen_to()
             .map(|e| CanvasDockMessage::CanvasUpdated(Some(e.dirty_tiles)));
@@ -841,7 +820,7 @@ impl Dock<Theme, iced_wgpu::Renderer> for ToolOptionsDock {
 
     fn view<'a>(
         &'a self,
-        window_id: window::Id,
+        _window_id: window::Id,
         services: &'a Services,
     ) -> Element<'a, Self::Message, Theme, iced_wgpu::Renderer> {
         let Some(canvas) = services.service::<CanvasManager>().current() else {
@@ -919,8 +898,8 @@ impl Dock<Theme, Renderer> for BrushPresetDock {
 
     fn view<'a>(
         &'a self,
-        window_id: window::Id,
-        services: &'a Services,
+        _window_id: window::Id,
+        _services: &'a Services,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
         let buttons = self
             .brushes

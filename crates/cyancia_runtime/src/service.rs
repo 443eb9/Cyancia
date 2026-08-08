@@ -1,13 +1,7 @@
-use std::{
-    ops::{Deref, DerefMut},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use futures::executor::block_on;
-use parking_lot::{
-    MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
-};
-use wgpu::{Adapter, Backends, Device, Features, Instance, Limits, Queue};
+use wgpu::{Adapter, Backends, Device, Features, Instance, Queue};
 
 use crate::Services;
 

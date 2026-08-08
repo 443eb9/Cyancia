@@ -1,21 +1,12 @@
 use std::{
     any::Any,
-    collections::{BTreeSet, HashMap, HashSet, hash_map::Entry},
+    collections::{HashMap, hash_map::Entry},
     hash::Hash,
-    pin::Pin,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::Arc,
 };
 
-use cyancia_utils::{Deref, DerefMut, wrapper};
-use futures::{SinkExt, StreamExt, channel::mpsc};
+use cyancia_utils::wrapper;
 use iced_core::{Element, Theme, window};
-use iced_futures::{
-    MaybeSend,
-    subscription::{Recipe, Tracker},
-};
 use iced_runtime::{Task, futures::Subscription};
 use parse_display::Display;
 
@@ -151,22 +142,12 @@ impl OpenedView {
     }
 }
 
+#[derive(Default)]
 pub struct WindowViewManager {
     window_to_view: HashMap<window::Id, WindowViewId>,
     registered_views: HashMap<WindowViewId, WindowViewBootFn>,
     opened_views: HashMap<WindowViewId, OpenedView>,
     root_view: Option<WindowViewId>,
-}
-
-impl Default for WindowViewManager {
-    fn default() -> Self {
-        Self {
-            window_to_view: HashMap::new(),
-            registered_views: HashMap::new(),
-            opened_views: HashMap::new(),
-            root_view: None,
-        }
-    }
 }
 
 impl Service for WindowViewManager {}

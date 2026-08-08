@@ -6,6 +6,7 @@ use cyancia_runtime::{
     windows::{WindowView, WindowViewId},
 };
 use cyancia_shader_graph::{
+    GraphRenderer, GraphTheme,
     editor::{GraphEditor, GraphEditorMessage},
     graph::{
         Graph, GraphData, GraphResources,
@@ -19,7 +20,10 @@ use cyancia_shader_graph::{
     },
     save::{SerializableGraph, SerializableGraphFunction},
 };
-use iced::{Element, Length, Subscription, Task, keyboard, window};
+use cyancia_widgets::fluent_builder::When;
+use iced_core::{Element, Length, keyboard, window};
+use iced_futures::Subscription;
+use iced_runtime::Task;
 use iced_widget::{button, column, container, pick_list, row, scrollable, text, text_input};
 use uuid::Uuid;
 
@@ -30,8 +34,6 @@ use crate::{
     tool::BrushServicesExt,
     widget::{BrushFunctionListDelegate, BrushPresetListDelegate},
 };
-
-type EditorElement<'a, Message> = Element<'a, Message, iced::Theme, iced_wgpu::Renderer>;
 
 pub struct BrushEditor {
     windows: Arc<[window::Id]>,
@@ -64,25 +66,11 @@ pub struct SelectedFunction {
     pub instance: GraphFunctionInstance,
 }
 
+// TODO In the future function editor will be split into another editor.
+#[allow(clippy::large_enum_variant)]
 pub enum Selected {
     Brush(SelectedBrush),
     Function(SelectedFunction),
-}
-
-impl Selected {
-    fn name(&self) -> &str {
-        match self {
-            Selected::Brush(brush) => &brush.instance.metadata().name,
-            Selected::Function(function) => &function.instance.graph_function().name,
-        }
-    }
-
-    fn set_name(&mut self, name: String) {
-        match self {
-            Selected::Brush(brush) => brush.instance.metadata_mut().name = name,
-            Selected::Function(function) => function.instance.graph_function_mut().name = name,
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -122,7 +110,7 @@ impl WindowView for BrushEditor {
         );
         let functions_storage = ASSET_GRAPH_FUNCTION_STORAGE.load();
         let functions = BrushFunctionListDelegate::new(functions_storage.all().values());
-        let (main_window, open) = window::open(window::Settings::default());
+        let (main_window, open) = iced_runtime::window::open(window::Settings::default());
         (
             Self {
                 windows: [main_window].into(),
@@ -139,26 +127,23 @@ impl WindowView for BrushEditor {
         )
     }
 
-    fn view<'a>(&'a self, _: window::Id, _: &'a Services) -> EditorElement<'a, Self::Message> {
+    fn view<'a>(
+        &'a self,
+        _: window::Id,
+        _: &'a Services,
+    ) -> impl Into<Element<'a, Self::Message, GraphTheme, GraphRenderer>> {
         let brush_buttons = self
             .brushes
             .items()
             .iter()
             .enumerate()
             .map(|(index, item)| {
-                let name = item
-                    .brush
-                    .get()
-                    .expect("Brush preset should be loaded")
-                    .metadata
-                    .name
-                    .clone();
+                let name = item.brush.get().unwrap().metadata.name.clone();
                 button(text(name))
                     .width(Length::Fill)
                     .on_press(BrushEditorMessage::SelectBrush(index))
                     .into()
-            })
-            .collect::<Vec<EditorElement<'a, Self::Message>>>();
+            });
         let function_buttons = self
             .functions
             .items()
@@ -169,9 +154,8 @@ impl WindowView for BrushEditor {
                     .width(Length::Fill)
                     .on_press(BrushEditorMessage::SelectFunction(index))
                     .into()
-            })
-            .collect::<Vec<EditorElement<'a, Self::Message>>>();
-        let sidebar: EditorElement<'a, Self::Message> = container(
+            });
+        let sidebar = container(
             column![
                 row![
                     button("New Brush").on_press(BrushEditorMessage::NewBrush),
@@ -186,27 +170,24 @@ impl WindowView for BrushEditor {
             .spacing(6),
         )
         .padding(8)
-        .width(220)
-        .into();
+        .width(220);
 
         let Some(selected) = self.selected.as_ref() else {
             return row![
                 sidebar,
                 container(text("Select a brush or function")).padding(12),
-            ]
-            .into();
+            ];
         };
 
-        let title: EditorElement<'a, Self::Message> = row![
+        let title = row![
             text_input("Name", &self.name_buffer)
                 .on_input(BrushEditorMessage::NameChanged)
                 .width(Length::Fill),
             button(if self.dirty { "Save *" } else { "Save" }).on_press(BrushEditorMessage::Save),
         ]
-        .spacing(6)
-        .into();
+        .spacing(6);
 
-        let content: EditorElement<'a, Self::Message> = match selected {
+        let content = match selected {
             Selected::Brush(brush) => self.view_brush(brush),
             Selected::Function(function) => column![
                 title,
@@ -220,7 +201,7 @@ impl WindowView for BrushEditor {
             .into(),
         };
 
-        row![sidebar, container(content).padding(8).width(Length::Fill)].into()
+        row![sidebar, container(content).padding(8).width(Length::Fill)]
     }
 
     fn update(
@@ -236,7 +217,12 @@ impl WindowView for BrushEditor {
             BrushEditorMessage::NameChanged(name) => {
                 self.name_buffer = name.clone();
                 if let Some(selected) = self.selected.as_mut() {
-                    selected.set_name(name);
+                    match selected {
+                        Selected::Brush(brush) => brush.instance.metadata_mut().name = name,
+                        Selected::Function(function) => {
+                            function.instance.graph_function_mut().name = name
+                        }
+                    }
                     self.dirty = true;
                 }
             }
@@ -285,15 +271,7 @@ impl WindowView for BrushEditor {
             }
             BrushEditorMessage::UpdateExternalVariable(id, message) => {
                 if let Some(Selected::Brush(brush)) = self.selected.as_mut() {
-                    let variable = brush
-                        .instance
-                        .iter_external_vars()
-                        .find(|(variable_id, _)| *variable_id == id)
-                        .map(|(_, variable)| variable)
-                        .expect("External variable should exist");
-                    let mut value = dyn_clone::clone_box(variable.value.value());
-                    variable.value.ty().update_literal(&mut *value, message);
-                    brush.instance.update_external_var(&id, value);
+                    brush.instance.update_external_var(&id, message);
                     self.dirty = true;
                 }
             }
@@ -313,7 +291,10 @@ impl WindowView for BrushEditor {
             match event {
                 iced_futures::subscription::Event::Interaction {
                     window,
-                    event: iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }),
+                    event:
+                        iced_core::Event::Keyboard(keyboard::Event::KeyPressed {
+                            key, modifiers, ..
+                        }),
                     status: _,
                 } if window == main_window
                     && modifiers.control()
@@ -327,7 +308,7 @@ impl WindowView for BrushEditor {
                 }
                 iced_futures::subscription::Event::Interaction {
                     window,
-                    event: iced::Event::Window(iced_core::window::Event::Unfocused),
+                    event: iced_core::Event::Window(iced_core::window::Event::Unfocused),
                     status: _,
                 } if window == main_window => Some(BrushEditorMessage::Save),
                 _ => None,
@@ -336,7 +317,7 @@ impl WindowView for BrushEditor {
     }
 
     fn close(self, _: &mut Services) -> Task<()> {
-        window::close(self.main_window)
+        iced_runtime::window::close(self.main_window)
     }
 
     fn windows(&self) -> Arc<[window::Id]> {
@@ -349,19 +330,19 @@ impl WindowView for BrushEditor {
 }
 
 impl BrushEditor {
-    fn view_brush<'a>(&'a self, brush: &'a SelectedBrush) -> EditorElement<'a, BrushEditorMessage> {
-        let title: EditorElement<'a, BrushEditorMessage> = row![
+    fn view_brush<'a>(
+        &'a self,
+        brush: &'a SelectedBrush,
+    ) -> Element<'a, BrushEditorMessage, GraphTheme, GraphRenderer> {
+        let title = row![
             text_input("Name", &self.name_buffer)
                 .on_input(BrushEditorMessage::NameChanged)
                 .width(Length::Fill),
             button(if self.dirty { "Save *" } else { "Save" }).on_press(BrushEditorMessage::Save),
         ]
-        .spacing(6)
-        .into();
+        .spacing(6);
 
-        let graph: Element<'_, GraphEditorMessage, iced::Theme, iced_wgpu::Renderer> = match brush
-            .viewing_graph
-        {
+        let graph: Element<'_, _, _, _> = match brush.viewing_graph {
             BrushPresetGraph::RequiredSpacing => {
                 GraphEditor::new(brush.instance.required_spacing_graph(), true).into()
             }
@@ -376,14 +357,9 @@ impl BrushEditor {
             .into(),
         };
 
-        let mut graph_list: iced_widget::Column<
-            'a,
-            BrushEditorMessage,
-            iced::Theme,
-            iced_wgpu::Renderer,
-        > = column![
+        let mut graph_list = column![
             button("Required Spacing").width(Length::Fill).on_press(
-                BrushEditorMessage::SwitchGraph(BrushPresetGraph::RequiredSpacing,)
+                BrushEditorMessage::SwitchGraph(BrushPresetGraph::RequiredSpacing)
             ),
             button("Main")
                 .width(Length::Fill)
@@ -393,12 +369,7 @@ impl BrushEditor {
         .spacing(3);
         let graph_count = brush.instance.stroke_postprocess_graphs().len();
         for index in 0..graph_count {
-            let mut controls: iced_widget::Row<
-                'a,
-                BrushEditorMessage,
-                iced::Theme,
-                iced_wgpu::Renderer,
-            > = row![
+            let controls = row![
                 button(text(format!("Postprocess {index}")))
                     .width(Length::Fill)
                     .on_press(BrushEditorMessage::SwitchGraph(
@@ -406,19 +377,19 @@ impl BrushEditor {
                     )),
                 button("Delete").on_press(BrushEditorMessage::RemoveStrokePostprocess(index)),
             ]
-            .spacing(2);
-            if index > 0 {
-                controls = controls.push(
+            .spacing(2)
+            .when(index > 0, |controls| {
+                controls.push(
                     button("↑")
                         .on_press(BrushEditorMessage::MoveStrokePostprocess { index, up: true }),
-                );
-            }
-            if index + 1 < graph_count {
-                controls = controls.push(
+                )
+            })
+            .when(index + 1 < graph_count, |controls| {
+                controls.push(
                     button("↓")
                         .on_press(BrushEditorMessage::MoveStrokePostprocess { index, up: false }),
-                );
-            }
+                )
+            });
             graph_list = graph_list.push(controls);
         }
 
@@ -447,13 +418,13 @@ impl BrushEditor {
                 .spacing(3)
                 .into()
             })
-            .collect::<Vec<EditorElement<'a, BrushEditorMessage>>>();
+            .collect::<Vec<_>>();
         let types = BrushMainGraphData::type_registry()
             .all_types()
             .keys()
             .copied()
             .collect::<Vec<_>>();
-        let variables: EditorElement<'a, BrushEditorMessage> = column![
+        let variables = column![
             text("Variables"),
             scrollable(column(variable_rows).spacing(6)).height(Length::Fill),
             text_input("New variable name", &self.new_external_name)
@@ -469,8 +440,7 @@ impl BrushEditor {
             ),
         ]
         .spacing(5)
-        .width(260)
-        .into();
+        .width(260);
 
         column![
             title,
@@ -517,18 +487,15 @@ impl BrushEditor {
     }
 
     fn select_function(&mut self, index: usize, services: &Services) {
-        let item = self
-            .functions
-            .get(index)
-            .expect("Selected function should exist");
+        let item = self.functions.get(index).unwrap();
         let handle = services
             .assets()
             .all_handles_of::<SerializableGraphFunction>()
-            .expect("Failed to list graph functions")
+            .unwrap()
             .into_iter()
-            .find(|handle| handle.get().expect("Graph function should be loaded").id == item.id)
-            .expect("Selected graph function asset should exist");
-        let serialized = handle.get().expect("Graph function should be loaded");
+            .find(|handle| handle.get().unwrap().id == item.id)
+            .unwrap();
+        let serialized = handle.get().unwrap();
         let (function, errors) = serialized.deserialize_func(
             ASSET_GRAPH_TEXTURE_STORAGE.clone(),
             ASSET_GRAPH_FUNCTION_STORAGE.clone(),
@@ -564,17 +531,14 @@ impl BrushEditor {
             .assets()
             .bundles()
             .find(|bundle| !bundle.is_readonly())
-            .expect("A writable asset bundle is required")
+            .unwrap()
             .metadata()
             .bundle_id;
         let id = services
             .assets()
             .add_asset(bundle, "unnamed_brush.cbp", Arc::new(preset))
-            .expect("Failed to create brush preset");
-        let handle = services
-            .assets()
-            .handle(id)
-            .expect("New brush preset should exist");
+            .unwrap();
+        let handle = services.assets().handle(id).unwrap();
         let index = self.brushes.push(handle);
         self.select_brush(index, services);
         self.dirty = true;
@@ -592,23 +556,19 @@ impl BrushEditor {
                 ..Default::default()
             }),
         };
-        let serialized = SerializableGraphFunction::serialize_func(&function)
-            .expect("Failed to serialize new graph function");
+        let serialized = SerializableGraphFunction::serialize_func(&function).unwrap();
         let bundle = services
             .assets()
             .bundles()
             .find(|bundle| !bundle.is_readonly())
-            .expect("A writable asset bundle is required")
+            .unwrap()
             .metadata()
             .bundle_id;
         let asset_id = services
             .assets()
             .add_asset(bundle, "unnamed_function.csf", Arc::new(serialized))
-            .expect("Failed to create graph function");
-        let handle = services
-            .assets()
-            .handle(asset_id)
-            .expect("New graph function should exist");
+            .unwrap();
+        let handle = services.assets().handle(asset_id).unwrap();
         self.name_buffer = function.name.clone();
         self.selected = Some(Selected::Function(SelectedFunction {
             handle,
@@ -624,26 +584,17 @@ impl BrushEditor {
         };
         match selected {
             Selected::Brush(brush) => {
-                let preset = brush
-                    .instance
-                    .as_asset()
-                    .expect("Failed to serialize brush");
-                brush.handle.update(preset).expect("Failed to update brush");
-                brush.handle.write().expect("Failed to write brush");
+                let preset = brush.instance.as_asset().unwrap();
+                brush.handle.update(preset).unwrap();
+                brush.handle.write().unwrap();
                 services.set_current_brush_preset(brush.handle.clone());
             }
             Selected::Function(function) => {
                 let serialized =
                     SerializableGraphFunction::serialize_func(function.instance.graph_function())
-                        .expect("Failed to serialize graph function");
-                function
-                    .handle
-                    .update(serialized)
-                    .expect("Failed to update graph function");
-                function
-                    .handle
-                    .write()
-                    .expect("Failed to write graph function");
+                        .unwrap();
+                function.handle.update(serialized).unwrap();
+                function.handle.write().unwrap();
                 ASSET_GRAPH_FUNCTION_STORAGE.store(
                     GraphFunctionStorage::new(
                         ASSET_GRAPH_TEXTURE_STORAGE.clone(),
@@ -651,7 +602,7 @@ impl BrushEditor {
                         services
                             .assets()
                             .all_handles_of::<SerializableGraphFunction>()
-                            .expect("Failed to reload graph functions"),
+                            .unwrap(),
                     )
                     .into(),
                 );

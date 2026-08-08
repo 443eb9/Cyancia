@@ -1,10 +1,7 @@
 use crate::{
-    AttachInfo,
-    dock::{DockAction, DockId, PaneEvent},
+    dock::{DockId, PaneEvent},
     group::DockGroupData,
 };
-use iced::Point;
-use iced_runtime::Task;
 use iced_widget::pane_grid;
 
 #[derive(Debug, Default)]

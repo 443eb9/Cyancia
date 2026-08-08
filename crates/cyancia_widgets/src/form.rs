@@ -1,4 +1,4 @@
-use iced_core::{Element, Length, Padding, Pixels, Widget};
+use iced_core::{Element, Padding, Pixels};
 use iced_widget::{Column, column};
 
 pub struct Form<'a, Message, Theme, Renderer> {
@@ -8,6 +8,12 @@ pub struct Form<'a, Message, Theme, Renderer> {
     )>,
     padding: Padding,
     spacing: Pixels,
+}
+
+impl<'a, Message, Theme, Renderer> Default for Form<'a, Message, Theme, Renderer> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a, Message, Theme, Renderer> Form<'a, Message, Theme, Renderer> {
@@ -37,7 +43,7 @@ impl<'a, Message, Theme, Renderer> Form<'a, Message, Theme, Renderer> {
             ),
         >,
     {
-        self.items.extend(items.into_iter());
+        self.items.extend(items);
         self
     }
 
@@ -47,21 +53,26 @@ impl<'a, Message, Theme, Renderer> Form<'a, Message, Theme, Renderer> {
     }
 }
 
-impl<'a, Message, Theme, Renderer> Into<Element<'a, Message, Theme, Renderer>>
-    for Form<'a, Message, Theme, Renderer>
+impl<'a, Message, Theme, Renderer> From<Form<'a, Message, Theme, Renderer>>
+    for Element<'a, Message, Theme, Renderer>
 where
     Message: 'a,
     Theme: 'a,
     Renderer: iced_core::Renderer + 'a,
 {
-    fn into(self) -> Element<'a, Message, Theme, Renderer> {
+    fn from(form: Form<'a, Message, Theme, Renderer>) -> Element<'a, Message, Theme, Renderer> {
+        let Form {
+            items,
+            padding,
+            spacing,
+        } = form;
         Column::new()
-            .padding(self.padding)
-            .spacing(self.spacing)
+            .padding(padding)
+            .spacing(spacing)
             .extend(
-                self.items
+                items
                     .into_iter()
-                    .map(|(label, value)| column![label, value].spacing(self.spacing * 0.5).into()),
+                    .map(|(label, value)| column![label, value].spacing(spacing * 0.5).into()),
             )
             .into()
     }

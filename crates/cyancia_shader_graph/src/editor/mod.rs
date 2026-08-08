@@ -128,9 +128,9 @@ pub struct NodeCreationMenuItem {
     pub node_title: &'static str,
 }
 
-impl ToString for NodeCreationMenuItem {
-    fn to_string(&self) -> String {
-        self.node_title.to_string()
+impl std::fmt::Display for NodeCreationMenuItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.node_title)
     }
 }
 
@@ -165,7 +165,7 @@ impl DrawableGraph {
             .inputs
             .iter()
             .filter_map(|(to, to_slot)| {
-                let from = graph.slots.inputs.get(&to)?.connected?;
+                let from = graph.slots.inputs.get(to)?.connected?;
                 let from_slot = graph.slots.outputs.get(&from)?;
 
                 let from_color = from_slot.data_ty.color(is_dark);
@@ -425,7 +425,6 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                 state.node_creation_menu.position = Some(cursor);
                 shell.capture_event();
                 shell.request_redraw();
-                return;
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Middle)) => {
                 let Some(cursor) = cursor.position_over(layout.bounds()) else {
@@ -437,13 +436,11 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                     translation_origin: state.view_translation,
                 };
                 shell.capture_event();
-                return;
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Middle)) => {
                 if matches!(state.interaction, InteractionState::ViewDragging { .. }) {
                     state.interaction = InteractionState::Idle;
                     shell.capture_event();
-                    return;
                 }
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
@@ -460,7 +457,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
 
                                 self.graph
                                     .edges
-                                    .get(&(*id).into())
+                                    .get(id)
                                     .map(|e| GraphSlotId::Output(e.from))
                                     .unwrap_or(GraphSlotId::Input(*id))
                             }
@@ -482,9 +479,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
                 for (node_index, node_layout) in layout.children().enumerate() {
                     if node_layout.bounds().contains(cursor) {
                         let node_id = self.graph.nodes[node_index].node_id;
-                        if state.selected_nodes.is_empty() {
-                            state.selected_nodes.insert(node_id);
-                        } else if state.keyboard_modifiers.shift() {
+                        if state.selected_nodes.is_empty() || state.keyboard_modifiers.shift() {
                             state.selected_nodes.insert(node_id);
                         } else if state.keyboard_modifiers.control() {
                             if !state.selected_nodes.remove(&node_id) {
@@ -838,7 +833,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditor<'
             },
             Some(cursor_pos),
         ) = (&state.interaction, cursor.position())
-            && let Some(start_pos) = state.slot_pins.get(&resolved_source)
+            && let Some(start_pos) = state.slot_pins.get(resolved_source)
         {
             let mut frame = Frame::with_bounds(renderer, layout.bounds());
             frame.stroke(

@@ -165,7 +165,6 @@ impl BrushMainPipeline {
             label: Some("brush main pipeline layout"),
             bind_group_layouts: &[&layout],
             push_constant_ranges: &[],
-            ..Default::default()
         });
 
         let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
@@ -335,7 +334,6 @@ impl BrushPostProcessPipeline {
             label: Some("brush postprocess pipeline layout"),
             bind_group_layouts: &[&layout],
             push_constant_ranges: &[],
-            ..Default::default()
         });
 
         let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
@@ -457,7 +455,6 @@ impl BrushMainBoundsEvalPipeline {
             label: Some("brush main bounds eval pipeline layout"),
             bind_group_layouts: &[&layout],
             push_constant_ranges: &[],
-            ..Default::default()
         });
 
         let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
@@ -559,7 +556,6 @@ impl BrushPostProcessBoundsEvalPipeline {
             label: Some("brush postprocess bounds eval pipeline layout"),
             bind_group_layouts: &[&layout],
             push_constant_ranges: &[],
-            ..Default::default()
         });
 
         let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {

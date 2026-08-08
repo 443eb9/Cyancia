@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashMap, sync::Arc};
+use std::{any::Any, sync::Arc};
 
 use cyancia_actions::{
     ActionFunctionRegistry, ActionId,
@@ -20,17 +20,14 @@ use cyancia_runtime::{
     event::Event,
     windows::{WindowView, WindowViewId},
 };
-use cyancia_tools::{
-    ErasedToolFunctionMessage, GlobalToolBindings, ToolFunction, ToolProxies, ToolProxy,
-};
+use cyancia_tools::{ErasedToolFunctionMessage, GlobalToolBindings, ToolFunction, ToolProxies};
 use iced::keyboard::key;
 use iced::{
-    Element, Subscription, Task, Theme, event,
+    Element, Subscription, Task, Theme,
     keyboard::{self},
     mouse, window,
 };
 use iced_wgpu::Renderer;
-use parking_lot::Mutex;
 
 use crate::dock::{
     BRUSH_PRESETS_DOCK_ID, BrushPresetDock, COLOR_SELECTOR_DOCK_ID, CanvasDock, ColorSelectorDock,
@@ -169,7 +166,7 @@ impl WindowView for MainView {
                 self.dock_manager.on_window_event(id, event).discard()
             }
 
-            MainViewMessage::KeyboardEvent(window, event) => {
+            MainViewMessage::KeyboardEvent(_window, event) => {
                 let keyboard_state = services.service_mut::<KeyboardState>();
                 let old_modifier_count = keyboard_state.modifiers().bits().count_ones();
 
@@ -196,16 +193,14 @@ impl WindowView for MainView {
                         if let Some(action) = self
                             .action_collection
                             .get_action_id(keyboard_state.get_sequence())
-                        {
-                            if let Some(action_func) = services
+                            && let Some(action_func) = services
                                 .service_mut::<ActionFunctionRegistry>()
                                 .get(action.clone())
-                            {
-                                log::info!("Triggering action: {}", action.0);
-                                return action_func.trigger(services).map(move |message| {
-                                    MainViewMessage::ActionMessage(action.clone(), message)
-                                });
-                            }
+                        {
+                            log::info!("Triggering action: {}", action.0);
+                            return action_func.trigger(services).map(move |message| {
+                                MainViewMessage::ActionMessage(action.clone(), message)
+                            });
                         }
 
                         self.switch_tool_keys(services, true)
@@ -302,12 +297,12 @@ impl WindowView for MainView {
         }
     }
 
-    fn close(self, services: &mut Services) -> Task<()> {
+    fn close(self, _services: &mut Services) -> Task<()> {
         iced::exit()
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
-        let external = iced::event::listen_with(|event, status, window| match event {
+        let external = iced::event::listen_with(|event, _status, window| match event {
             iced::Event::Window(e) => Some(MainViewMessage::WindowEvent(window, e)),
             iced::Event::Keyboard(e) => Some(MainViewMessage::KeyboardEvent(window, e)),
             iced::Event::Mouse(e) => Some(MainViewMessage::MouseEvent(window, e)),
