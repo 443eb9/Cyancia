@@ -43,7 +43,7 @@ pub mod slot;
 pub const NODE_WIDTH: f32 = 200.0;
 const NODE_BORDER_RADIUS: f32 = 5.0;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum GraphEditorMessage {
     NodeCreateRequest(Point, &'static str, GraphNodeId),
     NodeMoveRequest(Point, GraphNodeId),
@@ -51,36 +51,6 @@ pub enum GraphEditorMessage {
     EdgeCreateRequest(GraphOutputSlotId, GraphInputSlotId),
     EdgeRemoveRequest(GraphInputSlotId),
     NodeUpdate(ErasedGraphNodeMessage),
-}
-
-impl std::fmt::Debug for GraphEditorMessage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NodeCreateRequest(position, name, node_id) => f
-                .debug_tuple("NodeCreateRequest")
-                .field(position)
-                .field(name)
-                .field(node_id)
-                .finish(),
-            Self::NodeMoveRequest(arg0, arg1) => f
-                .debug_tuple("NodeMoveRequest")
-                .field(arg0)
-                .field(arg1)
-                .finish(),
-            Self::NodeDeleteRequest(arg0) => {
-                f.debug_tuple("NodeDeleteRequest").field(arg0).finish()
-            }
-            Self::EdgeCreateRequest(arg0, arg1) => f
-                .debug_tuple("EdgeCreateRequest")
-                .field(arg0)
-                .field(arg1)
-                .finish(),
-            Self::EdgeRemoveRequest(arg0) => {
-                f.debug_tuple("EdgeRemoveRequest").field(arg0).finish()
-            }
-            Self::NodeUpdate(_) => f.debug_tuple("NodeUpdate").finish(),
-        }
-    }
 }
 
 impl<Data: GraphData> Graph<Data> {

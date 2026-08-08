@@ -83,6 +83,14 @@ pub struct ErasedGraphNodeMessage {
     pub id: GraphNodeId,
 }
 
+impl std::fmt::Debug for ErasedGraphNodeMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ErasedGraphNodeMessage")
+            .field("id", &self.id)
+            .finish()
+    }
+}
+
 pub trait ErasedGraphNode<Data: GraphData>: Send + Sync + 'static + DynClone {
     fn name(&self) -> &'static str;
     fn default_state(&self) -> Box<dyn Any + Send + Sync>;
