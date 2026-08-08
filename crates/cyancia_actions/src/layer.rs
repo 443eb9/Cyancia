@@ -187,10 +187,9 @@ impl ActionFunction for MoveLayerUpAction {
                         } else {
                             (*head_parent.id(), LayerPosition::above(sibling_id))
                         }
-                    } else if let Some(head_parent_parent) = head_parent_node.parent().copied() {
-                        (head_parent_parent, LayerPosition::above(*head_parent.id()))
                     } else {
-                        return None;
+                        let head_parent_parent = head_parent_node.parent().copied()?;
+                        (head_parent_parent, LayerPosition::above(*head_parent.id()))
                     };
 
                 Some(MoveLayersCommand::new(
@@ -254,10 +253,9 @@ impl ActionFunction for MoveLayerDownAction {
                         } else {
                             (*tail_parent.id(), LayerPosition::below(sibling_id))
                         }
-                    } else if let Some(tail_parent_parent) = tail_parent_node.parent().copied() {
-                        (tail_parent_parent, LayerPosition::below(*tail_parent.id()))
                     } else {
-                        return None;
+                        let tail_parent_parent = tail_parent_node.parent().copied()?;
+                        (tail_parent_parent, LayerPosition::below(*tail_parent.id()))
                     };
 
                 Some(MoveLayersCommand::new(

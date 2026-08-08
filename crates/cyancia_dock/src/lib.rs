@@ -433,6 +433,7 @@ where
             decorations: false,
             position: window::Position::Specific(self.screen_cursor_pos()?),
             size: window_size,
+            #[cfg(target_os = "windows")]
             platform_specific: window::settings::PlatformSpecific {
                 skip_taskbar: true,
                 corner_preference: window::settings::platform::CornerPreference::DoNotRound,
