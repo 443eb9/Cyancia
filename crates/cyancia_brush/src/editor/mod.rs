@@ -7,12 +7,13 @@ use cyancia_runtime::{
 };
 use cyancia_shader_graph::{
     GraphRenderer, GraphTheme,
-    editor::{GraphEditor, GraphEditorMessage},
+    editor::{GraphEditor, GraphEditorMessage, GraphEditorState},
     graph::{
-        Graph, GraphData, GraphResources,
+        Graph, GraphResources,
         external::{ExternalVariable, ExternalVariableId},
         function::{
-            ASSET_GRAPH_FUNCTION_STORAGE, GraphFunction, GraphFunctionId, GraphFunctionStorage,
+            ASSET_GRAPH_FUNCTION_STORAGE, GRAPH_FUNCTION_NODE_REGISTRY,
+            GRAPH_FUNCTION_TYPE_REGISTRY, GraphFunction, GraphFunctionId, GraphFunctionStorage,
         },
         slot::ErasedGraphLiteralUpdateMessage,
         texture::ASSET_GRAPH_TEXTURE_STORAGE,
@@ -29,8 +30,7 @@ use uuid::Uuid;
 
 use crate::{
     asset::{BrushPreset, BrushPresetMetadata},
-    instance::{BrushPresetInstance, GraphFunctionInstance},
-    render::graph::BrushMainGraphData,
+    instance::{BRUSH_GRAPH_TYPES, BrushPresetInstance, GraphFunctionInstance},
     tool::BrushServicesExt,
     widget::{BrushFunctionListDelegate, BrushPresetListDelegate},
 };
@@ -45,6 +45,7 @@ pub struct BrushEditor {
     new_external_name: String,
     new_external_type: Option<&'static str>,
     dirty: bool,
+    graph_editor_state: GraphEditorState,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -122,6 +123,7 @@ impl WindowView for BrushEditor {
                 new_external_name: String::new(),
                 new_external_type: None,
                 dirty: false,
+                graph_editor_state: GraphEditorState::default(),
             },
             open.discard(),
         )
@@ -193,7 +195,7 @@ impl WindowView for BrushEditor {
                 title,
                 Element::from(GraphEditor::new(
                     &function.instance.graph_function().graph,
-                    true,
+                    &self.graph_editor_state
                 ))
                 .map(BrushEditorMessage::Graph),
             ]
@@ -234,6 +236,7 @@ impl WindowView for BrushEditor {
             BrushEditorMessage::SwitchGraph(graph) => {
                 if let Some(Selected::Brush(brush)) = self.selected.as_mut() {
                     brush.viewing_graph = graph;
+                    self.graph_editor_state = GraphEditorState::default();
                 }
             }
             BrushEditorMessage::NewStrokePostprocess => {
@@ -241,6 +244,7 @@ impl WindowView for BrushEditor {
                     let index = brush.instance.new_stroke_postprocess_graph();
                     brush.viewing_graph = BrushPresetGraph::StrokePostprocess { index };
                     self.dirty = true;
+                    self.graph_editor_state = GraphEditorState::default();
                 }
             }
             BrushEditorMessage::RemoveStrokePostprocess(index) => {
@@ -248,6 +252,7 @@ impl WindowView for BrushEditor {
                     brush.instance.remove_stroke_postprocess_graph(index);
                     brush.viewing_graph = BrushPresetGraph::Main;
                     self.dirty = true;
+                    self.graph_editor_state = GraphEditorState::default();
                 }
             }
             BrushEditorMessage::MoveStrokePostprocess { index, up } => {
@@ -258,6 +263,7 @@ impl WindowView for BrushEditor {
                     brush.viewing_graph =
                         BrushPresetGraph::StrokePostprocess { index: destination };
                     self.dirty = true;
+                    self.graph_editor_state = GraphEditorState::default();
                 }
             }
             BrushEditorMessage::ExternalNameChanged(name) => self.new_external_name = name,
@@ -342,20 +348,22 @@ impl BrushEditor {
         ]
         .spacing(6);
 
-        let graph: Element<'_, _, _, _> = match brush.viewing_graph {
-            BrushPresetGraph::RequiredSpacing => {
-                GraphEditor::new(brush.instance.required_spacing_graph(), true).into()
-            }
-            BrushPresetGraph::Main => GraphEditor::new(brush.instance.main_graph(), true).into(),
-            BrushPresetGraph::StrokePostprocess { index } => GraphEditor::new(
-                brush
-                    .instance
-                    .stroke_postprocess_graph(index)
-                    .expect("Selected stroke postprocess graph should exist"),
-                true,
-            )
-            .into(),
-        };
+        let graph: Element<'_, GraphEditorMessage, GraphTheme, GraphRenderer> =
+            match brush.viewing_graph {
+                BrushPresetGraph::RequiredSpacing => GraphEditor::new(
+                    brush.instance.required_spacing_graph(),
+                    &self.graph_editor_state,
+                )
+                .into(),
+                BrushPresetGraph::Main => {
+                    GraphEditor::new(brush.instance.main_graph(), &self.graph_editor_state).into()
+                }
+                BrushPresetGraph::StrokePostprocess { index } => GraphEditor::new(
+                    brush.instance.stroke_postprocess_graph(index).unwrap(),
+                    &self.graph_editor_state,
+                )
+                .into(),
+            };
 
         let mut graph_list = column![
             button("Required Spacing").width(Length::Fill).on_press(
@@ -419,7 +427,7 @@ impl BrushEditor {
                 .into()
             })
             .collect::<Vec<_>>();
-        let types = BrushMainGraphData::type_registry()
+        let types = BRUSH_GRAPH_TYPES
             .all_types()
             .keys()
             .copied()
@@ -483,6 +491,7 @@ impl BrushEditor {
             viewing_graph: BrushPresetGraph::Main,
         }));
         self.dirty = false;
+        self.graph_editor_state = GraphEditorState::default();
         services.set_current_brush_preset(handle);
     }
 
@@ -514,6 +523,7 @@ impl BrushEditor {
             id: function.id,
             instance: GraphFunctionInstance::new(function),
         }));
+        self.graph_editor_state = GraphEditorState::default();
         self.dirty = false;
     }
 
@@ -551,6 +561,8 @@ impl BrushEditor {
             id,
             name: "[Unnamed Function]".into(),
             graph: Graph::new(GraphResources {
+                type_registry: GRAPH_FUNCTION_TYPE_REGISTRY.clone(),
+                node_registry: GRAPH_FUNCTION_NODE_REGISTRY.clone(),
                 textures: ASSET_GRAPH_TEXTURE_STORAGE.clone(),
                 functions: ASSET_GRAPH_FUNCTION_STORAGE.clone(),
                 ..Default::default()
@@ -575,6 +587,7 @@ impl BrushEditor {
             id,
             instance: GraphFunctionInstance::new(function),
         }));
+        self.graph_editor_state = GraphEditorState::default();
         self.dirty = true;
     }
 
@@ -618,18 +631,27 @@ impl BrushEditor {
         match selected {
             Selected::Brush(brush) => match brush.viewing_graph {
                 BrushPresetGraph::RequiredSpacing => {
-                    brush.instance.required_spacing_graph_mut().update(message)
+                    self.graph_editor_state
+                        .update(brush.instance.required_spacing_graph_mut(), message);
                 }
-                BrushPresetGraph::Main => brush.instance.main_graph_mut().update(message),
-                BrushPresetGraph::StrokePostprocess { index } => brush
-                    .instance
-                    .stroke_postprocess_graphs_mut()
-                    .get_mut(index)
-                    .expect("Selected stroke postprocess graph should exist")
-                    .update(message),
+                BrushPresetGraph::Main => {
+                    self.graph_editor_state
+                        .update(brush.instance.main_graph_mut(), message);
+                }
+                BrushPresetGraph::StrokePostprocess { index } => {
+                    self.graph_editor_state.update(
+                        brush
+                            .instance
+                            .stroke_postprocess_graphs_mut()
+                            .get_mut(index)
+                            .unwrap(),
+                        message,
+                    );
+                }
             },
             Selected::Function(function) => {
-                function.instance.graph_function_mut().graph.update(message)
+                self.graph_editor_state
+                    .update(&mut function.instance.graph_function_mut().graph, message);
             }
         }
     }
@@ -638,7 +660,7 @@ impl BrushEditor {
         let Some(Selected::Brush(brush)) = self.selected.as_mut() else {
             return;
         };
-        let ty = BrushMainGraphData::type_registry()
+        let ty = BRUSH_GRAPH_TYPES
             .get_type(
                 self.new_external_type
                     .expect("New external variable type should be selected"),

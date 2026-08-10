@@ -31,6 +31,9 @@ pub fn builtin_nodes<Data: GraphData>() -> GraphNodeRegistry<Data> {
     nodes.register::<ScalarMathNode>();
     nodes.register::<VectorMathNode>();
     nodes.register::<RectMathNode>();
+    nodes.register::<CompareNode>();
+    nodes.register::<ScalarSelectNode>();
+    nodes.register::<VectorSelectNode>();
     nodes.register::<ClampNode>();
     nodes.register::<RandomNode>();
     nodes.register::<StepNode>();
@@ -46,6 +49,7 @@ pub fn builtin_nodes<Data: GraphData>() -> GraphNodeRegistry<Data> {
     nodes.register::<GraphFunctionNode>();
     nodes.register::<ExternalVariableNode>();
     nodes.register::<CurveNode>();
+    nodes.register::<WhileNode>();
 
     nodes
 }
@@ -57,6 +61,8 @@ pub fn builtin_types() -> GraphTypeRegistry {
     let mut types = GraphTypeRegistry::default();
 
     types.register_type::<F32Type>();
+    types.register_type::<I32Type>();
+    types.register_type::<BoolType>();
     types.register_type::<Vec2FType>();
     types.register_type::<ColorType>();
     types.register_type::<TextureType>();
@@ -64,6 +70,12 @@ pub fn builtin_types() -> GraphTypeRegistry {
 
     types.register_caster::<F32ToVec2FCaster>();
     types.register_caster::<Vec2FToF32Caster>();
+    types.register_caster::<BoolToI32Caster>();
+    types.register_caster::<I32ToBoolCaster>();
+    types.register_caster::<F32ToI32Caster>();
+    types.register_caster::<I32ToF32Caster>();
+    types.register_caster::<Vec2FToI32Caster>();
+    types.register_caster::<I32ToVec2FCaster>();
 
     types
 }

@@ -1,30 +1,46 @@
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
+};
+
+use anyhow::anyhow;
 
 use cyancia_math::curve::CubicCurve;
-use cyancia_widgets::curve_edit::CurveEdit;
+use cyancia_utils::wrapper;
+use cyancia_widgets::{curve_edit::CurveEdit, fluent_builder::When, popover::Popover};
 use glam::{Vec2, Vec3, Vec3Swizzles};
 use iced_core::{Color, Length};
-use iced_widget::{column, pick_list, text_input};
+use iced_widget::{button, column, container, pick_list, row, text, text_input};
+use indexmap::IndexMap;
+use parking_lot::Mutex;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{
     GraphElement,
     graph::{
-        GraphData, GraphVarIdentGenerator,
+        Graph, GraphData, GraphResources, GraphVarIdentGenerator,
         external::{ExternalVariableId, generate_external_variable_name},
         function::GraphFunctionId,
         node::{
             GraphNode, GraphNodeCodeGenContext, GraphNodeCodeGenError, GraphNodeCreateSlotsContext,
-            GraphNodeUpdateContext, GraphNodeUpdateSignatureContext, GraphNodeViewContext,
-            StatelessCommonGraphNode,
+            GraphNodeDefaultStateContext, GraphNodeRegistry, GraphNodeUpdateContext,
+            GraphNodeUpdateSignatureContext, GraphNodeViewContext, StatelessCommonGraphNode,
         },
-        slot::{ErasedGraphLiteralUpdateMessage, GraphDefaultInputSlot, GraphDefaultOutputSlot},
+        slot::{
+            ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphDefaultInputSlot,
+            GraphDefaultOutputSlot, GraphValueType,
+        },
         texture::TextureId,
     },
+    save::{GraphSerializable, SerializableGraph},
     wgsl_std::{
         themed_color,
-        types::{ColorType, F32Type, RectType, TextureType, Vec2FType},
+        types::{BoolType, ColorType, F32Type, RectType, TextureType, Vec2FType},
     },
 };
 
@@ -126,7 +142,7 @@ impl<Data: GraphData> GraphNode<Data> for ScalarMathNode {
         "Scalar Math"
     }
 
-    fn default_state(&self) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
         ScalarMathNodeMode::Add
     }
 
@@ -393,7 +409,7 @@ impl<Data: GraphData> GraphNode<Data> for VectorMathNode {
         "Vector Math"
     }
 
-    fn default_state(&self) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
         VectorMathNodeMode::Add
     }
 
@@ -650,7 +666,7 @@ impl<Data: GraphData> GraphNode<Data> for RectMathNode {
         "Rect Math"
     }
 
-    fn default_state(&self) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
         RectMathNodeMode::Union
     }
 
@@ -761,6 +777,215 @@ impl<Data: GraphData> GraphNode<Data> for RectMathNode {
                     )
                 }
             }
+        ))
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct CompareNode;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display)]
+pub enum CompareNodeMode {
+    #[display("Less Than")]
+    LessThan,
+    #[display("Less Equal")]
+    LessEqual,
+    #[display("Greater Than")]
+    GreaterThan,
+    #[display("Greater Equal")]
+    GreaterEqual,
+    Equal,
+}
+
+impl CompareNodeMode {
+    pub const ALL: [CompareNodeMode; 5] = [
+        CompareNodeMode::LessThan,
+        CompareNodeMode::LessEqual,
+        CompareNodeMode::GreaterThan,
+        CompareNodeMode::GreaterEqual,
+        CompareNodeMode::Equal,
+    ];
+}
+
+#[derive(Clone)]
+pub enum CompareNodeMessage {
+    ModeChanged(CompareNodeMode),
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
+}
+
+impl<Data: GraphData> GraphNode<Data> for CompareNode {
+    type State = CompareNodeMode;
+    type Message = CompareNodeMessage;
+
+    fn name(&self) -> &'static str {
+        "Compare"
+    }
+
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+        CompareNodeMode::LessThan
+    }
+
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(CompareNode), is_dark)
+    }
+
+    fn create_inputs(
+        &self,
+        _: &Self::State,
+        _: GraphNodeCreateSlotsContext<'_, Data>,
+    ) -> Vec<GraphDefaultInputSlot> {
+        vec![
+            GraphDefaultInputSlot::new::<F32Type>("Lhs".into()),
+            GraphDefaultInputSlot::new::<F32Type>("Rhs".into()),
+        ]
+    }
+
+    fn create_outputs(
+        &self,
+        _: &Self::State,
+        _: GraphNodeCreateSlotsContext<'_, Data>,
+    ) -> Vec<GraphDefaultOutputSlot> {
+        vec![GraphDefaultOutputSlot::new::<BoolType>("Result".into())]
+    }
+
+    fn view(
+        &self,
+        state: &Self::State,
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        ctx.view_all_slots_with_header(
+            pick_list(
+                CompareNodeMode::ALL,
+                Some(*state),
+                CompareNodeMessage::ModeChanged,
+            )
+            .width(Length::Fill),
+            CompareNodeMessage::LiteralUpdate,
+        )
+    }
+
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            CompareNodeMessage::ModeChanged(mode) => *state = mode,
+            CompareNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+        }
+    }
+
+    fn generate_code(
+        &self,
+        state: &Self::State,
+        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+    ) -> Result<String, GraphNodeCodeGenError> {
+        let lhs = ctx.get_input(0)?;
+        let rhs = ctx.get_input(1)?;
+        let output = ctx.get_output(0)?;
+        let operator = match state {
+            CompareNodeMode::LessThan => "<",
+            CompareNodeMode::LessEqual => "<=",
+            CompareNodeMode::GreaterThan => ">",
+            CompareNodeMode::GreaterEqual => ">=",
+            CompareNodeMode::Equal => "==",
+        };
+
+        Ok(format!("let {} = {} {} {};\n", output, lhs, operator, rhs))
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct ScalarSelectNode;
+
+#[stateless]
+impl<Data: GraphData> StatelessCommonGraphNode<Data> for ScalarSelectNode {
+    fn name(&self) -> &'static str {
+        "Scalar Select"
+    }
+
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(ScalarSelectNode), is_dark)
+    }
+
+    fn create_inputs(
+        &self,
+        _: GraphNodeCreateSlotsContext<'_, Data>,
+    ) -> Vec<GraphDefaultInputSlot> {
+        vec![
+            GraphDefaultInputSlot::new::<BoolType>("Condition".into()),
+            GraphDefaultInputSlot::new::<F32Type>("False".into()),
+            GraphDefaultInputSlot::new::<F32Type>("True".into()),
+        ]
+    }
+
+    fn create_outputs(
+        &self,
+        _: GraphNodeCreateSlotsContext<'_, Data>,
+    ) -> Vec<GraphDefaultOutputSlot> {
+        vec![GraphDefaultOutputSlot::new::<F32Type>("Result".into())]
+    }
+
+    fn generate_code(
+        &self,
+        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+    ) -> Result<String, GraphNodeCodeGenError> {
+        let condition = ctx.get_input(0)?;
+        let false_value = ctx.get_input(1)?;
+        let true_value = ctx.get_input(2)?;
+        let output = ctx.get_output(0)?;
+
+        Ok(format!(
+            "let {} = select({}, {}, {});\n",
+            output, false_value, true_value, condition
+        ))
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct VectorSelectNode;
+
+#[stateless]
+impl<Data: GraphData> StatelessCommonGraphNode<Data> for VectorSelectNode {
+    fn name(&self) -> &'static str {
+        "Vector Select"
+    }
+
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(VectorSelectNode), is_dark)
+    }
+
+    fn create_inputs(
+        &self,
+        _: GraphNodeCreateSlotsContext<'_, Data>,
+    ) -> Vec<GraphDefaultInputSlot> {
+        vec![
+            GraphDefaultInputSlot::new::<BoolType>("Condition".into()),
+            GraphDefaultInputSlot::new::<Vec2FType>("False".into()),
+            GraphDefaultInputSlot::new::<Vec2FType>("True".into()),
+        ]
+    }
+
+    fn create_outputs(
+        &self,
+        _: GraphNodeCreateSlotsContext<'_, Data>,
+    ) -> Vec<GraphDefaultOutputSlot> {
+        vec![GraphDefaultOutputSlot::new::<Vec2FType>("Result".into())]
+    }
+
+    fn generate_code(
+        &self,
+        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+    ) -> Result<String, GraphNodeCodeGenError> {
+        let condition = ctx.get_input(0)?;
+        let false_value = ctx.get_input(1)?;
+        let true_value = ctx.get_input(2)?;
+        let output = ctx.get_output(0)?;
+
+        Ok(format!(
+            "let {} = select({}, {}, {});\n",
+            output, false_value, true_value, condition
         ))
     }
 }
@@ -1220,7 +1445,7 @@ impl<Data: GraphData> GraphNode<Data> for TextureNode {
         "Texture"
     }
 
-    fn default_state(&self) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
         TextureId::NULL
     }
 
@@ -1420,7 +1645,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
         "Function"
     }
 
-    fn default_state(&self) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
         GraphFunctionNodeState { id: None }
     }
 
@@ -1534,7 +1759,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
             },
         )?;
 
-        let (output_idents, code) = func
+        let (output_idents, _, code) = func
             .graph
             .compile(
                 input_idents,
@@ -1579,7 +1804,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
         "Graph Input"
     }
 
-    fn default_state(&self) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
         GraphInputNodeState::default()
     }
 
@@ -1598,11 +1823,11 @@ impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
     fn create_outputs(
         &self,
         state: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        ctx: GraphNodeCreateSlotsContext<'_, Data>,
     ) -> Vec<GraphDefaultOutputSlot> {
         let Some(ty) = state
             .ty
-            .and_then(|ty| Data::type_registry().get_type(ty))
+            .and_then(|ty| ctx.resources.type_registry.get_type(ty))
             .map(dyn_clone::clone_box)
         else {
             return vec![];
@@ -1624,7 +1849,9 @@ impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
         state: &Self::State,
         ctx: GraphNodeViewContext<'_, Data>,
     ) -> GraphElement<'static, Self::Message> {
-        let types = Data::type_registry()
+        let types = ctx
+            .resources
+            .type_registry
             .all_types()
             .keys()
             .copied()
@@ -1685,7 +1912,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
         "Graph Output"
     }
 
-    fn default_state(&self) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
         GraphOutputNodeState::default()
     }
 
@@ -1696,11 +1923,11 @@ impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
     fn create_inputs(
         &self,
         state: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        ctx: GraphNodeCreateSlotsContext<'_, Data>,
     ) -> Vec<GraphDefaultInputSlot> {
         let Some(ty) = state
             .ty
-            .and_then(|ty| Data::type_registry().get_type(ty))
+            .and_then(|ty| ctx.resources.type_registry.get_type(ty))
             .map(dyn_clone::clone_box)
         else {
             return vec![];
@@ -1730,7 +1957,9 @@ impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
         state: &Self::State,
         ctx: GraphNodeViewContext<'_, Data>,
     ) -> GraphElement<'static, Self::Message> {
-        let types = Data::type_registry()
+        let types = ctx
+            .resources
+            .type_registry
             .all_types()
             .keys()
             .copied()
@@ -1870,7 +2099,7 @@ impl<Data: GraphData> GraphNode<Data> for ExternalVariableNode {
         ))
     }
 
-    fn default_state(&self) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
         None
     }
 
@@ -1953,7 +2182,7 @@ impl<Data: GraphData> GraphNode<Data> for CurveNode {
         "Curve"
     }
 
-    fn default_state(&self) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
         Default::default()
     }
 
@@ -2102,5 +2331,965 @@ impl RandomNode {
         let mut p3 = (Vec3::splat(p) * Vec3::new(0.1031, 0.1030, 0.0973)).fract();
         p3 += p3.dot(p3.yzx() + Vec3::splat(33.33));
         ((Vec2::new(p3.x, p3.x) + Vec2::new(p3.y, p3.z)) * Vec2::new(p3.z, p3.y)).fract()
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct BreakBeforeNextIterationNode;
+
+#[stateless]
+impl<Data: GraphData> StatelessCommonGraphNode<Data> for BreakBeforeNextIterationNode {
+    fn name(&self) -> &'static str {
+        "Break Before Next Iteration"
+    }
+
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(BreakBeforeNextIterationNode), is_dark)
+    }
+
+    fn create_inputs(
+        &self,
+        _: GraphNodeCreateSlotsContext<'_, Data>,
+    ) -> Vec<GraphDefaultInputSlot> {
+        vec![GraphDefaultInputSlot::new::<BoolType>("Condition".into())]
+    }
+
+    fn create_outputs(
+        &self,
+        _: GraphNodeCreateSlotsContext<'_, Data>,
+    ) -> Vec<GraphDefaultOutputSlot> {
+        vec![]
+    }
+
+    fn generate_code(
+        &self,
+        _: GraphNodeCodeGenContext<'_, Data>,
+    ) -> Result<String, GraphNodeCodeGenError> {
+        // This is handled by while node
+        Ok(String::new())
+    }
+}
+
+wrapper! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Display)]
+    pub WhileVariableId : Uuid
+}
+
+#[derive(Clone)]
+pub struct WhileLocalSchema {
+    pub id: WhileVariableId,
+    pub name: String,
+    pub ty: Box<dyn ErasedGraphValueType>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SerializableWhileLocalSchema {
+    pub id: WhileVariableId,
+    pub name: String,
+    pub ty: String,
+}
+
+impl<Data: GraphData> GraphSerializable<Data> for WhileLocalSchema {
+    fn to_toml(&self) -> anyhow::Result<toml::Value> {
+        let serializable = SerializableWhileLocalSchema {
+            id: self.id,
+            name: self.name.clone(),
+            ty: self.ty.name().to_string(),
+        };
+        Ok(toml::Value::try_from(serializable)?)
+    }
+
+    fn from_toml(value: toml::Value, resources: &GraphResources<Data>) -> anyhow::Result<Self> {
+        let serializable = SerializableWhileLocalSchema::deserialize(value)?;
+        let ty = resources
+            .type_registry
+            .get_type(&serializable.ty)
+            .ok_or_else(|| anyhow::anyhow!("Unknown type: {}", serializable.ty))?;
+        Ok(WhileLocalSchema {
+            id: serializable.id,
+            name: serializable.name,
+            ty: dyn_clone::clone_box(ty),
+        })
+    }
+}
+
+#[derive(Clone)]
+struct WhileLocalSchemaDraft {
+    pub id: WhileVariableId,
+    pub name: String,
+    pub ty: Option<Box<dyn ErasedGraphValueType>>,
+}
+
+#[derive(Clone, Default)]
+struct WhileSchemaDraft {
+    locals: IndexMap<WhileVariableId, WhileLocalSchemaDraft>,
+}
+
+impl WhileSchemaDraft {
+    pub fn new(locals: &IndexMap<WhileVariableId, WhileLocalSchema>) -> Self {
+        Self {
+            locals: locals
+                .iter()
+                .map(|(id, schema)| {
+                    (
+                        *id,
+                        WhileLocalSchemaDraft {
+                            id: *id,
+                            name: schema.name.clone(),
+                            ty: Some(schema.ty.clone()),
+                        },
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    pub fn finalize(&self) -> IndexMap<WhileVariableId, WhileLocalSchema> {
+        self.locals
+            .iter()
+            .map(|(id, schema)| {
+                (
+                    *id,
+                    WhileLocalSchema {
+                        id: *id,
+                        name: schema.name.clone(),
+                        ty: schema.ty.clone().unwrap(),
+                    },
+                )
+            })
+            .collect()
+    }
+}
+
+pub struct WhileNodeState<Data: GraphData> {
+    locals: Arc<Mutex<IndexMap<WhileVariableId, WhileLocalSchema>>>,
+    revision: u64,
+    body: Graph<Data>,
+    schema_draft: Option<WhileSchemaDraft>,
+}
+
+impl<Data: GraphData> WhileNodeState<Data> {
+    pub fn body(&self) -> &Graph<Data> {
+        &self.body
+    }
+
+    pub fn body_mut(&mut self) -> &mut Graph<Data> {
+        &mut self.body
+    }
+
+    pub fn add_local<T: GraphValueType + Default>(&mut self, name: String) -> WhileVariableId {
+        let id = WhileVariableId::new(Uuid::new_v4());
+        self.locals.lock().insert(
+            id,
+            WhileLocalSchema {
+                id,
+                name,
+                ty: Box::new(T::default()),
+            },
+        );
+        self.revision += 1;
+        id
+    }
+
+    pub fn sync_body_nodes(&mut self) {
+        let input_ids = self
+            .body
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.data.state::<WhileNodeInput>().is_some())
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>();
+        let output_ids = self
+            .body
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.data.state::<WhileNodeOutput>().is_some())
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>();
+
+        let locals = self.locals.lock().clone();
+        for id in input_ids {
+            self.body.update_node_state::<WhileNodeInput>(id, |st| {
+                if let Some(variable) = st.variable
+                    && !locals.contains_key(&variable)
+                {
+                    st.variable = None;
+                }
+            });
+        }
+        for id in output_ids {
+            self.body.update_node_state::<WhileNodeOutput>(id, |st| {
+                if let Some(variable) = st.variable
+                    && !locals.contains_key(&variable)
+                {
+                    st.variable = None;
+                }
+            });
+        }
+        self.body.invalidate_cache();
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct SerializableWhileNodeState {
+    locals: Vec<SerializableWhileLocalSchema>,
+    body: SerializableGraph,
+}
+
+impl<Data: GraphData> GraphSerializable<Data> for WhileNodeState<Data> {
+    fn to_toml(&self) -> anyhow::Result<toml::Value> {
+        let locals = self
+            .locals
+            .lock()
+            .values()
+            .map(|local| SerializableWhileLocalSchema {
+                id: local.id,
+                name: local.name.clone(),
+                ty: local.ty.clone().name().to_string(),
+            })
+            .collect();
+        let body = self.body.as_serialized()?;
+        Ok(toml::Value::try_from(SerializableWhileNodeState {
+            locals,
+            body,
+        })?)
+    }
+
+    fn from_toml(value: toml::Value, resources: &GraphResources<Data>) -> anyhow::Result<Self> {
+        let serialized = SerializableWhileNodeState::deserialize(value)?;
+        let locals =
+            serialized
+                .locals
+                .into_iter()
+                .try_fold(IndexMap::new(), |mut locals, local| {
+                    locals.insert(
+                        local.id,
+                        WhileLocalSchema {
+                            id: local.id,
+                            name: local.name,
+                            ty: dyn_clone::clone_box(
+                                resources.type_registry.get_type(&local.ty).ok_or_else(|| {
+                                    anyhow!("Type {} not found in registry", local.ty)
+                                })?,
+                            ),
+                        },
+                    );
+
+                    Result::<_, anyhow::Error>::Ok(locals)
+                })?;
+        let locals = Arc::new(Mutex::new(locals));
+
+        let while_node_extra = {
+            let mut r = GraphNodeRegistry::default();
+            r.register_boxed(Box::new(WhileNodeInput {
+                locals: locals.clone(),
+            }));
+            r.register_boxed(Box::new(WhileNodeOutput {
+                locals: locals.clone(),
+            }));
+            r.register::<BreakBeforeNextIterationNode>();
+            r
+        };
+
+        let mut node_registry = resources.node_registry.as_ref().clone();
+        node_registry.merge(while_node_extra);
+
+        let body_resources = GraphResources {
+            type_registry: resources.type_registry.clone(),
+            node_registry: Arc::new(node_registry),
+            textures: resources.textures.clone(),
+            functions: resources.functions.clone(),
+            external_vars: resources.external_vars.clone(),
+        };
+        let (body, errors) = Graph::from_serialized(&serialized.body, body_resources);
+        if !errors.is_empty() {
+            return Err(anyhow!("While body deserialization failed: {errors:?}"));
+        }
+        let body = body.ok_or_else(|| anyhow!("While body is missing"))?;
+
+        let mut state = Self {
+            locals,
+            revision: 0,
+            body,
+            schema_draft: None,
+        };
+        state.sync_body_nodes();
+        Ok(state)
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct WhileNodeInput {
+    pub locals: Arc<Mutex<IndexMap<WhileVariableId, WhileLocalSchema>>>,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct WhileNodeInputState {
+    pub variable: Option<WhileVariableId>,
+}
+
+#[derive(Clone)]
+pub enum WhileNodeInputMessage {
+    VariableChanged(WhileVariableId),
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
+}
+
+impl<Data: GraphData> GraphNode<Data> for WhileNodeInput {
+    type State = WhileNodeInputState;
+    type Message = WhileNodeInputMessage;
+
+    fn name(&self) -> &'static str {
+        "While Node Input"
+    }
+
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+        WhileNodeInputState::default()
+    }
+
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(WhileNodeInput), is_dark)
+    }
+
+    fn create_inputs(
+        &self,
+        _: &Self::State,
+        _: GraphNodeCreateSlotsContext<'_, Data>,
+    ) -> Vec<GraphDefaultInputSlot> {
+        Vec::new()
+    }
+
+    fn create_outputs(
+        &self,
+        state: &Self::State,
+        _ctx: GraphNodeCreateSlotsContext<'_, Data>,
+    ) -> Vec<GraphDefaultOutputSlot> {
+        let locals = self.locals.lock();
+        let Some(local) = state.variable.as_ref().and_then(|id| locals.get(id)) else {
+            return Vec::new();
+        };
+        vec![GraphDefaultOutputSlot::new_boxed(
+            format!("{} Current", local.name),
+            local.ty.clone(),
+        )]
+    }
+
+    fn update_signature(
+        &self,
+        state: &Self::State,
+        mut ctx: GraphNodeUpdateSignatureContext<'_, Data>,
+    ) {
+        let locals = self.locals.lock();
+        let Some(local) = state.variable.as_ref().and_then(|id| locals.get(id)) else {
+            return;
+        };
+        ctx.require_output_slot_as_graph_input(0, local.name.clone());
+    }
+
+    fn view(
+        &self,
+        state: &Self::State,
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        let locals = while_variable_references(&self.locals.lock());
+        let selected = state
+            .variable
+            .and_then(|id| locals.iter().find(|reference| reference.id == id).cloned());
+        ctx.view_all_slots_with_header(
+            pick_list(locals, selected, |reference| {
+                WhileNodeInputMessage::VariableChanged(reference.id)
+            })
+            .width(Length::Fill),
+            WhileNodeInputMessage::LiteralUpdate,
+        )
+    }
+
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            WhileNodeInputMessage::VariableChanged(variable) => state.variable = Some(variable),
+            WhileNodeInputMessage::LiteralUpdate(literal) => ctx.update_literal(literal),
+        }
+    }
+
+    fn generate_code(
+        &self,
+        _: &Self::State,
+        _: GraphNodeCodeGenContext<'_, Data>,
+    ) -> Result<String, GraphNodeCodeGenError> {
+        Ok(String::new())
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct WhileNodeOutput {
+    pub locals: Arc<Mutex<IndexMap<WhileVariableId, WhileLocalSchema>>>,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct WhileNodeOutputState {
+    pub variable: Option<WhileVariableId>,
+}
+
+#[derive(Clone)]
+pub enum WhileNodeOutputMessage {
+    VariableChanged(WhileVariableId),
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
+}
+
+impl<Data: GraphData> GraphNode<Data> for WhileNodeOutput {
+    type State = WhileNodeOutputState;
+    type Message = WhileNodeOutputMessage;
+
+    fn name(&self) -> &'static str {
+        "While Node Output"
+    }
+
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+        WhileNodeOutputState::default()
+    }
+
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(WhileNodeOutput), is_dark)
+    }
+
+    fn create_inputs(
+        &self,
+        state: &Self::State,
+        _ctx: GraphNodeCreateSlotsContext<'_, Data>,
+    ) -> Vec<GraphDefaultInputSlot> {
+        let locals = self.locals.lock();
+        let Some(local) = state.variable.as_ref().and_then(|id| locals.get(id)) else {
+            return Vec::new();
+        };
+        vec![GraphDefaultInputSlot::new_boxed(
+            format!("{} Next", local.name),
+            local.ty.clone(),
+        )]
+    }
+
+    fn create_outputs(
+        &self,
+        _: &Self::State,
+        _: GraphNodeCreateSlotsContext<'_, Data>,
+    ) -> Vec<GraphDefaultOutputSlot> {
+        Vec::new()
+    }
+
+    fn update_signature(
+        &self,
+        state: &Self::State,
+        mut ctx: GraphNodeUpdateSignatureContext<'_, Data>,
+    ) {
+        let locals = self.locals.lock();
+        let Some(local) = state.variable.as_ref().and_then(|id| locals.get(id)) else {
+            return;
+        };
+        ctx.require_input_slot_as_graph_output(0, local.name.clone());
+    }
+
+    fn view(
+        &self,
+        state: &Self::State,
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        let locals = while_variable_references(&self.locals.lock());
+        let selected = state
+            .variable
+            .and_then(|id| locals.iter().find(|reference| reference.id == id).cloned());
+        ctx.view_all_slots_with_header(
+            pick_list(locals, selected, |reference| {
+                WhileNodeOutputMessage::VariableChanged(reference.id)
+            })
+            .width(Length::Fill),
+            WhileNodeOutputMessage::LiteralUpdate,
+        )
+    }
+
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            WhileNodeOutputMessage::VariableChanged(variable) => state.variable = Some(variable),
+            WhileNodeOutputMessage::LiteralUpdate(literal) => ctx.update_literal(literal),
+        }
+    }
+
+    fn generate_code(
+        &self,
+        _: &Self::State,
+        _: GraphNodeCodeGenContext<'_, Data>,
+    ) -> Result<String, GraphNodeCodeGenError> {
+        Ok(String::new())
+    }
+}
+
+#[derive(Clone)]
+struct WhileVariableReference {
+    id: WhileVariableId,
+    name: String,
+}
+
+impl std::fmt::Display for WhileVariableReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.name.fmt(f)
+    }
+}
+
+impl PartialEq for WhileVariableReference {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+fn while_variable_references(
+    locals: &IndexMap<WhileVariableId, WhileLocalSchema>,
+) -> Vec<WhileVariableReference> {
+    locals
+        .values()
+        .map(|local| WhileVariableReference {
+            id: local.id,
+            name: local.name.clone(),
+        })
+        .collect()
+}
+
+#[derive(Default, Clone)]
+pub struct WhileNode;
+
+#[derive(Clone)]
+pub enum WhileNodeMessage {
+    ToggleEditor,
+    EditorAddLocal,
+    EditorRemoveLocal(WhileVariableId),
+    EditorMoveLocalUp(WhileVariableId),
+    EditorMoveLocalDown(WhileVariableId),
+    EditorRenameLocal(WhileVariableId, String),
+    EditorChangeLocalType(WhileVariableId, String),
+    EditorConfirm,
+    EditorCancel,
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
+}
+
+fn while_schema_editor_view<Data: GraphData>(
+    state: &WhileNodeState<Data>,
+    resources: &GraphResources<Data>,
+) -> GraphElement<'static, WhileNodeMessage> {
+    let type_names = resources
+        .type_registry
+        .all_types()
+        .keys()
+        .copied()
+        .collect::<Vec<&'static str>>();
+    let draft = state.schema_draft.as_ref().expect("editor must be open");
+
+    let rows = draft
+        .locals
+        .values()
+        .map(|local| {
+            let id = local.id;
+            column![
+                text_input("Variable Name", &local.name)
+                    .on_input(move |name| { WhileNodeMessage::EditorRenameLocal(id, name) }),
+                row![
+                    pick_list(
+                        type_names.clone(),
+                        local.ty.as_ref().map(|t| t.name()),
+                        move |ty| { WhileNodeMessage::EditorChangeLocalType(id, ty.to_string()) },
+                    )
+                    .width(Length::Fill),
+                    button("Up").on_press(WhileNodeMessage::EditorMoveLocalUp(id)),
+                    button("Down").on_press(WhileNodeMessage::EditorMoveLocalDown(id)),
+                    button("Delete").on_press(WhileNodeMessage::EditorRemoveLocal(id)),
+                ]
+                .spacing(4),
+            ]
+            .spacing(4)
+            .into()
+        })
+        .collect::<Vec<GraphElement<'static, WhileNodeMessage>>>();
+
+    let valid = draft
+        .locals
+        .values()
+        .all(|local| !local.name.is_empty() && local.name.trim() == local.name)
+        && draft.locals.values().all(|local| {
+            draft
+                .locals
+                .values()
+                .filter(|other| other.name == local.name)
+                .count()
+                == 1
+        });
+
+    let panel = column(rows)
+        .width(Length::Fixed(300.0))
+        .padding(4)
+        .spacing(6)
+        .push(row![button("Add Variable").on_press(WhileNodeMessage::EditorAddLocal)].spacing(6))
+        .push(
+            row![
+                button("Cancel").on_press(WhileNodeMessage::EditorCancel),
+                button("Confirm").when(valid, |b| b.on_press(WhileNodeMessage::EditorConfirm))
+            ]
+            .spacing(4),
+        );
+
+    container(panel)
+        .style(|theme| container::Style {
+            background: Some(theme.extended_palette().background.base.color.into()),
+            ..container::transparent(theme)
+        })
+        .into()
+}
+
+impl<Data: GraphData> GraphNode<Data> for WhileNode {
+    type State = WhileNodeState<Data>;
+
+    type Message = WhileNodeMessage;
+
+    fn name(&self) -> &'static str {
+        "While"
+    }
+
+    fn default_state(&self, ctx: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+        let locals = Arc::new(Mutex::new(IndexMap::new()));
+        let while_node_extra = {
+            let mut r = GraphNodeRegistry::default();
+            r.register_boxed(Box::new(WhileNodeInput {
+                locals: locals.clone(),
+            }));
+            r.register_boxed(Box::new(WhileNodeOutput {
+                locals: locals.clone(),
+            }));
+            r.register::<BreakBeforeNextIterationNode>();
+            r
+        };
+
+        let mut node_registry = ctx.resources.node_registry.as_ref().clone();
+        node_registry.merge(while_node_extra);
+
+        let body_resources = GraphResources {
+            type_registry: ctx.resources.type_registry.clone(),
+            node_registry: Arc::new(node_registry),
+            textures: ctx.resources.textures.clone(),
+            functions: ctx.resources.functions.clone(),
+            external_vars: ctx.resources.external_vars.clone(),
+        };
+
+        WhileNodeState {
+            locals,
+            revision: 0,
+            body: Graph::new(body_resources),
+            schema_draft: None,
+        }
+    }
+
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(WhileNode), is_dark)
+    }
+
+    fn create_inputs(
+        &self,
+        state: &Self::State,
+        _ctx: GraphNodeCreateSlotsContext<'_, Data>,
+    ) -> Vec<GraphDefaultInputSlot> {
+        state
+            .locals
+            .lock()
+            .values()
+            .map(|local| {
+                GraphDefaultInputSlot::new_boxed(format!("{} In", local.name), local.ty.clone())
+            })
+            .collect()
+    }
+
+    fn create_outputs(
+        &self,
+        state: &Self::State,
+        _ctx: GraphNodeCreateSlotsContext<'_, Data>,
+    ) -> Vec<GraphDefaultOutputSlot> {
+        state
+            .locals
+            .lock()
+            .values()
+            .map(|local| {
+                GraphDefaultOutputSlot::new_boxed(format!("{} Out", local.name), local.ty.clone())
+            })
+            .collect()
+    }
+
+    fn view(
+        &self,
+        state: &Self::State,
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'static, Self::Message> {
+        let trigger = button(text("Edit")).on_press(WhileNodeMessage::ToggleEditor);
+        let content = state
+            .schema_draft
+            .as_ref()
+            .map(|_| while_schema_editor_view(state, ctx.resources));
+        let popover = Popover::new(trigger).content(content);
+        ctx.view_all_slots_with_header(popover, WhileNodeMessage::LiteralUpdate)
+    }
+
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            WhileNodeMessage::ToggleEditor => {
+                if state.schema_draft.is_some() {
+                    state.schema_draft = None;
+                } else {
+                    state.schema_draft = Some(WhileSchemaDraft::new(&state.locals.lock()));
+                }
+            }
+            WhileNodeMessage::EditorAddLocal => {
+                if let Some(draft) = &mut state.schema_draft {
+                    let new_id = WhileVariableId::new(Uuid::new_v4());
+                    draft.locals.insert(
+                        new_id,
+                        WhileLocalSchemaDraft {
+                            id: new_id,
+                            name: String::new(),
+                            ty: None,
+                        },
+                    );
+                }
+            }
+            WhileNodeMessage::EditorRemoveLocal(id) => {
+                if let Some(draft) = &mut state.schema_draft {
+                    draft.locals.shift_remove(&id);
+                }
+            }
+            WhileNodeMessage::EditorMoveLocalUp(id) => {
+                if let Some(draft) = &mut state.schema_draft
+                    && let Some(index) = draft.locals.get_index_of(&id)
+                    && index > 0
+                {
+                    draft.locals.swap_indices(index, index - 1);
+                }
+            }
+            WhileNodeMessage::EditorMoveLocalDown(id) => {
+                if let Some(draft) = &mut state.schema_draft
+                    && let Some(index) = draft.locals.get_index_of(&id)
+                    && index + 1 < draft.locals.len()
+                {
+                    draft.locals.swap_indices(index, index + 1);
+                }
+            }
+            WhileNodeMessage::EditorRenameLocal(id, name) => {
+                if let Some(draft) = &mut state.schema_draft
+                    && let Some(local) = draft.locals.get_mut(&id)
+                {
+                    local.name = name;
+                }
+            }
+            WhileNodeMessage::EditorChangeLocalType(id, ty) => {
+                if let Some(draft) = &mut state.schema_draft
+                    && let Some(local) = draft.locals.get_mut(&id)
+                {
+                    local.ty = Some(dyn_clone::clone_box(
+                        ctx.resources.type_registry.get_type(&ty).unwrap(),
+                    ));
+                }
+            }
+            WhileNodeMessage::EditorConfirm => {
+                let Some(draft) = &mut state.schema_draft else {
+                    return;
+                };
+                *state.locals.lock() = draft.finalize();
+                state.revision += 1;
+                state.schema_draft = None;
+                state.sync_body_nodes();
+            }
+            WhileNodeMessage::EditorCancel => {
+                state.schema_draft = None;
+            }
+            WhileNodeMessage::LiteralUpdate(literal) => ctx.update_literal(literal),
+        }
+    }
+
+    fn generate_code(
+        &self,
+        state: &Self::State,
+        ctx: GraphNodeCodeGenContext<'_, Data>,
+    ) -> Result<String, GraphNodeCodeGenError> {
+        let locals = state.locals.lock().clone();
+        if locals.len() != ctx.inputs.len() || locals.len() != ctx.outputs.len() {
+            return Err(anyhow!("While parent slot invariant is invalid").into());
+        }
+
+        let body = &state.body;
+        let signature = body.signature();
+
+        let mut current = HashMap::with_capacity(locals.len());
+        let mut code = String::new();
+        for (index, local) in locals.values().enumerate() {
+            let value = ctx.ident_generator.next_output();
+            code.push_str(&format!(
+                "var {value} = {};
+",
+                ctx.get_input(index)?
+            ));
+            current.insert(local.id, value);
+        }
+
+        let mut body_inputs = Vec::with_capacity(signature.inputs.len());
+        for slot_id in signature.inputs.keys() {
+            let slot = body
+                .slots
+                .get_output(slot_id)
+                .ok_or(GraphNodeCodeGenError::MissingOutputSlot)?;
+            let node = body.get_node(&slot.node_id).ok_or_else(|| {
+                GraphNodeCodeGenError::Custom(anyhow!("While body node is missing"))
+            })?;
+            let variable = node
+                .data
+                .state::<WhileNodeInput>()
+                .and_then(|state| state.variable)
+                .ok_or_else(|| anyhow!("While Node Input has an invalid variable"))?;
+            body_inputs.push(
+                current
+                    .get(&variable)
+                    .cloned()
+                    .ok_or_else(|| anyhow!("While variable {variable} is not a local"))?,
+            );
+        }
+
+        let mut next_slots = HashMap::with_capacity(locals.len());
+        for slot_id in signature.outputs.keys() {
+            let slot = body
+                .slots
+                .get_input(slot_id)
+                .ok_or(GraphNodeCodeGenError::MissingInputSlot)?;
+            let node = body
+                .get_node(&slot.node_id)
+                .ok_or_else(|| anyhow!("While body node is missing"))?;
+            let variable = node
+                .data
+                .state::<WhileNodeOutput>()
+                .and_then(|state| state.variable)
+                .ok_or_else(|| anyhow!("While Node Output has an invalid variable"))?;
+            if next_slots.insert(variable, *slot_id).is_some() {
+                return Err(anyhow!("While variable {variable} has duplicate outputs").into());
+            }
+        }
+        for local in locals.values() {
+            if !next_slots.contains_key(&local.id) {
+                return Err(anyhow!(
+                    "While body is missing a While Node Output for variable '{}'",
+                    local.name
+                )
+                .into());
+            }
+        }
+
+        code.push_str(
+            "loop {
+",
+        );
+        let (body_output_idents, body_output_slot_idents, body_code) = body
+            .compile(
+                body_inputs,
+                GraphVarIdentGenerator::new(format!(
+                    "while_{}",
+                    UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed)
+                )),
+                ctx.texture_usage,
+            )
+            .map_err(|error| GraphNodeCodeGenError::Custom(error.into()))?;
+        code.push_str(&body_code);
+
+        let body_outputs = signature
+            .outputs
+            .keys()
+            .copied()
+            .zip(body_output_idents)
+            .collect::<HashMap<_, _>>();
+        for local in locals.values() {
+            let input_slot_id = next_slots[&local.id];
+            let next = body_outputs
+                .get(&input_slot_id)
+                .ok_or_else(|| anyhow!("While body output value of {} is missing", local.name))?;
+            let input_slot = body
+                .slots
+                .get_input(&input_slot_id)
+                .ok_or(GraphNodeCodeGenError::MissingInputSlot)?;
+            let next = if let Some(connected) = input_slot.connected {
+                let output_slot = body
+                    .slots
+                    .get_output(&connected)
+                    .ok_or(GraphNodeCodeGenError::MissingOutputSlot)?;
+                if output_slot.data_ty.name() != input_slot.data.ty().name() {
+                    ctx.resources
+                        .type_registry
+                        .try_wgsl_cast(&*output_slot.data_ty, input_slot.data.ty(), next)
+                        .ok_or(GraphNodeCodeGenError::FailedToCastVariable)?
+                } else {
+                    next.clone()
+                }
+            } else {
+                next.clone()
+            };
+            code.push_str(&format!(
+                "{} = {next};
+",
+                current[&local.id]
+            ));
+        }
+
+        let break_conditions = body
+            .nodes
+            .values()
+            .filter(|node| node.data.is::<BreakBeforeNextIterationNode>())
+            .filter_map(|node| {
+                let input_id = node.inputs.first()?;
+                let slot = body.slots.get_input(input_id)?;
+                if let Some(connected) = slot.connected {
+                    body_output_slot_idents.get(&connected).cloned()
+                } else {
+                    slot.data.to_code()
+                }
+            })
+            .map(|ident| format!("({ident})"))
+            .collect::<Vec<_>>();
+        if break_conditions.is_empty() {
+            return Err(anyhow!("While body has no break condition.").into());
+        }
+
+        let condition = break_conditions.join(" || ");
+        code.push_str(&format!(
+            "if {condition} {{ break; }}
+"
+        ));
+        code.push_str(
+            "}
+",
+        );
+
+        for (slot_id, local) in ctx.outputs.iter().zip(locals.values()) {
+            ctx.output_slot_idents
+                .insert(*slot_id, current[&local.id].clone());
+        }
+
+        Ok(code)
+    }
+
+    fn subgraphs<'a>(&self, state: &'a Self::State) -> Vec<&'a Graph<Data>> {
+        vec![&state.body]
+    }
+
+    fn subgraphs_mut<'a>(&mut self, state: &'a mut Self::State) -> Vec<&'a mut Graph<Data>> {
+        vec![&mut state.body]
     }
 }

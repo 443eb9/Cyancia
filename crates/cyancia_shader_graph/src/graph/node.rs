@@ -5,7 +5,9 @@ use std::{
     sync::Arc,
 };
 
+use anyhow::Result;
 use cyancia_utils::{cloneable_any::ClonableAnySync, wrapper};
+use downcast_rs::Downcast;
 use dyn_clone::DynClone;
 use iced_core::{Color, Length, Point};
 use iced_widget::Column;
@@ -16,7 +18,7 @@ use crate::{
     GraphElement,
     editor::slot::{input_slot, output_slot},
     graph::{
-        GraphData, GraphResources, GraphSignature, GraphVarIdentGenerator,
+        Graph, GraphData, GraphResources, GraphSignature, GraphVarIdentGenerator,
         slot::{
             ErasedGraphLiteralUpdateMessage, GraphDefaultInputSlot, GraphDefaultOutputSlot,
             GraphInputSlotData, GraphInputSlotId, GraphOutputSlotData, GraphOutputSlotId,
@@ -36,11 +38,11 @@ wrapper! {
 }
 
 pub trait GraphNode<Data: GraphData>: Send + Sync + 'static + DynClone {
-    type State: Send + Sync + 'static + GraphSerializable;
+    type State: Send + Sync + 'static + GraphSerializable<Data>;
     type Message: Send + Sync + 'static + Clone;
 
     fn name(&self) -> &'static str;
-    fn default_state(&self) -> Self::State;
+    fn default_state(&self, ctx: GraphNodeDefaultStateContext<'_, Data>) -> Self::State;
     fn header_color(&self, is_dark: bool) -> Color;
     fn create_inputs(
         &self,
@@ -69,11 +71,21 @@ pub trait GraphNode<Data: GraphData>: Send + Sync + 'static + DynClone {
         state: &Self::State,
         ctx: GraphNodeCodeGenContext<'_, Data>,
     ) -> Result<String, GraphNodeCodeGenError>;
-    fn serialize_state(&self, state: &Self::State) -> Result<toml::Value, toml::ser::Error> {
+    fn serialize_state(&self, state: &Self::State) -> Result<toml::Value> {
         state.to_toml()
     }
-    fn deserialize_state(&self, value: toml::Value) -> Result<Self::State, toml::de::Error> {
-        Self::State::from_toml(value, Data::type_registry())
+    fn deserialize_state(
+        &self,
+        value: toml::Value,
+        resources: &GraphResources<Data>,
+    ) -> Result<Self::State> {
+        Self::State::from_toml(value, resources)
+    }
+    fn subgraphs<'a>(&self, _state: &'a Self::State) -> Vec<&'a Graph<Data>> {
+        Vec::new()
+    }
+    fn subgraphs_mut<'a>(&mut self, _state: &'a mut Self::State) -> Vec<&'a mut Graph<Data>> {
+        Vec::new()
     }
 }
 
@@ -91,9 +103,12 @@ impl std::fmt::Debug for ErasedGraphNodeMessage {
     }
 }
 
-pub trait ErasedGraphNode<Data: GraphData>: Send + Sync + 'static + DynClone {
+pub trait ErasedGraphNode<Data: GraphData>: Send + Sync + 'static + DynClone + Downcast {
     fn name(&self) -> &'static str;
-    fn default_state(&self) -> Box<dyn Any + Send + Sync>;
+    fn default_state(
+        &self,
+        ctx: GraphNodeDefaultStateContext<'_, Data>,
+    ) -> Box<dyn Any + Send + Sync>;
     fn header_color(&self, is_dark: bool) -> Color;
     fn create_inputs(
         &self,
@@ -127,25 +142,32 @@ pub trait ErasedGraphNode<Data: GraphData>: Send + Sync + 'static + DynClone {
         state: &Box<dyn Any + Send + Sync>,
         ctx: GraphNodeCodeGenContext<'_, Data>,
     ) -> Result<String, GraphNodeCodeGenError>;
-    fn serialize_state(
-        &self,
-        state: &Box<dyn Any + Send + Sync>,
-    ) -> Result<toml::Value, toml::ser::Error>;
+    fn serialize_state(&self, state: &Box<dyn Any + Send + Sync>) -> Result<toml::Value>;
     fn deserialize_state(
         &self,
         value: toml::Value,
-    ) -> Result<Box<dyn Any + Send + Sync>, toml::de::Error>;
+        resources: &GraphResources<Data>,
+    ) -> Result<Box<dyn Any + Send + Sync>>;
+    fn subgraphs<'a>(&self, state: &'a Box<dyn Any + Send + Sync>) -> Vec<&'a Graph<Data>>;
+    fn subgraphs_mut<'a>(
+        &mut self,
+        state: &'a mut Box<dyn Any + Send + Sync>,
+    ) -> Vec<&'a mut Graph<Data>>;
 }
 
 dyn_clone::clone_trait_object!(<Data> ErasedGraphNode<Data>);
+downcast_rs::impl_downcast!(ErasedGraphNode<Data> where Data: GraphData);
 
 impl<T: GraphNode<Data>, Data: GraphData> ErasedGraphNode<Data> for T {
     fn name(&self) -> &'static str {
         self.name()
     }
 
-    fn default_state(&self) -> Box<dyn Any + Send + Sync> {
-        Box::new(self.default_state())
+    fn default_state(
+        &self,
+        ctx: GraphNodeDefaultStateContext<'_, Data>,
+    ) -> Box<dyn Any + Send + Sync> {
+        Box::new(self.default_state(ctx))
     }
 
     fn header_color(&self, is_dark: bool) -> Color {
@@ -238,10 +260,7 @@ impl<T: GraphNode<Data>, Data: GraphData> ErasedGraphNode<Data> for T {
         )
     }
 
-    fn serialize_state(
-        &self,
-        state: &Box<dyn Any + Send + Sync>,
-    ) -> Result<toml::Value, toml::ser::Error> {
+    fn serialize_state(&self, state: &Box<dyn Any + Send + Sync>) -> Result<toml::Value> {
         self.serialize_state(
             state
                 .downcast_ref::<T::State>()
@@ -252,8 +271,28 @@ impl<T: GraphNode<Data>, Data: GraphData> ErasedGraphNode<Data> for T {
     fn deserialize_state(
         &self,
         value: toml::Value,
-    ) -> Result<Box<dyn Any + Send + Sync>, toml::de::Error> {
-        Ok(Box::new(self.deserialize_state(value)?))
+        resources: &GraphResources<Data>,
+    ) -> Result<Box<dyn Any + Send + Sync>> {
+        Ok(Box::new(self.deserialize_state(value, resources)?))
+    }
+
+    fn subgraphs<'a>(&self, state: &'a Box<dyn Any + Send + Sync>) -> Vec<&'a Graph<Data>> {
+        self.subgraphs(
+            state
+                .downcast_ref::<T::State>()
+                .expect("failed to downcast graph node state"),
+        )
+    }
+
+    fn subgraphs_mut<'a>(
+        &mut self,
+        state: &'a mut Box<dyn Any + Send + Sync>,
+    ) -> Vec<&'a mut Graph<Data>> {
+        self.subgraphs_mut(
+            state
+                .downcast_mut::<T::State>()
+                .expect("failed to downcast graph node state"),
+        )
     }
 }
 
@@ -263,9 +302,12 @@ pub struct StatefulGraphNode<Data: GraphData> {
 }
 
 impl<Data: GraphData> StatefulGraphNode<Data> {
-    pub fn new(node: Box<dyn ErasedGraphNode<Data>>) -> Self {
+    pub fn new(
+        node: Box<dyn ErasedGraphNode<Data>>,
+        ctx: GraphNodeDefaultStateContext<'_, Data>,
+    ) -> Self {
         Self {
-            state: node.default_state(),
+            state: node.default_state(ctx),
             data: node,
         }
     }
@@ -301,13 +343,25 @@ impl<Data: GraphData> StatefulGraphNode<Data> {
         self.data.generate_code(&self.state, ctx)
     }
 
-    pub fn serialize_state(&self) -> Result<toml::Value, toml::ser::Error> {
+    pub fn serialize_state(&self) -> Result<toml::Value> {
         self.data.serialize_state(&self.state)
     }
 
-    pub fn deserialize_and_set_state(&mut self, value: toml::Value) -> Result<(), toml::de::Error> {
-        self.state = self.data.deserialize_state(value)?;
+    pub fn deserialize_and_set_state(
+        &mut self,
+        value: toml::Value,
+        resources: &GraphResources<Data>,
+    ) -> Result<()> {
+        self.state = self.data.deserialize_state(value, resources)?;
         Ok(())
+    }
+
+    pub fn subgraphs(&self) -> Vec<&Graph<Data>> {
+        self.data.subgraphs(&self.state)
+    }
+
+    pub fn subgraphs_mut(&mut self) -> Vec<&mut Graph<Data>> {
+        self.data.subgraphs_mut(&mut self.state)
     }
 
     pub fn create_inputs(
@@ -326,6 +380,10 @@ impl<Data: GraphData> StatefulGraphNode<Data> {
 
     pub fn update_signature(&self, ctx: GraphNodeUpdateSignatureContext<'_, Data>) {
         self.data.update_signature(&self.state, ctx);
+    }
+
+    pub fn is<T: GraphNode<Data>>(&self) -> bool {
+        self.data.downcast_ref::<T>().is_some()
     }
 
     pub fn state<T: GraphNode<Data>>(&self) -> Option<&T::State> {
@@ -373,7 +431,7 @@ impl<Data: GraphData> GraphNodeData<Data> {
         &self,
         node_id: GraphNodeId,
         slots: &GraphSlots,
-        resources: &GraphResources,
+        resources: &GraphResources<Data>,
         is_dark: bool,
     ) -> GraphElement<'static, ErasedGraphNodeMessage> {
         self.data.view(
@@ -390,8 +448,14 @@ impl<Data: GraphData> GraphNodeData<Data> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct GraphNodeDefaultStateContext<'a, Data: GraphData> {
+    pub resources: &'a GraphResources<Data>,
+    pub _marker: PhantomData<Data>,
+}
+
 pub struct GraphNodeCreateSlotsContext<'a, Data: GraphData> {
-    pub resources: &'a GraphResources,
+    pub resources: &'a GraphResources<Data>,
     pub _marker: PhantomData<Data>,
 }
 
@@ -399,7 +463,7 @@ pub struct GraphNodeViewContext<'a, Data: GraphData> {
     pub inputs: &'a [GraphInputSlotId],
     pub outputs: &'a [GraphOutputSlotId],
     pub slots: &'a GraphSlots,
-    pub resources: &'a GraphResources,
+    pub resources: &'a GraphResources<Data>,
     pub is_dark: bool,
     pub _marker: PhantomData<Data>,
 }
@@ -503,7 +567,7 @@ impl<Data: GraphData> GraphNodeViewContext<'_, Data> {
 pub struct GraphNodeUpdateContext<'a, Data: GraphData> {
     pub inputs: &'a [GraphInputSlotId],
     pub slots: &'a mut GraphSlots,
-    pub resources: &'a GraphResources,
+    pub resources: &'a GraphResources<Data>,
     pub _marker: PhantomData<Data>,
 }
 
@@ -530,7 +594,7 @@ pub struct GraphNodeUpdateSignatureContext<'a, Data: GraphData> {
     pub outputs: &'a [GraphOutputSlotId],
     pub slots: &'a GraphSlots,
     pub signature: &'a mut GraphSignature,
-    pub resources: &'a GraphResources,
+    pub resources: &'a GraphResources<Data>,
     pub _marker: PhantomData<Data>,
 }
 
@@ -570,7 +634,7 @@ pub struct GraphNodeCodeGenContext<'a, Data: GraphData> {
     pub graph_slots: &'a GraphSlots,
     pub output_slot_idents: &'a mut HashMap<GraphOutputSlotId, String>,
     pub ident_generator: &'a mut GraphVarIdentGenerator,
-    pub resources: &'a GraphResources,
+    pub resources: &'a GraphResources<Data>,
     pub texture_usage: &'a mut GraphTextureUsageRecorder,
     pub _marker: PhantomData<Data>,
 }
@@ -601,7 +665,8 @@ impl<Data: GraphData> GraphNodeCodeGenContext<'_, Data> {
             .ok_or(GraphNodeCodeGenError::MissingOutputSlot)?;
 
         if output_slot.data_ty.name() != slot.data.ty().name() {
-            Data::type_registry()
+            self.resources
+                .type_registry
                 .try_wgsl_cast(&*output_slot.data_ty, slot.data.ty(), ident)
                 .ok_or(GraphNodeCodeGenError::FailedToCastVariable)
         } else {
@@ -670,9 +735,16 @@ impl std::fmt::Display for ContextualGraphNodeCodeGenError {
     }
 }
 
-#[derive(Default)]
 pub struct GraphNodeRegistry<Data: GraphData> {
     nodes: BTreeMap<&'static str, Box<dyn ErasedGraphNode<Data>>>,
+}
+
+impl<Data: GraphData> Default for GraphNodeRegistry<Data> {
+    fn default() -> Self {
+        Self {
+            nodes: Default::default(),
+        }
+    }
 }
 
 impl<Data: GraphData> Clone for GraphNodeRegistry<Data> {
@@ -692,6 +764,10 @@ impl<Data: GraphData> GraphNodeRegistry<Data> {
 
     pub fn register<T: ErasedGraphNode<Data> + Default>(&mut self) {
         let node = Box::new(T::default());
+        self.nodes.insert(node.name(), node);
+    }
+
+    pub fn register_boxed(&mut self, node: Box<dyn ErasedGraphNode<Data>>) {
         self.nodes.insert(node.name(), node);
     }
 
