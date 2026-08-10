@@ -32,6 +32,7 @@ use crate::{
 pub mod blend_modes;
 pub mod composite;
 pub mod convert;
+pub mod copy_layer;
 pub mod cyan;
 pub mod dynamic_intermediate_buffer;
 pub mod layer;
