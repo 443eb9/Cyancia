@@ -1497,6 +1497,7 @@ dependencies = [
  "chrono",
  "cyancia_assets",
  "cyancia_canvas",
+ "cyancia_color",
  "cyancia_image",
  "cyancia_input",
  "cyancia_math",
@@ -1537,6 +1538,7 @@ dependencies = [
  "bytemuck",
  "cyancia_anti_aliasing",
  "cyancia_canvas",
+ "cyancia_color",
  "cyancia_image",
  "cyancia_input",
  "cyancia_render",
@@ -1599,6 +1601,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cyancia_math",
+ "cyancia_runtime",
  "cyancia_utils",
  "glam 0.30.10",
  "moxcms",

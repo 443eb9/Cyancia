@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use cyancia_runtime::{Services, event::Event as _};
+use cyancia_runtime::Services;
 use glam::Vec2;
 use iced_core::{
     Clipboard, Color, Element, Event, Layout, Length, Point, Rectangle, Renderer as _, Shell, Size,
@@ -18,8 +18,10 @@ use iced_wgpu::graphics::geometry;
 use iced_wgpu::{Renderer, primitive};
 use iced_widget::canvas::{Frame, Path, Stroke};
 
-use crate::render::{GradientDrawPrimitive, SurfaceDrawData};
-use crate::{ColorSelectorEvent, ColorSelectorMessage, ColorSelectorState};
+use crate::{
+    ColorSelectorMessage, ColorSelectorState,
+    render::{GradientDrawPrimitive, SurfaceDrawData},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SurfaceTarget {
@@ -177,7 +179,10 @@ impl ColorSelectorState {
             }
         }
 
-        self.refresh_clip_bounds(services)
+        Task::batch([
+            self.refresh_clip_bounds(services),
+            Task::done(ColorSelectorMessage::Changed(self.color())),
+        ])
     }
 
     pub(crate) fn finish_active_selection(
@@ -191,12 +196,15 @@ impl ColorSelectorState {
         }
         let task = self.update_active_selection(position, services);
         self.active_selection = None;
-        ColorSelectorEvent::broadcast(ColorSelectorEvent::Confirmed(self.color));
-        task
+        Task::batch([
+            task,
+            Task::done(ColorSelectorMessage::Confirmed(self.color())),
+        ])
     }
 }
 
-pub(crate) struct GradientSurface<'a, Message> {
+pub(crate) struct GradientSurface {
+    surface_target: SurfaceTarget,
     data: Option<Arc<SurfaceDrawData>>,
     plane_indicator: Option<Vec2>,
     ring_indicator: Option<Vec2>,
@@ -207,17 +215,17 @@ pub(crate) struct GradientSurface<'a, Message> {
     width: Length,
     height: Length,
     cur_bounds: Rectangle,
-    on_press: Box<dyn Fn(Point) -> Message + 'a>,
-    on_bounds_changed: Box<dyn Fn(Rectangle) -> Message + 'a>,
 }
 
-impl<'a, Message> GradientSurface<'a, Message> {
+impl GradientSurface {
     pub(crate) fn plane(
+        index: usize,
         data: Option<Arc<SurfaceDrawData>>,
         max_width: f32,
         cur_bounds: Rectangle,
     ) -> Self {
         Self {
+            surface_target: SurfaceTarget::Plane(index),
             data,
             plane_indicator: None,
             ring_indicator: None,
@@ -228,17 +236,17 @@ impl<'a, Message> GradientSurface<'a, Message> {
             width: Length::FillPortion(1),
             height: Length::Fill,
             cur_bounds,
-            on_press: Box::new(|_| unreachable!("on_press must be set")),
-            on_bounds_changed: Box::new(|_| unreachable!("on_bounds_changed must be set")),
         }
     }
 
     pub(crate) fn bar(
+        index: usize,
         data: Option<Arc<SurfaceDrawData>>,
         height: f32,
         cur_bounds: Rectangle,
     ) -> Self {
         Self {
+            surface_target: SurfaceTarget::Bar(index),
             data,
             plane_indicator: None,
             ring_indicator: None,
@@ -249,8 +257,6 @@ impl<'a, Message> GradientSurface<'a, Message> {
             width: Length::Fill,
             height: Length::Fixed(height),
             cur_bounds,
-            on_press: Box::new(|_| unreachable!("on_press must be set")),
-            on_bounds_changed: Box::new(|_| unreachable!("on_bounds_changed must be set")),
         }
     }
 
@@ -273,19 +279,9 @@ impl<'a, Message> GradientSurface<'a, Message> {
         self.indicator_color = color;
         self
     }
-
-    pub(crate) fn on_press(mut self, f: impl Fn(Point) -> Message + 'a) -> Self {
-        self.on_press = Box::new(f);
-        self
-    }
-
-    pub(crate) fn on_bounds_changed(mut self, f: impl Fn(Rectangle) -> Message + 'a) -> Self {
-        self.on_bounds_changed = Box::new(f);
-        self
-    }
 }
 
-impl<'a, Message> Widget<Message, Theme, Renderer> for GradientSurface<'a, Message> {
+impl Widget<ColorSelectorMessage, Theme, Renderer> for GradientSurface {
     fn size(&self) -> Size<Length> {
         Size::new(self.width, self.height)
     }
@@ -310,19 +306,38 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for GradientSurface<'a, Messa
         cursor: mouse::Cursor,
         _renderer: &Renderer,
         _clipboard: &mut dyn Clipboard,
-        shell: &mut Shell<'_, Message>,
+        shell: &mut Shell<'_, ColorSelectorMessage>,
         _viewport: &Rectangle,
     ) {
         let bounds = layout.bounds();
         if self.cur_bounds != bounds {
-            shell.publish((self.on_bounds_changed)(bounds));
+            shell.publish(ColorSelectorMessage::SurfaceBoundsChanged(
+                self.surface_target,
+                bounds,
+            ));
         }
 
-        if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event
-            && let Some(position) = cursor.position_over(bounds)
-        {
-            shell.publish((self.on_press)(position));
-            shell.capture_event();
+        let Some(position) = cursor.position_over(bounds) else {
+            return;
+        };
+
+        match event {
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                shell.publish(ColorSelectorMessage::SurfacePress(
+                    self.surface_target,
+                    position,
+                ));
+                shell.capture_event();
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                shell.publish(ColorSelectorMessage::SurfaceRelease);
+                shell.capture_event();
+            }
+            Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                shell.publish(ColorSelectorMessage::SurfaceMove(position));
+                shell.capture_event();
+            }
+            _ => {}
         }
     }
 
@@ -388,14 +403,14 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for GradientSurface<'a, Messa
     }
 }
 
-pub(crate) struct PlaneRow<'a, Message> {
-    surfaces: Vec<GradientSurface<'a, Message>>,
+pub(crate) struct PlaneRow {
+    surfaces: Vec<GradientSurface>,
     spacing: f32,
     max_cell_size: f32,
 }
 
-impl<'a, Message> PlaneRow<'a, Message> {
-    pub(crate) fn new(surfaces: Vec<GradientSurface<'a, Message>>) -> Self {
+impl PlaneRow {
+    pub(crate) fn new(surfaces: Vec<GradientSurface>) -> Self {
         Self {
             surfaces,
             spacing: 5.0,
@@ -414,7 +429,7 @@ impl<'a, Message> PlaneRow<'a, Message> {
     }
 }
 
-impl<'a, Message> Widget<Message, Theme, Renderer> for PlaneRow<'a, Message> {
+impl Widget<ColorSelectorMessage, Theme, Renderer> for PlaneRow {
     fn tag(&self) -> tree::Tag {
         self.surfaces
             .first()
@@ -482,7 +497,7 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for PlaneRow<'a, Message> {
         cursor: mouse::Cursor,
         renderer: &Renderer,
         clipboard: &mut dyn Clipboard,
-        shell: &mut Shell<'_, Message>,
+        shell: &mut Shell<'_, ColorSelectorMessage>,
         viewport: &Rectangle,
     ) {
         for ((surface, child_tree), child_layout) in self
@@ -549,20 +564,14 @@ impl<'a, Message> Widget<Message, Theme, Renderer> for PlaneRow<'a, Message> {
     }
 }
 
-impl<'a, Message> From<PlaneRow<'a, Message>> for Element<'a, Message, Theme, Renderer>
-where
-    Message: 'a,
-{
-    fn from(row: PlaneRow<'a, Message>) -> Self {
+impl<'a> From<PlaneRow> for Element<'a, ColorSelectorMessage, Theme, Renderer> {
+    fn from(row: PlaneRow) -> Self {
         Element::new(row)
     }
 }
 
-impl<'a, Message> From<GradientSurface<'a, Message>> for Element<'a, Message, Theme, Renderer>
-where
-    Message: 'a,
-{
-    fn from(surface: GradientSurface<'a, Message>) -> Self {
+impl<'a> From<GradientSurface> for Element<'a, ColorSelectorMessage, Theme, Renderer> {
+    fn from(surface: GradientSurface) -> Self {
         Element::new(surface)
     }
 }

@@ -9,7 +9,7 @@ use cyancia_color::{
     platform,
 };
 use cyancia_render::render_context::RenderContextAppExt;
-use cyancia_runtime::{Services, event::Event};
+use cyancia_runtime::Services;
 use cyancia_widgets::{fluent_builder::When, spin_slider::SpinSlider};
 use glam::{Vec2, Vec3};
 use iced_core::{Element, Length, Point, Rectangle, Theme};
@@ -30,11 +30,6 @@ pub mod config;
 mod control;
 mod pipeline;
 mod render;
-
-#[derive(Debug, Clone, Copy, Event)]
-pub enum ColorSelectorEvent {
-    Confirmed(Color),
-}
 
 const GRADIENT_RING_GAP: f32 = 5.0;
 
@@ -252,6 +247,132 @@ impl ColorModel {
     }
 }
 
+pub struct ColorSelector<'a, Message> {
+    state: &'a ColorSelectorState,
+    on_state_message: Box<dyn Fn(ColorSelectorMessage) -> Message>,
+}
+
+impl<'a, Message> ColorSelector<'a, Message> {
+    pub fn new(
+        state: &'a ColorSelectorState,
+        on_state_message: impl Fn(ColorSelectorMessage) -> Message + 'static,
+    ) -> Self {
+        Self {
+            state,
+            on_state_message: Box::new(on_state_message),
+        }
+    }
+}
+
+impl<'a, Message: 'a> From<ColorSelector<'a, Message>> for Element<'a, Message, Theme, Renderer> {
+    fn from(value: ColorSelector<'a, Message>) -> Self {
+        let state = value.state;
+        if state.presets.is_empty() {
+            return column!().into();
+        }
+
+        let indicator_color = state.indicator_color();
+        let preset = &state.presets[state.selected_preset];
+        let max_planes_per_row = preset.max_planes_per_row.clamp(1, 5);
+        let max_plane_cell_size = preset.max_plane_size.clamp(128, 512) as f32;
+
+        let planes =
+            preset
+                .planes
+                .chunks(max_planes_per_row)
+                .enumerate()
+                .map(|(row_index, row)| {
+                    let surfaces = row
+                        .iter()
+                        .enumerate()
+                        .map(|(column_index, _)| {
+                            let index = row_index * max_planes_per_row + column_index;
+
+                            GradientSurface::plane(
+                                index,
+                                state.plane_surface_data(index),
+                                max_plane_cell_size,
+                                state
+                                    .planes
+                                    .get(index)
+                                    .map(|p| p.bounds)
+                                    .unwrap_or_default(),
+                            )
+                            .plane_indicator(state.plane_indicator_position(index))
+                            .ring_indicator(state.ring_indicator_position(index))
+                            .indicator_color(indicator_color)
+                        })
+                        .collect();
+                    PlaneRow::new(surfaces)
+                        .spacing(5.0)
+                        .max_cell_size(max_plane_cell_size + 5.0)
+                        .into()
+                });
+
+        let bars = preset.bars.iter().enumerate().map(|(index, config)| {
+            let channel = config.channel as usize;
+            let label = config.model.channel_labels()[channel];
+            let locked = state.bar_primary_channel_locked(config.model, config.channel);
+
+            Row::new()
+                .spacing(4)
+                .when(config.show_channel_label, |r| r.push(text(label).width(12)))
+                .push(
+                    GradientSurface::bar(
+                        index,
+                        state.bar_surface_data(index),
+                        config.bar_height.clamp(10.0, 40.0),
+                        state.bars.get(index).map(|b| b.bounds).unwrap_or_default(),
+                    )
+                    .bar_indicator(state.bar_indicator_position(index).unwrap_or(-1.0))
+                    .indicator_color(indicator_color),
+                )
+                .when(config.show_precise_spin_box, |r| {
+                    let range = config.model.channel_ranges()[channel];
+                    let scale = config.model.display_scale()[channel];
+                    let value = state.bar_display_value(config.model, config.channel);
+                    r.push(
+                        SpinSlider::new(range.x * scale..=range.y * scale, value)
+                            .on_change(move |value| {
+                                ColorSelectorMessage::BarValueChanged(index, value)
+                            })
+                            .width(90)
+                            .precision(2),
+                    )
+                })
+                .when(config.show_primary_channel_lock, |r| {
+                    let model = config.model;
+                    let channel = config.channel;
+                    r.push(radio("", true, locked.then_some(true), move |_| {
+                        ColorSelectorMessage::PrimaryChannelLock(model, channel)
+                    }))
+                })
+                .into()
+        });
+
+        let presets_selector =
+            Row::with_children(state.presets.iter().enumerate().map(|(index, preset)| {
+                radio(
+                    preset.name.clone(),
+                    index,
+                    Some(state.selected_preset),
+                    ColorSelectorMessage::SwitchPreset,
+                )
+                .into()
+            }))
+            .spacing(8);
+
+        let content = column![
+            column(planes).spacing(5),
+            column(bars).spacing(8).padding(8),
+            presets_selector,
+        ]
+        .width(Length::Fill);
+
+        Element::new(content).map(value.on_state_message)
+    }
+}
+
 #[derive(Clone)]
 pub enum ColorSelectorMessage {
     SurfacePress(SurfaceTarget, Point),
@@ -266,6 +387,8 @@ pub enum ColorSelectorMessage {
         x_range: Vec2,
         y_range: Vec2,
     },
+    Changed(Color),
+    Confirmed(Color),
 }
 
 struct PlaneState {
@@ -550,6 +673,7 @@ impl ColorSelectorState {
                 }
                 Task::none()
             }
+            ColorSelectorMessage::Changed(_) | ColorSelectorMessage::Confirmed(_) => Task::none(),
         }
     }
 
@@ -607,126 +731,5 @@ impl ColorSelectorState {
             output_profile: Arc::new(self.output_profile.clone()),
             output_profile_version: self.output_profile_version,
         }))
-    }
-
-    pub fn view<'a>(&'a self) -> Element<'a, ColorSelectorMessage, Theme, Renderer> {
-        if self.presets.is_empty() {
-            return column!().into();
-        }
-
-        let indicator_color = self.indicator_color();
-        let preset = &self.presets[self.selected_preset];
-        let max_planes_per_row = preset.max_planes_per_row.clamp(1, 5);
-        let max_plane_cell_size = preset.max_plane_size.clamp(128, 512) as f32;
-
-        let planes =
-            preset
-                .planes
-                .chunks(max_planes_per_row)
-                .enumerate()
-                .map(|(row_index, row)| {
-                    let surfaces = row
-                        .iter()
-                        .enumerate()
-                        .map(|(column_index, _)| {
-                            let index = row_index * max_planes_per_row + column_index;
-
-                            GradientSurface::plane(
-                                self.plane_surface_data(index),
-                                max_plane_cell_size,
-                                self.planes.get(index).map(|p| p.bounds).unwrap_or_default(),
-                            )
-                            .plane_indicator(self.plane_indicator_position(index))
-                            .ring_indicator(self.ring_indicator_position(index))
-                            .indicator_color(indicator_color)
-                            .on_press(move |position| {
-                                ColorSelectorMessage::SurfacePress(
-                                    SurfaceTarget::Plane(index),
-                                    position,
-                                )
-                            })
-                            .on_bounds_changed(move |bounds| {
-                                ColorSelectorMessage::SurfaceBoundsChanged(
-                                    SurfaceTarget::Plane(index),
-                                    bounds,
-                                )
-                            })
-                        })
-                        .collect();
-                    PlaneRow::new(surfaces)
-                        .spacing(5.0)
-                        .max_cell_size(max_plane_cell_size + 5.0)
-                        .into()
-                });
-
-        let bars = preset.bars.iter().enumerate().map(|(index, config)| {
-            let channel = config.channel as usize;
-            let label = config.model.channel_labels()[channel];
-            let locked = self.bar_primary_channel_locked(config.model, config.channel);
-
-            Row::new()
-                .spacing(4)
-                .when(config.show_channel_label, |r| r.push(text(label).width(12)))
-                .push(
-                    GradientSurface::bar(
-                        self.bar_surface_data(index),
-                        config.bar_height.clamp(10.0, 40.0),
-                        self.bars.get(index).map(|b| b.bounds).unwrap_or_default(),
-                    )
-                    .bar_indicator(self.bar_indicator_position(index).unwrap_or(-1.0))
-                    .indicator_color(indicator_color)
-                    .on_press(move |position| {
-                        ColorSelectorMessage::SurfacePress(SurfaceTarget::Bar(index), position)
-                    })
-                    .on_bounds_changed(move |bounds| {
-                        ColorSelectorMessage::SurfaceBoundsChanged(
-                            SurfaceTarget::Bar(index),
-                            bounds,
-                        )
-                    }),
-                )
-                .when(config.show_precise_spin_box, |r| {
-                    let range = config.model.channel_ranges()[channel];
-                    let scale = config.model.display_scale()[channel];
-                    let value = self.bar_display_value(config.model, config.channel);
-                    r.push(
-                        SpinSlider::new(range.x * scale..=range.y * scale, value)
-                            .on_change(move |value| {
-                                ColorSelectorMessage::BarValueChanged(index, value)
-                            })
-                            .width(90)
-                            .precision(2),
-                    )
-                })
-                .when(config.show_primary_channel_lock, |r| {
-                    let model = config.model;
-                    let channel = config.channel;
-                    r.push(radio("", true, locked.then_some(true), move |_| {
-                        ColorSelectorMessage::PrimaryChannelLock(model, channel)
-                    }))
-                })
-                .into()
-        });
-
-        let presets_selector =
-            Row::with_children(self.presets.iter().enumerate().map(|(index, preset)| {
-                radio(
-                    preset.name.clone(),
-                    index,
-                    Some(self.selected_preset),
-                    ColorSelectorMessage::SwitchPreset,
-                )
-                .into()
-            }))
-            .spacing(8);
-
-        let content = column![
-            column(planes).spacing(5),
-            column(bars).spacing(8).padding(8),
-            presets_selector,
-        ]
-        .width(Length::Fill);
-
-        content.into()
     }
 }
