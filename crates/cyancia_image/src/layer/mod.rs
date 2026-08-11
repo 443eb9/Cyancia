@@ -11,7 +11,7 @@ use parse_display::Display;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use wgpu::{Buffer, ComputePass, Device, Queue, TextureView};
+use wgpu::{ComputePass, Device, Queue};
 
 use crate::{
     CImage,

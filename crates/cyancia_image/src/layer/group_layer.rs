@@ -10,10 +10,9 @@ use cyancia_render::{
 use glam::{IVec2, UVec3};
 use wesl::{VirtualResolver, Wesl};
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor, Buffer,
-    BufferUsages, ComputePass, ComputePipeline, ComputePipelineDescriptor, Device,
-    PipelineLayoutDescriptor, Queue, ShaderModuleDescriptor, ShaderSource, ShaderStages,
-    StorageTextureAccess, TextureView,
+    BindGroup, BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor, BufferUsages,
+    ComputePass, ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor,
+    Queue, ShaderModuleDescriptor, ShaderSource, ShaderStages, StorageTextureAccess,
 };
 
 use crate::{

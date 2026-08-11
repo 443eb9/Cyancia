@@ -13,9 +13,9 @@ use imagers::DynamicImage;
 use moxcms::ColorProfile;
 use wesl::{VirtualResolver, Wesl};
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupLayoutDescriptor, Buffer, BufferUsages, ComputePass,
+    BindGroup, BindGroupDescriptor, BindGroupLayoutDescriptor, BufferUsages, ComputePass,
     ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor, Queue,
-    ShaderModuleDescriptor, ShaderSource, ShaderStages, StorageTextureAccess, TextureView,
+    ShaderModuleDescriptor, ShaderSource, ShaderStages, StorageTextureAccess,
 };
 
 use crate::{
@@ -218,7 +218,7 @@ impl Layer for PixelLayer {
             BufferUsages::UNIFORM,
         );
 
-        let copy_pipeline = CopyLayerPipeline::new(&device, image.texel_type);
+        let copy_pipeline = CopyLayerPipeline::new(device, image.texel_type);
 
         let cache = PixelBlendCache {
             blend_func_name: blend_func_id.clone(),
