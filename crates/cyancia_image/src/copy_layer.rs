@@ -3,16 +3,22 @@ use cyancia_render::{
     bind_group_layout_entries::{BindGroupLayoutEntries, binding_types},
     wesl_jit,
 };
+use glam::UVec3;
 use wgpu::{
-    BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor, ComputePass, ComputePipeline,
-    ComputePipelineDescriptor, Device, PipelineLayoutDescriptor, ShaderModuleDescriptor,
-    ShaderSource, ShaderStages, StorageTextureAccess,
+    BindGroup, BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor, ComputePass,
+    ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor,
+    ShaderModuleDescriptor, ShaderSource, ShaderStages, StorageTextureAccess,
 };
 
 use crate::{
     texel::TexelType,
     tile::{GpuTileInfo, GpuTileStorage, LayerBinding},
 };
+
+pub struct PreparedCopyLayerPipeline {
+    bind_group: BindGroup,
+    workgroup_count: UVec3,
+}
 
 pub struct CopyLayerPipeline {
     layout: BindGroupLayout,
@@ -72,14 +78,13 @@ impl CopyLayerPipeline {
         Self { layout, pipeline }
     }
 
-    // dst layer must ensure that the texture is already contains src layer
-    pub fn dispatch(
+    #[must_use]
+    pub fn prepare(
         &self,
         device: &Device,
-        pass: &mut ComputePass,
         src_layer: &LayerBinding,
         dst_layer: &LayerBinding,
-    ) {
+    ) -> PreparedCopyLayerPipeline {
         let bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: Some("copy layer bind group"),
             layout: &self.layout,
@@ -91,12 +96,26 @@ impl CopyLayerPipeline {
             )),
         });
 
-        pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(
+        let workgroup_count = UVec3::new(
             GpuTileStorage::TILE_SIZE.div_ceil(16),
             GpuTileStorage::TILE_SIZE.div_ceil(16),
             src_layer.texture.texture().depth_or_array_layers(),
+        );
+
+        PreparedCopyLayerPipeline {
+            bind_group,
+            workgroup_count,
+        }
+    }
+
+    // dst layer must ensure that the texture is already contains src layer
+    pub fn dispatch(&self, pass: &mut ComputePass, prepared: &PreparedCopyLayerPipeline) {
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &prepared.bind_group, &[]);
+        pass.dispatch_workgroups(
+            prepared.workgroup_count.x,
+            prepared.workgroup_count.y,
+            prepared.workgroup_count.z,
         );
     }
 }
