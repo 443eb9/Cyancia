@@ -139,10 +139,8 @@ impl ImageCompositor {
             overriders,
             image,
             tiles,
-            &empty_layer_binding.texture,
-            &empty_layer_binding.tile_info_buffer,
-            &root_layer_binding.texture,
-            &root_layer_binding.tile_info_buffer,
+            &empty_layer_binding,
+            &root_layer_binding,
             device,
             queue,
         );

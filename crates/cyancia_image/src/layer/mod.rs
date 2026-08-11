@@ -11,7 +11,7 @@ use parse_display::Display;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use wgpu::{Buffer, ComputePass, Device, Queue, TextureView};
+use wgpu::{ComputePass, Device, Queue};
 
 use crate::{
     CImage,
@@ -21,7 +21,7 @@ use crate::{
         pixel_layer::PixelLayer,
         properties::{HasLayerPropertiesDyn, LayerProperties, NameProp},
     },
-    tile::GpuTileStorage,
+    tile::{GpuTileStorage, LayerBinding},
 };
 
 pub mod group_layer;
@@ -95,10 +95,8 @@ pub trait Layer: Send + Sync + DynClone + 'static + HasLayerPropertiesDyn {
         image: &CImage,
         layer_id: LayerId,
         tiles: &GpuTileStorage,
-        dst_buffer: &TextureView,
-        dst_tile_info: &Buffer,
-        output: &TextureView,
-        output_tile_info: &Buffer,
+        dst_layer: &LayerBinding,
+        output: &LayerBinding,
         device: &Device,
         queue: &Queue,
     );
@@ -721,25 +719,13 @@ impl LayerStackNode {
         overriders: &LayerPreviewOverriders,
         image: &CImage,
         tiles: &GpuTileStorage,
-        dst_buffer: &TextureView,
-        dst_tile_info: &Buffer,
-        output: &TextureView,
-        output_tile_info: &Buffer,
+        dst_layer: &LayerBinding,
+        output: &LayerBinding,
         device: &Device,
         queue: &Queue,
     ) {
         self.instance.prepare_blend_cache(
-            compositor,
-            overriders,
-            image,
-            self.id,
-            tiles,
-            dst_buffer,
-            dst_tile_info,
-            output,
-            output_tile_info,
-            device,
-            queue,
+            compositor, overriders, image, self.id, tiles, dst_layer, output, device, queue,
         )
     }
 

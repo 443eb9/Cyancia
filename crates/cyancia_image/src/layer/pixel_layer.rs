@@ -13,9 +13,9 @@ use imagers::DynamicImage;
 use moxcms::ColorProfile;
 use wesl::{VirtualResolver, Wesl};
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupLayoutDescriptor, Buffer, BufferUsages, ComputePass,
+    BindGroup, BindGroupDescriptor, BindGroupLayoutDescriptor, BufferUsages, ComputePass,
     ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor, Queue,
-    ShaderModuleDescriptor, ShaderSource, ShaderStages, StorageTextureAccess, TextureView,
+    ShaderModuleDescriptor, ShaderSource, ShaderStages, StorageTextureAccess,
 };
 
 use crate::{
@@ -24,6 +24,7 @@ use crate::{
         BlendFunctionId, BlendFunctionRegistry, BlendLayerParams, ImageCompositor,
         LayerPreviewOverriders, PixelPreviewOverrider,
     },
+    copy_layer::{CopyLayerPipeline, PreparedCopyLayerPipeline},
     layer::{
         Layer, LayerId, LayerStackNode,
         properties::{
@@ -35,7 +36,7 @@ use crate::{
         },
     },
     texel::TexelType,
-    tile::{GpuTileInfo, GpuTileStorage},
+    tile::{GpuTileInfo, GpuTileStorage, LayerBinding},
 };
 
 #[derive(Debug, Default, Clone)]
@@ -217,6 +218,8 @@ impl Layer for PixelLayer {
             BufferUsages::UNIFORM,
         );
 
+        let copy_pipeline = CopyLayerPipeline::new(device, image.texel_type);
+
         let cache = PixelBlendCache {
             blend_func_name: blend_func_id.clone(),
             layer_texel_type: layer_info.texel_type,
@@ -225,6 +228,8 @@ impl Layer for PixelLayer {
             with_overrider_pipeline,
             without_overrider_pipeline,
             dispatch: None,
+            copy_pipeline,
+            copy_prepared: None,
         };
         compositor.insert_blend_cache(layer_id, cache);
     }
@@ -236,25 +241,25 @@ impl Layer for PixelLayer {
         image: &CImage,
         layer_id: LayerId,
         tiles: &GpuTileStorage,
-        dst_buffer: &TextureView,
-        dst_tile_info: &Buffer,
-        output: &TextureView,
-        output_tile_info: &Buffer,
+        dst_layer: &LayerBinding,
+        output: &LayerBinding,
         device: &Device,
         queue: &Queue,
     ) {
-        let node = image.layer_stack().get_layer(&layer_id).unwrap();
-        let props = node.properties();
-
-        if !props.visible() {
-            return;
-        }
-
-        let src = tiles.get_layer_binding_or_empty(layer_id).unwrap();
         let Some(cache) = compositor.get_blend_cache_mut::<PixelBlendCache>(&layer_id) else {
             log::error!("BlendCache is not created for layer {:?}", layer_id);
             return;
         };
+
+        let node = image.layer_stack().get_layer(&layer_id).unwrap();
+        let props = node.properties();
+
+        if !props.visible() {
+            cache.copy_prepared = Some(cache.copy_pipeline.prepare(device, dst_layer, output));
+            return;
+        }
+
+        let src = tiles.get_layer_binding_or_empty(layer_id).unwrap();
 
         cache.params_buffer.clear();
         cache.params_buffer.push(&BlendLayerParams {
@@ -268,10 +273,10 @@ impl Layer for PixelLayer {
             cache.params_buffer.binding().unwrap(),
             &src.texture,
             src.tile_info_buffer.as_entire_binding(),
-            dst_buffer,
-            dst_tile_info.as_entire_binding(),
-            output,
-            output_tile_info.as_entire_binding(),
+            &dst_layer.texture,
+            dst_layer.tile_info_buffer.as_entire_binding(),
+            &output.texture,
+            output.tile_info_buffer.as_entire_binding(),
         ));
 
         let pipeline =
@@ -306,19 +311,20 @@ impl Layer for PixelLayer {
         layer_id: LayerId,
         _: &GpuTileStorage,
     ) {
-        let node = image.layer_stack().get_layer(&layer_id).unwrap();
-        let props = node.properties();
-
-        if !props.visible() {
-            // FIXME This is incorrect. If the layer is not visible, we still needs to copy the content
-            //       from src to output. Or the previous blending result will lost.
-            return;
-        }
-
         let Some(cache) = compositor.get_blend_cache::<PixelBlendCache>(&layer_id) else {
             log::error!("BlendCache is not created for layer {:?}", layer_id);
             return;
         };
+
+        let node = image.layer_stack().get_layer(&layer_id).unwrap();
+        let props = node.properties();
+
+        if !props.visible() {
+            if let Some(prepared) = &cache.copy_prepared {
+                cache.copy_pipeline.dispatch(pass, prepared);
+            }
+            return;
+        }
 
         let Some((pipeline, bind_group, workgroup_count)) = &cache.dispatch else {
             log::error!("BlendCache bind group is not prepared");
@@ -339,6 +345,8 @@ pub struct PixelBlendCache {
     with_overrider_pipeline: ComputePipeline,
     without_overrider_pipeline: ComputePipeline,
     dispatch: Option<(ComputePipeline, BindGroup, UVec3)>,
+    copy_pipeline: CopyLayerPipeline,
+    copy_prepared: Option<PreparedCopyLayerPipeline>,
 }
 
 impl PixelLayer {

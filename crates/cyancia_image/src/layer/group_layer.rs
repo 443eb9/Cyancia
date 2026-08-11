@@ -10,10 +10,9 @@ use cyancia_render::{
 use glam::{IVec2, UVec3};
 use wesl::{VirtualResolver, Wesl};
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor, Buffer,
-    BufferUsages, ComputePass, ComputePipeline, ComputePipelineDescriptor, Device,
-    PipelineLayoutDescriptor, Queue, ShaderModuleDescriptor, ShaderSource, ShaderStages,
-    StorageTextureAccess, TextureView,
+    BindGroup, BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor, BufferUsages,
+    ComputePass, ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor,
+    Queue, ShaderModuleDescriptor, ShaderSource, ShaderStages, StorageTextureAccess,
 };
 
 use crate::{
@@ -22,6 +21,7 @@ use crate::{
         BlendFunctionId, BlendFunctionRegistry, BlendLayerParams, ImageCompositor,
         LayerPreviewOverriders,
     },
+    copy_layer::{CopyLayerPipeline, PreparedCopyLayerPipeline},
     dynamic_intermediate_buffer::IntermediateBuffer,
     layer::{
         Layer, LayerId,
@@ -32,7 +32,7 @@ use crate::{
             VisibleProp, VisiblePropertyExt,
         },
     },
-    tile::{GpuTileInfo, GpuTileStorage},
+    tile::{GpuTileInfo, GpuTileStorage, LayerBinding},
 };
 
 #[derive(Debug, Default, Clone)]
@@ -172,6 +172,8 @@ impl Layer for GroupLayer {
             BufferUsages::UNIFORM,
         );
 
+        let copy_pipeline = CopyLayerPipeline::new(device, image.texel_type);
+
         let cache = GroupBlendCache {
             blend_func_name: blend_func_id.clone(),
             intermediate: IntermediateBuffer::new(device, queue, tile_rect, image.texel_type()),
@@ -179,6 +181,8 @@ impl Layer for GroupLayer {
             layout,
             pipeline,
             dispatch: None,
+            copy_pipeline,
+            copy_prepared: None,
         };
         compositor.insert_blend_cache(layer_id, cache);
     }
@@ -190,24 +194,23 @@ impl Layer for GroupLayer {
         image: &CImage,
         layer_id: LayerId,
         tiles: &GpuTileStorage,
-        dst_buffer: &TextureView,
-        dst_tile_info: &Buffer,
-        output: &TextureView,
-        output_tile_info: &Buffer,
+        dst_layer: &LayerBinding,
+        output: &LayerBinding,
         device: &Device,
         queue: &Queue,
     ) {
-        let node = image.layer_stack().get_layer(&layer_id).unwrap();
-        let props = node.properties();
-
-        if !props.visible() {
-            return;
-        }
-
         let Some(cache) = compositor.get_blend_cache_mut::<GroupBlendCache>(&layer_id) else {
             log::error!("BlendCache is not created for layer {}", layer_id);
             return;
         };
+
+        let node = image.layer_stack().get_layer(&layer_id).unwrap();
+        let props = node.properties();
+
+        if !props.visible() {
+            cache.copy_prepared = Some(cache.copy_pipeline.prepare(device, dst_layer, output));
+            return;
+        }
 
         cache.params_buffer.clear();
         cache.params_buffer.push(&BlendLayerParams {
@@ -220,8 +223,16 @@ impl Layer for GroupLayer {
         cache.intermediate.clear(device, queue);
 
         let mut next_output = 1;
-        let textures = cache.intermediate.textures().clone();
-        let tile_info = cache.intermediate.tile_info_buffer().clone();
+        let bindings = [
+            LayerBinding {
+                texture: cache.intermediate.textures()[0].clone(),
+                tile_info_buffer: cache.intermediate.tile_info_buffer().clone(),
+            },
+            LayerBinding {
+                texture: cache.intermediate.textures()[1].clone(),
+                tile_info_buffer: cache.intermediate.tile_info_buffer().clone(),
+            },
+        ];
         let node = image.layer_stack().get_layer(&layer_id).unwrap();
 
         for child_node in node.iter_children_composite_order() {
@@ -232,10 +243,8 @@ impl Layer for GroupLayer {
                 overriders,
                 image,
                 tiles,
-                &textures[1 - next_output],
-                &tile_info,
-                &textures[next_output],
-                &tile_info,
+                &bindings[1 - next_output],
+                &bindings[next_output],
                 device,
                 queue,
             );
@@ -253,10 +262,10 @@ impl Layer for GroupLayer {
                 cache.params_buffer.binding().unwrap(),
                 &cache.intermediate.textures()[1 - next_output],
                 cache.intermediate.tile_info_buffer().as_entire_binding(),
-                dst_buffer,
-                dst_tile_info.as_entire_binding(),
-                output,
-                output_tile_info.as_entire_binding(),
+                &dst_layer.texture,
+                dst_layer.tile_info_buffer.as_entire_binding(),
+                &output.texture,
+                output.tile_info_buffer.as_entire_binding(),
             ))
             .as_ref(),
         });
@@ -275,10 +284,18 @@ impl Layer for GroupLayer {
         layer_id: LayerId,
         tiles: &GpuTileStorage,
     ) {
+        let Some(cache) = compositor.get_blend_cache::<GroupBlendCache>(&layer_id) else {
+            log::error!("BlendCache is not created for layer {}", layer_id);
+            return;
+        };
+
         let node = image.layer_stack().get_layer(&layer_id).unwrap();
         let props = node.properties();
 
         if !props.visible() {
+            if let Some(prepared) = &cache.copy_prepared {
+                cache.copy_pipeline.dispatch(pass, prepared);
+            }
             return;
         }
 
@@ -286,11 +303,6 @@ impl Layer for GroupLayer {
             let child_layer = image.layer_stack().get_layer(child_node).unwrap();
             child_layer.dispatch_blend(compositor, pass, image, tiles);
         }
-
-        let Some(cache) = compositor.get_blend_cache::<GroupBlendCache>(&layer_id) else {
-            log::error!("BlendCache is not created for layer {}", layer_id);
-            return;
-        };
 
         let Some((bind_group, workgroup_count)) = &cache.dispatch else {
             log::error!("BlendCache bind group is not prepared");
@@ -310,6 +322,8 @@ pub struct GroupBlendCache {
     layout: BindGroupLayout,
     pipeline: ComputePipeline,
     dispatch: Option<(BindGroup, UVec3)>,
+    copy_pipeline: CopyLayerPipeline,
+    copy_prepared: Option<PreparedCopyLayerPipeline>,
 }
 
 impl HasLayerProperties for GroupLayer {
