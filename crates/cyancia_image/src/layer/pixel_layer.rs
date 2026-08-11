@@ -35,7 +35,7 @@ use crate::{
         },
     },
     texel::TexelType,
-    tile::{GpuTileInfo, GpuTileStorage},
+    tile::{GpuTileInfo, GpuTileStorage, LayerBinding},
 };
 
 #[derive(Debug, Default, Clone)]
@@ -236,10 +236,8 @@ impl Layer for PixelLayer {
         image: &CImage,
         layer_id: LayerId,
         tiles: &GpuTileStorage,
-        dst_buffer: &TextureView,
-        dst_tile_info: &Buffer,
-        output: &TextureView,
-        output_tile_info: &Buffer,
+        dst_layer: &LayerBinding,
+        output: &LayerBinding,
         device: &Device,
         queue: &Queue,
     ) {
@@ -268,10 +266,10 @@ impl Layer for PixelLayer {
             cache.params_buffer.binding().unwrap(),
             &src.texture,
             src.tile_info_buffer.as_entire_binding(),
-            dst_buffer,
-            dst_tile_info.as_entire_binding(),
-            output,
-            output_tile_info.as_entire_binding(),
+            &dst_layer.texture,
+            dst_layer.tile_info_buffer.as_entire_binding(),
+            &output.texture,
+            output.tile_info_buffer.as_entire_binding(),
         ));
 
         let pipeline =

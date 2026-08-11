@@ -32,7 +32,7 @@ use crate::{
             VisibleProp, VisiblePropertyExt,
         },
     },
-    tile::{GpuTileInfo, GpuTileStorage},
+    tile::{GpuTileInfo, GpuTileStorage, LayerBinding},
 };
 
 #[derive(Debug, Default, Clone)]
@@ -190,10 +190,8 @@ impl Layer for GroupLayer {
         image: &CImage,
         layer_id: LayerId,
         tiles: &GpuTileStorage,
-        dst_buffer: &TextureView,
-        dst_tile_info: &Buffer,
-        output: &TextureView,
-        output_tile_info: &Buffer,
+        dst_layer: &LayerBinding,
+        output: &LayerBinding,
         device: &Device,
         queue: &Queue,
     ) {
@@ -220,8 +218,16 @@ impl Layer for GroupLayer {
         cache.intermediate.clear(device, queue);
 
         let mut next_output = 1;
-        let textures = cache.intermediate.textures().clone();
-        let tile_info = cache.intermediate.tile_info_buffer().clone();
+        let bindings = [
+            LayerBinding {
+                texture: cache.intermediate.textures()[0].clone(),
+                tile_info_buffer: cache.intermediate.tile_info_buffer().clone(),
+            },
+            LayerBinding {
+                texture: cache.intermediate.textures()[1].clone(),
+                tile_info_buffer: cache.intermediate.tile_info_buffer().clone(),
+            },
+        ];
         let node = image.layer_stack().get_layer(&layer_id).unwrap();
 
         for child_node in node.iter_children_composite_order() {
@@ -232,10 +238,8 @@ impl Layer for GroupLayer {
                 overriders,
                 image,
                 tiles,
-                &textures[1 - next_output],
-                &tile_info,
-                &textures[next_output],
-                &tile_info,
+                &bindings[1 - next_output],
+                &bindings[next_output],
                 device,
                 queue,
             );
@@ -253,10 +257,10 @@ impl Layer for GroupLayer {
                 cache.params_buffer.binding().unwrap(),
                 &cache.intermediate.textures()[1 - next_output],
                 cache.intermediate.tile_info_buffer().as_entire_binding(),
-                dst_buffer,
-                dst_tile_info.as_entire_binding(),
-                output,
-                output_tile_info.as_entire_binding(),
+                &dst_layer.texture,
+                dst_layer.tile_info_buffer.as_entire_binding(),
+                &output.texture,
+                output.tile_info_buffer.as_entire_binding(),
             ))
             .as_ref(),
         });
