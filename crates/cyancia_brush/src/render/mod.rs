@@ -1,6 +1,9 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    num::NonZeroU64,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use anyhow::Result;
@@ -28,6 +31,7 @@ use cyancia_render::{
     texture_atlas::{TextureAtlas, TextureAtlasBuilder},
 };
 use cyancia_runtime::Services;
+use cyancia_shader_graph::graph::external::GraphExternalVariableStorage;
 use cyancia_utils::log_err::LogErr;
 use encase::ShaderType;
 use futures::channel::oneshot;
@@ -38,7 +42,6 @@ use wgpu::{
     BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
     BufferDescriptor, BufferUsages, ComputePassDescriptor, Device, Extent3d, Queue, ShaderStages,
     TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
-    util::{BufferInitDescriptor, DeviceExt},
 };
 
 use crate::{
@@ -534,6 +537,8 @@ impl BrushPresetRenderer {
         let Some(session) = &mut self.session else {
             return Task::none();
         };
+
+        self.resources.update_external_var_buffers(queue);
 
         let mut pen_input_buffer =
             DynamicBuffer::new(Some("pen input buffer".into()), BufferUsages::STORAGE);
@@ -1046,8 +1051,8 @@ pub struct DabInfo {
 #[derive(Clone)]
 // TODO This should be renamed to RendererResources
 pub struct StrokeResources {
+    pub external_var_storage: Arc<GraphExternalVariableStorage>,
     pub external_var_layouts: Vec<BindGroupLayoutEntry>,
-    // FIXME This should be retrieved every time updates. Or the value is never updated.
     pub external_var_buffers: Vec<Buffer>,
     pub referenced_textures: TextureAtlas,
     pub canvas_resources: Buffer,
@@ -1083,12 +1088,17 @@ impl StrokeResources {
 
         let mut external_var_buffers = Vec::new();
         for var in brush.external_vars.all().iter() {
-            let buffer = var.value.try_write_into_shader_buffer().unwrap();
-            let gpu_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            let (_, size) = var.value.ty().wgsl_type().unwrap();
+            let gpu_buffer = device.create_buffer(&BufferDescriptor {
                 label: Some("external variable buffer"),
-                contents: &buffer,
-                usage: BufferUsages::STORAGE,
+                size,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
             });
+            let mut writer = queue
+                .write_buffer_with(&gpu_buffer, 0, NonZeroU64::new(size).unwrap())
+                .unwrap();
+            var.value.try_write_into_shader_buffer(&mut writer).unwrap();
             external_var_buffers.push(gpu_buffer);
         }
 
@@ -1136,6 +1146,7 @@ impl StrokeResources {
             .unwrap();
 
         Self {
+            external_var_storage: brush.external_vars.clone(),
             external_var_layouts,
             external_var_buffers,
             referenced_textures,
@@ -1143,6 +1154,23 @@ impl StrokeResources {
             target_layer_format,
             selection_layer_format,
             canvas_resources: canvas_resources.inner_buffer().unwrap().clone(),
+        }
+    }
+
+    pub fn update_external_var_buffers(&mut self, queue: &Queue) {
+        for (ext_var, var_buffer) in self
+            .external_var_storage
+            .all()
+            .iter()
+            .zip(&self.external_var_buffers)
+        {
+            let mut writer = queue
+                .write_buffer_with(var_buffer, 0, NonZeroU64::new(var_buffer.size()).unwrap())
+                .unwrap();
+            ext_var
+                .value
+                .try_write_into_shader_buffer(&mut writer)
+                .unwrap();
         }
     }
 
