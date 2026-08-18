@@ -1,6 +1,5 @@
 use std::sync::{Arc, LazyLock};
 
-use iced_core::Color;
 use iced_widget::pick_list;
 use lapiz_image::blend_modes::BlendMode;
 use lapiz_shader_graph::{
@@ -20,7 +19,7 @@ use lapiz_shader_graph::{
         types::{ColorType, F32Type, RectType, Vec2FType},
     },
 };
-use lapiz_utils::random_oklch;
+use lapiz_utils::random_oklch_hue_chroma;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Clone)]
@@ -39,8 +38,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for PixelPositionNode {
         "Pixel Position"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        random_oklch!(PixelPositionNode, is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(PixelPositionNode)
     }
 
     fn create_inputs(
@@ -74,8 +73,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for InputColorNode {
         "Input Color"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        random_oklch!(InputColorNode, is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(InputColorNode)
     }
 
     fn create_inputs(
@@ -112,8 +111,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SampleInputColorNode {
         "Sample Input Color"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        random_oklch!(SampleInputColorNode, is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(SampleInputColorNode)
     }
 
     fn create_inputs(
@@ -152,8 +151,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for InputBoundsNode {
         "Input Bounds"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        random_oklch!(InputBoundsNode, is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(InputBoundsNode)
     }
 
     fn create_inputs(
@@ -187,8 +186,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for OutputColorNode {
         "Output Color"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        random_oklch!(OutputColorNode, is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(OutputColorNode)
     }
 
     fn create_inputs(
@@ -226,8 +225,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for OutputBoundsNode {
         "Output Bounds"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        random_oklch!(OutputBoundsNode, is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(OutputBoundsNode)
     }
 
     fn create_inputs(
@@ -266,8 +265,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SelectionMaskNode {
         "Selection Mask"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        random_oklch!(SelectionMaskNode, is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(SelectionMaskNode)
     }
 
     fn create_inputs(
@@ -305,8 +304,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for LayerPixelColorNode {
         "Layer Pixel Color"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        random_oklch!(LayerPixelColorNode, is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(LayerPixelColorNode)
     }
 
     fn create_inputs(
@@ -363,8 +362,8 @@ impl<Data: GraphData> GraphNode<Data> for BlendWithLayerNode {
         }
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        random_oklch!(BlendWithLayerNode, is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(BlendWithLayerNode)
     }
 
     fn create_inputs(
@@ -457,8 +456,8 @@ impl<Data: GraphData> GraphNode<Data> for BlendWithInputNode {
         }
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        random_oklch!(BlendWithInputNode, is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(BlendWithInputNode)
     }
 
     fn create_inputs(

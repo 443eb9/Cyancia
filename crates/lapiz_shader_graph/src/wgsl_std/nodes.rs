@@ -11,14 +11,13 @@ use anyhow::anyhow;
 
 use glam::{Vec2, Vec3, Vec3Swizzles};
 use iced_core::{
-    Clipboard, Color, Event, Layout, Length, Rectangle, Shell, Size, Widget, layout, mouse,
-    renderer,
+    Clipboard, Event, Layout, Length, Rectangle, Shell, Size, Widget, layout, mouse, renderer,
     widget::{Operation, Tree, tree},
 };
 use iced_widget::{button, column, container, pick_list, row, text, text_editor, text_input};
 use indexmap::IndexMap;
 use lapiz_math::curve::CubicCurve;
-use lapiz_utils::wrapper;
+use lapiz_utils::{random_oklch_hue_chroma, wrapper};
 use lapiz_widgets::{curve_edit::CurveEdit, fluent_builder::When, popover::Popover};
 use parking_lot::Mutex;
 use parse_display::Display;
@@ -43,10 +42,7 @@ use crate::{
         texture::TextureId,
     },
     save::{GraphSerializable, SerializableGraph},
-    wgsl_std::{
-        themed_color,
-        types::{BoolType, ColorType, F32Type, I32Type, RectType, TextureType, Vec2FType},
-    },
+    wgsl_std::types::{BoolType, ColorType, F32Type, I32Type, RectType, TextureType, Vec2FType},
 };
 
 use lapiz_shader_graph_derive::stateless;
@@ -151,8 +147,8 @@ impl<Data: GraphData> GraphNode<Data> for ScalarMathNode {
         ScalarMathNodeMode::Add
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(ScalarMathNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(ScalarMathNode)
     }
 
     fn create_inputs(
@@ -418,8 +414,8 @@ impl<Data: GraphData> GraphNode<Data> for VectorMathNode {
         VectorMathNodeMode::Add
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(VectorMathNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(VectorMathNode)
     }
 
     fn create_inputs(
@@ -675,8 +671,8 @@ impl<Data: GraphData> GraphNode<Data> for RectMathNode {
         RectMathNodeMode::Union
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(RectMathNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(RectMathNode)
     }
 
     fn create_inputs(
@@ -830,8 +826,8 @@ impl<Data: GraphData> GraphNode<Data> for CompareNode {
         CompareNodeMode::LessThan
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(CompareNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(CompareNode)
     }
 
     fn create_inputs(
@@ -910,8 +906,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for ScalarSelectNode {
         "Scalar Select"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(ScalarSelectNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(ScalarSelectNode)
     }
 
     fn create_inputs(
@@ -957,8 +953,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for VectorSelectNode {
         "Vector Select"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(VectorSelectNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(VectorSelectNode)
     }
 
     fn create_inputs(
@@ -1014,8 +1010,8 @@ impl<Data: GraphDataWithTime> StatelessCommonGraphNode<Data> for TimeNode {
         "Time"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(TimeNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(TimeNode)
     }
 
     fn create_inputs(
@@ -1062,8 +1058,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for ClampNode {
         "Clamp"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(ClampNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(ClampNode)
     }
 
     fn create_inputs(
@@ -1109,8 +1105,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for StepNode {
         "Step"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(StepNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(StepNode)
     }
 
     fn create_inputs(
@@ -1154,8 +1150,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SmoothStepNode {
         "Smooth Step"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(SmoothStepNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(SmoothStepNode)
     }
 
     fn create_inputs(
@@ -1201,8 +1197,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SplitComponentsNode {
         "Split Components"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(SplitComponentsNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(SplitComponentsNode)
     }
 
     fn create_inputs(
@@ -1246,8 +1242,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for CombineComponentsNode {
         "Combine Components"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(CombineComponentsNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(CombineComponentsNode)
     }
 
     fn create_inputs(
@@ -1291,8 +1287,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for CombineColorComponentsN
         "Combine Color Components"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(CombineColorComponentsNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(CombineColorComponentsNode)
     }
 
     fn create_inputs(
@@ -1340,8 +1336,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SplitColorComponentsNod
         "Split Color Components"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(SplitColorComponentsNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(SplitColorComponentsNode)
     }
 
     fn create_inputs(
@@ -1396,8 +1392,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for GetPixelColorNode {
         "Get Pixel Color"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(GetPixelColorNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(GetPixelColorNode)
     }
 
     fn create_inputs(
@@ -1454,8 +1450,8 @@ impl<Data: GraphData> GraphNode<Data> for TextureNode {
         TextureId::NULL
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(TextureNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(TextureNode)
     }
 
     fn create_inputs(
@@ -1529,8 +1525,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for ColorMixNode {
         "Color Mix"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(ColorMixNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(ColorMixNode)
     }
 
     fn create_inputs(
@@ -1576,8 +1572,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for TextureSizeNode {
         "Texture Size"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(TextureSizeNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(TextureSizeNode)
     }
 
     fn create_inputs(
@@ -1654,8 +1650,8 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
         GraphFunctionNodeState { id: None }
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(GraphFunctionNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(GraphFunctionNode)
     }
 
     fn create_inputs(
@@ -1813,8 +1809,8 @@ impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
         GraphInputNodeState::default()
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(GraphInputNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(GraphInputNode)
     }
 
     fn create_inputs(
@@ -1921,8 +1917,8 @@ impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
         GraphOutputNodeState::default()
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(GraphOutputNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(GraphOutputNode)
     }
 
     fn create_inputs(
@@ -2036,8 +2032,8 @@ impl<Data: GraphData> GraphNode<Data> for ExternalVariableNode {
         "External Variable"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(ExternalVariableNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(ExternalVariableNode)
     }
 
     fn create_inputs(
@@ -2191,8 +2187,8 @@ impl<Data: GraphData> GraphNode<Data> for CurveNode {
         Default::default()
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(CurveNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(CurveNode)
     }
 
     fn create_inputs(
@@ -2289,8 +2285,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for RandomNode {
         "Random Number"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(RandomNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(RandomNode)
     }
 
     fn create_inputs(
@@ -2348,8 +2344,8 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for RepeatIterationNode {
         "Repeat Iteration"
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(RepeatIterationNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(RepeatIterationNode)
     }
 
     fn create_inputs(
@@ -2654,8 +2650,8 @@ impl<Data: GraphData> GraphNode<Data> for RepeatInputNode {
         RepeatInputNodeState::default()
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(RepeatInputNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(RepeatInputNode)
     }
 
     fn create_inputs(
@@ -2760,8 +2756,8 @@ impl<Data: GraphData> GraphNode<Data> for RepeatOutputNode {
         RepeatOutputNodeState::default()
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(RepeatOutputNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(RepeatOutputNode)
     }
 
     fn create_inputs(
@@ -2999,8 +2995,8 @@ impl<Data: GraphData> GraphNode<Data> for RepeatNode {
         }
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(RepeatNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(RepeatNode)
     }
 
     fn create_inputs(
@@ -3769,8 +3765,8 @@ impl<Data: GraphData> GraphNode<Data> for CustomExpressionNode {
         }
     }
 
-    fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(CustomExpressionNode), is_dark)
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(CustomExpressionNode)
     }
 
     fn create_inputs(
