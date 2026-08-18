@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     collections::HashMap,
     sync::{
         Arc,
@@ -9,8 +10,12 @@ use std::{
 use anyhow::anyhow;
 
 use glam::{Vec2, Vec3, Vec3Swizzles};
-use iced_core::{Color, Length};
-use iced_widget::{button, column, container, pick_list, row, text, text_input};
+use iced_core::{
+    Clipboard, Color, Event, Layout, Length, Rectangle, Shell, Size, Widget, layout, mouse,
+    renderer,
+    widget::{Operation, Tree, tree},
+};
+use iced_widget::{button, column, container, pick_list, row, text, text_editor, text_input};
 use indexmap::IndexMap;
 use lapiz_math::curve::CubicCurve;
 use lapiz_utils::wrapper;
@@ -21,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    GraphElement,
+    GraphElement, GraphRenderer, GraphTheme,
     graph::{
         Graph, GraphData, GraphResources, GraphVarIdentGenerator,
         external::{ExternalVariableId, generate_external_variable_name},
@@ -40,7 +45,7 @@ use crate::{
     save::{GraphSerializable, SerializableGraph},
     wgsl_std::{
         themed_color,
-        types::{BoolType, ColorType, F32Type, RectType, TextureType, Vec2FType},
+        types::{BoolType, ColorType, F32Type, I32Type, RectType, TextureType, Vec2FType},
     },
 };
 
@@ -2335,63 +2340,66 @@ impl RandomNode {
 }
 
 #[derive(Default, Clone)]
-pub struct BreakBeforeNextIterationNode;
+pub struct RepeatIterationNode;
 
 #[stateless]
-impl<Data: GraphData> StatelessCommonGraphNode<Data> for BreakBeforeNextIterationNode {
+impl<Data: GraphData> StatelessCommonGraphNode<Data> for RepeatIterationNode {
     fn name(&self) -> &'static str {
-        "Break Before Next Iteration"
+        "Repeat Iteration"
     }
 
     fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(BreakBeforeNextIterationNode), is_dark)
+        themed_color(stringify!(RepeatIterationNode), is_dark)
     }
 
     fn create_inputs(
         &self,
         _: GraphNodeCreateSlotsContext<'_, Data>,
     ) -> Vec<GraphDefaultInputSlot> {
-        vec![GraphDefaultInputSlot::new::<BoolType>("Condition".into())]
+        Vec::new()
     }
 
     fn create_outputs(
         &self,
         _: GraphNodeCreateSlotsContext<'_, Data>,
     ) -> Vec<GraphDefaultOutputSlot> {
-        vec![]
+        vec![GraphDefaultOutputSlot::new::<I32Type>("Iteration".into())]
+    }
+
+    fn update_signature(&self, mut ctx: GraphNodeUpdateSignatureContext<'_, Data>) {
+        ctx.require_output_slot_as_graph_input(0, "Iteration".into());
     }
 
     fn generate_code(
         &self,
         _: GraphNodeCodeGenContext<'_, Data>,
     ) -> Result<String, GraphNodeCodeGenError> {
-        // This is handled by while node
         Ok(String::new())
     }
 }
 
 wrapper! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Display)]
-    pub WhileVariableId : Uuid
+    pub RepeatVariableId : Uuid
 }
 
 #[derive(Clone)]
-pub struct WhileLocalSchema {
-    pub id: WhileVariableId,
+pub struct RepeatLocalSchema {
+    pub id: RepeatVariableId,
     pub name: String,
     pub ty: Box<dyn ErasedGraphValueType>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct SerializableWhileLocalSchema {
-    pub id: WhileVariableId,
+pub struct SerializableRepeatLocalSchema {
+    pub id: RepeatVariableId,
     pub name: String,
     pub ty: String,
 }
 
-impl<Data: GraphData> GraphSerializable<Data> for WhileLocalSchema {
+impl<Data: GraphData> GraphSerializable<Data> for RepeatLocalSchema {
     fn to_toml(&self) -> anyhow::Result<toml::Value> {
-        let serializable = SerializableWhileLocalSchema {
+        let serializable = SerializableRepeatLocalSchema {
             id: self.id,
             name: self.name.clone(),
             ty: self.ty.name().to_string(),
@@ -2400,12 +2408,12 @@ impl<Data: GraphData> GraphSerializable<Data> for WhileLocalSchema {
     }
 
     fn from_toml(value: toml::Value, resources: &GraphResources<Data>) -> anyhow::Result<Self> {
-        let serializable = SerializableWhileLocalSchema::deserialize(value)?;
+        let serializable = SerializableRepeatLocalSchema::deserialize(value)?;
         let ty = resources
             .type_registry
             .get_type(&serializable.ty)
             .ok_or_else(|| anyhow::anyhow!("Unknown type: {}", serializable.ty))?;
-        Ok(WhileLocalSchema {
+        Ok(RepeatLocalSchema {
             id: serializable.id,
             name: serializable.name,
             ty: dyn_clone::clone_box(ty),
@@ -2414,26 +2422,26 @@ impl<Data: GraphData> GraphSerializable<Data> for WhileLocalSchema {
 }
 
 #[derive(Clone)]
-struct WhileLocalSchemaDraft {
-    pub id: WhileVariableId,
+struct RepeatLocalSchemaDraft {
+    pub id: RepeatVariableId,
     pub name: String,
     pub ty: Option<Box<dyn ErasedGraphValueType>>,
 }
 
 #[derive(Clone, Default)]
-struct WhileSchemaDraft {
-    locals: IndexMap<WhileVariableId, WhileLocalSchemaDraft>,
+struct RepeatSchemaDraft {
+    locals: IndexMap<RepeatVariableId, RepeatLocalSchemaDraft>,
 }
 
-impl WhileSchemaDraft {
-    pub fn new(locals: &IndexMap<WhileVariableId, WhileLocalSchema>) -> Self {
+impl RepeatSchemaDraft {
+    pub fn new(locals: &IndexMap<RepeatVariableId, RepeatLocalSchema>) -> Self {
         Self {
             locals: locals
                 .iter()
                 .map(|(id, schema)| {
                     (
                         *id,
-                        WhileLocalSchemaDraft {
+                        RepeatLocalSchemaDraft {
                             id: *id,
                             name: schema.name.clone(),
                             ty: Some(schema.ty.clone()),
@@ -2444,13 +2452,13 @@ impl WhileSchemaDraft {
         }
     }
 
-    pub fn finalize(&self) -> IndexMap<WhileVariableId, WhileLocalSchema> {
+    pub fn finalize(&self) -> IndexMap<RepeatVariableId, RepeatLocalSchema> {
         self.locals
             .iter()
             .map(|(id, schema)| {
                 (
                     *id,
-                    WhileLocalSchema {
+                    RepeatLocalSchema {
                         id: *id,
                         name: schema.name.clone(),
                         ty: schema.ty.clone().unwrap(),
@@ -2461,14 +2469,14 @@ impl WhileSchemaDraft {
     }
 }
 
-pub struct WhileNodeState<Data: GraphData> {
-    locals: Arc<Mutex<IndexMap<WhileVariableId, WhileLocalSchema>>>,
+pub struct RepeatNodeState<Data: GraphData> {
+    locals: Arc<Mutex<IndexMap<RepeatVariableId, RepeatLocalSchema>>>,
     revision: u64,
     body: Graph<Data>,
-    schema_draft: Option<WhileSchemaDraft>,
+    schema_draft: Option<RepeatSchemaDraft>,
 }
 
-impl<Data: GraphData> WhileNodeState<Data> {
+impl<Data: GraphData> RepeatNodeState<Data> {
     pub fn body(&self) -> &Graph<Data> {
         &self.body
     }
@@ -2477,11 +2485,11 @@ impl<Data: GraphData> WhileNodeState<Data> {
         &mut self.body
     }
 
-    pub fn add_local<T: GraphValueType + Default>(&mut self, name: String) -> WhileVariableId {
-        let id = WhileVariableId::new(Uuid::new_v4());
+    pub fn add_local<T: GraphValueType + Default>(&mut self, name: String) -> RepeatVariableId {
+        let id = RepeatVariableId::new(Uuid::new_v4());
         self.locals.lock().insert(
             id,
-            WhileLocalSchema {
+            RepeatLocalSchema {
                 id,
                 name,
                 ty: Box::new(T::default()),
@@ -2496,20 +2504,20 @@ impl<Data: GraphData> WhileNodeState<Data> {
             .body
             .nodes
             .iter()
-            .filter(|(_, node)| node.data.state::<WhileNodeInput>().is_some())
+            .filter(|(_, node)| node.data.state::<RepeatInputNode>().is_some())
             .map(|(id, _)| *id)
             .collect::<Vec<_>>();
         let output_ids = self
             .body
             .nodes
             .iter()
-            .filter(|(_, node)| node.data.state::<WhileNodeOutput>().is_some())
+            .filter(|(_, node)| node.data.state::<RepeatOutputNode>().is_some())
             .map(|(id, _)| *id)
             .collect::<Vec<_>>();
 
         let locals = self.locals.lock().clone();
         for id in input_ids {
-            self.body.update_node_state::<WhileNodeInput>(id, |st| {
+            self.body.update_node_state::<RepeatInputNode>(id, |st| {
                 if let Some(variable) = st.variable
                     && !locals.contains_key(&variable)
                 {
@@ -2518,7 +2526,7 @@ impl<Data: GraphData> WhileNodeState<Data> {
             });
         }
         for id in output_ids {
-            self.body.update_node_state::<WhileNodeOutput>(id, |st| {
+            self.body.update_node_state::<RepeatOutputNode>(id, |st| {
                 if let Some(variable) = st.variable
                     && !locals.contains_key(&variable)
                 {
@@ -2531,32 +2539,32 @@ impl<Data: GraphData> WhileNodeState<Data> {
 }
 
 #[derive(Serialize, Deserialize)]
-struct SerializableWhileNodeState {
-    locals: Vec<SerializableWhileLocalSchema>,
+struct SerializableRepeatNodeState {
+    locals: Vec<SerializableRepeatLocalSchema>,
     body: SerializableGraph,
 }
 
-impl<Data: GraphData> GraphSerializable<Data> for WhileNodeState<Data> {
+impl<Data: GraphData> GraphSerializable<Data> for RepeatNodeState<Data> {
     fn to_toml(&self) -> anyhow::Result<toml::Value> {
         let locals = self
             .locals
             .lock()
             .values()
-            .map(|local| SerializableWhileLocalSchema {
+            .map(|local| SerializableRepeatLocalSchema {
                 id: local.id,
                 name: local.name.clone(),
                 ty: local.ty.clone().name().to_string(),
             })
             .collect();
         let body = self.body.as_serialized()?;
-        Ok(toml::Value::try_from(SerializableWhileNodeState {
+        Ok(toml::Value::try_from(SerializableRepeatNodeState {
             locals,
             body,
         })?)
     }
 
     fn from_toml(value: toml::Value, resources: &GraphResources<Data>) -> anyhow::Result<Self> {
-        let serialized = SerializableWhileNodeState::deserialize(value)?;
+        let serialized = SerializableRepeatNodeState::deserialize(value)?;
         let locals =
             serialized
                 .locals
@@ -2564,7 +2572,7 @@ impl<Data: GraphData> GraphSerializable<Data> for WhileNodeState<Data> {
                 .try_fold(IndexMap::new(), |mut locals, local| {
                     locals.insert(
                         local.id,
-                        WhileLocalSchema {
+                        RepeatLocalSchema {
                             id: local.id,
                             name: local.name,
                             ty: dyn_clone::clone_box(
@@ -2579,20 +2587,20 @@ impl<Data: GraphData> GraphSerializable<Data> for WhileNodeState<Data> {
                 })?;
         let locals = Arc::new(Mutex::new(locals));
 
-        let while_node_extra = {
+        let repeat_node_extra = {
             let mut r = GraphNodeRegistry::default();
-            r.register_boxed(Box::new(WhileNodeInput {
+            r.register_boxed(Box::new(RepeatInputNode {
                 locals: locals.clone(),
             }));
-            r.register_boxed(Box::new(WhileNodeOutput {
+            r.register_boxed(Box::new(RepeatOutputNode {
                 locals: locals.clone(),
             }));
-            r.register::<BreakBeforeNextIterationNode>();
+            r.register::<RepeatIterationNode>();
             r
         };
 
         let mut node_registry = resources.node_registry.as_ref().clone();
-        node_registry.merge(while_node_extra);
+        node_registry.merge(repeat_node_extra);
 
         let body_resources = GraphResources {
             type_registry: resources.type_registry.clone(),
@@ -2603,9 +2611,9 @@ impl<Data: GraphData> GraphSerializable<Data> for WhileNodeState<Data> {
         };
         let (body, errors) = Graph::from_serialized(&serialized.body, body_resources);
         if !errors.is_empty() {
-            return Err(anyhow!("While body deserialization failed: {errors:?}"));
+            return Err(anyhow!("Repeat body deserialization failed: {errors:?}"));
         }
-        let body = body.ok_or_else(|| anyhow!("While body is missing"))?;
+        let body = body.ok_or_else(|| anyhow!("Repeat body is missing"))?;
 
         let mut state = Self {
             locals,
@@ -2619,35 +2627,35 @@ impl<Data: GraphData> GraphSerializable<Data> for WhileNodeState<Data> {
 }
 
 #[derive(Default, Clone)]
-pub struct WhileNodeInput {
-    pub locals: Arc<Mutex<IndexMap<WhileVariableId, WhileLocalSchema>>>,
+pub struct RepeatInputNode {
+    pub locals: Arc<Mutex<IndexMap<RepeatVariableId, RepeatLocalSchema>>>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
-pub struct WhileNodeInputState {
-    pub variable: Option<WhileVariableId>,
+pub struct RepeatInputNodeState {
+    pub variable: Option<RepeatVariableId>,
 }
 
 #[derive(Clone)]
-pub enum WhileNodeInputMessage {
-    VariableChanged(WhileVariableId),
+pub enum RepeatInputNodeMessage {
+    VariableChanged(RepeatVariableId),
     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
-impl<Data: GraphData> GraphNode<Data> for WhileNodeInput {
-    type State = WhileNodeInputState;
-    type Message = WhileNodeInputMessage;
+impl<Data: GraphData> GraphNode<Data> for RepeatInputNode {
+    type State = RepeatInputNodeState;
+    type Message = RepeatInputNodeMessage;
 
     fn name(&self) -> &'static str {
-        "While Node Input"
+        "Repeat Input"
     }
 
     fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
-        WhileNodeInputState::default()
+        RepeatInputNodeState::default()
     }
 
     fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(WhileNodeInput), is_dark)
+        themed_color(stringify!(RepeatInputNode), is_dark)
     }
 
     fn create_inputs(
@@ -2690,16 +2698,16 @@ impl<Data: GraphData> GraphNode<Data> for WhileNodeInput {
         state: &Self::State,
         ctx: GraphNodeViewContext<'_, Data>,
     ) -> GraphElement<'static, Self::Message> {
-        let locals = while_variable_references(&self.locals.lock());
+        let locals = repeat_variable_references(&self.locals.lock());
         let selected = state
             .variable
             .and_then(|id| locals.iter().find(|reference| reference.id == id).cloned());
         ctx.view_all_slots_with_header(
             pick_list(locals, selected, |reference| {
-                WhileNodeInputMessage::VariableChanged(reference.id)
+                RepeatInputNodeMessage::VariableChanged(reference.id)
             })
             .width(Length::Fill),
-            WhileNodeInputMessage::LiteralUpdate,
+            RepeatInputNodeMessage::LiteralUpdate,
         )
     }
 
@@ -2710,8 +2718,8 @@ impl<Data: GraphData> GraphNode<Data> for WhileNodeInput {
         mut ctx: GraphNodeUpdateContext<'_, Data>,
     ) {
         match message {
-            WhileNodeInputMessage::VariableChanged(variable) => state.variable = Some(variable),
-            WhileNodeInputMessage::LiteralUpdate(literal) => ctx.update_literal(literal),
+            RepeatInputNodeMessage::VariableChanged(variable) => state.variable = Some(variable),
+            RepeatInputNodeMessage::LiteralUpdate(literal) => ctx.update_literal(literal),
         }
     }
 
@@ -2725,35 +2733,35 @@ impl<Data: GraphData> GraphNode<Data> for WhileNodeInput {
 }
 
 #[derive(Default, Clone)]
-pub struct WhileNodeOutput {
-    pub locals: Arc<Mutex<IndexMap<WhileVariableId, WhileLocalSchema>>>,
+pub struct RepeatOutputNode {
+    pub locals: Arc<Mutex<IndexMap<RepeatVariableId, RepeatLocalSchema>>>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
-pub struct WhileNodeOutputState {
-    pub variable: Option<WhileVariableId>,
+pub struct RepeatOutputNodeState {
+    pub variable: Option<RepeatVariableId>,
 }
 
 #[derive(Clone)]
-pub enum WhileNodeOutputMessage {
-    VariableChanged(WhileVariableId),
+pub enum RepeatOutputNodeMessage {
+    VariableChanged(RepeatVariableId),
     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
-impl<Data: GraphData> GraphNode<Data> for WhileNodeOutput {
-    type State = WhileNodeOutputState;
-    type Message = WhileNodeOutputMessage;
+impl<Data: GraphData> GraphNode<Data> for RepeatOutputNode {
+    type State = RepeatOutputNodeState;
+    type Message = RepeatOutputNodeMessage;
 
     fn name(&self) -> &'static str {
-        "While Node Output"
+        "Repeat Output"
     }
 
     fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
-        WhileNodeOutputState::default()
+        RepeatOutputNodeState::default()
     }
 
     fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(WhileNodeOutput), is_dark)
+        themed_color(stringify!(RepeatOutputNode), is_dark)
     }
 
     fn create_inputs(
@@ -2796,16 +2804,16 @@ impl<Data: GraphData> GraphNode<Data> for WhileNodeOutput {
         state: &Self::State,
         ctx: GraphNodeViewContext<'_, Data>,
     ) -> GraphElement<'static, Self::Message> {
-        let locals = while_variable_references(&self.locals.lock());
+        let locals = repeat_variable_references(&self.locals.lock());
         let selected = state
             .variable
             .and_then(|id| locals.iter().find(|reference| reference.id == id).cloned());
         ctx.view_all_slots_with_header(
             pick_list(locals, selected, |reference| {
-                WhileNodeOutputMessage::VariableChanged(reference.id)
+                RepeatOutputNodeMessage::VariableChanged(reference.id)
             })
             .width(Length::Fill),
-            WhileNodeOutputMessage::LiteralUpdate,
+            RepeatOutputNodeMessage::LiteralUpdate,
         )
     }
 
@@ -2816,8 +2824,8 @@ impl<Data: GraphData> GraphNode<Data> for WhileNodeOutput {
         mut ctx: GraphNodeUpdateContext<'_, Data>,
     ) {
         match message {
-            WhileNodeOutputMessage::VariableChanged(variable) => state.variable = Some(variable),
-            WhileNodeOutputMessage::LiteralUpdate(literal) => ctx.update_literal(literal),
+            RepeatOutputNodeMessage::VariableChanged(variable) => state.variable = Some(variable),
+            RepeatOutputNodeMessage::LiteralUpdate(literal) => ctx.update_literal(literal),
         }
     }
 
@@ -2831,29 +2839,29 @@ impl<Data: GraphData> GraphNode<Data> for WhileNodeOutput {
 }
 
 #[derive(Clone)]
-struct WhileVariableReference {
-    id: WhileVariableId,
+struct RepeatVariableReference {
+    id: RepeatVariableId,
     name: String,
 }
 
-impl std::fmt::Display for WhileVariableReference {
+impl std::fmt::Display for RepeatVariableReference {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.name.fmt(f)
     }
 }
 
-impl PartialEq for WhileVariableReference {
+impl PartialEq for RepeatVariableReference {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
 
-fn while_variable_references(
-    locals: &IndexMap<WhileVariableId, WhileLocalSchema>,
-) -> Vec<WhileVariableReference> {
+fn repeat_variable_references(
+    locals: &IndexMap<RepeatVariableId, RepeatLocalSchema>,
+) -> Vec<RepeatVariableReference> {
     locals
         .values()
-        .map(|local| WhileVariableReference {
+        .map(|local| RepeatVariableReference {
             id: local.id,
             name: local.name.clone(),
         })
@@ -2861,26 +2869,26 @@ fn while_variable_references(
 }
 
 #[derive(Default, Clone)]
-pub struct WhileNode;
+pub struct RepeatNode;
 
 #[derive(Clone)]
-pub enum WhileNodeMessage {
+pub enum RepeatNodeMessage {
     ToggleEditor,
     EditorAddLocal,
-    EditorRemoveLocal(WhileVariableId),
-    EditorMoveLocalUp(WhileVariableId),
-    EditorMoveLocalDown(WhileVariableId),
-    EditorRenameLocal(WhileVariableId, String),
-    EditorChangeLocalType(WhileVariableId, String),
+    EditorRemoveLocal(RepeatVariableId),
+    EditorMoveLocalUp(RepeatVariableId),
+    EditorMoveLocalDown(RepeatVariableId),
+    EditorRenameLocal(RepeatVariableId, String),
+    EditorChangeLocalType(RepeatVariableId, String),
     EditorConfirm,
     EditorCancel,
     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
-fn while_schema_editor_view<Data: GraphData>(
-    state: &WhileNodeState<Data>,
+fn repeat_schema_editor_view<Data: GraphData>(
+    state: &RepeatNodeState<Data>,
     resources: &GraphResources<Data>,
-) -> GraphElement<'static, WhileNodeMessage> {
+) -> GraphElement<'static, RepeatNodeMessage> {
     let type_names = resources
         .type_registry
         .all_types()
@@ -2896,24 +2904,24 @@ fn while_schema_editor_view<Data: GraphData>(
             let id = local.id;
             column![
                 text_input("Variable Name", &local.name)
-                    .on_input(move |name| { WhileNodeMessage::EditorRenameLocal(id, name) }),
+                    .on_input(move |name| { RepeatNodeMessage::EditorRenameLocal(id, name) }),
                 row![
                     pick_list(
                         type_names.clone(),
                         local.ty.as_ref().map(|t| t.name()),
-                        move |ty| { WhileNodeMessage::EditorChangeLocalType(id, ty.to_string()) },
+                        move |ty| { RepeatNodeMessage::EditorChangeLocalType(id, ty.to_string()) },
                     )
                     .width(Length::Fill),
-                    button("Up").on_press(WhileNodeMessage::EditorMoveLocalUp(id)),
-                    button("Down").on_press(WhileNodeMessage::EditorMoveLocalDown(id)),
-                    button("Delete").on_press(WhileNodeMessage::EditorRemoveLocal(id)),
+                    button("Up").on_press(RepeatNodeMessage::EditorMoveLocalUp(id)),
+                    button("Down").on_press(RepeatNodeMessage::EditorMoveLocalDown(id)),
+                    button("Delete").on_press(RepeatNodeMessage::EditorRemoveLocal(id)),
                 ]
                 .spacing(4),
             ]
             .spacing(4)
             .into()
         })
-        .collect::<Vec<GraphElement<'static, WhileNodeMessage>>>();
+        .collect::<Vec<GraphElement<'static, RepeatNodeMessage>>>();
 
     let valid = draft
         .locals
@@ -2932,11 +2940,11 @@ fn while_schema_editor_view<Data: GraphData>(
         .width(Length::Fixed(300.0))
         .padding(4)
         .spacing(6)
-        .push(row![button("Add Variable").on_press(WhileNodeMessage::EditorAddLocal)].spacing(6))
+        .push(row![button("Add Variable").on_press(RepeatNodeMessage::EditorAddLocal)].spacing(6))
         .push(
             row![
-                button("Cancel").on_press(WhileNodeMessage::EditorCancel),
-                button("Confirm").when(valid, |b| b.on_press(WhileNodeMessage::EditorConfirm))
+                button("Cancel").on_press(RepeatNodeMessage::EditorCancel),
+                button("Confirm").when(valid, |b| b.on_press(RepeatNodeMessage::EditorConfirm))
             ]
             .spacing(4),
         );
@@ -2949,31 +2957,31 @@ fn while_schema_editor_view<Data: GraphData>(
         .into()
 }
 
-impl<Data: GraphData> GraphNode<Data> for WhileNode {
-    type State = WhileNodeState<Data>;
+impl<Data: GraphData> GraphNode<Data> for RepeatNode {
+    type State = RepeatNodeState<Data>;
 
-    type Message = WhileNodeMessage;
+    type Message = RepeatNodeMessage;
 
     fn name(&self) -> &'static str {
-        "While"
+        "Repeat"
     }
 
     fn default_state(&self, ctx: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
         let locals = Arc::new(Mutex::new(IndexMap::new()));
-        let while_node_extra = {
+        let repeat_node_extra = {
             let mut r = GraphNodeRegistry::default();
-            r.register_boxed(Box::new(WhileNodeInput {
+            r.register_boxed(Box::new(RepeatInputNode {
                 locals: locals.clone(),
             }));
-            r.register_boxed(Box::new(WhileNodeOutput {
+            r.register_boxed(Box::new(RepeatOutputNode {
                 locals: locals.clone(),
             }));
-            r.register::<BreakBeforeNextIterationNode>();
+            r.register::<RepeatIterationNode>();
             r
         };
 
         let mut node_registry = ctx.resources.node_registry.as_ref().clone();
-        node_registry.merge(while_node_extra);
+        node_registry.merge(repeat_node_extra);
 
         let body_resources = GraphResources {
             type_registry: ctx.resources.type_registry.clone(),
@@ -2983,7 +2991,7 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
             external_vars: ctx.resources.external_vars.clone(),
         };
 
-        WhileNodeState {
+        RepeatNodeState {
             locals,
             revision: 0,
             body: Graph::new(body_resources),
@@ -2992,7 +3000,7 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
     }
 
     fn header_color(&self, is_dark: bool) -> Color {
-        themed_color(stringify!(WhileNode), is_dark)
+        themed_color(stringify!(RepeatNode), is_dark)
     }
 
     fn create_inputs(
@@ -3000,13 +3008,10 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
         state: &Self::State,
         _ctx: GraphNodeCreateSlotsContext<'_, Data>,
     ) -> Vec<GraphDefaultInputSlot> {
-        state
-            .locals
-            .lock()
-            .values()
-            .map(|local| {
+        std::iter::once(GraphDefaultInputSlot::new::<I32Type>("Iterations".into()))
+            .chain(state.locals.lock().values().map(|local| {
                 GraphDefaultInputSlot::new_boxed(format!("{} In", local.name), local.ty.clone())
-            })
+            }))
             .collect()
     }
 
@@ -3030,13 +3035,13 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
         state: &Self::State,
         ctx: GraphNodeViewContext<'_, Data>,
     ) -> GraphElement<'static, Self::Message> {
-        let trigger = button(text("Edit")).on_press(WhileNodeMessage::ToggleEditor);
+        let trigger = button(text("Edit")).on_press(RepeatNodeMessage::ToggleEditor);
         let content = state
             .schema_draft
             .as_ref()
-            .map(|_| while_schema_editor_view(state, ctx.resources));
+            .map(|_| repeat_schema_editor_view(state, ctx.resources));
         let popover = Popover::new(trigger).content(content);
-        ctx.view_all_slots_with_header(popover, WhileNodeMessage::LiteralUpdate)
+        ctx.view_all_slots_with_header(popover, RepeatNodeMessage::LiteralUpdate)
     }
 
     fn update(
@@ -3046,19 +3051,19 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
         mut ctx: GraphNodeUpdateContext<'_, Data>,
     ) {
         match message {
-            WhileNodeMessage::ToggleEditor => {
+            RepeatNodeMessage::ToggleEditor => {
                 if state.schema_draft.is_some() {
                     state.schema_draft = None;
                 } else {
-                    state.schema_draft = Some(WhileSchemaDraft::new(&state.locals.lock()));
+                    state.schema_draft = Some(RepeatSchemaDraft::new(&state.locals.lock()));
                 }
             }
-            WhileNodeMessage::EditorAddLocal => {
+            RepeatNodeMessage::EditorAddLocal => {
                 if let Some(draft) = &mut state.schema_draft {
-                    let new_id = WhileVariableId::new(Uuid::new_v4());
+                    let new_id = RepeatVariableId::new(Uuid::new_v4());
                     draft.locals.insert(
                         new_id,
-                        WhileLocalSchemaDraft {
+                        RepeatLocalSchemaDraft {
                             id: new_id,
                             name: String::new(),
                             ty: None,
@@ -3066,12 +3071,12 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
                     );
                 }
             }
-            WhileNodeMessage::EditorRemoveLocal(id) => {
+            RepeatNodeMessage::EditorRemoveLocal(id) => {
                 if let Some(draft) = &mut state.schema_draft {
                     draft.locals.shift_remove(&id);
                 }
             }
-            WhileNodeMessage::EditorMoveLocalUp(id) => {
+            RepeatNodeMessage::EditorMoveLocalUp(id) => {
                 if let Some(draft) = &mut state.schema_draft
                     && let Some(index) = draft.locals.get_index_of(&id)
                     && index > 0
@@ -3079,7 +3084,7 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
                     draft.locals.swap_indices(index, index - 1);
                 }
             }
-            WhileNodeMessage::EditorMoveLocalDown(id) => {
+            RepeatNodeMessage::EditorMoveLocalDown(id) => {
                 if let Some(draft) = &mut state.schema_draft
                     && let Some(index) = draft.locals.get_index_of(&id)
                     && index + 1 < draft.locals.len()
@@ -3087,14 +3092,14 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
                     draft.locals.swap_indices(index, index + 1);
                 }
             }
-            WhileNodeMessage::EditorRenameLocal(id, name) => {
+            RepeatNodeMessage::EditorRenameLocal(id, name) => {
                 if let Some(draft) = &mut state.schema_draft
                     && let Some(local) = draft.locals.get_mut(&id)
                 {
                     local.name = name;
                 }
             }
-            WhileNodeMessage::EditorChangeLocalType(id, ty) => {
+            RepeatNodeMessage::EditorChangeLocalType(id, ty) => {
                 if let Some(draft) = &mut state.schema_draft
                     && let Some(local) = draft.locals.get_mut(&id)
                 {
@@ -3103,7 +3108,7 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
                     ));
                 }
             }
-            WhileNodeMessage::EditorConfirm => {
+            RepeatNodeMessage::EditorConfirm => {
                 let Some(draft) = &mut state.schema_draft else {
                     return;
                 };
@@ -3112,10 +3117,10 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
                 state.schema_draft = None;
                 state.sync_body_nodes();
             }
-            WhileNodeMessage::EditorCancel => {
+            RepeatNodeMessage::EditorCancel => {
                 state.schema_draft = None;
             }
-            WhileNodeMessage::LiteralUpdate(literal) => ctx.update_literal(literal),
+            RepeatNodeMessage::LiteralUpdate(literal) => ctx.update_literal(literal),
         }
     }
 
@@ -3125,10 +3130,11 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
         ctx: GraphNodeCodeGenContext<'_, Data>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let locals = state.locals.lock().clone();
-        if locals.len() != ctx.inputs.len() || locals.len() != ctx.outputs.len() {
-            return Err(anyhow!("While parent slot invariant is invalid").into());
+        if locals.len() + 1 != ctx.inputs.len() || locals.len() != ctx.outputs.len() {
+            return Err(anyhow!("Repeat parent slot invariant is invalid").into());
         }
 
+        let iterations = ctx.get_input(0)?;
         let body = &state.body;
         let signature = body.signature();
 
@@ -3139,11 +3145,12 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
             code.push_str(&format!(
                 "var {value} = {};
 ",
-                ctx.get_input(index)?
+                ctx.get_input(index + 1)?
             ));
             current.insert(local.id, value);
         }
 
+        let iteration = ctx.ident_generator.next_output();
         let mut body_inputs = Vec::with_capacity(signature.inputs.len());
         for slot_id in signature.inputs.keys() {
             let slot = body
@@ -3151,18 +3158,22 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
                 .get_output(slot_id)
                 .ok_or(GraphNodeCodeGenError::MissingOutputSlot)?;
             let node = body.get_node(&slot.node_id).ok_or_else(|| {
-                GraphNodeCodeGenError::Custom(anyhow!("While body node is missing"))
+                GraphNodeCodeGenError::Custom(anyhow!("Repeat body node is missing"))
             })?;
+            if node.data.is::<RepeatIterationNode>() {
+                body_inputs.push(iteration.clone());
+                continue;
+            }
             let variable = node
                 .data
-                .state::<WhileNodeInput>()
+                .state::<RepeatInputNode>()
                 .and_then(|state| state.variable)
-                .ok_or_else(|| anyhow!("While Node Input has an invalid variable"))?;
+                .ok_or_else(|| anyhow!("Repeat Input has an invalid variable"))?;
             body_inputs.push(
                 current
                     .get(&variable)
                     .cloned()
-                    .ok_or_else(|| anyhow!("While variable {variable} is not a local"))?,
+                    .ok_or_else(|| anyhow!("Repeat variable {variable} is not a local"))?,
             );
         }
 
@@ -3174,35 +3185,34 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
                 .ok_or(GraphNodeCodeGenError::MissingInputSlot)?;
             let node = body
                 .get_node(&slot.node_id)
-                .ok_or_else(|| anyhow!("While body node is missing"))?;
+                .ok_or_else(|| anyhow!("Repeat body node is missing"))?;
             let variable = node
                 .data
-                .state::<WhileNodeOutput>()
+                .state::<RepeatOutputNode>()
                 .and_then(|state| state.variable)
-                .ok_or_else(|| anyhow!("While Node Output has an invalid variable"))?;
+                .ok_or_else(|| anyhow!("Repeat Output has an invalid variable"))?;
             if next_slots.insert(variable, *slot_id).is_some() {
-                return Err(anyhow!("While variable {variable} has duplicate outputs").into());
+                return Err(anyhow!("Repeat variable {variable} has duplicate outputs").into());
             }
         }
         for local in locals.values() {
             if !next_slots.contains_key(&local.id) {
                 return Err(anyhow!(
-                    "While body is missing a While Node Output for variable '{}'",
+                    "Repeat body is missing a Repeat Output for variable '{}'",
                     local.name
                 )
                 .into());
             }
         }
 
-        code.push_str(
-            "loop {
-",
-        );
-        let (body_output_idents, body_output_slot_idents, body_code) = body
+        code.push_str(&format!(
+            "for (var {iteration} = 0i; {iteration} < {iterations}; {iteration}++) {{\n"
+        ));
+        let (body_output_idents, _, body_code) = body
             .compile(
                 body_inputs,
                 GraphVarIdentGenerator::new(format!(
-                    "while_{}",
+                    "repeat_{}",
                     UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed)
                 )),
                 ctx.texture_usage,
@@ -3220,7 +3230,7 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
             let input_slot_id = next_slots[&local.id];
             let next = body_outputs
                 .get(&input_slot_id)
-                .ok_or_else(|| anyhow!("While body output value of {} is missing", local.name))?;
+                .ok_or_else(|| anyhow!("Repeat body output value of {} is missing", local.name))?;
             let input_slot = body
                 .slots
                 .get_input(&input_slot_id)
@@ -3248,34 +3258,7 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
             ));
         }
 
-        let break_conditions = body
-            .nodes
-            .values()
-            .filter(|node| node.data.is::<BreakBeforeNextIterationNode>())
-            .filter_map(|node| {
-                let input_id = node.inputs.first()?;
-                let slot = body.slots.get_input(input_id)?;
-                if let Some(connected) = slot.connected {
-                    body_output_slot_idents.get(&connected).cloned()
-                } else {
-                    slot.data.to_code()
-                }
-            })
-            .map(|ident| format!("({ident})"))
-            .collect::<Vec<_>>();
-        if break_conditions.is_empty() {
-            return Err(anyhow!("While body has no break condition.").into());
-        }
-
-        let condition = break_conditions.join(" || ");
-        code.push_str(&format!(
-            "if {condition} {{ break; }}
-"
-        ));
-        code.push_str(
-            "}
-",
-        );
+        code.push_str("}\n");
 
         for (slot_id, local) in ctx.outputs.iter().zip(locals.values()) {
             ctx.output_slot_idents
@@ -3291,5 +3274,711 @@ impl<Data: GraphData> GraphNode<Data> for WhileNode {
 
     fn subgraphs_mut<'a>(&mut self, state: &'a mut Self::State) -> Vec<&'a mut Graph<Data>> {
         vec![&mut state.body]
+    }
+}
+
+wrapper! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Display)]
+    pub CustomExpressionVariableId : Uuid
+}
+
+#[derive(Clone)]
+pub struct CustomExpressionVariable {
+    pub id: CustomExpressionVariableId,
+    pub display_name: String,
+    pub name: String,
+    pub ty: Box<dyn ErasedGraphValueType>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SerializableCustomExpressionVariable {
+    id: CustomExpressionVariableId,
+    display_name: String,
+    name: String,
+    ty: String,
+}
+
+pub struct CustomExpressionNodeState {
+    inputs: IndexMap<CustomExpressionVariableId, CustomExpressionVariable>,
+    outputs: IndexMap<CustomExpressionVariableId, CustomExpressionVariable>,
+    code: String,
+    draft: Option<CustomExpressionDraft>,
+}
+
+#[derive(Clone)]
+struct CustomExpressionVariableDraft {
+    id: CustomExpressionVariableId,
+    display_name: String,
+    name: String,
+    ty: Option<Box<dyn ErasedGraphValueType>>,
+}
+
+#[derive(Clone, Copy)]
+pub enum CustomExpressionVariableKind {
+    Input,
+    Output,
+}
+
+struct CustomExpressionDraft {
+    inputs: IndexMap<CustomExpressionVariableId, CustomExpressionVariableDraft>,
+    outputs: IndexMap<CustomExpressionVariableId, CustomExpressionVariableDraft>,
+}
+
+impl CustomExpressionDraft {
+    fn new(state: &CustomExpressionNodeState) -> Self {
+        let to_draft = |variables: &IndexMap<_, CustomExpressionVariable>| {
+            variables
+                .iter()
+                .map(|(id, variable)| {
+                    (
+                        *id,
+                        CustomExpressionVariableDraft {
+                            id: *id,
+                            display_name: variable.display_name.clone(),
+                            name: variable.name.clone(),
+                            ty: Some(variable.ty.clone()),
+                        },
+                    )
+                })
+                .collect()
+        };
+        Self {
+            inputs: to_draft(&state.inputs),
+            outputs: to_draft(&state.outputs),
+        }
+    }
+
+    fn variables_mut(
+        &mut self,
+        kind: CustomExpressionVariableKind,
+    ) -> &mut IndexMap<CustomExpressionVariableId, CustomExpressionVariableDraft> {
+        match kind {
+            CustomExpressionVariableKind::Input => &mut self.inputs,
+            CustomExpressionVariableKind::Output => &mut self.outputs,
+        }
+    }
+
+    fn finalize(
+        variables: &IndexMap<CustomExpressionVariableId, CustomExpressionVariableDraft>,
+    ) -> IndexMap<CustomExpressionVariableId, CustomExpressionVariable> {
+        variables
+            .iter()
+            .map(|(id, variable)| {
+                (
+                    *id,
+                    CustomExpressionVariable {
+                        id: *id,
+                        display_name: variable.display_name.clone(),
+                        name: variable.name.clone(),
+                        ty: variable.ty.clone().unwrap(),
+                    },
+                )
+            })
+            .collect()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct SerializableCustomExpressionNodeState {
+    inputs: Vec<SerializableCustomExpressionVariable>,
+    outputs: Vec<SerializableCustomExpressionVariable>,
+    code: String,
+}
+
+impl<Data: GraphData> GraphSerializable<Data> for CustomExpressionNodeState {
+    fn to_toml(&self) -> anyhow::Result<toml::Value> {
+        let serialize = |variables: &IndexMap<_, CustomExpressionVariable>| {
+            variables
+                .values()
+                .map(|variable| SerializableCustomExpressionVariable {
+                    id: variable.id,
+                    display_name: variable.display_name.clone(),
+                    name: variable.name.clone(),
+                    ty: variable.ty.name().to_string(),
+                })
+                .collect()
+        };
+        Ok(toml::Value::try_from(
+            SerializableCustomExpressionNodeState {
+                inputs: serialize(&self.inputs),
+                outputs: serialize(&self.outputs),
+                code: self.code.clone(),
+            },
+        )?)
+    }
+
+    fn from_toml(value: toml::Value, resources: &GraphResources<Data>) -> anyhow::Result<Self> {
+        let serialized = SerializableCustomExpressionNodeState::deserialize(value)?;
+        let deserialize = |variables: Vec<SerializableCustomExpressionVariable>| {
+            variables
+                .into_iter()
+                .map(|variable| {
+                    let ty = resources
+                        .type_registry
+                        .get_type(&variable.ty)
+                        .ok_or_else(|| anyhow!("Unknown type"))?;
+                    Ok((
+                        variable.id,
+                        CustomExpressionVariable {
+                            id: variable.id,
+                            display_name: variable.display_name,
+                            name: variable.name,
+                            ty: dyn_clone::clone_box(ty),
+                        },
+                    ))
+                })
+                .collect::<anyhow::Result<IndexMap<_, _>>>()
+        };
+        Ok(Self {
+            inputs: deserialize(serialized.inputs)?,
+            outputs: deserialize(serialized.outputs)?,
+            code: serialized.code,
+            draft: None,
+        })
+    }
+}
+
+struct CustomExpressionCodeEditor<'a> {
+    code: &'a str,
+}
+
+// TODO Probably avoid this pattern? We are storing the actual state in widget tree,
+//      because text_editor::Content is not sync, but GraphNode::State must be sync.
+struct CustomExpressionCodeEditorState {
+    content: RefCell<text_editor::Content<GraphRenderer>>,
+}
+
+fn custom_expression_text_editor(
+    content: &text_editor::Content<GraphRenderer>,
+) -> text_editor::TextEditor<
+    '_,
+    iced_core::text::highlighter::PlainText,
+    text_editor::Action,
+    GraphTheme,
+    GraphRenderer,
+> {
+    text_editor(content)
+        .placeholder("WGSL")
+        .height(Length::Fixed(140.0))
+        .on_action(std::convert::identity)
+}
+
+impl Widget<CustomExpressionNodeMessage, GraphTheme, GraphRenderer>
+    for CustomExpressionCodeEditor<'_>
+{
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<CustomExpressionCodeEditorState>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(CustomExpressionCodeEditorState {
+            content: RefCell::new(text_editor::Content::with_text(self.code)),
+        })
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        let content = text_editor::Content::with_text(self.code);
+        let editor = custom_expression_text_editor(&content);
+        vec![Tree::new(&editor as &dyn Widget<_, _, _>)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        let state = tree.state.downcast_mut::<CustomExpressionCodeEditorState>();
+        if state.content.borrow().text() != self.code {
+            *state.content.borrow_mut() = text_editor::Content::with_text(self.code);
+        }
+        let content = state.content.borrow();
+        let editor = custom_expression_text_editor(&content);
+        tree.children[0].diff(&editor as &dyn Widget<_, _, _>);
+    }
+
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fixed(140.0))
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &GraphRenderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        let state = tree.state.downcast_ref::<CustomExpressionCodeEditorState>();
+        custom_expression_text_editor(&state.content.borrow()).layout(
+            &mut tree.children[0],
+            renderer,
+            limits,
+        )
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &GraphRenderer,
+        operation: &mut dyn Operation,
+    ) {
+        let state = tree.state.downcast_ref::<CustomExpressionCodeEditorState>();
+        custom_expression_text_editor(&state.content.borrow()).operate(
+            &mut tree.children[0],
+            layout,
+            renderer,
+            operation,
+        );
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &GraphRenderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, CustomExpressionNodeMessage>,
+        viewport: &Rectangle,
+    ) {
+        let state = tree.state.downcast_ref::<CustomExpressionCodeEditorState>();
+        let mut actions = Vec::new();
+        let mut child_shell = Shell::new(&mut actions);
+        custom_expression_text_editor(&state.content.borrow()).update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor,
+            renderer,
+            clipboard,
+            &mut child_shell,
+            viewport,
+        );
+        shell.merge(child_shell, |action| {
+            let mut content = state.content.borrow_mut();
+            content.perform(action);
+            CustomExpressionNodeMessage::CodeChanged(content.text())
+        });
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &GraphRenderer,
+    ) -> mouse::Interaction {
+        let state = tree.state.downcast_ref::<CustomExpressionCodeEditorState>();
+        custom_expression_text_editor(&state.content.borrow()).mouse_interaction(
+            &tree.children[0],
+            layout,
+            cursor,
+            viewport,
+            renderer,
+        )
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut GraphRenderer,
+        theme: &GraphTheme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let state = tree.state.downcast_ref::<CustomExpressionCodeEditorState>();
+        custom_expression_text_editor(&state.content.borrow()).draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            layout,
+            cursor,
+            viewport,
+        );
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct CustomExpressionNode;
+
+#[derive(Clone)]
+pub enum CustomExpressionNodeMessage {
+    ToggleEditor,
+    AddVariable(CustomExpressionVariableKind),
+    RemoveVariable(CustomExpressionVariableKind, CustomExpressionVariableId),
+    MoveVariableUp(CustomExpressionVariableKind, CustomExpressionVariableId),
+    MoveVariableDown(CustomExpressionVariableKind, CustomExpressionVariableId),
+    ChangeDisplayName(
+        CustomExpressionVariableKind,
+        CustomExpressionVariableId,
+        String,
+    ),
+    ChangeName(
+        CustomExpressionVariableKind,
+        CustomExpressionVariableId,
+        String,
+    ),
+    ChangeType(
+        CustomExpressionVariableKind,
+        CustomExpressionVariableId,
+        String,
+    ),
+    CodeChanged(String),
+    Confirm,
+    Cancel,
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
+}
+
+fn custom_expression_variable_rows<Data: GraphData>(
+    variables: &IndexMap<CustomExpressionVariableId, CustomExpressionVariableDraft>,
+    kind: CustomExpressionVariableKind,
+    resources: &GraphResources<Data>,
+) -> Vec<GraphElement<'static, CustomExpressionNodeMessage>> {
+    let type_names = resources
+        .type_registry
+        .all_types()
+        .keys()
+        .copied()
+        .collect::<Vec<_>>();
+    variables
+        .values()
+        .map(|variable| {
+            let id = variable.id;
+            column![
+                row![
+                    text_input("Slot Name", &variable.display_name).on_input(move |name| {
+                        CustomExpressionNodeMessage::ChangeDisplayName(kind, id, name)
+                    }),
+                    text_input("WGSL Name", &variable.name).on_input(move |name| {
+                        CustomExpressionNodeMessage::ChangeName(kind, id, name)
+                    }),
+                ]
+                .spacing(4),
+                row![
+                    pick_list(
+                        type_names.clone(),
+                        variable.ty.as_ref().map(|ty| ty.name()),
+                        move |ty| {
+                            CustomExpressionNodeMessage::ChangeType(kind, id, ty.to_string())
+                        }
+                    )
+                    .width(Length::Fill),
+                    button("Up").on_press(CustomExpressionNodeMessage::MoveVariableUp(kind, id)),
+                    button("Down")
+                        .on_press(CustomExpressionNodeMessage::MoveVariableDown(kind, id)),
+                    button("Delete")
+                        .on_press(CustomExpressionNodeMessage::RemoveVariable(kind, id)),
+                ]
+                .spacing(4),
+            ]
+            .spacing(4)
+            .into()
+        })
+        .collect()
+}
+
+fn is_custom_expression_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c == '_' || c.is_ascii_alphabetic())
+        && chars.all(|c| c == '_' || c.is_ascii_alphanumeric())
+}
+
+fn custom_expression_editor_view<Data: GraphData>(
+    state: &CustomExpressionNodeState,
+    resources: &GraphResources<Data>,
+) -> GraphElement<'static, CustomExpressionNodeMessage> {
+    let draft = state.draft.as_ref().expect("editor must be open");
+    let input_rows = custom_expression_variable_rows(
+        &draft.inputs,
+        CustomExpressionVariableKind::Input,
+        resources,
+    );
+    let output_rows = custom_expression_variable_rows(
+        &draft.outputs,
+        CustomExpressionVariableKind::Output,
+        resources,
+    );
+    let variables = draft
+        .inputs
+        .values()
+        .chain(draft.outputs.values())
+        .collect::<Vec<_>>();
+    let valid = variables.iter().all(|variable| {
+        !variable.display_name.is_empty()
+            && variable.display_name.trim() == variable.display_name
+            && is_custom_expression_identifier(&variable.name)
+            && variable.ty.is_some()
+            && variables
+                .iter()
+                .filter(|other| other.name == variable.name)
+                .count()
+                == 1
+    });
+    let panel = column![]
+        .width(Length::Fixed(500.0))
+        .padding(4)
+        .spacing(6)
+        .push(text("Inputs"))
+        .extend(input_rows)
+        .push(
+            button("Add Input").on_press(CustomExpressionNodeMessage::AddVariable(
+                CustomExpressionVariableKind::Input,
+            )),
+        )
+        .push(text("Outputs"))
+        .extend(output_rows)
+        .push(
+            button("Add Output").on_press(CustomExpressionNodeMessage::AddVariable(
+                CustomExpressionVariableKind::Output,
+            )),
+        )
+        .push(
+            row![
+                button("Cancel").on_press(CustomExpressionNodeMessage::Cancel),
+                button("Confirm").when(valid, |button| {
+                    button.on_press(CustomExpressionNodeMessage::Confirm)
+                }),
+            ]
+            .spacing(4),
+        );
+    container(panel)
+        .style(|theme| container::Style {
+            background: Some(theme.extended_palette().background.base.color.into()),
+            ..container::transparent(theme)
+        })
+        .into()
+}
+
+impl<Data: GraphData> GraphNode<Data> for CustomExpressionNode {
+    type State = CustomExpressionNodeState;
+
+    type Message = CustomExpressionNodeMessage;
+
+    fn name(&self) -> &'static str {
+        "Custom Expression"
+    }
+
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+        CustomExpressionNodeState {
+            inputs: IndexMap::new(),
+            outputs: IndexMap::new(),
+            code: String::new(),
+            draft: None,
+        }
+    }
+
+    fn header_color(&self, is_dark: bool) -> Color {
+        themed_color(stringify!(CustomExpressionNode), is_dark)
+    }
+
+    fn create_inputs(
+        &self,
+        state: &Self::State,
+        _: GraphNodeCreateSlotsContext<'_, Data>,
+    ) -> Vec<GraphDefaultInputSlot> {
+        state
+            .inputs
+            .values()
+            .map(|variable| {
+                GraphDefaultInputSlot::new_boxed(variable.display_name.clone(), variable.ty.clone())
+            })
+            .collect()
+    }
+
+    fn create_outputs(
+        &self,
+        state: &Self::State,
+        _: GraphNodeCreateSlotsContext<'_, Data>,
+    ) -> Vec<GraphDefaultOutputSlot> {
+        state
+            .outputs
+            .values()
+            .map(|variable| {
+                GraphDefaultOutputSlot::new_boxed(
+                    variable.display_name.clone(),
+                    variable.ty.clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn view<'a>(
+        &self,
+        state: &'a Self::State,
+        ctx: GraphNodeViewContext<'_, Data>,
+    ) -> GraphElement<'a, Self::Message> {
+        let trigger = button(text("Edit")).on_press(CustomExpressionNodeMessage::ToggleEditor);
+        let content = state
+            .draft
+            .as_ref()
+            .map(|_| custom_expression_editor_view(state, ctx.resources));
+        ctx.view_all_slots_with_header(
+            column![
+                Popover::new(trigger).content(content),
+                GraphElement::new(CustomExpressionCodeEditor { code: &state.code })
+            ]
+            .spacing(4),
+            CustomExpressionNodeMessage::LiteralUpdate,
+        )
+    }
+
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_, Data>,
+    ) {
+        match message {
+            CustomExpressionNodeMessage::ToggleEditor => {
+                state.draft = if state.draft.is_some() {
+                    None
+                } else {
+                    Some(CustomExpressionDraft::new(state))
+                };
+            }
+            CustomExpressionNodeMessage::AddVariable(kind) => {
+                if let Some(draft) = &mut state.draft {
+                    let id = CustomExpressionVariableId::new(Uuid::new_v4());
+                    draft.variables_mut(kind).insert(
+                        id,
+                        CustomExpressionVariableDraft {
+                            id,
+                            display_name: String::new(),
+                            name: String::new(),
+                            ty: None,
+                        },
+                    );
+                }
+            }
+            CustomExpressionNodeMessage::RemoveVariable(kind, id) => {
+                if let Some(draft) = &mut state.draft {
+                    draft.variables_mut(kind).shift_remove(&id);
+                }
+            }
+            CustomExpressionNodeMessage::MoveVariableUp(kind, id) => {
+                if let Some(draft) = &mut state.draft {
+                    let variables = draft.variables_mut(kind);
+                    if let Some(index) = variables.get_index_of(&id)
+                        && index > 0
+                    {
+                        variables.swap_indices(index, index - 1);
+                    }
+                }
+            }
+            CustomExpressionNodeMessage::MoveVariableDown(kind, id) => {
+                if let Some(draft) = &mut state.draft {
+                    let variables = draft.variables_mut(kind);
+                    if let Some(index) = variables.get_index_of(&id)
+                        && index + 1 < variables.len()
+                    {
+                        variables.swap_indices(index, index + 1);
+                    }
+                }
+            }
+            CustomExpressionNodeMessage::ChangeDisplayName(kind, id, name) => {
+                if let Some(variable) = state
+                    .draft
+                    .as_mut()
+                    .and_then(|draft| draft.variables_mut(kind).get_mut(&id))
+                {
+                    variable.display_name = name;
+                }
+            }
+            CustomExpressionNodeMessage::ChangeName(kind, id, name) => {
+                if let Some(variable) = state
+                    .draft
+                    .as_mut()
+                    .and_then(|draft| draft.variables_mut(kind).get_mut(&id))
+                {
+                    variable.name = name;
+                }
+            }
+            CustomExpressionNodeMessage::ChangeType(kind, id, ty) => {
+                if let Some(variable) = state
+                    .draft
+                    .as_mut()
+                    .and_then(|draft| draft.variables_mut(kind).get_mut(&id))
+                {
+                    variable.ty = ctx
+                        .resources
+                        .type_registry
+                        .get_type(&ty)
+                        .map(dyn_clone::clone_box);
+                }
+            }
+            CustomExpressionNodeMessage::CodeChanged(code) => state.code = code,
+            CustomExpressionNodeMessage::Confirm => {
+                let Some(draft) = state.draft.take() else {
+                    return;
+                };
+                state.inputs = CustomExpressionDraft::finalize(&draft.inputs);
+                state.outputs = CustomExpressionDraft::finalize(&draft.outputs);
+            }
+            CustomExpressionNodeMessage::Cancel => state.draft = None,
+            CustomExpressionNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+        }
+    }
+
+    fn generate_code(
+        &self,
+        state: &Self::State,
+        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+    ) -> Result<String, GraphNodeCodeGenError> {
+        if state.inputs.len() != ctx.inputs.len() || state.outputs.len() != ctx.outputs.len() {
+            return Err(anyhow!("Invalid slots").into());
+        }
+
+        let names = state
+            .inputs
+            .values()
+            .chain(state.outputs.values())
+            .map(|variable| variable.name.as_str())
+            .collect::<Vec<_>>();
+
+        let mut outputs = Vec::with_capacity(state.outputs.len());
+        let mut code = String::new();
+        for (index, variable) in state.outputs.values().enumerate() {
+            let mut output = ctx.get_output(index)?;
+            while names.contains(&output.as_str()) {
+                output = ctx.ident_generator.next_output();
+                ctx.output_slot_idents
+                    .insert(ctx.outputs[index], output.clone());
+            }
+            let (ty, _) = variable
+                .ty
+                .wgsl_type()
+                .ok_or_else(|| GraphNodeCodeGenError::Custom(anyhow!("Invalid type")))?;
+            code.push_str(&format!("var {output}: {ty};\n"));
+            outputs.push(output);
+        }
+
+        code.push_str("{\n");
+
+        for (index, variable) in state.inputs.values().enumerate() {
+            code.push_str(&format!(
+                "let {} = {};\n",
+                variable.name,
+                ctx.get_input(index)?
+            ));
+        }
+        for variable in state.outputs.values() {
+            let (ty, _) = variable
+                .ty
+                .wgsl_type()
+                .ok_or_else(|| GraphNodeCodeGenError::Custom(anyhow!("Invalid type")))?;
+            code.push_str(&format!("var {}: {ty};\n", variable.name));
+        }
+        code.push_str(&state.code);
+        if !state.code.is_empty() && !state.code.ends_with('\n') {
+            code.push('\n');
+        }
+        for ((_, variable), output) in state.outputs.iter().zip(outputs) {
+            code.push_str(&format!("{output} = {};\n", variable.name));
+        }
+
+        code.push_str("}\n");
+        Ok(code)
     }
 }

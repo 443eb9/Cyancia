@@ -210,7 +210,7 @@ impl<Data: GraphData> Graph<Data> {
 }
 
 pub struct GraphEditorView<'a, Data: GraphData> {
-    graph: DrawableGraph,
+    graph: DrawableGraph<'a>,
     node_creation_menu_items: Vec<NodeCreationMenuItem>,
     node_creation_menu_class: <GraphTheme as menu::Catalog>::Class<'a>,
     snapshot: Option<GraphEditorSnapshot>,
@@ -277,15 +277,15 @@ pub struct GraphNodeStyle {
     pub line_spacing: f32,
 }
 
-pub struct DrawableGraph {
-    pub nodes: IndexMap<GraphNodeId, DrawableNode>,
+pub struct DrawableGraph<'a> {
+    pub nodes: IndexMap<GraphNodeId, DrawableNode<'a>>,
     pub slots: HashMap<GraphSlotId, SlotData>,
     pub edges: HashMap<GraphInputSlotId, DrawableEdge>,
     pub vert_in_loop: HashSet<GraphNodeId>,
 }
 
-impl DrawableGraph {
-    pub fn new<Data: GraphData>(graph: &Graph<Data>, is_dark: bool) -> Self {
+impl<'a> DrawableGraph<'a> {
+    pub fn new<Data: GraphData>(graph: &'a Graph<Data>, is_dark: bool) -> Self {
         let mut nodes = IndexMap::with_capacity(graph.nodes.len());
         let mut node_indices = HashMap::with_capacity(graph.nodes.len());
         for (index, (id, node)) in graph.nodes.iter().enumerate() {
@@ -367,18 +367,18 @@ pub struct DrawableEdge {
     style: geometry::Style,
 }
 
-pub struct DrawableNode {
+pub struct DrawableNode<'a> {
     pub node_id: GraphNodeId,
     pub position: Point,
-    pub widget: Element<'static, GraphEditorMessage, GraphTheme, GraphRenderer>,
+    pub widget: Element<'a, GraphEditorMessage, GraphTheme, GraphRenderer>,
     pub input_slots: Arc<[GraphInputSlotId]>,
     pub output_slots: Arc<[GraphOutputSlotId]>,
 }
 
-impl DrawableNode {
+impl<'a> DrawableNode<'a> {
     pub fn new<Data: GraphData>(
         node_id: GraphNodeId,
-        node: &GraphNodeData<Data>,
+        node: &'a GraphNodeData<Data>,
         slots: &GraphSlots,
         resources: &GraphResources<Data>,
         is_dark: bool,
@@ -477,8 +477,7 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
                     .widget
                     .as_widget_mut()
                     .layout(tree, renderer, &Limits::NONE)
-                    .translate(Vector::new(node.position.x, node.position.y))
-                    .translate(state.view_translation);
+                    .translate(Vector::new(node.position.x, node.position.y));
                 state.node_bounds.insert(node.node_id, layout.bounds());
                 layout
             })
@@ -676,9 +675,8 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
                             .selected_nodes
                             .iter()
                             .filter_map(|id| {
-                                self.graph.nodes.get_index_of(id).map(|index| (id, index))
+                                self.graph.nodes.get(id).map(|node| (*id, node.position))
                             })
-                            .map(|(id, index)| (*id, layout.child(index).position()))
                             .collect(),
                         skip_next_release: false,
                     };
@@ -796,8 +794,7 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
                         if let Some(node_origin) = node_origin.get(selected) {
                             shell.publish(GraphEditorMessage::Graph(
                                 GraphEditorGraphMessage::NodeMoveRequest(
-                                    *node_origin + (cursor - *cursor_origin)
-                                        - Vector::new(layout.position().x, layout.position().y),
+                                    *node_origin + (cursor - *cursor_origin),
                                     *selected,
                                 ),
                             ));
@@ -968,7 +965,7 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
             );
         }
 
-        let mut frame = Frame::with_bounds(renderer, layout.bounds());
+        let mut frame = Frame::with_bounds(renderer, graph_viewport);
         for (to, edge) in &self.graph.edges {
             let from_pos = state.slot_pins.get_output(&edge.from);
             let to_pos = state.slot_pins.get_input(to);
@@ -1064,7 +1061,7 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
         ) = (&state.interaction, graph_cursor.position())
             && let Some(start_pos) = state.slot_pins.get(resolved_source)
         {
-            let mut frame = Frame::with_bounds(renderer, layout.bounds());
+            let mut frame = Frame::with_bounds(renderer, graph_viewport);
             frame.stroke(
                 &geometry::Path::line(*start_pos, cursor_pos),
                 Stroke {
@@ -1154,6 +1151,7 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
         if let Some(menu_position) = state.node_creation_menu.position {
             let graph_origin = Vector::new(layout.position().x, layout.position().y);
             let graph_cursor = menu_position * inverse_view_transformation;
+            let node_position = graph_cursor - graph_origin;
             let NodeCreationMenuState {
                 position,
                 state: menu_state,
@@ -1172,11 +1170,11 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
                     selected_nodes.insert(node_id);
                     *interaction = InteractionState::NodeDragging {
                         cursor_origin: graph_cursor,
-                        node_origin: HashMap::from([(node_id, graph_cursor)]),
+                        node_origin: HashMap::from([(node_id, node_position)]),
                         skip_next_release: true,
                     };
                     GraphEditorMessage::Graph(GraphEditorGraphMessage::NodeCreateRequest(
-                        graph_cursor - graph_origin,
+                        node_position,
                         name.node_title,
                         node_id,
                     ))
