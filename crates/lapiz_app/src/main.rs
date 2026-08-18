@@ -25,10 +25,18 @@ use lapiz_shader_graph::ShaderGraphPlugin;
 use lapiz_tools::ToolsPlugin;
 use lapiz_transform_tool::FreeTransformPlugin;
 use lapiz_undo::UndoPlugin;
+use tracing_subscriber::{
+    EnvFilter, filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt,
+};
 
 fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter("info,wgpu_hal=warn,iced_winit=warn,iced_wgpu=warn")
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
         .init();
 
     log::info!("Running at {}", std::env::current_dir().unwrap().display());
@@ -66,8 +74,8 @@ fn main() {
             abr_bundles.len(),
             errs.len()
         );
-        for err in errs {
-            log::error!("Error loading abr bundle: {}", err);
+        for (path, err) in errs {
+            log::error!("Error loading abr bundle {}: {}", path.display(), err);
         }
         for bundle in &abr_bundles {
             log::info!("Loaded abr bundle: {}", bundle.path().display());

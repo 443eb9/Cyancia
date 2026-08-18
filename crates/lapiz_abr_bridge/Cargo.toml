@@ -10,9 +10,13 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
+image.workspace = true
 lapiz_abr.workspace = true
 lapiz_assets.workspace = true
 lapiz_brush.workspace = true
 lapiz_render.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+xxhash-rust.workspace = true
+uuid.workspace = true
