@@ -53,13 +53,13 @@ impl<Message, Theme> Widget<Message, Theme, iced_wgpu::Renderer> for CanvasWidge
             shell.publish((self.on_widget_rect_change)(widget_rect));
         }
 
-        if let Event::Mouse(event) = event {
+        if let Event::Mouse(event) = event
+            && let Some(cursor_pos) = cursor.position_over(bounds)
+        {
             if self.is_focusing {
                 shell.publish((self.on_mouse_event)(*event));
                 shell.capture_event();
-            } else if let mouse::Event::ButtonPressed(mouse::Button::Left) = event
-                && let Some(cursor_pos) = cursor.position_over(bounds)
-            {
+            } else if let mouse::Event::ButtonPressed(mouse::Button::Left) = event {
                 shell.publish((self.on_focus)(cursor_pos));
                 shell.publish((self.on_mouse_event)(*event));
                 shell.capture_event();
