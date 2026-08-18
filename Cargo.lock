@@ -2989,6 +2989,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "lapiz_abr_bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "lapiz_abr",
+ "lapiz_assets",
+ "lapiz_brush",
+ "lapiz_render",
+ "thiserror 2.0.19",
+ "tracing",
+]
+
+[[package]]
 name = "lapiz_abr_derive"
 version = "0.1.0"
 dependencies = [
@@ -3048,6 +3061,7 @@ dependencies = [
  "iced_runtime",
  "iced_wgpu",
  "iced_widget",
+ "lapiz_abr_bridge",
  "lapiz_actions",
  "lapiz_assets",
  "lapiz_brush",

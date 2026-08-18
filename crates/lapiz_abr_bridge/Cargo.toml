@@ -1,11 +1,18 @@
 [package]
-name = "lapiz_abr-bridge"
+name = "lapiz_abr_bridge"
 version = "0.1.0"
 publish.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
-[dependencies]
-
 [lints]
 workspace = true
+
+[dependencies]
+anyhow.workspace = true
+lapiz_abr.workspace = true
+lapiz_assets.workspace = true
+lapiz_brush.workspace = true
+lapiz_render.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

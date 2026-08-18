@@ -4,3 +4,6 @@
 .vscode
 .zed
 .claude
+
+# TODO Remove this
+*.abr
