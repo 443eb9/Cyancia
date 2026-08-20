@@ -3,6 +3,7 @@ use glam::{IVec2, UVec2, Vec4};
 use indexmap::IndexSet;
 use lapiz_anti_aliasing::fxaa::{FxaaParams, FxaaPipeline};
 use lapiz_image::{
+    composite::BlendFunction,
     scan_pixels::ScanPixelsPipeline,
     texel::{TexelFormat, TexelType},
     tile::{DynamicLayerStorage, GpuLayerInfo, GpuTileInfo, GpuTileStorage, LayerBinding},
@@ -13,8 +14,9 @@ use lapiz_render::{
     buffer::DynamicBuffer,
     readback::{create_readback_buffer_and_schedule_copy_buffer, readback_buffer_on_submit_async},
     util::DevicePollExt,
+    wesl_jit,
 };
-use tracing::info;
+use tracing::{error, info};
 use wesl::include_wesl;
 use wgpu::{
     BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
@@ -38,6 +40,7 @@ pub struct BucketParams {
     pub fill_color: Vec4,
     pub threshold: f32,
     pub alpha_threshold: f32,
+    pub contiguous: bool,
     pub close_gap: u32,
     pub grow: i32,
     pub aa_approach: BucketAntialiasApproach,
@@ -86,7 +89,7 @@ pub struct Bucket {
     close_gap_and_feather_jump_pipeline: ComputePipeline,
     feather_resolve_pipeline: ComputePipeline,
     composite_layout: BindGroupLayout,
-    composite_pipeline: ComputePipeline,
+    composite_pipeline: Option<ComputePipeline>,
     scan_pixels_pipeline: ScanPixelsPipeline,
 
     output_layer_format: TexelType,
@@ -387,24 +390,6 @@ impl Bucket {
             ),
         });
 
-        let composite_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("composite_pipeline_layout"),
-            bind_group_layouts: &[&composite_layout],
-            ..Default::default()
-        });
-        let composite_shader = device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("composite_shader"),
-            source: ShaderSource::Wgsl(include_wesl!("composite").into()),
-        });
-        let composite_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
-            label: Some("composite_pipeline"),
-            layout: Some(&composite_pipeline_layout),
-            module: &composite_shader,
-            entry_point: Some("main"),
-            compilation_options: Default::default(),
-            cache: None,
-        });
-
         let scan_pixels_pipeline = ScanPixelsPipeline::new(device, mask_format);
 
         Self {
@@ -426,11 +411,50 @@ impl Bucket {
             close_gap_and_feather_jump_pipeline,
             feather_resolve_pipeline,
             composite_layout,
-            composite_pipeline,
+            composite_pipeline: None,
             scan_pixels_pipeline,
             output_layer_format: output_texel_type,
             mask_format,
         }
+    }
+
+    pub fn set_blend_function(&mut self, device: &Device, blend_function: &dyn BlendFunction) {
+        let composite_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("composite_pipeline_layout"),
+            bind_group_layouts: &[&self.composite_layout],
+            ..Default::default()
+        });
+
+        let shader = wesl_jit::compile_wesl_with_config_and_include(
+            include_str!("composite.wesl").replace(
+                "//CODEGEN_FLAG_BLEND_FUNCTION",
+                &blend_function.wgsl_function_call("src", "dst"),
+            ),
+            &[&lapiz_image::image::PACKAGE, &lapiz_render::render::PACKAGE],
+            |resolver| {
+                resolver.add_module(
+                    "package::types".parse().unwrap(),
+                    include_str!("../shaders/types.wesl").into(),
+                );
+            },
+            |_| {},
+        )
+        .unwrap();
+
+        let composite_shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("composite_shader"),
+            source: ShaderSource::Wgsl(shader.into()),
+        });
+
+        let composite_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("composite_pipeline"),
+            layout: Some(&composite_pipeline_layout),
+            module: &composite_shader,
+            entry_point: Some("main"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+        self.composite_pipeline = Some(composite_pipeline);
     }
 
     /// Generate a mask with parameters then blend it with the dst_layer, outputting the result
@@ -446,6 +470,11 @@ impl Bucket {
         dst_layer: &LayerBinding,
         selection: &LayerBinding,
     ) -> Option<DynamicLayerStorage> {
+        let Some(composite_pipeline) = &self.composite_pipeline else {
+            error!("composite_pipeline is not initialized");
+            return None;
+        };
+
         unsafe { device.start_graphics_debugger_capture() };
 
         let BucketResultInternal {
@@ -503,7 +532,7 @@ impl Bucket {
                 label: Some("composite_pass"),
                 timestamp_writes: None,
             });
-            pass.set_pipeline(&self.composite_pipeline);
+            pass.set_pipeline(composite_pipeline);
             pass.set_bind_group(0, &composite_bind_group, &[]);
             pass.dispatch_workgroups(
                 GpuTileStorage::TILE_SIZE.div_ceil(16),
@@ -845,65 +874,67 @@ impl Bucket {
             queue.submit([ec.finish()]);
         }
 
-        let total_pixels =
-            mask.len() as u32 * GpuTileStorage::TILE_SIZE * GpuTileStorage::TILE_SIZE;
+        if bucket_params.contiguous {
+            let total_pixels =
+                mask.len() as u32 * GpuTileStorage::TILE_SIZE * GpuTileStorage::TILE_SIZE;
 
-        let labels_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("labels_buffer"),
-            size: (total_pixels * 4) as u64,
-            usage: BufferUsages::STORAGE,
-            mapped_at_creation: false,
-        });
-
-        let ccl_bind_group = device.create_bind_group(&BindGroupDescriptor {
-            label: Some("ccl_bind_group"),
-            layout: &self.ccl_layout,
-            entries: &BindGroupEntries::sequential((
-                bucket_params_buffer.binding().unwrap(),
-                BindingResource::TextureView(mask.texture_view().unwrap()),
-                labels_buffer.as_entire_binding(),
-                mask.tile_info_buffer().unwrap().as_entire_binding(),
-            )),
-        });
-
-        let mut ec = device.create_command_encoder(&Default::default());
-
-        {
-            let mut pass = ec.begin_compute_pass(&ComputePassDescriptor {
-                label: Some("ccl_pass"),
-                timestamp_writes: None,
+            let labels_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("labels_buffer"),
+                size: (total_pixels * 4) as u64,
+                usage: BufferUsages::STORAGE,
+                mapped_at_creation: false,
             });
 
-            pass.push_debug_group("ccl_init_pass");
-            pass.set_pipeline(&self.ccl_init_pipeline);
-            pass.set_bind_group(0, &ccl_bind_group, &[]);
-            pass.dispatch_workgroups(dispatch_xy, dispatch_xy, mask.len() as u32);
-            pass.pop_debug_group();
+            let ccl_bind_group = device.create_bind_group(&BindGroupDescriptor {
+                label: Some("ccl_bind_group"),
+                layout: &self.ccl_layout,
+                entries: &BindGroupEntries::sequential((
+                    bucket_params_buffer.binding().unwrap(),
+                    BindingResource::TextureView(mask.texture_view().unwrap()),
+                    labels_buffer.as_entire_binding(),
+                    mask.tile_info_buffer().unwrap().as_entire_binding(),
+                )),
+            });
 
-            pass.push_debug_group("ccl_merge_pass");
-            pass.set_pipeline(&self.ccl_merge_pipeline);
-            pass.set_bind_group(0, &ccl_bind_group, &[]);
-            let max_distance = (total_pixels as f32).sqrt().ceil() as u32;
-            let ccl_iterations = (max_distance as f32).log2().ceil() as u32 + 1;
-            for _ in 0..ccl_iterations {
+            let mut ec = device.create_command_encoder(&Default::default());
+
+            {
+                let mut pass = ec.begin_compute_pass(&ComputePassDescriptor {
+                    label: Some("ccl_pass"),
+                    timestamp_writes: None,
+                });
+
+                pass.push_debug_group("ccl_init_pass");
+                pass.set_pipeline(&self.ccl_init_pipeline);
+                pass.set_bind_group(0, &ccl_bind_group, &[]);
                 pass.dispatch_workgroups(dispatch_xy, dispatch_xy, mask.len() as u32);
+                pass.pop_debug_group();
+
+                pass.push_debug_group("ccl_merge_pass");
+                pass.set_pipeline(&self.ccl_merge_pipeline);
+                pass.set_bind_group(0, &ccl_bind_group, &[]);
+                let max_distance = (total_pixels as f32).sqrt().ceil() as u32;
+                let ccl_iterations = (max_distance as f32).log2().ceil() as u32 + 1;
+                for _ in 0..ccl_iterations {
+                    pass.dispatch_workgroups(dispatch_xy, dispatch_xy, mask.len() as u32);
+                }
+                pass.pop_debug_group();
+
+                pass.push_debug_group("ccl_compress_pass");
+                pass.set_pipeline(&self.ccl_compress_pipeline);
+                pass.set_bind_group(0, &ccl_bind_group, &[]);
+                pass.dispatch_workgroups(dispatch_xy, dispatch_xy, mask.len() as u32);
+                pass.pop_debug_group();
+
+                pass.push_debug_group("ccl_extract_pass");
+                pass.set_pipeline(&self.ccl_extract_pipeline);
+                pass.set_bind_group(0, &ccl_bind_group, &[]);
+                pass.dispatch_workgroups(dispatch_xy, dispatch_xy, mask.len() as u32);
+                pass.pop_debug_group();
             }
-            pass.pop_debug_group();
 
-            pass.push_debug_group("ccl_compress_pass");
-            pass.set_pipeline(&self.ccl_compress_pipeline);
-            pass.set_bind_group(0, &ccl_bind_group, &[]);
-            pass.dispatch_workgroups(dispatch_xy, dispatch_xy, mask.len() as u32);
-            pass.pop_debug_group();
-
-            pass.push_debug_group("ccl_extract_pass");
-            pass.set_pipeline(&self.ccl_extract_pipeline);
-            pass.set_bind_group(0, &ccl_bind_group, &[]);
-            pass.dispatch_workgroups(dispatch_xy, dispatch_xy, mask.len() as u32);
-            pass.pop_debug_group();
+            queue.submit([ec.finish()]);
         }
-
-        queue.submit([ec.finish()]);
 
         if inner_params.grow > 0 {
             let grown_mask = mask.create_allocated_empty_sibling();

@@ -1,11 +1,19 @@
 use glam::{Vec2, Vec4};
-use iced_core::{Element, Length, Theme};
+use iced_core::{
+    Element, Length, Theme,
+    keyboard::{self, key},
+};
+use iced_futures::Subscription;
 use iced_runtime::Task;
 use iced_wgpu::Renderer;
-use iced_widget::{button, container, row};
+use iced_widget::{button, checkbox, container, pick_list, row};
 use lapiz_canvas::{CanvasAppExt, CanvasUndoStackAppExt, command::TileReplaceCommand};
 use lapiz_color::ForegroundBackgroundColorExt;
-use lapiz_image::tile::TileStorageAppExt;
+use lapiz_image::{
+    blend_modes::BlendMode,
+    composite::{BlendFunction, BlendFunctionId, BlendFunctionRegistry},
+    tile::TileStorageAppExt,
+};
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
 use lapiz_render::render_context::RenderContextAppExt;
 use lapiz_runtime::{Application, Services, plugin::Plugin};
@@ -14,6 +22,7 @@ use lapiz_utils::log_err::LogErr;
 use lapiz_widgets::{
     fluent_builder::When, form::Form, spin_slider::SpinSlider, style::ButtonStyle,
 };
+use tracing::error;
 
 use crate::bucket::{Bucket, BucketAntialiasApproach, BucketParams};
 
@@ -29,14 +38,14 @@ impl Plugin for BucketPlugin {
     }
 }
 
-// TODO Blending mode and contiguous
-//      Hold shift to disable contiguous
 pub struct BucketTool {
     pub threshold: f32,
     pub alpha_threshold: f32,
     pub grow: i32,
+    pub contiguous: bool,
     pub close_gap: u32,
     pub cached_feather: u32,
+    pub blend_function: BlendFunctionId,
     pub aa_approach: BucketAntialiasApproach,
 }
 
@@ -46,8 +55,10 @@ impl Default for BucketTool {
             threshold: 0.08,
             alpha_threshold: 0.02,
             grow: 0,
+            contiguous: true,
             close_gap: 0,
             cached_feather: 0,
+            blend_function: BlendMode::Normal.id(),
             aa_approach: BucketAntialiasApproach::Fxaa,
         }
     }
@@ -58,8 +69,10 @@ pub enum BucketToolMessage {
     ThresholdChanged(f32),
     AlphaThresholdChanged(f32),
     GrowChanged(i32),
+    ContiguousChanged(bool),
     CloseGapChanged(u32),
     FeatherChanged(u32),
+    BlendFunctionChanged(BlendFunctionId),
     AaApproachSelected(BucketAntialiasApproach),
 }
 
@@ -119,6 +132,7 @@ impl ToolFunction for BucketTool {
             fill_color: Vec4::new(fg_color.r, fg_color.g, fg_color.b, 1.0),
             threshold: self.threshold,
             alpha_threshold: self.alpha_threshold,
+            contiguous: self.contiguous,
             close_gap: self.close_gap,
             grow: self.grow,
             aa_approach: match self.aa_approach {
@@ -132,12 +146,20 @@ impl ToolFunction for BucketTool {
 
         let device = services.render_device();
         let queue = services.render_queue();
+        let Some(blend_function) = services
+            .service::<BlendFunctionRegistry>()
+            .get(&self.blend_function)
+        else {
+            error!("Failed to get blend function: {}", self.blend_function);
+            return Task::none();
+        };
 
-        let bucket = Bucket::new(
+        let mut bucket = Bucket::new(
             device,
             ref_layer_info_buffer.texel_type,
             output_layer_info.texel_type,
         );
+        bucket.set_blend_function(device, blend_function.as_ref());
         let result = bucket.dispatch_composite(
             device,
             queue,
@@ -172,6 +194,7 @@ impl ToolFunction for BucketTool {
             BucketToolMessage::ThresholdChanged(value) => self.threshold = value,
             BucketToolMessage::AlphaThresholdChanged(value) => self.alpha_threshold = value,
             BucketToolMessage::GrowChanged(value) => self.grow = value,
+            BucketToolMessage::ContiguousChanged(value) => self.contiguous = value,
             BucketToolMessage::CloseGapChanged(value) => self.close_gap = value,
             BucketToolMessage::FeatherChanged(value) => {
                 self.cached_feather = value;
@@ -179,6 +202,7 @@ impl ToolFunction for BucketTool {
                     self.aa_approach = BucketAntialiasApproach::Feather(value);
                 }
             }
+            BucketToolMessage::BlendFunctionChanged(value) => self.blend_function = value,
             BucketToolMessage::AaApproachSelected(approach) => {
                 self.aa_approach = match approach {
                     BucketAntialiasApproach::Feather(_) => {
@@ -194,8 +218,10 @@ impl ToolFunction for BucketTool {
 
     fn tool_option_widget<'a>(
         &'a self,
-        _: &'a Services,
+        services: &'a Services,
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
+        let blend_functions = services.service::<BlendFunctionRegistry>();
+
         let fields = Form::new()
             .push(
                 "Threshold",
@@ -211,9 +237,22 @@ impl ToolFunction for BucketTool {
                 SpinSlider::new(-64..=64, self.grow).on_confirm(BucketToolMessage::GrowChanged),
             )
             .push(
+                "Contiguous",
+                checkbox(self.contiguous).on_toggle(BucketToolMessage::ContiguousChanged),
+            )
+            .push(
                 "Close Gap",
                 SpinSlider::new(0..=64, self.close_gap)
                     .on_confirm(BucketToolMessage::CloseGapChanged),
+            )
+            .push(
+                "Blend Function",
+                pick_list(
+                    // TODO i18n
+                    blend_functions.all_ids().cloned().collect::<Vec<_>>(),
+                    Some(&self.blend_function),
+                    BucketToolMessage::BlendFunctionChanged,
+                ),
             )
             .push(
                 "Antialiasing Approach",
@@ -251,5 +290,20 @@ impl ToolFunction for BucketTool {
             );
 
         Some(container(fields).padding(8).width(Length::Fill).into())
+    }
+
+    fn subscription(&self) -> Subscription<Self::Message> {
+        iced_futures::keyboard::listen().filter_map(|event| match event {
+            keyboard::Event::KeyPressed {
+                physical_key: key::Physical::Code(key::Code::ShiftLeft),
+                repeat: false,
+                ..
+            } => Some(BucketToolMessage::ContiguousChanged(false)),
+            keyboard::Event::KeyReleased {
+                physical_key: key::Physical::Code(key::Code::ShiftLeft),
+                ..
+            } => Some(BucketToolMessage::ContiguousChanged(true)),
+            _ => None,
+        })
     }
 }
