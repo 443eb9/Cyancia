@@ -1,23 +1,17 @@
-use std::{
-    num::NonZeroU64,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-};
+use std::{num::NonZeroU64, sync::Arc};
 
 use anyhow::Result;
 use bevy_math::IRect;
 use chrono::{DateTime, Utc};
 use encase::ShaderType;
-use futures::channel::oneshot;
 use glam::{IVec2, Vec2, Vec4};
 use iced_runtime::Task;
+use indexmap::IndexSet;
 use lapiz_assets::{AssetAppExt, store::AssetRegistry};
 use lapiz_canvas::{CanvasAppExt, CanvasId};
 use lapiz_color::ForegroundBackgroundColorExt;
 use lapiz_image::{
-    composite::{LayerPreviewOverriders, PixelPreviewOverrider},
+    composite::PixelPreviewOverrider,
     layer::{LayerId, properties::LayerTexelTypeProp},
     scan_pixels::ScanPixelsPipeline,
     texel::TexelType,
@@ -36,7 +30,6 @@ use lapiz_render::{
 };
 use lapiz_runtime::Services;
 use lapiz_shader_graph::graph::external::GraphExternalVariableStorage;
-use lapiz_utils::log_err::LogErr;
 use parking_lot::Mutex;
 use wgpu::{
     BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
@@ -52,6 +45,8 @@ use crate::{
         pipeline::{
             BrushInputSamplingPipeline, BrushMainBoundsEvalPipeline, BrushMainPipeline,
             BrushPostProcessBoundsEvalPipeline, BrushPostProcessPipeline,
+            PreparedBrushMainBoundsEvalPipelineData, PreparedBrushMainPipelineData,
+            PreparedBrushPostProcessBoundsEvalPipelineData, PreparedInputSamplingPipelineData,
         },
     },
 };
@@ -78,7 +73,7 @@ pub struct CanvasBrushPresetOperator {
     device: Device,
     queue: Queue,
     renderer: Option<BrushPresetRenderer>,
-    last_session: Option<CanvasBrushStrokeSessionInfo>,
+    session: Option<CanvasBrushStrokeSessionInfo>,
     input_processor: InputProcessor,
     cached_brush: Option<CompiledBrushPreset>,
     canvas_resources: DynamicBuffer<CanvasResources>,
@@ -96,7 +91,7 @@ impl CanvasBrushPresetOperator {
             renderer: None,
             device,
             queue,
-            last_session: None,
+            session: None,
             input_processor,
             cached_brush: None,
             canvas_resources: DynamicBuffer::new(
@@ -121,7 +116,7 @@ impl CanvasBrushPresetOperator {
         stroke_id: u64,
         canvas_id: CanvasId,
         services: &mut Services,
-    ) -> Task<BrushRenderUpdate> {
+    ) -> Task<()> {
         let canvas = services
             .canvas(&canvas_id)
             .expect("Current canvas should exist");
@@ -172,7 +167,7 @@ impl CanvasBrushPresetOperator {
             target_layer_format: target_layer_info.texel_type,
             selection_layer_format: selection_layer_info.texel_type,
         };
-        if let Some(last_session) = self.last_session.as_ref()
+        if let Some(last_session) = self.session.as_ref()
             && (last_session.target_layer_format != session.target_layer_format
                 || last_session.selection_layer_format != session.selection_layer_format)
         {
@@ -208,43 +203,17 @@ impl CanvasBrushPresetOperator {
         let sample = self
             .input_processor
             .push(RawPenInput::new(position, session.stroke_begin));
-        let task = sample.map({
-            |sample| {
-                renderer
-                    .update(&self.device, &self.queue, sample)
-                    .map({
-                        let target_layer_id = session.target_layer_id;
+        let task = sample.map(|sample| renderer.update(&self.device, &self.queue, sample));
 
-                        move |result| {
-                            Some(BrushRenderUpdate::Preview {
-                                stroke_id,
-                                canvas_id,
-                                target_layer_id,
-                                overrider: PixelPreviewOverrider {
-                                    texture: result.texture_view()?.clone(),
-                                    tile_info_buffer: result.tile_info_buffer()?.clone(),
-                                },
-                                dirty_tiles: result.compute_tile_bounds(),
-                            })
-                        }
-                    })
-                    .then(|msg| msg.map(Task::done).unwrap_or(Task::none()))
-            }
-        });
-
-        self.last_session = Some(session);
-        task.unwrap_or_else(Task::none)
+        self.session = Some(session);
+        task.unwrap_or_else(Task::none).discard()
     }
 
-    pub fn update_stroke(
-        &mut self,
-        input: &PressedMouseState,
-        services: &Services,
-    ) -> Task<BrushRenderUpdate> {
+    pub fn update_stroke(&mut self, input: &PressedMouseState, services: &Services) -> Task<()> {
         let Some(renderer) = &mut self.renderer else {
             return Task::none();
         };
-        let Some(session) = self.last_session.as_ref() else {
+        let Some(session) = self.session.as_ref() else {
             return Task::none();
         };
         let canvas = services.canvas(&session.canvas_id).unwrap();
@@ -259,38 +228,18 @@ impl CanvasBrushPresetOperator {
             return Task::none();
         };
 
-        renderer
-            .update(&self.device, &self.queue, sample)
-            .map({
-                let canvas_id = session.canvas_id;
-                let target_layer_id = session.target_layer_id;
-                let stroke_id = session.stroke_id;
-
-                move |result| {
-                    Some(BrushRenderUpdate::Preview {
-                        stroke_id,
-                        canvas_id,
-                        target_layer_id,
-                        overrider: PixelPreviewOverrider {
-                            texture: result.texture_view()?.clone(),
-                            tile_info_buffer: result.tile_info_buffer()?.clone(),
-                        },
-                        dirty_tiles: result.compute_tile_bounds(),
-                    })
-                }
-            })
-            .then(|msg| msg.map(Task::done).unwrap_or(Task::none()))
+        renderer.update(&self.device, &self.queue, sample).discard()
     }
 
     pub fn end_stroke(
         &mut self,
         input: &PressedMouseState,
         services: &mut Services,
-    ) -> Task<BrushRenderUpdate> {
+    ) -> Task<BrushStrokeResult> {
         let Some(renderer) = self.renderer.as_mut() else {
             return Task::none();
         };
-        let Some(session) = self.last_session.take() else {
+        let Some(session) = self.session.take() else {
             return Task::none();
         };
         let canvas = services
@@ -308,18 +257,39 @@ impl CanvasBrushPresetOperator {
             updates.push(renderer.update(&self.device, &self.queue, sample));
         }
         let end_task = renderer.end(&self.device, &self.queue);
-        services
-            .service_mut::<LayerPreviewOverriders>()
-            .remove_overrider(&session.target_layer_id);
 
-        let updates = Task::batch(updates)
-            .map({
-                let canvas_id = session.canvas_id;
-                let target_layer_id = session.target_layer_id;
-                let stroke_id = session.stroke_id;
+        let updates = Task::batch(updates).discard();
 
-                move |result| {
-                    Some(BrushRenderUpdate::Preview {
+        let end = end_task.map({
+            move |result| BrushStrokeResult {
+                stroke_id: session.stroke_id,
+                canvas_id: session.canvas_id,
+                target_layer_id: session.target_layer_id,
+                result,
+            }
+        });
+
+        updates.chain(end)
+    }
+
+    pub fn preview(&mut self) -> Task<Option<BrushStrokePreview>> {
+        let Some(renderer) = self.renderer.as_mut() else {
+            return Task::done(None);
+        };
+
+        let Some(session) = self.session.as_ref() else {
+            return Task::done(None);
+        };
+
+        let stroke_id = session.stroke_id;
+        let canvas_id = session.canvas_id;
+        let target_layer_id = session.target_layer_id;
+
+        renderer
+            .generate_preview(&self.device, &self.queue)
+            .map(move |result| {
+                result.and_then(|result| {
+                    Some(BrushStrokePreview {
                         stroke_id,
                         canvas_id,
                         target_layer_id,
@@ -329,20 +299,8 @@ impl CanvasBrushPresetOperator {
                         },
                         dirty_tiles: result.compute_tile_bounds(),
                     })
-                }
+                })
             })
-            .then(|msg| msg.map(Task::done).unwrap_or(Task::none()));
-
-        let end = end_task.map({
-            move |result| BrushRenderUpdate::Finished {
-                stroke_id: session.stroke_id,
-                canvas_id: session.canvas_id,
-                target_layer_id: session.target_layer_id,
-                result,
-            }
-        });
-
-        updates.chain(end)
     }
 }
 
@@ -353,37 +311,40 @@ struct StrokePostprocessPipelines {
 }
 
 struct StrokeSession {
-    shared: Arc<Mutex<SharedBrushRendererState>>,
-    initial_pen_input: DynamicBuffer<ComputedPenInput>,
-    target_layer: LayerBinding,
-    has_selection: Buffer,
-    selection_layer: LayerBinding,
-    previous_finished: oneshot::Receiver<()>,
+    shared: Arc<Mutex<SharedBrushRendererMainPassState>>,
+    stroke_pp_cache: Arc<futures::lock::Mutex<StrokePostprocessCache>>,
+
+    pen_input: DynamicBuffer<PenInput>,
+    output_samples_packed: DynamicBuffer<OutputSamples>,
+    dab_infos_packed: BufferVec<DabInfo>,
+    main_bounds_eval_dispatch: Buffer,
+
+    input_sample_prepared: PreparedInputSamplingPipelineData,
+    main_bounds_eval_prepared: PreparedBrushMainBoundsEvalPipelineData,
 }
 
-pub enum BrushRenderUpdate {
-    Preview {
-        stroke_id: u64,
-        canvas_id: CanvasId,
-        target_layer_id: LayerId,
-        overrider: PixelPreviewOverrider,
-        dirty_tiles: IRect,
-    },
-    Finished {
-        stroke_id: u64,
-        canvas_id: CanvasId,
-        target_layer_id: LayerId,
-        result: DynamicLayerStorage,
-    },
+pub struct BrushStrokePreview {
+    pub stroke_id: u64,
+    pub canvas_id: CanvasId,
+    pub target_layer_id: LayerId,
+    pub overrider: PixelPreviewOverrider,
+    pub dirty_tiles: IRect,
+}
+
+pub struct BrushStrokeResult {
+    pub stroke_id: u64,
+    pub canvas_id: CanvasId,
+    pub target_layer_id: LayerId,
+    pub result: DynamicLayerStorage,
 }
 
 pub struct BrushPresetRenderer {
     input_sample: BrushInputSamplingPipeline,
     main: BrushMainPipeline,
     main_bounds_eval: BrushMainBoundsEvalPipeline,
-    stroke_pp: Vec<StrokePostprocessPipelines>,
     resources: StrokeResources,
     scan_pixels: ScanPixelsPipeline,
+    stroke_pp_pipelines: Arc<[StrokePostprocessPipelines]>,
 
     input_sampler_buffer: DynamicBuffer<InputSampler>,
     session: Option<StrokeSession>,
@@ -446,11 +407,11 @@ impl BrushPresetRenderer {
             input_sample,
             main,
             main_bounds_eval,
-            stroke_pp,
             resources,
             scan_pixels,
 
             input_sampler_buffer,
+            stroke_pp_pipelines: stroke_pp.into(),
             session: None,
         }
     }
@@ -477,36 +438,175 @@ impl BrushPresetRenderer {
             .scan_pixels
             .scan_to_binary_buffer(device, queue, &selection_layer);
 
-        let shared = SharedBrushRendererState {
-            intermediate_buffers: [
-                DynamicLayerStorage::new(
-                    device.clone(),
-                    queue.clone(),
-                    GpuLayerInfo {
-                        texel_type: self.resources.target_layer_format,
-                    },
-                ),
-                DynamicLayerStorage::new(
-                    device.clone(),
-                    queue.clone(),
-                    GpuLayerInfo {
-                        texel_type: self.resources.target_layer_format,
-                    },
-                ),
+        let mut pen_input_buffer =
+            DynamicBuffer::new(Some("pen input buffer".into()), BufferUsages::STORAGE);
+        pen_input_buffer.push(&PenInput::default());
+        pen_input_buffer.write_buffer(device, queue);
+
+        let main_bounds_eval_dispatch = device.create_buffer(&BufferDescriptor {
+            label: Some("bounds eval dispatch"),
+            size: std::mem::size_of::<u32>() as u64 * 4,
+            usage: BufferUsages::STORAGE | BufferUsages::INDIRECT,
+            mapped_at_creation: false,
+        });
+        let mut output_samples_packed = DynamicBuffer::new(
+            Some("output samples buffer".into()),
+            BufferUsages::COPY_SRC | BufferUsages::STORAGE,
+        );
+        // TODO Use uninit buffer
+        output_samples_packed.push(&OutputSamples::new(MAX_DABS_PER_STROKE));
+        output_samples_packed.write_buffer(device, queue);
+
+        let mut dab_infos_packed = BufferVec::new(
+            Some("dab info buffer".into()),
+            BufferUsages::COPY_SRC | BufferUsages::STORAGE,
+        );
+        // TODO Use uninit buffer
+        for _ in 0..MAX_DABS_PER_STROKE {
+            dab_infos_packed.push(&DabInfo::default());
+        }
+        dab_infos_packed.write_buffer(device, queue);
+
+        let mut output_samples_aligned =
+            DynamicBuffer::new(Some("samples buffer".into()), BufferUsages::STORAGE);
+        let mut samples_offsets = Vec::new();
+        for _ in 0..MAX_DABS_PER_STROKE {
+            samples_offsets.push(output_samples_aligned.push(&ComputedPenInput::default()) as u32);
+        }
+        output_samples_aligned.write_buffer(device, queue);
+
+        let mut dab_infos_aligned =
+            DynamicBuffer::new(Some("dab infos buffer".into()), BufferUsages::STORAGE);
+        let mut dab_info_offsets = Vec::new();
+        for _ in 0..MAX_DABS_PER_STROKE {
+            dab_info_offsets.push(dab_infos_aligned.push(&DabInfo::default()) as u32);
+        }
+        dab_infos_aligned.write_buffer(device, queue);
+
+        let intermediate_buffers = [
+            DynamicLayerStorage::new(
+                device.clone(),
+                queue.clone(),
+                GpuLayerInfo {
+                    texel_type: self.resources.target_layer_format,
+                },
+            ),
+            DynamicLayerStorage::new(
+                device.clone(),
+                queue.clone(),
+                GpuLayerInfo {
+                    texel_type: self.resources.target_layer_format,
+                },
+            ),
+        ];
+
+        let main_prepared = self.main.prepare(
+            device,
+            &target_layer,
+            &has_selection,
+            &selection_layer,
+            &output_samples_aligned,
+            &dab_infos_aligned,
+            &self.resources,
+            initial_pen_input.inner_buffer().unwrap(),
+            &[
+                intermediate_buffers[0].binding_or_empty(),
+                intermediate_buffers[1].binding_or_empty(),
             ],
+        );
+
+        let input_sample_prepared = self.input_sample.prepare(
+            device,
+            &pen_input_buffer,
+            &self.input_sampler_buffer,
+            &output_samples_packed,
+            &main_bounds_eval_dispatch,
+            &self.resources,
+            &initial_pen_input,
+        );
+
+        let main_bounds_eval_prepared = self.main_bounds_eval.prepare(
+            device,
+            &output_samples_packed,
+            &dab_infos_packed,
+            &target_layer,
+            &has_selection,
+            &selection_layer,
+            &initial_pen_input,
+            &self.resources,
+        );
+
+        let shared = SharedBrushRendererMainPassState {
+            device: device.clone(),
+            queue: queue.clone(),
+            main: self.main.clone(),
+
+            intermediate_buffers,
             round: 0,
             accumulated_tile_bounds: IRect::EMPTY,
-        };
-        let (previous_finished_tx, previous_finished_rx) = oneshot::channel();
-        previous_finished_tx.send(()).ok();
 
-        self.session = Some(StrokeSession {
-            shared: Arc::new(Mutex::new(shared)),
-            initial_pen_input,
+            main_prepared,
+            samples_offsets,
+            dab_info_offsets,
+            target_layer: target_layer.clone(),
+            has_selection: has_selection.clone(),
+            selection_layer: selection_layer.clone(),
+            output_samples_aligned,
+            dab_infos_aligned,
+            resources: self.resources.clone(),
+            initial_pen_input: initial_pen_input.inner_buffer().unwrap().clone(),
+        };
+
+        let mut stroke_pp_pipeline_cache = Vec::with_capacity(self.stroke_pp_pipelines.len());
+        for pipeline in self.stroke_pp_pipelines.iter() {
+            let mut dab_info_buffer = DynamicBuffer::new(
+                Some("brush stroke pp dab info".into()),
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            );
+            dab_info_buffer.push(&DabInfo::default());
+            dab_info_buffer.write_buffer(device, queue);
+            let mut stroke_pp_data =
+                DynamicBuffer::new(Some("brush stroke pp data".into()), BufferUsages::STORAGE);
+            stroke_pp_data.push(&StrokePostprocessData::default());
+            stroke_pp_data.write_buffer(device, queue);
+
+            let data = pipeline.bounds_eval.prepare(
+                device,
+                &stroke_pp_data,
+                &target_layer,
+                &has_selection,
+                &selection_layer,
+                &dab_info_buffer,
+                &self.resources,
+            );
+            stroke_pp_pipeline_cache.push(StrokePostprocessPipelineCache {
+                pipeline: pipeline.clone(),
+                prepared_bounds_eval: data,
+                dab_info_buffer,
+                stroke_pp_data,
+            });
+        }
+
+        let stroke_pp_cache = StrokePostprocessCache {
+            resources: self.resources.clone(),
             target_layer,
             has_selection,
             selection_layer,
-            previous_finished: previous_finished_rx,
+            pipeline_cache: stroke_pp_pipeline_cache,
+        };
+
+        self.session = Some(StrokeSession {
+            shared: Arc::new(Mutex::new(shared)),
+            stroke_pp_cache: Arc::new(futures::lock::Mutex::new(stroke_pp_cache)),
+
+            pen_input: pen_input_buffer,
+            output_samples_packed,
+            dab_infos_packed,
+
+            main_bounds_eval_dispatch,
+
+            input_sample_prepared,
+            main_bounds_eval_prepared,
         });
     }
 
@@ -517,22 +617,11 @@ impl BrushPresetRenderer {
 
         let device = device.clone();
         let queue = queue.clone();
-        let stroke_pp = self.stroke_pp.clone();
-        let resources = self.resources.clone();
-        let scan_pixels = self.scan_pixels.clone();
+        let stroke_pp_cache = session.stroke_pp_cache.clone();
 
         Task::future(async move {
-            brush_renderer_worker_stroke_postprocess(
-                session.shared,
-                device,
-                queue,
-                stroke_pp,
-                resources,
-                scan_pixels,
-                session.target_layer,
-                session.selection_layer,
-            )
-            .await
+            brush_renderer_worker_stroke_postprocess(session.shared, stroke_pp_cache, device, queue)
+                .await
         })
     }
 
@@ -542,41 +631,16 @@ impl BrushPresetRenderer {
         device: &Device,
         queue: &Queue,
         pen_input: PenInput,
-    ) -> Task<DynamicLayerStorage> {
+    ) -> Task<Result<()>> {
         let Some(session) = &mut self.session else {
             return Task::none();
         };
 
         self.resources.update_external_var_buffers(queue);
 
-        let mut pen_input_buffer =
-            DynamicBuffer::new(Some("pen input buffer".into()), BufferUsages::STORAGE);
-        pen_input_buffer.push(&pen_input);
-        pen_input_buffer.write_buffer(device, queue);
-
-        let bounds_eval_dispatch = device.create_buffer(&BufferDescriptor {
-            label: Some("bounds eval dispatch"),
-            size: 16,
-            usage: BufferUsages::STORAGE | BufferUsages::INDIRECT,
-            mapped_at_creation: false,
-        });
-        let mut output_samples = DynamicBuffer::new(
-            Some("output samples buffer".into()),
-            BufferUsages::COPY_SRC | BufferUsages::STORAGE,
-        );
-        // TODO Use uninit buffer
-        output_samples.push(&OutputSamples::new(MAX_DABS_PER_STROKE));
-        output_samples.write_buffer(device, queue);
-
-        let mut dab_infos = BufferVec::new(
-            Some("dab info buffer".into()),
-            BufferUsages::COPY_SRC | BufferUsages::STORAGE,
-        );
-        // TODO Use uninit buffer
-        for _ in 0..MAX_DABS_PER_STROKE {
-            dab_infos.push(&DabInfo::default());
-        }
-        dab_infos.write_buffer(device, queue);
+        session.pen_input.clear();
+        session.pen_input.push(&pen_input);
+        session.pen_input.write_buffer(device, queue);
 
         let mut ec = device.create_command_encoder(&Default::default());
 
@@ -587,45 +651,29 @@ impl BrushPresetRenderer {
                 ..Default::default()
             });
 
-            self.input_sample.dispatch(
-                device,
-                &mut pass,
-                &pen_input_buffer,
-                &self.input_sampler_buffer,
-                &output_samples,
-                &bounds_eval_dispatch,
-                &self.resources,
-                &session.initial_pen_input,
-            );
+            self.input_sample
+                .dispatch(&mut pass, &session.input_sample_prepared);
             self.main_bounds_eval.dispatch(
-                device,
                 &mut pass,
-                &output_samples,
-                &dab_infos,
-                &session.target_layer.texture,
-                &session.target_layer.tile_info_buffer,
-                &session.has_selection,
-                &session.selection_layer.texture,
-                &session.selection_layer.tile_info_buffer,
-                &session.initial_pen_input,
-                &self.resources,
+                &session.main_bounds_eval_prepared,
+                &session.main_bounds_eval_dispatch,
             );
         }
         ec.pop_debug_group();
 
-        let output_samples_readback = create_readback_buffer_and_schedule_copy_buffer(
+        let output_samples_staging = create_readback_buffer_and_schedule_copy_buffer(
             device,
             &mut ec,
-            output_samples.inner_buffer().unwrap(),
+            session.output_samples_packed.inner_buffer().unwrap(),
         );
-        let dab_info_readback = create_readback_buffer_and_schedule_copy_buffer(
+        let dab_info_staging = create_readback_buffer_and_schedule_copy_buffer(
             device,
             &mut ec,
-            dab_infos.inner_buffer().unwrap(),
+            session.dab_infos_packed.inner_buffer().unwrap(),
         );
         let samples_readback =
-            readback_buffer_on_submit_async(&mut ec, &output_samples_readback, ..);
-        let dab_info_readback = readback_buffer_on_submit_async(&mut ec, &dab_info_readback, ..);
+            readback_buffer_on_submit_async(&mut ec, &output_samples_staging, ..);
+        let dab_info_readback = readback_buffer_on_submit_async(&mut ec, &dab_info_staging, ..);
 
         // unsafe {
         //     device.start_graphics_debugger_capture();
@@ -636,124 +684,186 @@ impl BrushPresetRenderer {
         // }
 
         let shared = session.shared.clone();
-        let device = device.clone();
-        let queue = queue.clone();
-        let main = self.main.clone();
-        let stroke_pp = self.stroke_pp.clone();
-        let resources = self.resources.clone();
-        let scan_pixels = self.scan_pixels.clone();
-        let target_layer = session.target_layer.clone();
-        let selection_layer = session.selection_layer.clone();
-        let initial_pen_input = session.initial_pen_input.inner_buffer().unwrap().clone();
-
-        let (new_previous_finished_tx, new_previous_finished_rx) = oneshot::channel();
-        let previous_finished =
-            std::mem::replace(&mut session.previous_finished, new_previous_finished_rx);
 
         Task::future(async move {
-            brush_renderer_worker_main(
-                previous_finished,
-                new_previous_finished_tx,
-                shared,
-                samples_readback,
-                dab_info_readback,
-                initial_pen_input,
-                device,
-                queue,
-                main,
-                stroke_pp,
-                resources,
-                scan_pixels,
-                target_layer,
-                selection_layer,
-            )
-            .await
+            brush_renderer_worker_main(shared, samples_readback, dab_info_readback).await
         })
-        .then(|result| {
-            if let Ok(result) = result.logged_err() {
-                Task::done(result)
-            } else {
-                Task::none()
+    }
+
+    pub fn generate_preview(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+    ) -> Task<Option<DynamicLayerStorage>> {
+        let Some(session) = self.session.as_ref() else {
+            return Task::done(None);
+        };
+
+        let device = device.clone();
+        let queue = queue.clone();
+        let stroke_pp_cache = session.stroke_pp_cache.clone();
+
+        let shared = session.shared.clone();
+
+        Task::future(async move {
+            let (mut intermediate_buffers, mut round, mut accumulated_tile_bounds) = {
+                let shared = shared.lock();
+
+                (
+                    if shared.round % 2 == 0 {
+                        [
+                            shared.intermediate_buffers[0].deep_clone(),
+                            shared.intermediate_buffers[1].create_allocated_empty_sibling(),
+                        ]
+                    } else {
+                        [
+                            shared.intermediate_buffers[0].create_allocated_empty_sibling(),
+                            shared.intermediate_buffers[1].deep_clone(),
+                        ]
+                    },
+                    shared.round,
+                    shared.accumulated_tile_bounds,
+                )
+            };
+
+            if accumulated_tile_bounds.is_empty() {
+                return None;
             }
+
+            let mut cache = stroke_pp_cache.lock().await;
+
+            // unsafe {
+            //     device.start_graphics_debugger_capture();
+            // }
+            postprocess_stroke(
+                &device,
+                &queue,
+                Time::default(),
+                &mut intermediate_buffers,
+                &mut round,
+                &mut accumulated_tile_bounds,
+                &mut cache,
+            )
+            .await;
+            // unsafe {
+            //     device.stop_graphics_debugger_capture();
+            // }
+
+            let [buffer_a, buffer_b] = intermediate_buffers;
+            Some(if round % 2 == 0 { buffer_a } else { buffer_b })
         })
     }
 }
 
-struct SharedBrushRendererState {
-    intermediate_buffers: [DynamicLayerStorage; 2],
-    round: u32,
-    accumulated_tile_bounds: IRect,
-}
-
-async fn brush_renderer_worker_main(
-    previous_finished: oneshot::Receiver<()>,
-    next_start: oneshot::Sender<()>,
-    shared: Arc<Mutex<SharedBrushRendererState>>,
-    samples: AsyncBufferReadback<OutputSamples>,
-    dab_infos: AsyncBufferReadback<Vec<DabInfo>>,
-    initial_pen_input: Buffer,
-
+struct SharedBrushRendererMainPassState {
     device: Device,
     queue: Queue,
 
     main: BrushMainPipeline,
-    stroke_pp: Vec<StrokePostprocessPipelines>,
-    resources: StrokeResources,
-    scan_pixels: ScanPixelsPipeline,
-
     target_layer: LayerBinding,
+    has_selection: Buffer,
     selection_layer: LayerBinding,
-) -> Result<DynamicLayerStorage> {
-    let _ = previous_finished.await;
+    output_samples_aligned: DynamicBuffer<ComputedPenInput>,
+    dab_infos_aligned: DynamicBuffer<DabInfo>,
+    resources: StrokeResources,
+    initial_pen_input: Buffer,
 
-    let preview_cancelled = Arc::new(AtomicBool::new(false));
+    intermediate_buffers: [DynamicLayerStorage; 2],
+    round: u32,
+    accumulated_tile_bounds: IRect,
 
+    main_prepared: PreparedBrushMainPipelineData,
+    samples_offsets: Vec<u32>,
+    dab_info_offsets: Vec<u32>,
+}
+
+async fn brush_renderer_worker_main(
+    shared: Arc<Mutex<SharedBrushRendererMainPassState>>,
+    samples: AsyncBufferReadback<OutputSamples>,
+    dab_infos: AsyncBufferReadback<Vec<DabInfo>>,
+) -> Result<()> {
     let samples = samples.into_inner().await??;
     let dab_infos = dab_infos.into_inner().await??;
 
-    let (mut intermediate_buffers, mut accumulated_tile_bounds, mut round) = {
+    {
         let mut shared = shared.lock();
-        let has_selection = scan_pixels.scan_to_binary_buffer(&device, &queue, &selection_layer);
+        let SharedBrushRendererMainPassState {
+            device,
+            queue,
+            main,
+            target_layer,
+            has_selection,
+            selection_layer,
+            output_samples_aligned,
+            dab_infos_aligned,
+            resources,
+            initial_pen_input,
+            intermediate_buffers,
+            round,
+            accumulated_tile_bounds,
+            main_prepared,
+            samples_offsets,
+            dab_info_offsets,
+        } = &mut *shared;
 
         let dispatch_span = tracing::info_span!("main_dispatch");
         let _span = dispatch_span.enter();
 
-        let mut samples_buffer =
-            DynamicBuffer::new(Some("output samples buffer".into()), BufferUsages::STORAGE);
-        let mut samples_offsets = Vec::new();
-        let mut dab_infos_buffer = DynamicBuffer::new(
-            Some("output dab infos buffer".into()),
-            BufferUsages::STORAGE,
-        );
-        let mut dab_info_offsets = Vec::new();
+        output_samples_aligned.clear();
+        dab_infos_aligned.clear();
 
+        let old_generation = intermediate_buffers[0].allocation_generation();
+
+        let mut tiles_to_allocate = IndexSet::new();
         for (sample, dab_info) in samples
             .samples
             .into_iter()
             .take(samples.n_samples as usize)
             .zip(dab_infos)
         {
-            samples_offsets.push(samples_buffer.push(&sample) as u32);
-            dab_info_offsets.push(dab_infos_buffer.push(&dab_info) as u32);
+            output_samples_aligned.push(&sample);
+            dab_infos_aligned.push(&dab_info);
 
-            for b in &mut shared.intermediate_buffers {
-                b.allocate_tiles(IRect {
-                    min: dab_info.bound_min,
-                    max: dab_info.bound_max,
-                });
-            }
-            shared.accumulated_tile_bounds = shared.accumulated_tile_bounds.union(IRect {
+            let rect = IRect {
                 min: dab_info.bound_min,
                 max: dab_info.bound_max,
-            });
+            };
+            tiles_to_allocate.extend(
+                (rect.min.y..rect.max.y)
+                    .flat_map(|y| (rect.min.x..rect.max.x).map(move |x| IVec2::new(x, y))),
+            );
+            *accumulated_tile_bounds = accumulated_tile_bounds.union(rect);
         }
 
-        if shared.accumulated_tile_bounds.is_empty() {
+        for b in intermediate_buffers.as_mut() {
+            b.allocate_tiles_batch(&tiles_to_allocate);
+        }
+
+        let new_generation = intermediate_buffers[0].allocation_generation();
+        let _new_tiles = intermediate_buffers[0].len();
+        if old_generation != new_generation {
+            *main_prepared = main.prepare(
+                device,
+                target_layer,
+                has_selection,
+                selection_layer,
+                output_samples_aligned,
+                dab_infos_aligned,
+                resources,
+                initial_pen_input,
+                &[
+                    intermediate_buffers[0].binding_or_empty(),
+                    intermediate_buffers[1].binding_or_empty(),
+                ],
+            )
+        }
+
+        if accumulated_tile_bounds.is_empty() {
             return Err(anyhow::anyhow!("accumulated_tile_bounds is empty"));
         }
 
-        samples_buffer.write_buffer(&device, &queue);
-        dab_infos_buffer.write_buffer(&device, &queue);
+        output_samples_aligned.write_buffer(device, queue);
+        dab_infos_aligned.write_buffer(device, queue);
 
         let mut ec = device.create_command_encoder(&Default::default());
 
@@ -763,111 +873,73 @@ async fn brush_renderer_worker_main(
                 ..Default::default()
             });
             main.dispatch(
-                &device,
                 &mut pass,
-                &target_layer.texture,
-                &target_layer.tile_info_buffer,
-                &has_selection,
-                &selection_layer.texture,
-                &selection_layer.tile_info_buffer,
-                &samples_buffer,
-                &samples_offsets,
-                &dab_infos_buffer,
-                &dab_info_offsets,
-                &resources,
-                &initial_pen_input,
-                &[
-                    shared.intermediate_buffers[0].binding().unwrap(),
-                    shared.intermediate_buffers[1].binding().unwrap(),
-                ],
-                &mut shared.round,
+                main_prepared,
+                samples_offsets,
+                dab_info_offsets,
+                round,
+                samples.n_samples,
             );
         }
 
-        let intermediate_buffers = [
-            shared.intermediate_buffers[0].deep_clone(),
-            shared.intermediate_buffers[1].deep_clone(),
-        ];
-        let accumulated_tile_bounds = shared.accumulated_tile_bounds;
-        let round = shared.round;
-
         queue.submit([ec.finish()]);
-
-        (intermediate_buffers, accumulated_tile_bounds, round)
-    };
-
-    next_start.send(()).ok();
-
-    if preview_cancelled.load(Ordering::Acquire) {
-        return Err(anyhow::anyhow!("preview cancelled"));
-    }
-    // unsafe {
-    //     device.start_graphics_debugger_capture();
-    // }
-    postprocess_stroke(
-        &device,
-        &queue,
-        &target_layer,
-        &selection_layer,
-        Time::default(),
-        &mut intermediate_buffers,
-        &mut round,
-        &mut accumulated_tile_bounds,
-        &scan_pixels,
-        &stroke_pp,
-        &resources,
-    )
-    .await;
-    // unsafe {
-    //     device.stop_graphics_debugger_capture();
-    // }
-
-    if accumulated_tile_bounds.is_empty() {
-        return Err(anyhow::anyhow!("accumulated_tile_bounds is empty"));
     }
 
-    let [buffer_a, buffer_b] = intermediate_buffers;
-    Ok(if round % 2 == 0 { buffer_a } else { buffer_b })
+    Ok(())
+}
+
+pub struct StrokePostprocessPipelineCache {
+    pipeline: StrokePostprocessPipelines,
+    prepared_bounds_eval: PreparedBrushPostProcessBoundsEvalPipelineData,
+    dab_info_buffer: DynamicBuffer<DabInfo>,
+    stroke_pp_data: DynamicBuffer<StrokePostprocessData>,
+}
+
+pub struct StrokePostprocessCache {
+    resources: StrokeResources,
+    target_layer: LayerBinding,
+    has_selection: Buffer,
+    selection_layer: LayerBinding,
+
+    pipeline_cache: Vec<StrokePostprocessPipelineCache>,
 }
 
 async fn brush_renderer_worker_stroke_postprocess(
-    shared: Arc<Mutex<SharedBrushRendererState>>,
+    shared: Arc<Mutex<SharedBrushRendererMainPassState>>,
+    stroke_pp_cache: Arc<futures::lock::Mutex<StrokePostprocessCache>>,
 
     device: Device,
     queue: Queue,
-
-    stroke_pp: Vec<StrokePostprocessPipelines>,
-    resources: StrokeResources,
-    scan_pixels: ScanPixelsPipeline,
-
-    target_layer: LayerBinding,
-    selection_layer: LayerBinding,
 ) -> DynamicLayerStorage {
     let (mut intermediate_buffers, mut round, mut accumulated_tile_bounds) = {
         let shared = shared.lock();
         (
-            [
-                shared.intermediate_buffers[0].deep_clone(),
-                shared.intermediate_buffers[1].deep_clone(),
-            ],
+            if shared.round.is_multiple_of(2) {
+                [
+                    shared.intermediate_buffers[0].deep_clone(),
+                    shared.intermediate_buffers[1].create_allocated_empty_sibling(),
+                ]
+            } else {
+                [
+                    shared.intermediate_buffers[0].create_allocated_empty_sibling(),
+                    shared.intermediate_buffers[1].deep_clone(),
+                ]
+            },
             shared.round,
             shared.accumulated_tile_bounds,
         )
     };
+    let mut cache = stroke_pp_cache.lock().await;
 
     postprocess_stroke(
         &device,
         &queue,
-        &target_layer,
-        &selection_layer,
         // TODO
         Time::default(),
         &mut intermediate_buffers,
         &mut round,
         &mut accumulated_tile_bounds,
-        &scan_pixels,
-        &stroke_pp,
-        &resources,
+        &mut cache,
     )
     .await;
 
@@ -878,34 +950,31 @@ async fn brush_renderer_worker_stroke_postprocess(
 async fn postprocess_stroke(
     device: &Device,
     queue: &Queue,
-    target_layer: &LayerBinding,
-    selection_layer: &LayerBinding,
     time: Time,
     intermediate_buffers: &mut [DynamicLayerStorage; 2],
     round: &mut u32,
     accumulated_tile_bounds: &mut IRect,
-    scan_pixels: &ScanPixelsPipeline,
-    stroke_pp: &[StrokePostprocessPipelines],
-    resources: &StrokeResources,
+    cache: &mut StrokePostprocessCache,
 ) {
+    let StrokePostprocessCache {
+        resources,
+        target_layer,
+        has_selection,
+        selection_layer,
+        pipeline_cache,
+    } = cache;
+
     if accumulated_tile_bounds.is_empty() {
         return;
     }
 
-    let has_selection = scan_pixels.scan_to_binary_buffer(device, queue, selection_layer);
-
-    let mut dab_info_buffer = DynamicBuffer::new(
-        Some("pp dab info buffer".into()),
-        BufferUsages::STORAGE | BufferUsages::COPY_SRC,
-    );
-    let mut stroke_pp_data =
-        DynamicBuffer::new(Some("stroke pp data".into()), BufferUsages::STORAGE);
-
-    for pipeline in stroke_pp {
-        dab_info_buffer.clear();
-        dab_info_buffer.push(&DabInfo::default());
-        dab_info_buffer.write_buffer(device, queue);
-
+    for StrokePostprocessPipelineCache {
+        pipeline,
+        prepared_bounds_eval,
+        dab_info_buffer,
+        stroke_pp_data,
+    } in pipeline_cache.iter_mut()
+    {
         stroke_pp_data.clear();
         stroke_pp_data.push(&StrokePostprocessData {
             accumulated_pixel_bounds: GpuTileStorage::tile_rect_to_pixel(*accumulated_tile_bounds),
@@ -922,18 +991,9 @@ async fn postprocess_stroke(
                 ..Default::default()
             });
 
-            pipeline.bounds_eval.dispatch(
-                device,
-                &mut pass,
-                &stroke_pp_data,
-                &target_layer.texture,
-                &target_layer.tile_info_buffer,
-                &has_selection,
-                &selection_layer.texture,
-                &selection_layer.tile_info_buffer,
-                &dab_info_buffer,
-                resources,
-            );
+            pipeline
+                .bounds_eval
+                .dispatch(&mut pass, prepared_bounds_eval);
         }
 
         let dab_info_readback_buffer = create_readback_buffer_and_schedule_copy_buffer(
@@ -959,10 +1019,6 @@ async fn postprocess_stroke(
             max: new_dab_info.bound_max,
         };
 
-        let mut dab_info = DynamicBuffer::new(Some("pp dab info".into()), BufferUsages::STORAGE);
-        dab_info.push(&new_dab_info);
-        dab_info.write_buffer(device, queue);
-
         for b in intermediate_buffers.iter_mut() {
             b.allocate_tiles(IRect {
                 min: new_dab_info.bound_min,
@@ -975,24 +1031,21 @@ async fn postprocess_stroke(
             intermediate_buffers[1].binding().unwrap(),
         ];
 
+        let prepared = pipeline.main.prepare(
+            device,
+            stroke_pp_data,
+            target_layer,
+            has_selection,
+            selection_layer,
+            dab_info_buffer,
+            resources,
+            &intermediate_buffers,
+            *round,
+        );
         let mut ec = device.create_command_encoder(&Default::default());
-
         {
             let mut pass = ec.begin_compute_pass(&Default::default());
-            pipeline.main.dispatch(
-                device,
-                &mut pass,
-                &stroke_pp_data,
-                &target_layer.texture,
-                &target_layer.tile_info_buffer,
-                &has_selection,
-                &selection_layer.texture,
-                &selection_layer.tile_info_buffer,
-                &dab_info,
-                resources,
-                &intermediate_buffers,
-                round,
-            );
+            pipeline.main.dispatch(&mut pass, &prepared, round);
         }
         queue.submit([ec.finish()]);
     }
