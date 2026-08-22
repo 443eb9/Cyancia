@@ -8,7 +8,7 @@ use crate::{Cursor, UnitFloat};
 #[abr(class = "null")]
 pub(crate) struct BrushDescriptorRoot {
     #[abr(key = "Brsh")]
-    pub brushes: Vec<BrushPreset>,
+    pub brushes: Vec<Descriptor>,
 }
 
 #[derive(Debug, AbrObject)]
@@ -436,7 +436,7 @@ pub struct EraserToolOptions {
 
 #[derive(Debug, AbrClass)]
 #[abr(class = "brushPreset")]
-pub struct BrushPreset {
+pub struct Descriptor {
     #[abr(key = "Nm  ")]
     pub name: String,
     #[abr(key = "Brsh")]
@@ -455,10 +455,10 @@ pub struct BrushPreset {
     pub use_tip_dynamics: bool,
     #[abr(key = "flipX")]
     #[abr(default = false)]
-    pub flip_x: bool,
+    pub flip_x_jitter: bool,
     #[abr(key = "flipY")]
     #[abr(default = false)]
-    pub flip_y: bool,
+    pub flip_y_jitter: bool,
     #[abr(key = "brushProjection")]
     #[abr(default = false)]
     pub brush_projection: bool,
@@ -576,7 +576,7 @@ pub struct BrushPreset {
 }
 
 impl BrushDescriptorRoot {
-    pub(crate) fn parse_desc_section(cursor: &mut Cursor<'_>) -> Result<Vec<BrushPreset>> {
+    pub(crate) fn parse_desc_section(cursor: &mut Cursor<'_>) -> Result<Vec<Descriptor>> {
         let version = cursor.read_u32_be()?;
         if version != 16 {
             bail!("unsupported ABR descriptor version {version}");

@@ -84,14 +84,17 @@ fn texture_transform_mat_inv(local_index: u32, scale: vec2f, rotate: f32, transl
 fn sample_transformed_local_texture_clamp(local_index: u32, pixel: vec2f, scale: vec2f, rotate: f32, translate: vec2f, anchor: vec2f) -> vec4f {
     let mat = texture_transform_mat_inv(local_index, scale, rotate, translate, anchor);
     let tex_px = (mat * vec3f(pixel, 1.0)).xy;
+    if any(tex_px < vec2f(0.0)) {
+        return vec4f(0.0);
+    }
     return sample_local_texture(local_index, vec2u(tex_px));
 }
 
 fn sample_transformed_local_texture_wrap(local_index: u32, pixel: vec2f, scale: vec2f, rotate: f32, translate: vec2f, anchor: vec2f) -> vec4f {
     let mat = texture_transform_mat_inv(local_index, scale, rotate, translate, anchor);
     let tex_px = (mat * vec3f(pixel, 1.0)).xy;
-    let tex_size = atlas_size(local_index);
-    let wrapped_tex_px = abs(vec2i(tex_px) % vec2i(tex_size));
+    let tex_size = vec2i(atlas_size(local_index));
+    let wrapped_tex_px = ((vec2i(tex_px) % tex_size) + tex_size) % tex_size;
     return sample_local_texture(local_index, vec2u(wrapped_tex_px));
 }
 
@@ -185,8 +188,9 @@ fn set_output_color(pixel_pos: vec2i, color: vec4f) {
 
 fn set_output_pixel_bounds(bounds: Rect) {
     @if(BOUNDS_EVAL) {
-        let tile_min = vec2i(bounds.min) / i32(TILE_SIZE);
-        let tile_max = (vec2i(bounds.max) - 1) / i32(TILE_SIZE) + 1;
+        let tile_size = f32(TILE_SIZE);
+        let tile_min = vec2i(floor(bounds.min / tile_size));
+        let tile_max = vec2i(ceil(bounds.max / tile_size));
 
         @if(POSTPROCESS) {
             dab_info = DabInfo(tile_min, tile_max);

@@ -1,0 +1,27 @@
+[package]
+name = "lapiz_abr_bridge"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+iced_core.workspace = true
+image.workspace = true
+lapiz_abr.workspace = true
+lapiz_assets.workspace = true
+lapiz_brush.workspace = true
+lapiz_image.workspace = true
+lapiz_render.workspace = true
+lapiz_shader_graph.workspace = true
+log.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+wesl.workspace = true
+wesl-quote.workspace = true
+xxhash-rust.workspace = true

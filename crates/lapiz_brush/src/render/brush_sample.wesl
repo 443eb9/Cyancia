@@ -1,5 +1,5 @@
 import package::brush_types::{PenInput, ComputedPenInput, PenInputSampler, OutputSamples, StrokeInfo, Time, CanvasResources};
-import render::math::{unsigned_div_ceil, bezier_eval, bezier_tangent_eval, mix_angle};
+import render::math::{URect, unsigned_div_ceil, bezier_eval, bezier_tangent_eval, mix_angle};
 
 @group(0) @binding(0) var<storage> new_input: PenInput;
 @group(0) @binding(1) var<storage, read_write> input_sampler: PenInputSampler;
@@ -7,10 +7,17 @@ import render::math::{unsigned_div_ceil, bezier_eval, bezier_tangent_eval, mix_a
 @group(0) @binding(3) var<storage, read_write> bounds_eval_dispatch: vec3u;
 @group(0) @binding(4) var<storage> canvas_resources: CanvasResources;
 @group(0) @binding(5) var<storage, read_write> initial_pen_input: ComputedPenInput;
+@group(0) @binding(6) var textures: texture_2d<f32>;
+@group(0) @binding(7) var<storage> texture_bounds: array<URect>;
 
 //CODEGENFLAG_EXTERNAL_VARIABLE_BINDINGS
 
 const BEZIER_SAMPLES: u32 = 32u;
+
+fn atlas_size(local_index: u32) -> vec2u {
+    let bounds = texture_bounds[local_index];
+    return bounds.max - bounds.min;
+}
 
 fn compute_required_spacing(graph_input: ComputedPenInput) -> f32 {
     //CODEGENFLAG_COMPUTED_GRAPH_REQUIRED_SPACING
@@ -39,7 +46,7 @@ fn bezier_t_for_arc_length(table: ptr<function, array<f32, BEZIER_SAMPLES + 1u>>
     return mix(lo_t, hi_t, (arc_goal - lo_arc) / (hi_arc - lo_arc));
 }
 
-fn compute_pen_input(last: PenInput, current: PenInput, p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f, t: f32, dab_index: u32) -> ComputedPenInput {
+fn compute_pen_input(last: PenInput, current: PenInput, p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f, t: f32, dab_index: u32, stroke_distance: f32) -> ComputedPenInput {
     let position = bezier_eval(p0, p1, p2, p3, t);
     let pressure = mix(last.pressure, current.pressure, t);
     let tilt = vec2f(
@@ -53,7 +60,7 @@ fn compute_pen_input(last: PenInput, current: PenInput, p0: vec2f, p1: vec2f, p2
     let time = Time(mix(last.time.now, current.time.now, t), last.time.stroke_begin);
     let draw_direction_vec = bezier_tangent_eval(p0, p1, p2, p3, t);
     let draw_direction_angle = atan2(draw_direction_vec.y, draw_direction_vec.x);
-    return ComputedPenInput(position, draw_direction_vec, tilt, angle, draw_direction_angle, pressure, dab_index, time);
+    return ComputedPenInput(position, draw_direction_vec, tilt, angle, draw_direction_angle, pressure, dab_index, stroke_distance, time);
 }
 
 @compute
@@ -62,12 +69,22 @@ fn compute_pen_input(last: PenInput, current: PenInput, p0: vec2f, p1: vec2f, p2
 fn main() {
     output_samples.n_samples = 0;
 
-    let p0 = input_sampler.last_sample.position;
+    let p0 = input_sampler.last_input.position;
     let p1 = new_input.bezier_control_prev;
     let p2 = new_input.bezier_control_cur;
     let p3 = new_input.position;
 
-    let new_computed = compute_pen_input(new_input, new_input, p0, p1, p2, p3, 1.0, 0);
+    let new_computed = compute_pen_input(
+        new_input,
+        new_input,
+        p0,
+        p1,
+        p2,
+        p3,
+        1.0,
+        input_sampler.next_dab_index,
+        input_sampler.stroke_distance,
+    );
 
     if input_sampler.has_last_sample == 0 {
         input_sampler.last_input = new_input;
@@ -89,35 +106,50 @@ fn main() {
     }
     let total_arc = arc_table[BEZIER_SAMPLES];
 
-    let spacing = compute_required_spacing(new_computed);
-    if total_arc < 0.0001 || spacing <= 0.0 {
+    if total_arc < 0.0001 {
         input_sampler.last_input = new_input;
         return;
     }
 
-    var remaining_arc = total_arc;
-    while output_samples.n_samples < arrayLength(&output_samples.samples) {
-        let target_arc = total_arc - remaining_arc;
+    var target_arc = input_sampler.distance_to_next_dab;
+    while target_arc <= total_arc && output_samples.n_samples < arrayLength(&output_samples.samples)
+    {
         let t = bezier_t_for_arc_length(&arc_table, target_arc);
-        let interpolated = compute_pen_input(input_sampler.last_input, new_input, p0, p1, p2, p3, t, input_sampler.next_dab_index);
+        let interpolated = compute_pen_input(
+            input_sampler.last_input,
+            new_input,
+            p0,
+            p1,
+            p2,
+            p3,
+            t,
+            input_sampler.next_dab_index,
+            input_sampler.stroke_distance + target_arc,
+        );
+        let spacing = compute_required_spacing(interpolated);
+        if spacing <= 0.0 {
+            input_sampler.last_input = new_input;
+            return;
+        }
         input_sampler.next_dab_index += 1u;
 
         output_samples.samples[output_samples.n_samples] = interpolated;
         output_samples.n_samples += 1u;
-        remaining_arc -= spacing;
+        target_arc += spacing;
 
         if input_sampler.has_initial_input == 0 {
             initial_pen_input = interpolated;
             input_sampler.has_initial_input = 1;
         }
-
-        if remaining_arc < spacing {
-            break;
-        }
     }
 
+    input_sampler.distance_to_next_dab = target_arc - total_arc;
+    input_sampler.stroke_distance += total_arc;
     input_sampler.last_input = new_input;
-    input_sampler.last_sample = output_samples.samples[output_samples.n_samples - 1u];
-
-    bounds_eval_dispatch = vec3u(1u, 1u, unsigned_div_ceil(output_samples.n_samples, 16u));
+    if output_samples.n_samples > 0u {
+        input_sampler.last_sample = output_samples.samples[output_samples.n_samples - 1u];
+        bounds_eval_dispatch = vec3u(1u, 1u, unsigned_div_ceil(output_samples.n_samples, 16u));
+    } else {
+        bounds_eval_dispatch = vec3u(0u);
+    }
 }

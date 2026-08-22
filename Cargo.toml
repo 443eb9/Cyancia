@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/lapiz_abr",
+    "crates/lapiz_abr_bridge",
     "crates/lapiz_abr_derive",
     "crates/lapiz_actions",
     "crates/lapiz_anti_aliasing",
@@ -50,6 +51,7 @@ too_many_arguments = "allow"
 
 [workspace.dependencies]
 lapiz_abr = { version = "0.1.0", path = "crates/lapiz_abr" }
+lapiz_abr_bridge = { version = "0.1.0", path = "crates/lapiz_abr_bridge" }
 lapiz_abr_derive = { version = "0.1.0", path = "crates/lapiz_abr_derive" }
 lapiz_actions = { version = "0.1.0", path = "crates/lapiz_actions" }
 lapiz_anti_aliasing = { version = "0.1.0", path = "crates/lapiz_anti_aliasing" }
@@ -91,6 +93,7 @@ bevy_math = { version = "0.18", git = "https://github.com/443eb9/bevy.git", bran
 bitflags = "2"
 bytemuck = { version = "1", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
 dashmap = "6"
 downcast-rs = "2"
 dyn-clone = "1"
@@ -155,9 +158,10 @@ thiserror = "2"
 toml = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
 variadics_please = "2"
 wesl = { version = "0.4", features = ["package", "naga-ext"] }
+wesl-quote = "0.4"
 wgpu = "27"
 windows = "0.62"
 winit = "0.30"

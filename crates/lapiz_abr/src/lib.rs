@@ -1,18 +1,34 @@
-mod cursor;
-mod descriptor;
-mod header;
-mod hierarchy;
-mod pattern;
-mod rle;
-mod sample;
+// DISCLAIMER
+//
+// This crate was developed exclusively through manual clean room reverse
+// engineering, and the following statements are made with respect to that
+// work:
+//
+// 1. The implementation relies solely on publicly available documentation of
+//    the Adobe Brush (ABR) file format and on other existing, independently
+//    developed implementations of that format.
+//
+// 2. Adobe Photoshop was used only as a reference for artifacts produced by
+//    hand: sample ABR files were created manually through the Photoshop user
+//    interface and examined as reference material for this crate.
+//
+// 3. No Adobe Photoshop binary, library, or other executable component was
+//    disassembled, decompiled, or otherwise inspected.
+//
+// 4. No script, tool, or automated process was used to run, probe, instrument,
+//    or debug Adobe Photoshop.
+//
+// This crate is an independent implementation of the ABR format. It contains
+// no Adobe software and is not affiliated with, endorsed by, or sponsored by
+// Adobe Inc.
 
 use anyhow::{Result, bail};
 use descriptor::BrushDescriptorRoot;
 
 pub use cursor::Cursor;
 pub use descriptor::{
-    AbrClass, AbrEnum, AbrIntegerEnum, AbrObject, AbrValue, BlendMode, BrushGroup, BrushPreset,
-    BrushTip, ComputedBrushTip, DBrushTip, DescriptorUnit, DualBrush, DynamicsControl,
+    AbrClass, AbrEnum, AbrIntegerEnum, AbrObject, AbrValue, BlendMode, BrushGroup, BrushTip,
+    ComputedBrushTip, DBrushTip, Descriptor, DescriptorUnit, DualBrush, DynamicsControl,
     EraserToolOptions, PaintToolOptions, PatternReference, PropertyDynamics, RgbColor,
     SampledBrushTip, ShToolOptions, SmudgeToolOptions, ToolOptions, UnitFloat,
 };
@@ -22,9 +38,18 @@ pub use lapiz_abr_derive::{AbrClass, AbrEnum, AbrIntegerEnum, AbrObject};
 pub use pattern::{ColorMode, Pattern, PatternChannel};
 pub use sample::{Sample, SampleImage};
 
+mod cursor;
+mod descriptor;
+mod header;
+mod hierarchy;
+mod pattern;
+mod rle;
+mod sample;
+
+#[derive(Debug)]
 pub struct Abr {
     pub header: AbrHeader,
-    pub brushes: Vec<BrushPreset>,
+    pub descriptors: Vec<Descriptor>,
     pub hierarchy: HierarchyNode,
     pub samples: Vec<Sample>,
     pub patterns: Vec<Pattern>,
@@ -68,7 +93,7 @@ impl Abr {
 
         Ok(Self {
             header,
-            brushes,
+            descriptors: brushes,
             hierarchy,
             samples,
             patterns,
