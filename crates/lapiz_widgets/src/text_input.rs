@@ -10,7 +10,9 @@ pub struct TextInput<'a, Message> {
 impl<'a, Message: Clone> TextInput<'a, Message> {
     pub fn new(placeholder: &str, value: &str) -> Self {
         Self {
-            inner: iced_widget::TextInput::new(placeholder, value).style(default),
+            inner: iced_widget::TextInput::new(placeholder, value)
+                .size(12)
+                .style(default),
         }
     }
 

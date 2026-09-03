@@ -11,7 +11,7 @@ impl<'a> Label<'a> {
     pub fn new(content: impl text::IntoFragment<'a>) -> Self {
         Self {
             inner: iced_widget::Text::new(content)
-                .size(10)
+                .size(12)
                 .wrapping(text::Wrapping::None)
                 .align_y(alignment::Vertical::Center)
                 .style(default),

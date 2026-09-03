@@ -1,7 +1,7 @@
 use std::{fmt::Display, ops::RangeBounds, str::FromStr};
 
 use iced_aw::{NumberInput, style};
-use iced_core::{Background, Element, Length, Padding, Theme};
+use iced_core::{Background, Element, Length, Padding, Pixels, Theme};
 use iced_wgpu::Renderer;
 use num_traits::{Num, NumAssignOps, bounds::Bounded};
 
@@ -28,9 +28,15 @@ where
     ) -> Self {
         Self {
             inner: NumberInput::new(value, bounds, on_change)
+                .set_size(12)
                 .style(default)
                 .input_style(crate::text_input::default),
         }
+    }
+
+    pub fn size(mut self, size: impl Into<Pixels>) -> Self {
+        self.inner = self.inner.set_size(size);
+        self
     }
 
     pub fn width(mut self, width: impl Into<Length>) -> Self {

@@ -14,6 +14,7 @@ impl<'a, Message> Switch<'a, Message> {
                 .on_toggle(on_toggle)
                 .size(16)
                 .spacing(8)
+                .text_size(12)
                 .style(default),
         }
     }

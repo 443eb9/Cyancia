@@ -32,7 +32,6 @@ use lapiz_tools::{ErasedToolFunctionMessage, GlobalToolBindings, ToolFunction};
 use lapiz_widgets::{
     bar::StatusBar,
     flex::Flex,
-    icon,
     kbd::Kbd,
     label::Label,
     menu::{Menu, MenuBar},
@@ -297,15 +296,14 @@ impl WindowView for MainView {
         }
 
         let title_content = Flex::row([
-            icon::palette().size(16).accent().into(),
-            Label::new("LAPIZ").size(12).strong().into(),
+            Label::new("LAPIZ").size(13).strong().into(),
             Self::menu_bar(&services.service::<ApplicationTheme>().0)
                 .height(Length::Fill)
                 .into(),
         ])
         .width(Length::Fill)
         .height(Length::Fill)
-        .gap(8)
+        .gap(12)
         .padding([0, 10]);
         let title = TitleBar::new(title_content)
             .on_drag(MainViewMessage::DragWindow(window))

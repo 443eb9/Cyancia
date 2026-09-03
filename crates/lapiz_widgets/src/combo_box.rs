@@ -177,6 +177,7 @@ where
     Message: Clone,
 {
     iced_widget::PickList::new(options, selected, on_selected)
+        .text_size(Pixels(12.0))
         .style(pick_list_style)
         .menu_style(menu_style)
 }
