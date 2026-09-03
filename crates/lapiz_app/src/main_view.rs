@@ -13,7 +13,8 @@ use lapiz_actions::{
     manifest::{ActionCollection, KeyBindingDefManifest},
 };
 use lapiz_assets::AssetAppExt;
-use lapiz_canvas::CanvasToolProxyAppExt;
+use lapiz_brush::tool::CurrentBrushPresetHandle;
+use lapiz_canvas::{CanvasAppExt, CanvasToolProxyAppExt};
 use lapiz_canvas::{
     event::{CanvasCreated, CanvasRemoved},
     tools::PanTool,
@@ -31,12 +32,15 @@ use lapiz_runtime::{
 use lapiz_tools::{ErasedToolFunctionMessage, GlobalToolBindings, ToolFunction};
 use lapiz_widgets::{
     bar::StatusBar,
+    divider::Divider,
     flex::Flex,
+    icon::{self, Icon},
     kbd::Kbd,
     label::Label,
     menu::{Menu, MenuBar},
     title_bar::TitleBar,
 };
+use moxcms::{ColorProfile, ProfileText};
 
 use crate::dock::{
     BRUSH_PRESETS_DOCK_ID, BrushPresetDock, COLOR_SELECTOR_DOCK_ID, CanvasDock, ColorSelectorDock,
@@ -71,6 +75,19 @@ pub enum MainViewMessage {
 impl MainView {
     fn action(name: &'static str) -> MainViewMessage {
         MainViewMessage::TriggerAction(ActionId::new(name.into()))
+    }
+
+    fn status_cell<'a>(
+        icon: Icon<'a>,
+        text: String,
+    ) -> Element<'a, MainViewMessage, Theme, Renderer> {
+        Flex::row([
+            icon.size(10).muted().into(),
+            Label::new(text).size(10).muted().into(),
+        ])
+        .gap(4)
+        .padding([0, 6])
+        .into()
     }
 
     fn menu_bar<'a>(current_theme: &Theme) -> MenuBar<'a, MainViewMessage> {
@@ -311,13 +328,36 @@ impl WindowView for MainView {
             .on_maximize(MainViewMessage::MaximizeWindow(window))
             .on_close(MainViewMessage::CloseWindow(window));
 
-        let status = StatusBar::new([
-            Label::new("READY").size(10).accent().into(),
-            Label::new("Lapiz painting workspace")
-                .size(10)
-                .muted()
-                .into(),
-        ]);
+        let preset_name = services
+            .get_service::<CurrentBrushPresetHandle>()
+            .and_then(|handle| handle.0.get().ok())
+            .map(|preset| preset.metadata.name.clone())
+            .unwrap_or_else(|| String::from("NO PRESET"));
+        let mut status_cells: Vec<Element<'_, MainViewMessage, Theme, Renderer>> =
+            vec![Self::status_cell(icon::brush(), preset_name)];
+        if let Some(canvas) = services.current_canvas() {
+            let size = canvas.image.size();
+            status_cells.extend([
+                Divider::vertical(1).into(),
+                Self::status_cell(icon::canvas_size(), format!("{} × {}", size.x, size.y)),
+                Self::status_cell(icon::palette(), profile_name(canvas.image.profile())),
+                Divider::vertical(1).into(),
+                Self::status_cell(
+                    icon::refresh(),
+                    format!("{:.0}°", canvas.transform.rotation().to_degrees()),
+                ),
+                Self::status_cell(
+                    icon::zoom(),
+                    format!("{:.0}%", canvas.transform.zoom() * 100.0),
+                ),
+            ]);
+        } else {
+            status_cells.extend([
+                Divider::vertical(1).into(),
+                Self::status_cell(icon::canvas_size(), String::from("NO CANVAS")),
+            ]);
+        }
+        let status = StatusBar::new(status_cells);
 
         let content: Element<'a, MainViewMessage, Theme, Renderer> =
             Flex::column([title.into(), dock, status.into()])
@@ -540,5 +580,23 @@ impl WindowView for MainView {
 
     fn root_window(&self) -> Option<iced_core::window::Id> {
         Some(self.dock_manager.main_window().id)
+    }
+}
+
+fn profile_name(profile: &ColorProfile) -> String {
+    match profile.description.as_ref() {
+        Some(ProfileText::PlainString(name)) => name.clone(),
+        Some(ProfileText::Localizable(strings)) => strings
+            .first()
+            .map(|string| string.value.clone())
+            .unwrap_or_else(|| String::from("untitled")),
+        Some(ProfileText::Description(string)) => {
+            if string.unicode_string.is_empty() {
+                string.ascii_string.clone()
+            } else {
+                string.unicode_string.clone()
+            }
+        }
+        None => String::from("untitled"),
     }
 }
