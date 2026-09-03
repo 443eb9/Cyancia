@@ -139,13 +139,13 @@ impl<'a, Message: 'a> From<PickList<'a, Message>> for Element<'a, Message, Theme
             Button::new(icon::chevron_right().size(13))
                 .width(24)
                 .height(24)
-                .padding(0)
+                .padding(5.5)
                 .on_press_with_maybe(value.move_to_selected)
                 .into(),
             Button::new(icon::chevron_left().size(13))
                 .width(24)
                 .height(24)
-                .padding(0)
+                .padding(5.5)
                 .on_press_with_maybe(value.move_to_available)
                 .into(),
         ])

@@ -27,7 +27,9 @@ where
         on_change: impl Fn(T) -> Message + Clone + 'static,
     ) -> Self {
         Self {
-            inner: NumberInput::new(value, bounds, on_change).style(default),
+            inner: NumberInput::new(value, bounds, on_change)
+                .style(default)
+                .input_style(crate::text_input::default),
         }
     }
 

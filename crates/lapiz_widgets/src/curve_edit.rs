@@ -181,16 +181,13 @@ impl<Message> Widget<Message, Theme, Renderer> for CurveEdit<'_, Message> {
                 shell.request_redraw();
                 shell.capture_event();
             }
-            Event::Mouse(mouse::Event::CursorMoved { .. }) if state.dragging => {
-                let Some(position) = cursor.position() else {
-                    return;
-                };
+            Event::Mouse(mouse::Event::CursorMoved { position }) if state.dragging => {
                 let index = state
                     .selected_index
                     .expect("dragging without a selected point");
                 let mut points = self.curve.control_points().to_vec();
 
-                let normalized = screen_to_normalized(position, bounds);
+                let normalized = screen_to_normalized(*position, bounds);
                 let min = index
                     .checked_sub(1)
                     .map_or(0.0, |previous| points[previous].x + MIN_POINT_GAP);

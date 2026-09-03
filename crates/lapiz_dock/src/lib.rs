@@ -91,6 +91,46 @@ where
         }
     }
 
+    pub fn open_dock_in_group(&mut self, dock_id: DockId, target: &DockId) -> Task<DockMessage> {
+        if self
+            .dock_state
+            .open_in_group(target, dock_id.clone())
+            .is_none()
+        {
+            return self.open_dock(dock_id);
+        }
+
+        if let Some(dock) = self.docks.get_mut(&dock_id) {
+            dock.on_open()
+                .map(move |message| DockMessage::Dock(dock_id.clone(), message))
+        } else {
+            Task::none()
+        }
+    }
+
+    pub fn open_dock_split(
+        &mut self,
+        dock_id: DockId,
+        target: &DockId,
+        edge: pane_grid::Edge,
+        ratio: f32,
+    ) -> Task<DockMessage> {
+        if self
+            .dock_state
+            .open_split(target, edge, ratio, dock_id.clone())
+            .is_none()
+        {
+            return self.open_dock(dock_id);
+        }
+
+        if let Some(dock) = self.docks.get_mut(&dock_id) {
+            dock.on_open()
+                .map(move |message| DockMessage::Dock(dock_id.clone(), message))
+        } else {
+            Task::none()
+        }
+    }
+
     pub fn on_dock_action(&mut self, action: DockAction) -> Task<DockMessage> {
         match action {
             DockAction::Pane(event) => self.dock_state.update(event),

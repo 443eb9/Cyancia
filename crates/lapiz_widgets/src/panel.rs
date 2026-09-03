@@ -87,7 +87,7 @@ impl<'a, Message: 'a> From<Panel<'a, Message>> for Element<'a, Message, Theme, R
 pub fn default(theme: &Theme) -> Style {
     let p = theme.extended_palette();
     Style::default()
-        .background(p.background.weakest.color)
+        .background(crate::theme::surface(theme))
         .color(p.background.base.text)
         .border(iced_core::Border {
             radius: 0.0.into(),
@@ -111,7 +111,7 @@ pub fn inset(theme: &Theme) -> Style {
 pub fn raised(theme: &Theme) -> Style {
     let p = theme.extended_palette();
     Style::default()
-        .background(p.background.weak.color)
+        .background(crate::theme::raised(theme))
         .color(p.background.base.text)
         .border(iced_core::Border {
             radius: 0.0.into(),

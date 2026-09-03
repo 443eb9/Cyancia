@@ -54,9 +54,9 @@ impl<'a, Message: 'a> From<TitleBar<'a, Message>> for Element<'a, Message, Theme
         if value.minimize.is_some() {
             controls = controls.push(
                 Button::new(icon::win_minimize().size(12))
-                    .width(42)
+                    .width(38)
                     .height(Length::Fill)
-                    .padding(0)
+                    .padding([10, 13])
                     .transparent()
                     .on_press_with_maybe(value.minimize),
             );
@@ -64,9 +64,9 @@ impl<'a, Message: 'a> From<TitleBar<'a, Message>> for Element<'a, Message, Theme
         if value.maximize.is_some() {
             controls = controls.push(
                 Button::new(icon::win_maximize().size(12))
-                    .width(42)
+                    .width(38)
                     .height(Length::Fill)
-                    .padding(0)
+                    .padding([10, 13])
                     .transparent()
                     .on_press_with_maybe(value.maximize),
             );
@@ -74,10 +74,10 @@ impl<'a, Message: 'a> From<TitleBar<'a, Message>> for Element<'a, Message, Theme
         if value.close.is_some() {
             controls = controls.push(
                 Button::new(icon::win_close().size(12))
-                    .width(46)
+                    .width(40)
                     .height(Length::Fill)
-                    .padding(0)
-                    .danger()
+                    .padding([10, 14])
+                    .style(close_button)
                     .on_press_with_maybe(value.close),
             );
         }
@@ -87,6 +87,20 @@ impl<'a, Message: 'a> From<TitleBar<'a, Message>> for Element<'a, Message, Theme
             .class(value.class)
             .on_press_with_maybe(value.drag)
             .into()
+    }
+}
+
+fn close_button(theme: &Theme, status: crate::button::Status) -> crate::button::Style {
+    let p = theme.extended_palette();
+    match status {
+        crate::button::Status::Hovered | crate::button::Status::Pressed => crate::button::Style {
+            background: Some(p.danger.base.color.into()),
+            text_color: p.danger.base.text,
+            ..Default::default()
+        },
+        crate::button::Status::Active | crate::button::Status::Disabled => {
+            crate::button::transparent(theme, status)
+        }
     }
 }
 

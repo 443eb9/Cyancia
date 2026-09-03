@@ -29,7 +29,7 @@ impl<'a, Message> Button<'a, Message> {
             content,
             press: None,
             width: size.width.fluid(),
-            height: size.height.fluid(),
+            height: Length::Fixed(26.0),
             padding: Padding {
                 top: 5.0,
                 right: 10.0,
@@ -38,7 +38,7 @@ impl<'a, Message> Button<'a, Message> {
             },
             clip: false,
             interactive: false,
-            class: <Theme as Catalog>::default(),
+            class: Box::new(default),
         }
     }
 
@@ -84,6 +84,10 @@ impl<'a, Message> Button<'a, Message> {
     }
 
     pub fn transparent(self) -> Self {
+        self.style(transparent)
+    }
+
+    pub fn ghost(self) -> Self {
         self.style(transparent)
     }
 
@@ -320,7 +324,7 @@ impl<'a, Message: 'a> From<Button<'a, Message>> for Element<'a, Message, Theme, 
 pub fn default(theme: &Theme, status: Status) -> Style {
     let p = theme.extended_palette();
     let base = Style {
-        background: Some(Background::Color(p.background.weakest.color)),
+        background: Some(Background::Color(crate::theme::raised(theme))),
         text_color: p.background.base.text,
         border: Border {
             radius: 0.0.into(),
@@ -496,7 +500,7 @@ pub fn icon_button<'a, Message>(
     Button::new(content)
         .width(24)
         .height(24)
-        .padding(0)
+        .padding(5)
         .transparent()
 }
 

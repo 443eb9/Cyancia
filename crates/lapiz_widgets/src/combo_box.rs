@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+
 use iced_core::{Element, Length, Padding, Pixels, Theme};
 use iced_wgpu::Renderer;
 use iced_widget::{overlay::menu, pick_list, text_input};
@@ -167,10 +169,58 @@ where
     }
 }
 
+pub fn selection<'a, T, L, V, Message>(
+    options: L,
+    selected: Option<V>,
+    on_selected: impl Fn(T) -> Message + 'a,
+) -> iced_widget::PickList<'a, T, L, V, Message, Theme, Renderer>
+where
+    T: ToString + PartialEq + Clone + 'a,
+    L: Borrow<[T]> + 'a,
+    V: Borrow<T> + 'a,
+    Message: Clone,
+{
+    iced_widget::PickList::new(options, selected, on_selected)
+        .style(pick_list_style)
+        .menu_style(menu_style)
+}
+
 pub fn menu_style(theme: &Theme) -> menu::Style {
-    iced_widget::overlay::menu::default(theme)
+    let p = theme.extended_palette();
+    menu::Style {
+        background: crate::theme::raised(theme).into(),
+        border: iced_core::Border {
+            radius: 0.0.into(),
+            width: 1.0,
+            color: p.background.strong.color,
+        },
+        text_color: p.background.base.text,
+        selected_text_color: p.primary.weak.text,
+        selected_background: p.primary.weak.color.into(),
+        shadow: iced_core::Shadow {
+            color: iced_core::Color::BLACK.scale_alpha(0.25),
+            offset: iced_core::Vector::new(3.0, 3.0),
+            blur_radius: 0.0,
+        },
+    }
 }
 
 pub fn pick_list_style(theme: &Theme, status: pick_list::Status) -> pick_list::Style {
-    iced_widget::pick_list::default(theme, status)
+    let p = theme.extended_palette();
+    let highlighted = !matches!(status, pick_list::Status::Active);
+    pick_list::Style {
+        text_color: p.background.base.text,
+        placeholder_color: p.background.weak.text,
+        handle_color: p.background.weak.text,
+        background: crate::theme::field(theme).into(),
+        border: iced_core::Border {
+            radius: 0.0.into(),
+            width: 1.0,
+            color: if highlighted {
+                p.primary.base.color
+            } else {
+                p.background.strong.color
+            },
+        },
+    }
 }

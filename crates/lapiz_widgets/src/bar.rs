@@ -12,7 +12,7 @@ impl<'a, Message> Toolbar<'a, Message> {
         Self {
             inner: Flex::row(children)
                 .width(Length::Fill)
-                .height(34)
+                .height(36)
                 .padding([0, 8])
                 .gap(6)
                 .style(toolbar),

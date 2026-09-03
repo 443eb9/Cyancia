@@ -102,7 +102,7 @@ pub fn default(theme: &Theme, status: Status) -> Style {
     );
     let disabled = matches!(status, Status::Disabled);
     let mut style = Style {
-        background: Background::Color(p.background.strongest.color),
+        background: Background::Color(crate::theme::field(theme)),
         border: Border {
             radius: 0.0.into(),
             width: 1.0,

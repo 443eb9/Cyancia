@@ -118,6 +118,10 @@ impl<'a, Message> Flex<'a, Message> {
         self
     }
 
+    pub fn space_between(self) -> Self {
+        self.justify_content(JustifyContent::SpaceBetween)
+    }
+
     pub fn width(mut self, width: impl Into<Length>) -> Self {
         self.width = width.into();
         self

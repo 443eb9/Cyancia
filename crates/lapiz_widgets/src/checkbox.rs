@@ -86,6 +86,13 @@ impl<'a, Message: 'a> From<Checkbox<'a, Message>> for Element<'a, Message, Theme
             .width(value.width)
             .spacing(value.spacing)
             .class(value.class);
+        inner = inner.icon(Icon {
+            font: <Renderer as iced_core::text::Renderer>::ICON_FONT,
+            code_point: <Renderer as iced_core::text::Renderer>::CHECKMARK_ICON,
+            size: Some(Pixels(value.size * 0.62)),
+            line_height: text::LineHeight::Relative(1.0),
+            shaping: text::Shaping::Basic,
+        });
         if let Some(size) = value.text_size {
             inner = inner.text_size(size);
         }

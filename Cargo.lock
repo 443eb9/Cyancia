@@ -3190,6 +3190,7 @@ dependencies = [
  "lapiz_transform_tool",
  "lapiz_undo",
  "lapiz_utils",
+ "lapiz_widgets",
  "log",
  "moxcms",
  "parking_lot",
