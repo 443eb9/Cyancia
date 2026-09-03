@@ -27,8 +27,9 @@ use lapiz_widgets::{
     spin_slider::SpinSlider,
     splitter::Splitter,
     switch::Switch,
-    tabs::Tabs,
+    tabs::TabBar,
     tag::Tag,
+    tag::Tone,
     text_input::TextInput,
     tooltip::{Position, Tooltip},
 };
@@ -129,7 +130,7 @@ impl Gallery {
                     .into(),
                 Checkbox::new(self.checked)
                     .label("Pressure controls opacity")
-                    .on_toggle_with(Message::Toggle)
+                    .on_toggle(Message::Toggle)
                     .into(),
                 Switch::new(self.checked, Message::Toggle)
                     .label("Live preview")
@@ -165,7 +166,7 @@ impl Gallery {
                     self.selected_combo.as_ref(),
                     Message::Combo,
                 )
-                .selection_only()
+                .searchable(false)
                 .width(220)
                 .into(),
             ])
@@ -211,10 +212,10 @@ impl Gallery {
                 .gap(4)
                 .into(),
                 Flex::row([
-                    Tag::new("PRIMARY").primary().into(),
-                    Tag::new("READY").success().into(),
-                    Tag::new("CAUTION").warning().into(),
-                    Tag::new("ERROR").danger().into(),
+                    Tag::new("PRIMARY").tone(Tone::Primary).into(),
+                    Tag::new("READY").tone(Tone::Success).into(),
+                    Tag::new("CAUTION").tone(Tone::Warning).into(),
+                    Tag::new("ERROR").tone(Tone::Danger).into(),
                 ])
                 .gap(5)
                 .into(),
@@ -236,7 +237,7 @@ impl Gallery {
         let navigation = LabeledFrame::new(
             Label::new("NAVIGATION & GROUPS").muted(),
             Flex::column([
-                Tabs::new()
+                TabBar::new()
                     .push(Label::new("Brushes"), self.tab == 0, Message::Tab(0))
                     .push(Label::new("Layers"), self.tab == 1, Message::Tab(1))
                     .push(Label::new("History"), self.tab == 2, Message::Tab(2))
@@ -268,8 +269,8 @@ impl Gallery {
         let curve = LabeledFrame::new(
             Label::new("CURVE EDITOR").muted(),
             CurveEdit::new(self.curve.clone())
-                .on_change_with(Message::Curve)
-                .on_release_with(Message::Curve)
+                .on_change(Message::Curve)
+                .on_release(Message::Curve)
                 .height(165),
         )
         .width(280)
@@ -314,7 +315,7 @@ impl Gallery {
             self.split,
         )
         .height(90)
-        .on_resize_with(Message::Resize);
+        .on_resize(Message::Resize);
 
         let dialog = Dialog::new(
             "Export artwork",
@@ -360,7 +361,7 @@ impl Gallery {
             };
             Flex::row([Label::new(label).into(), shortcut])
                 .width(Length::Fill)
-                .justify_content(taffy::JustifyContent::SpaceBetween)
+                .space_between()
         };
         let recent_menu = Menu::new()
             .item(Label::new("concept-01.lapiz"), Message::Noop)

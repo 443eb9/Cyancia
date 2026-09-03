@@ -69,7 +69,7 @@ impl<'a, Message: 'a> From<Form<'a, Message>> for Element<'a, Message, Theme, Re
             .extend(
                 items
                     .into_iter()
-                    .map(|(label, value)| column![label, value].spacing(3).into()),
+                    .map(|(label, value)| column![label, value].spacing(spacing * 0.5).into()),
             )
             .into()
     }

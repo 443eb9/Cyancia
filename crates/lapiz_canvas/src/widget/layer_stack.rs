@@ -27,7 +27,7 @@ use lapiz_widgets::{
     drag_drop_column::{DragDropColumn, DragDropInfo},
     icon,
     label::Label,
-    panel::Panel,
+    panel::{Panel, Style as PanelStyle},
     spin_slider::SpinSlider,
     text_input::TextInput,
 };
@@ -405,7 +405,7 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
             if let Some(visible) = properties.get_visible() {
                 children.push(
                     Checkbox::new(visible)
-                        .on_toggle_with(move |checked| {
+                        .on_toggle(move |checked| {
                             on_message(LayerStackMessage::LayerPropertyChanged(property_command(
                                 canvas,
                                 layer_id,
@@ -516,18 +516,14 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
                     .height(30),
             )
             .width(Length::Fill)
-            .style(
-                move |theme: &iced_core::Theme| iced_widget::container::Style {
-                    background: if is_selected {
-                        Some(iced_core::Background::Color(
-                            theme.extended_palette().primary.weak.color,
-                        ))
-                    } else {
-                        None
-                    },
-                    ..Default::default()
+            .style(move |theme: &iced_core::Theme| PanelStyle {
+                background: if is_selected {
+                    Some(theme.extended_palette().primary.weak.color.into())
+                } else {
+                    None
                 },
-            );
+                ..Default::default()
+            });
 
             let menu = move || {
                 column![

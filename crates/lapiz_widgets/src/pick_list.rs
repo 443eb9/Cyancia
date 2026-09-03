@@ -28,8 +28,8 @@ impl<'a, Message> PickList<'a, Message> {
             selected: Vec::new(),
             available_label: String::from("Available"),
             selected_label: String::from("Active"),
-            move_to_selected: None,
-            move_to_available: None,
+            move_to_selected: Callback::Empty,
+            move_to_available: Callback::Empty,
             width: Length::Fill,
             height: Length::Fixed(150.0),
         }
@@ -91,71 +91,53 @@ impl<Message> Default for PickList<'_, Message> {
 
 impl<'a, Message: 'a> From<PickList<'a, Message>> for Element<'a, Message, Theme, Renderer> {
     fn from(value: PickList<'a, Message>) -> Self {
-        let left_count = value.available.len();
-        let right_count = value.selected.len();
-        let left_items = value.available.into_iter().map(item_button);
-        let right_items = value.selected.into_iter().map(item_button);
-        let left = Panel::new(
-            Flex::column([
-                Flex::row([
-                    Label::new(value.available_label).muted().into(),
-                    Label::new(left_count.to_string()).faint().into(),
-                ])
-                .width(Length::Fill)
-                .justify_content(taffy::JustifyContent::SpaceBetween)
-                .padding([4, 8])
-                .into(),
-                scrollable(Flex::column(left_items).width(Length::Fill))
-                    .height(Length::Fill)
-                    .into(),
-            ])
-            .width(Length::Fill)
-            .height(Length::Fill),
-        )
-        .inset()
-        .width(Length::Fill)
-        .height(Length::Fill);
-        let right = Panel::new(
-            Flex::column([
-                Flex::row([
-                    Label::new(value.selected_label).muted().into(),
-                    Label::new(right_count.to_string()).faint().into(),
-                ])
-                .width(Length::Fill)
-                .justify_content(taffy::JustifyContent::SpaceBetween)
-                .padding([4, 8])
-                .into(),
-                scrollable(Flex::column(right_items).width(Length::Fill))
-                    .height(Length::Fill)
-                    .into(),
-            ])
-            .width(Length::Fill)
-            .height(Length::Fill),
-        )
-        .inset()
-        .width(Length::Fill)
-        .height(Length::Fill);
+        let left = list_panel(value.available_label, value.available, item_button);
+        let right = list_panel(value.selected_label, value.selected, item_button);
         let controls = Flex::column([
             Button::new(icon::chevron_right().size(13))
                 .width(24)
                 .height(24)
                 .padding(5.5)
-                .on_press_with_maybe(value.move_to_selected)
+                .on_press_with_callback(value.move_to_selected)
                 .into(),
             Button::new(icon::chevron_left().size(13))
                 .width(24)
                 .height(24)
                 .padding(5.5)
-                .on_press_with_maybe(value.move_to_available)
+                .on_press_with_callback(value.move_to_available)
                 .into(),
         ])
         .gap(4);
-        Flex::row([left.into(), controls.into(), right.into()])
+        Flex::row([left, controls.into(), right])
             .width(value.width)
             .height(value.height)
             .gap(8)
             .into()
     }
+}
+
+fn list_panel<'a, Message: 'a>(
+    label: String,
+    items: Vec<Item<'a, Message>>,
+    item_button: fn(Item<'a, Message>) -> Element<'a, Message, Theme, Renderer>,
+) -> Element<'a, Message, Theme, Renderer> {
+    let header = Flex::row([
+        Label::new(label).muted().into(),
+        Label::new(items.len().to_string()).faint().into(),
+    ])
+    .width(Length::Fill)
+    .space_between()
+    .padding([4, 8]);
+    Panel::new(Flex::column([
+        header.into(),
+        scrollable(Flex::column(items.into_iter().map(item_button)).width(Length::Fill))
+            .height(Length::Fill)
+            .into(),
+    ]))
+    .inset()
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
 }
 
 fn item_button<'a, Message: 'a>(item: Item<'a, Message>) -> Element<'a, Message, Theme, Renderer> {

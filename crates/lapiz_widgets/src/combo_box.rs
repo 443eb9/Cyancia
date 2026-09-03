@@ -1,6 +1,6 @@
 use std::borrow::Borrow;
 
-use iced_core::{Element, Length, Padding, Pixels, Theme};
+use iced_core::{Border, Color, Element, Length, Padding, Pixels, Shadow, Theme, Vector};
 use iced_wgpu::Renderer;
 use iced_widget::{overlay::menu, pick_list, text_input};
 
@@ -78,10 +78,6 @@ where
     pub fn searchable(mut self, searchable: bool) -> Self {
         self.searchable = searchable;
         self
-    }
-
-    pub fn selection_only(self) -> Self {
-        self.searchable(false)
     }
 
     pub fn width(mut self, width: impl Into<Length>) -> Self {
@@ -189,7 +185,7 @@ pub fn menu_style(theme: &Theme) -> menu::Style {
     let p = theme.extended_palette();
     menu::Style {
         background: crate::theme::raised(theme).into(),
-        border: iced_core::Border {
+        border: Border {
             radius: 0.0.into(),
             width: 1.0,
             color: p.background.strong.color,
@@ -197,9 +193,9 @@ pub fn menu_style(theme: &Theme) -> menu::Style {
         text_color: p.background.base.text,
         selected_text_color: p.primary.weak.text,
         selected_background: p.primary.weak.color.into(),
-        shadow: iced_core::Shadow {
-            color: iced_core::Color::BLACK.scale_alpha(0.25),
-            offset: iced_core::Vector::new(3.0, 3.0),
+        shadow: Shadow {
+            color: Color::BLACK.scale_alpha(0.25),
+            offset: Vector::new(3.0, 3.0),
             blur_radius: 0.0,
         },
     }
@@ -213,7 +209,7 @@ pub fn pick_list_style(theme: &Theme, status: pick_list::Status) -> pick_list::S
         placeholder_color: p.background.weak.text,
         handle_color: p.background.weak.text,
         background: crate::theme::field(theme).into(),
-        border: iced_core::Border {
+        border: Border {
             radius: 0.0.into(),
             width: 1.0,
             color: if highlighted {

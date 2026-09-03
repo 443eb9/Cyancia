@@ -1,4 +1,4 @@
-use iced_core::{Element, Length, Theme};
+use iced_core::{Border, Element, Length, Theme};
 use iced_wgpu::Renderer;
 
 use crate::flex::{Flex, Status, Style};
@@ -74,7 +74,7 @@ pub fn toolbar(theme: &Theme, _status: Status) -> Style {
     Style::default()
         .background(p.background.base.color)
         .color(p.background.base.text)
-        .border(iced_core::Border {
+        .border(Border {
             radius: 0.0.into(),
             width: 1.0,
             color: p.background.strong.color,
@@ -86,7 +86,7 @@ pub fn status_bar(theme: &Theme, _status: Status) -> Style {
     Style::default()
         .background(p.background.base.color)
         .color(p.background.weak.text)
-        .border(iced_core::Border {
+        .border(Border {
             radius: 0.0.into(),
             width: 1.0,
             color: p.background.strong.color,

@@ -1,7 +1,7 @@
 use iced_core::Renderer as _;
 use iced_core::{
-    Background, Clipboard, Element, Event, Layout, Length, Padding, Pixels, Point, Rectangle,
-    Shell, Size, Theme, Vector, Widget, keyboard, layout, mouse, overlay, renderer,
+    Background, Border, Clipboard, Color, Element, Event, Layout, Length, Padding, Pixels, Point,
+    Rectangle, Shell, Size, Theme, Vector, Widget, keyboard, layout, mouse, overlay, renderer,
     widget::{Operation, Tree},
 };
 use iced_wgpu::Renderer;
@@ -53,7 +53,7 @@ pub struct Flex<'a, Message> {
     clip: bool,
     press: Callback<'a, Message>,
     release: Callback<'a, Message>,
-    key_press: CallbackWith<'a, keyboard::Event, Message>,
+    key_event: CallbackWith<'a, keyboard::Event, Message>,
     class: <Theme as Catalog>::Class<'a>,
 }
 
@@ -68,9 +68,9 @@ impl<'a, Message> Flex<'a, Message> {
             padding: Padding::ZERO,
             gap: 0.0,
             clip: false,
-            press: None,
-            release: None,
-            key_press: None,
+            press: Callback::Empty,
+            release: Callback::Empty,
+            key_event: None,
             class: <Theme as Catalog>::default(),
         }
     }
@@ -103,17 +103,17 @@ impl<'a, Message> Flex<'a, Message> {
         self
     }
 
-    pub fn direction(mut self, direction: FlexDirection) -> Self {
+    fn direction(mut self, direction: FlexDirection) -> Self {
         self.direction = direction;
         self
     }
 
-    pub fn align_items(mut self, alignment: AlignItems) -> Self {
+    fn align_items(mut self, alignment: AlignItems) -> Self {
         self.taffy_style.align_items = Some(alignment);
         self
     }
 
-    pub fn justify_content(mut self, justification: JustifyContent) -> Self {
+    fn justify_content(mut self, justification: JustifyContent) -> Self {
         self.taffy_style.justify_content = Some(justification);
         self
     }
@@ -147,14 +147,9 @@ impl<'a, Message> Flex<'a, Message> {
         self
     }
 
-    pub fn layout_style(mut self, style: taffy::Style) -> Self {
-        self.taffy_style = style;
-        self
-    }
-
     crate::callback_methods!(press);
     crate::callback_methods!(release);
-    crate::callback_methods!(key_press, keyboard::Event);
+    crate::callback_methods!(key_event, keyboard::Event);
 
     pub fn style(mut self, style: impl Fn(&Theme, Status) -> Style + 'a) -> Self {
         self.class = Box::new(style);
@@ -374,7 +369,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Flex<'_, Message> {
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 publish(&mut self.release)
             }
-            Event::Keyboard(event) => publish_with(&mut self.key_press, event.clone()),
+            Event::Keyboard(event) => publish_with(&mut self.key_event, event.clone()),
             _ => None,
         };
         if let Some(message) = message {
@@ -391,6 +386,11 @@ impl<Message> Widget<Message, Theme, Renderer> for Flex<'_, Message> {
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
+        let own = if self.press.is_set() && cursor.is_over(layout.bounds()) {
+            mouse::Interaction::Pointer
+        } else {
+            mouse::Interaction::None
+        };
         self.children
             .iter()
             .zip(&tree.children)
@@ -400,14 +400,10 @@ impl<Message> Widget<Message, Theme, Renderer> for Flex<'_, Message> {
                     .as_widget()
                     .mouse_interaction(state, layout, cursor, viewport, renderer)
             })
-            .max()
-            .unwrap_or_else(|| {
-                if self.press.is_some() && cursor.is_over(layout.bounds()) {
-                    mouse::Interaction::Pointer
-                } else {
-                    mouse::Interaction::None
-                }
+            .fold(mouse::Interaction::None, |acc, interaction| {
+                acc.max(interaction)
             })
+            .max(own)
     }
 
     fn draw(
@@ -439,7 +435,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Flex<'_, Message> {
                 },
                 style
                     .background
-                    .unwrap_or(Background::Color(iced_core::Color::TRANSPARENT)),
+                    .unwrap_or(Background::Color(Color::TRANSPARENT)),
             );
         }
         let clipped = bounds.intersection(viewport).unwrap_or(*viewport);
@@ -501,7 +497,7 @@ pub fn panel(theme: &Theme, _status: Status) -> Style {
     Style::default()
         .background(p.background.base.color)
         .color(p.background.base.text)
-        .border(iced_core::Border {
+        .border(Border {
             radius: 0.0.into(),
             width: 1.0,
             color: p.background.strong.color,
@@ -517,7 +513,7 @@ pub fn surface(theme: &Theme, status: Status) -> Style {
             p.background.weakest.color
         })
         .color(p.background.base.text)
-        .border(iced_core::Border {
+        .border(Border {
             radius: 0.0.into(),
             width: 1.0,
             color: p.background.strong.color,

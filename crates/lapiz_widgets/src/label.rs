@@ -1,4 +1,4 @@
-use iced_core::{Element, Font, Length, Pixels, Theme, alignment, text};
+use iced_core::{Element, Font, Length, Pixels, Theme, alignment, font, text};
 use iced_wgpu::Renderer;
 
 pub use iced_core::widget::text::{Catalog, Style, StyleFn};
@@ -55,7 +55,7 @@ impl<'a> Label<'a> {
 
     pub fn strong(self) -> Self {
         self.font(Font {
-            weight: iced_core::font::Weight::Semibold,
+            weight: font::Weight::Semibold,
             ..Font::DEFAULT
         })
     }
@@ -99,8 +99,4 @@ pub fn accent(theme: &Theme) -> Style {
     Style {
         color: Some(theme.extended_palette().primary.strong.color),
     }
-}
-
-pub fn label<'a>(content: impl text::IntoFragment<'a>) -> Label<'a> {
-    Label::new(content)
 }

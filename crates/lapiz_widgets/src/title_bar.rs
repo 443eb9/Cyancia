@@ -1,13 +1,11 @@
-use iced_core::{Element, Length, Theme};
+use iced_core::{Border, Element, Length, Theme};
 use iced_wgpu::Renderer;
 use iced_widget::container;
 
-use crate::{
-    button::Button,
-    callback::Callback,
-    flex::{Flex, Status},
-    icon,
-};
+use crate::button::{Button, Status as ButtonStatus, Style as ButtonStyle};
+use crate::callback::Callback;
+use crate::flex::{Flex, Status};
+use crate::icon;
 
 pub type Style = container::Style;
 
@@ -24,10 +22,10 @@ impl<'a, Message> TitleBar<'a, Message> {
     pub fn new(content: impl Into<Element<'a, Message, Theme, Renderer>>) -> Self {
         Self {
             content: content.into(),
-            drag: None,
-            minimize: None,
-            maximize: None,
-            close: None,
+            drag: Callback::Empty,
+            minimize: Callback::Empty,
+            maximize: Callback::Empty,
+            close: Callback::Empty,
             class: Box::new(default),
         }
     }
@@ -51,56 +49,54 @@ impl<'a, Message> TitleBar<'a, Message> {
 impl<'a, Message: 'a> From<TitleBar<'a, Message>> for Element<'a, Message, Theme, Renderer> {
     fn from(value: TitleBar<'a, Message>) -> Self {
         let mut controls = Flex::row(Vec::new()).height(Length::Fill);
-        if value.minimize.is_some() {
+        if value.minimize.is_set() {
             controls = controls.push(
                 Button::new(icon::win_minimize().size(12))
                     .width(38)
                     .height(Length::Fill)
                     .padding([10, 13])
                     .transparent()
-                    .on_press_with_maybe(value.minimize),
+                    .on_press_with_callback(value.minimize),
             );
         }
-        if value.maximize.is_some() {
+        if value.maximize.is_set() {
             controls = controls.push(
                 Button::new(icon::win_maximize().size(12))
                     .width(38)
                     .height(Length::Fill)
                     .padding([10, 13])
                     .transparent()
-                    .on_press_with_maybe(value.maximize),
+                    .on_press_with_callback(value.maximize),
             );
         }
-        if value.close.is_some() {
+        if value.close.is_set() {
             controls = controls.push(
                 Button::new(icon::win_close().size(12))
                     .width(40)
                     .height(Length::Fill)
                     .padding([10, 14])
                     .style(close_button)
-                    .on_press_with_maybe(value.close),
+                    .on_press_with_callback(value.close),
             );
         }
         Flex::row([value.content, controls.into()])
             .width(Length::Fill)
             .height(32)
             .class(value.class)
-            .on_press_with_maybe(value.drag)
+            .on_press_with_callback(value.drag)
             .into()
     }
 }
 
-fn close_button(theme: &Theme, status: crate::button::Status) -> crate::button::Style {
+fn close_button(theme: &Theme, status: ButtonStatus) -> ButtonStyle {
     let p = theme.extended_palette();
     match status {
-        crate::button::Status::Hovered | crate::button::Status::Pressed => crate::button::Style {
+        ButtonStatus::Hovered | ButtonStatus::Pressed => ButtonStyle {
             background: Some(p.danger.base.color.into()),
             text_color: p.danger.base.text,
             ..Default::default()
         },
-        crate::button::Status::Active | crate::button::Status::Disabled => {
-            crate::button::transparent(theme, status)
-        }
+        ButtonStatus::Active | ButtonStatus::Disabled => crate::button::transparent(theme, status),
     }
 }
 
@@ -109,7 +105,7 @@ pub fn default(theme: &Theme, _status: Status) -> Style {
     Style::default()
         .background(p.background.base.color)
         .color(p.background.base.text)
-        .border(iced_core::Border {
+        .border(Border {
             radius: 0.0.into(),
             width: 1.0,
             color: p.background.strong.color,

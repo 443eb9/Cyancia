@@ -2227,7 +2227,7 @@ impl<Data: GraphData> GraphNode<Data> for CurveNode {
             CurveEdit::new(CubicCurve::new(state.control_points.clone()))
                 .width(Length::Fill)
                 .height(Length::Fixed(128.0))
-                .on_change_with(CurveNodeMessage::CurveChanged),
+                .on_change(CurveNodeMessage::CurveChanged),
             CurveNodeMessage::LiteralUpdate,
         )
     }

@@ -1,8 +1,9 @@
 use iced_aw::menu::{Item as AwItem, Menu as AwMenu, MenuBar as AwMenuBar};
-use iced_core::{Element, Length, Pixels, Theme};
+use iced_core::{Border, Color, Element, Length, Pixels, Shadow, Theme, Vector};
 use iced_wgpu::Renderer;
 
-use crate::{button::Button, divider::Divider, flex::Flex, icon};
+use crate::button::{Button, Status as ButtonStatus, Style as ButtonStyle};
+use crate::{divider::Divider, flex::Flex, icon};
 
 pub use iced_aw::menu::{Catalog, DrawPath, ScrollSpeed, Style};
 
@@ -57,7 +58,7 @@ impl<'a, Message: 'a> Menu<'a, Message> {
     ) -> Self {
         let content = Flex::row([content.into(), icon::chevron_right().size(12).into()])
             .width(Length::Fill)
-            .justify_content(taffy::JustifyContent::SpaceBetween);
+            .space_between();
         self.items.push(
             AwItem::with_menu(
                 menu_button(content).style(menu_item_style).interactive(),
@@ -221,17 +222,17 @@ fn menu_button<'a, Message: 'a>(
         .clip(true)
 }
 
-fn menu_item_style(theme: &Theme, status: crate::button::Status) -> crate::button::Style {
+fn menu_item_style(theme: &Theme, status: ButtonStatus) -> ButtonStyle {
     let p = theme.extended_palette();
     match status {
-        crate::button::Status::Hovered | crate::button::Status::Pressed => crate::button::Style {
+        ButtonStatus::Hovered | ButtonStatus::Pressed => ButtonStyle {
             background: Some(p.primary.weak.color.into()),
             text_color: p.primary.weak.text,
-            ..crate::button::Style::default()
+            ..ButtonStyle::default()
         },
-        crate::button::Status::Active | crate::button::Status::Disabled => crate::button::Style {
+        ButtonStatus::Active | ButtonStatus::Disabled => ButtonStyle {
             text_color: p.background.base.text,
-            ..crate::button::Style::default()
+            ..ButtonStyle::default()
         },
     }
 }
@@ -239,21 +240,21 @@ fn menu_item_style(theme: &Theme, status: crate::button::Status) -> crate::butto
 pub fn menu_bar_style(theme: &Theme, _status: iced_aw::style::Status) -> Style {
     let p = theme.extended_palette();
     Style {
-        bar_background: iced_core::Color::TRANSPARENT.into(),
-        bar_border: iced_core::Border::default(),
-        bar_shadow: iced_core::Shadow::default(),
+        bar_background: Color::TRANSPARENT.into(),
+        bar_border: Border::default(),
+        bar_shadow: Shadow::default(),
         menu_background: crate::theme::raised(theme).into(),
-        menu_border: iced_core::Border {
+        menu_border: Border {
             radius: 0.0.into(),
             width: 1.0,
             color: p.background.strong.color,
         },
-        menu_shadow: iced_core::Shadow {
-            color: iced_core::Color::BLACK.scale_alpha(0.25),
-            offset: iced_core::Vector::new(3.0, 3.0),
+        menu_shadow: Shadow {
+            color: Color::BLACK.scale_alpha(0.25),
+            offset: Vector::new(3.0, 3.0),
             blur_radius: 0.0,
         },
         path: p.primary.weak.color.into(),
-        path_border: iced_core::Border::default(),
+        path_border: Border::default(),
     }
 }

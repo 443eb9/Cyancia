@@ -23,7 +23,7 @@ impl<'a, Message> Dialog<'a, Message> {
             title: title.into(),
             content: content.into(),
             actions: Vec::new(),
-            close: None,
+            close: Callback::Empty,
             width: Length::Fixed(420.0),
         }
     }
@@ -46,7 +46,7 @@ impl<'a, Message: 'a> From<Dialog<'a, Message>> for Element<'a, Message, Theme, 
         let header = Flex::row([
             Label::new(value.title).strong().into(),
             icon_button(icon::close().size(13))
-                .on_press_with_maybe(value.close)
+                .on_press_with_callback(value.close)
                 .into(),
         ])
         .width(Length::Fill)

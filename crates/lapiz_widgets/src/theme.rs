@@ -1,17 +1,5 @@
 use iced_core::{Color, Theme};
 
-pub fn dark() -> Theme {
-    Theme::Dark
-}
-
-pub fn light() -> Theme {
-    Theme::Light
-}
-
-pub fn panel(theme: &Theme) -> Color {
-    theme.extended_palette().background.base.color
-}
-
 pub fn surface(theme: &Theme) -> Color {
     theme.extended_palette().background.weakest.color
 }

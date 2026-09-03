@@ -21,7 +21,7 @@ impl<'a, Message> Collapsible<'a, Message> {
             header: header.into(),
             content: content.into(),
             open,
-            toggle: None,
+            toggle: Callback::Empty,
             width: Length::Fill,
         }
     }
@@ -50,7 +50,7 @@ impl<'a, Message: 'a> From<Collapsible<'a, Message>> for Element<'a, Message, Th
         .height(26)
         .padding([0, 8])
         .transparent()
-        .on_press_with_maybe(value.toggle);
+        .on_press_with_callback(value.toggle);
         let body = if value.open {
             Flex::column([header.into(), value.content])
         } else {

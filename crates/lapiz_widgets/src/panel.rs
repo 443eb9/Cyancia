@@ -1,4 +1,4 @@
-use iced_core::{Element, Length, Padding, Pixels, Theme, alignment};
+use iced_core::{Border, Element, Length, Padding, Pixels, Theme, alignment};
 use iced_wgpu::Renderer;
 use iced_widget::Container;
 
@@ -89,7 +89,7 @@ pub fn default(theme: &Theme) -> Style {
     Style::default()
         .background(crate::theme::surface(theme))
         .color(p.background.base.text)
-        .border(iced_core::Border {
+        .border(Border {
             radius: 0.0.into(),
             width: 1.0,
             color: p.background.strong.color,
@@ -101,7 +101,7 @@ pub fn inset(theme: &Theme) -> Style {
     Style::default()
         .background(p.background.strongest.color)
         .color(p.background.base.text)
-        .border(iced_core::Border {
+        .border(Border {
             radius: 0.0.into(),
             width: 1.0,
             color: p.background.strong.color,
@@ -113,7 +113,7 @@ pub fn raised(theme: &Theme) -> Style {
     Style::default()
         .background(crate::theme::raised(theme))
         .color(p.background.base.text)
-        .border(iced_core::Border {
+        .border(Border {
             radius: 0.0.into(),
             width: 1.0,
             color: p.background.strong.color,

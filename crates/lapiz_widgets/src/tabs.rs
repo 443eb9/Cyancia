@@ -1,7 +1,10 @@
-use iced_core::{Element, Length, Theme};
+use iced_core::{Border, Element, Length, Shadow, Theme, Vector};
 use iced_wgpu::Renderer;
 
-use crate::{button::Button, flex::Flex};
+use crate::button::{
+    Button, Status as ButtonStatus, Style as ButtonStyle, activated_style, transparent,
+};
+use crate::flex::{Flex, Status, Style as FlexStyle};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Variant {
@@ -16,14 +19,14 @@ struct Tab<'a, Message> {
     message: Option<Message>,
 }
 
-pub struct Tabs<'a, Message> {
+pub struct TabBar<'a, Message> {
     tabs: Vec<Tab<'a, Message>>,
     variant: Variant,
     width: Length,
     height: Length,
 }
 
-impl<'a, Message> Tabs<'a, Message> {
+impl<'a, Message> TabBar<'a, Message> {
     pub fn new() -> Self {
         Self {
             tabs: Vec::new(),
@@ -81,14 +84,14 @@ impl<'a, Message> Tabs<'a, Message> {
     }
 }
 
-impl<Message> Default for Tabs<'_, Message> {
+impl<Message> Default for TabBar<'_, Message> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a, Message: 'a> From<Tabs<'a, Message>> for Element<'a, Message, Theme, Renderer> {
-    fn from(value: Tabs<'a, Message>) -> Self {
+impl<'a, Message: 'a> From<TabBar<'a, Message>> for Element<'a, Message, Theme, Renderer> {
+    fn from(value: TabBar<'a, Message>) -> Self {
         let variant = value.variant;
         let tabs = value.tabs.into_iter().map(move |tab| {
             let selected = tab.selected;
@@ -107,24 +110,19 @@ impl<'a, Message: 'a> From<Tabs<'a, Message>> for Element<'a, Message, Theme, Re
     }
 }
 
-fn style(
-    theme: &Theme,
-    status: crate::button::Status,
-    variant: Variant,
-    selected: bool,
-) -> crate::button::Style {
+fn style(theme: &Theme, status: ButtonStatus, variant: Variant, selected: bool) -> ButtonStyle {
     if variant == Variant::Block && selected {
-        return crate::button::activated_style(theme, status);
+        return activated_style(theme, status);
     }
     let p = theme.extended_palette();
-    let mut style = crate::button::transparent(theme, status);
+    let mut style = transparent(theme, status);
     if selected {
         style.text_color = p.background.base.text;
         if variant == Variant::Line {
             style.border.width = 0.0;
-            style.shadow = iced_core::Shadow {
+            style.shadow = Shadow {
                 color: p.primary.base.color,
-                offset: iced_core::Vector::new(0.0, 2.0),
+                offset: Vector::new(0.0, 2.0),
                 blur_radius: 0.0,
             };
         }
@@ -132,9 +130,9 @@ fn style(
     style
 }
 
-fn tab_bar(theme: &Theme, _status: crate::flex::Status) -> crate::flex::Style {
+fn tab_bar(theme: &Theme, _status: Status) -> FlexStyle {
     let p = theme.extended_palette();
-    crate::flex::Style::default().border(iced_core::Border {
+    FlexStyle::default().border(Border {
         radius: 0.0.into(),
         width: 1.0,
         color: p.background.strong.color,

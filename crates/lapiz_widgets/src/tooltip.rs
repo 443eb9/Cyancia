@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use iced_core::{Element, Pixels, Theme};
+use iced_core::{Border, Color, Element, Pixels, Shadow, Theme, Vector};
 use iced_wgpu::Renderer;
 use iced_widget::{Tooltip as IcedTooltip, container};
 
@@ -67,14 +67,14 @@ pub fn default(theme: &Theme) -> Style {
     container::Style::default()
         .background(p.background.weak.color)
         .color(p.background.weak.text)
-        .border(iced_core::Border {
+        .border(Border {
             radius: 0.0.into(),
             width: 1.0,
             color: p.primary.base.color,
         })
-        .shadow(iced_core::Shadow {
-            color: iced_core::Color::BLACK.scale_alpha(0.22),
-            offset: iced_core::Vector::new(3.0, 3.0),
+        .shadow(Shadow {
+            color: Color::BLACK.scale_alpha(0.22),
+            offset: Vector::new(3.0, 3.0),
             blur_radius: 0.0,
         })
 }

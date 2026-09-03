@@ -1,8 +1,9 @@
-use iced_core::{Background, Element, Length, Pixels, Theme};
+use iced_core::{Background, Color, Element, Length, Pixels, Theme};
 use iced_wgpu::Renderer;
 use iced_widget::svg;
 
-use crate::{button::Button, flex::Flex, icon::Icon, label::Label};
+use crate::button::{Button, Status as ButtonStatus, Style as ButtonStyle};
+use crate::{flex::Flex, icon::Icon, label::Label};
 
 pub struct Radio<'a, Message> {
     label: String,
@@ -63,14 +64,6 @@ impl<'a, Message> Radio<'a, Message> {
         self.class = class.into();
         self
     }
-
-    pub fn primary(self) -> Self {
-        self.style(default)
-    }
-
-    pub fn compact(self) -> Self {
-        self.size(15).spacing(8).text_size(12)
-    }
 }
 
 impl<'a, Message: 'a> From<Radio<'a, Message>> for Element<'a, Message, Theme, Renderer> {
@@ -127,10 +120,10 @@ pub enum Status {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Style {
     pub background: Background,
-    pub dot_color: iced_core::Color,
+    pub dot_color: Color,
     pub border_width: f32,
-    pub border_color: iced_core::Color,
-    pub text_color: Option<iced_core::Color>,
+    pub border_color: Color,
+    pub text_color: Option<Color>,
 }
 
 pub trait Catalog: Sized {
@@ -178,9 +171,9 @@ pub fn default(theme: &Theme, status: Status) -> Style {
     }
 }
 
-fn button_style(theme: &Theme, _status: crate::button::Status) -> crate::button::Style {
-    crate::button::Style {
+fn button_style(theme: &Theme, _status: ButtonStatus) -> ButtonStyle {
+    ButtonStyle {
         text_color: theme.extended_palette().background.base.text,
-        ..crate::button::Style::default()
+        ..ButtonStyle::default()
     }
 }

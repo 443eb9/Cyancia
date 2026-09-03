@@ -1,4 +1,4 @@
-use iced_core::{Background, Element, Length, Pixels, Theme, text};
+use iced_core::{Background, Color, Element, Length, Pixels, Theme, text};
 use iced_wgpu::Renderer;
 
 pub use iced_widget::toggler::{Catalog, Status, Style, StyleFn};
@@ -95,7 +95,7 @@ pub fn default(theme: &Theme, status: Status) -> Style {
         },
         foreground: Background::Color(foreground),
         foreground_border_width: 0.0,
-        foreground_border_color: iced_core::Color::TRANSPARENT,
+        foreground_border_color: Color::TRANSPARENT,
         text_color: Some(p.background.base.text),
         border_radius: Some(0.0.into()),
         padding_ratio: 0.15,

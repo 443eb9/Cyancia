@@ -6,8 +6,14 @@ use iced_wgpu::Renderer;
 use iced_widget::{Space, column, row, text};
 use lapiz_color::model::rgb::Rgb;
 use lapiz_widgets::{
-    button::Button, checkbox::Checkbox, combo_box::selection as pick_list, label::Label,
-    panel::Panel, radio::Radio, scrollable::Scrollable, spin_slider::SpinSlider,
+    button::{Button, Style as ButtonStyle},
+    checkbox::Checkbox,
+    combo_box::selection as pick_list,
+    label::Label,
+    panel::Panel,
+    radio::Radio,
+    scrollable::Scrollable,
+    spin_slider::SpinSlider,
     text_input::TextInput,
 };
 
@@ -490,7 +496,7 @@ impl ColorSelectorConfigEditorState {
         .width(Length::Fixed(32.0))
         .height(Length::Fixed(20.0))
         .on_press(ColorSelectorConfigMessage::OutOfGamutPickerToggled)
-        .style(move |theme: &Theme, _| iced_widget::button::Style {
+        .style(move |theme: &Theme, _| ButtonStyle {
             background: Some(
                 Color::from_rgb(
                     out_of_gamut_color.r,
@@ -504,7 +510,7 @@ impl ColorSelectorConfigEditorState {
                 width: 1.0,
                 radius: 2.0.into(),
             },
-            ..iced_widget::button::Style::default()
+            ..ButtonStyle::default()
         });
 
         let planes_section = column![
@@ -549,7 +555,7 @@ impl ColorSelectorConfigEditorState {
             row![
                 Checkbox::new(config.use_out_of_gamut_color)
                     .label("Out-of-gamut color")
-                    .on_toggle_with(ColorSelectorConfigMessage::OutOfGamutColorToggled),
+                    .on_toggle(ColorSelectorConfigMessage::OutOfGamutColorToggled),
                 ColorPicker::new(
                     self.out_of_gamut_picker_open,
                     Color::from_rgb(
@@ -563,7 +569,7 @@ impl ColorSelectorConfigEditorState {
                 ),
                 Checkbox::new(config.clip_to_gamut)
                     .label("Clip to gamut")
-                    .on_toggle_with(ColorSelectorConfigMessage::ClipToGamutToggled),
+                    .on_toggle(ColorSelectorConfigMessage::ClipToGamutToggled),
             ]
             .align_y(Alignment::Center)
             .spacing(16),
@@ -640,12 +646,12 @@ impl ColorSelectorConfigEditorState {
                 row![
                     Checkbox::new(plane.flip_axis.contains(GradientPlaneFlipAxis::X))
                         .label("Flip X")
-                        .on_toggle_with(move |checked| {
+                        .on_toggle(move |checked| {
                             ColorSelectorConfigMessage::PlaneFlipXChanged(index, checked)
                         }),
                     Checkbox::new(plane.flip_axis.contains(GradientPlaneFlipAxis::Y))
                         .label("Flip Y")
-                        .on_toggle_with(move |checked| {
+                        .on_toggle(move |checked| {
                             ColorSelectorConfigMessage::PlaneFlipYChanged(index, checked)
                         }),
                 ]
@@ -660,19 +666,19 @@ impl ColorSelectorConfigEditorState {
                 row![
                     Checkbox::new(plane.show_primary_channel_ring)
                         .label("Primary channel ring")
-                        .on_toggle_with(move |checked| {
+                        .on_toggle(move |checked| {
                             ColorSelectorConfigMessage::PlaneShowRingChanged(index, checked)
                         }),
                     Checkbox::new(plane.ring_bar_saturated_hue_channel)
                         .label("Saturated primary channel")
-                        .on_toggle_with(move |checked| {
+                        .on_toggle(move |checked| {
                             ColorSelectorConfigMessage::PlaneSaturatedPrimaryChannelChanged(
                                 index, checked,
                             )
                         }),
                     Checkbox::new(plane.reversed_ring)
                         .label("Reversed ring")
-                        .on_toggle_with_maybe(plane.show_primary_channel_ring.then_some({
+                        .on_toggle_maybe(plane.show_primary_channel_ring.then_some({
                             move |checked| {
                                 ColorSelectorConfigMessage::PlaneReversedRingChanged(index, checked)
                             }
@@ -759,17 +765,17 @@ impl ColorSelectorConfigEditorState {
                 row![
                     Checkbox::new(bar.show_channel_label)
                         .label("Channel label")
-                        .on_toggle_with(move |checked| {
+                        .on_toggle(move |checked| {
                             ColorSelectorConfigMessage::BarShowChannelLabelChanged(index, checked)
                         }),
                     Checkbox::new(bar.show_precise_spin_box)
                         .label("Precise spin box")
-                        .on_toggle_with(move |checked| {
+                        .on_toggle(move |checked| {
                             ColorSelectorConfigMessage::BarShowPreciseSpinBoxChanged(index, checked)
                         }),
                     Checkbox::new(bar.show_primary_channel_lock)
                         .label("Primary channel lock")
-                        .on_toggle_with(move |checked| {
+                        .on_toggle(move |checked| {
                             ColorSelectorConfigMessage::BarShowPrimaryChannelLockChanged(
                                 index, checked,
                             )

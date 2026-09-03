@@ -424,8 +424,7 @@ impl BrushEditor {
             .map(|(id, variable)| {
                 column![
                     row![
-                        iced_widget::TextInput::new("Variable name", &variable.name)
-                            .style(lapiz_widgets::text_input::default)
+                        TextInput::new("Variable name", &variable.name)
                             .on_input(move |name| {
                                 BrushEditorMessage::RenameExternalVariable(id, name)
                             })

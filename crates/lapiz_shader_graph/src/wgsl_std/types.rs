@@ -228,7 +228,7 @@ impl GraphValueType for BoolType {
         data: &Self::AssociatedLiteralType,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         Checkbox::new(*data)
-            .on_toggle_with(std::convert::identity)
+            .on_toggle(std::convert::identity)
             .into()
     }
 

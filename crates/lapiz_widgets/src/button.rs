@@ -27,7 +27,7 @@ impl<'a, Message> Button<'a, Message> {
         let size = content.as_widget().size_hint();
         Self {
             content,
-            press: None,
+            press: Callback::Empty,
             width: size.width.fluid(),
             height: Length::Fixed(26.0),
             padding: Padding {
@@ -84,10 +84,6 @@ impl<'a, Message> Button<'a, Message> {
     }
 
     pub fn transparent(self) -> Self {
-        self.style(transparent)
-    }
-
-    pub fn ghost(self) -> Self {
         self.style(transparent)
     }
 
@@ -199,7 +195,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Button<'_, Message> {
             match event {
                 Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
                 | Event::Touch(touch::Event::FingerPressed { .. })
-                    if self.press.is_some() && cursor.is_over(layout.bounds()) =>
+                    if self.press.is_set() && cursor.is_over(layout.bounds()) =>
                 {
                     state.pressed = true;
                     shell.capture_event();
@@ -221,7 +217,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Button<'_, Message> {
             }
         }
         let state = tree.state.downcast_mut::<State>();
-        let status = if self.press.is_none() && !self.interactive {
+        let status = if !self.press.is_set() && !self.interactive {
             Status::Disabled
         } else if cursor.is_over(layout.bounds()) {
             if state.pressed {
@@ -290,7 +286,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Button<'_, Message> {
         _viewport: &Rectangle,
         _renderer: &Renderer,
     ) -> mouse::Interaction {
-        if (self.press.is_some() || self.interactive) && cursor.is_over(layout.bounds()) {
+        if (self.press.is_set() || self.interactive) && cursor.is_over(layout.bounds()) {
             mouse::Interaction::Pointer
         } else {
             mouse::Interaction::None
@@ -488,12 +484,6 @@ fn disabled(mut style: Style) -> Style {
     style
 }
 
-pub fn button<'a, Message>(
-    content: impl Into<Element<'a, Message, Theme, Renderer>>,
-) -> Button<'a, Message> {
-    Button::new(content).style(default)
-}
-
 pub fn icon_button<'a, Message>(
     content: impl Into<Element<'a, Message, Theme, Renderer>>,
 ) -> Button<'a, Message> {
@@ -515,7 +505,7 @@ pub fn toggle_button<'a, Message>(
         .activated(activated)
 }
 
-fn with_alpha(mut color: iced_core::Color, alpha: f32) -> iced_core::Color {
+fn with_alpha(mut color: Color, alpha: f32) -> Color {
     color.a = alpha;
     color
 }

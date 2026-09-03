@@ -50,7 +50,12 @@ use lapiz_runtime::{Services, event::Event};
 use lapiz_tools::{ErasedToolFunctionMessage, ToolId};
 use lapiz_utils::log_err::LogErr;
 use lapiz_widgets::{
-    button::Button, divider::Divider, flex::Flex, icon, label::Label, panel::Panel,
+    button::{Button, Status as ButtonStatus, Style as ButtonStyle},
+    divider::Divider,
+    flex::Flex,
+    icon::{self, Icon, Style as IconStyle},
+    label::Label,
+    panel::Panel,
     scrollable::Scrollable,
 };
 use moxcms::ColorProfile;
@@ -909,11 +914,11 @@ impl Dock<Theme, Renderer> for ToolBoxDock {
             .and_then(|proxy| proxy.current_tool())
             .map(ToString::to_string)
             .unwrap_or_default();
-        let tool_button = |id: &'static str, glyph: lapiz_widgets::icon::Icon<'a>| {
+        let tool_button = |id: &'static str, glyph: Icon<'a>| {
             let selected = active_tool == id;
             let glyph = glyph.size(12).style(move |theme, _| {
                 let p = theme.extended_palette();
-                lapiz_widgets::icon::Style {
+                IconStyle {
                     color: Some(if selected {
                         p.primary.base.text
                     } else {
@@ -927,12 +932,8 @@ impl Dock<Theme, Renderer> for ToolBoxDock {
                 .padding(8)
                 .style(move |theme, status| {
                     let p = theme.extended_palette();
-                    let hovered = matches!(
-                        status,
-                        lapiz_widgets::button::Status::Hovered
-                            | lapiz_widgets::button::Status::Pressed
-                    );
-                    lapiz_widgets::button::Style {
+                    let hovered = matches!(status, ButtonStatus::Hovered | ButtonStatus::Pressed);
+                    ButtonStyle {
                         background: Some(
                             if selected {
                                 p.primary.base.color

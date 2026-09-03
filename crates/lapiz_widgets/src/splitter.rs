@@ -209,8 +209,12 @@ impl<Message> Widget<Message, Theme, Renderer> for Splitter<'_, Message> {
             Event::Mouse(mouse::Event::CursorMoved { position }) if state.dragging => {
                 let bounds = layout.bounds();
                 let ratio = match self.axis {
-                    Axis::Horizontal => (position.x - bounds.x) / bounds.width,
-                    Axis::Vertical => (position.y - bounds.y) / bounds.height,
+                    Axis::Horizontal => {
+                        (position.x - bounds.x) / (bounds.width - self.thickness).max(1.0)
+                    }
+                    Axis::Vertical => {
+                        (position.y - bounds.y) / (bounds.height - self.thickness).max(1.0)
+                    }
                 }
                 .clamp(0.05, 0.95);
                 if let Some(message) = publish_with(&mut self.resize, ratio) {

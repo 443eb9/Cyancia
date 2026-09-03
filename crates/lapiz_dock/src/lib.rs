@@ -83,12 +83,7 @@ where
     pub fn open_dock(&mut self, dock_id: DockId) -> Task<DockMessage> {
         self.dock_state.open(dock_id.clone());
 
-        if let Some(dock) = self.docks.get_mut(&dock_id) {
-            dock.on_open()
-                .map(move |m| DockMessage::Dock(dock_id.clone(), m))
-        } else {
-            Task::none()
-        }
+        self.on_open_task(dock_id)
     }
 
     pub fn open_dock_in_group(&mut self, dock_id: DockId, target: &DockId) -> Task<DockMessage> {
@@ -100,6 +95,10 @@ where
             return self.open_dock(dock_id);
         }
 
+        self.on_open_task(dock_id)
+    }
+
+    fn on_open_task(&mut self, dock_id: DockId) -> Task<DockMessage> {
         if let Some(dock) = self.docks.get_mut(&dock_id) {
             dock.on_open()
                 .map(move |message| DockMessage::Dock(dock_id.clone(), message))
@@ -123,12 +122,7 @@ where
             return self.open_dock(dock_id);
         }
 
-        if let Some(dock) = self.docks.get_mut(&dock_id) {
-            dock.on_open()
-                .map(move |message| DockMessage::Dock(dock_id.clone(), message))
-        } else {
-            Task::none()
-        }
+        self.on_open_task(dock_id)
     }
 
     pub fn on_dock_action(&mut self, action: DockAction) -> Task<DockMessage> {

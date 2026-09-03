@@ -8,7 +8,7 @@ pub struct TextInput<'a, Message> {
 }
 
 impl<'a, Message: Clone> TextInput<'a, Message> {
-    pub fn new(placeholder: &'a str, value: &'a str) -> Self {
+    pub fn new(placeholder: &str, value: &str) -> Self {
         Self {
             inner: iced_widget::TextInput::new(placeholder, value).style(default),
         }
@@ -141,11 +141,4 @@ pub fn invalid(theme: &Theme, status: Status) -> Style {
     let mut style = default(theme, status);
     style.border.color = theme.extended_palette().danger.base.color;
     style
-}
-
-pub fn text_input<'a, Message: Clone>(
-    placeholder: &'a str,
-    value: &'a str,
-) -> TextInput<'a, Message> {
-    TextInput::new(placeholder, value)
 }

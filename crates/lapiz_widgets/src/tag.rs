@@ -1,4 +1,4 @@
-use iced_core::{Element, Padding, Theme, text};
+use iced_core::{Border, Color, Element, Padding, Theme, text};
 use iced_wgpu::Renderer;
 use iced_widget::{Container, Text, container};
 
@@ -47,22 +47,6 @@ impl<'a, Message> Tag<'a, Message> {
             Tone::Warning => self.style(warning),
             Tone::Danger => self.style(danger),
         }
-    }
-
-    pub fn primary(self) -> Self {
-        self.style(primary)
-    }
-
-    pub fn success(self) -> Self {
-        self.style(success)
-    }
-
-    pub fn warning(self) -> Self {
-        self.style(warning)
-    }
-
-    pub fn danger(self) -> Self {
-        self.style(danger)
     }
 }
 
@@ -120,11 +104,11 @@ pub fn danger(theme: &Theme) -> Style {
     )
 }
 
-fn styled(theme: &Theme, background: iced_core::Color, color: iced_core::Color) -> Style {
+fn styled(theme: &Theme, background: Color, color: Color) -> Style {
     container::Style::default()
         .background(background)
         .color(color)
-        .border(iced_core::Border {
+        .border(Border {
             radius: 0.0.into(),
             width: 1.0,
             color: theme.extended_palette().background.strong.color,

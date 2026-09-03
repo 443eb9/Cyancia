@@ -239,7 +239,7 @@ impl ToolFunction for BucketTool {
             )
             .push(
                 "Contiguous",
-                Checkbox::new(self.contiguous).on_toggle_with(BucketToolMessage::ContiguousChanged),
+                Checkbox::new(self.contiguous).on_toggle(BucketToolMessage::ContiguousChanged),
             )
             .push(
                 "Close Gap",

@@ -1,15 +1,11 @@
-use std::{cell::RefCell, rc::Rc};
-
 use iced_core::{Background, Border, Element, Length, Pixels, Theme, text};
 use iced_wgpu::Renderer;
-
-use crate::callback::CallbackWith;
 
 pub use iced_widget::checkbox::{Catalog, Icon, Status, Style, StyleFn};
 
 pub struct Checkbox<'a, Message> {
     checked: bool,
-    toggle: CallbackWith<'a, bool, Message>,
+    toggle: Option<Box<dyn Fn(bool) -> Message + 'a>>,
     label: Option<text::Fragment<'a>>,
     size: f32,
     width: Length,
@@ -37,7 +33,18 @@ impl<'a, Message> Checkbox<'a, Message> {
         self
     }
 
-    crate::callback_methods!(toggle, bool);
+    pub fn on_toggle(mut self, on_toggle: impl Fn(bool) -> Message + 'a) -> Self {
+        self.toggle = Some(Box::new(on_toggle));
+        self
+    }
+
+    pub fn on_toggle_maybe<F>(mut self, on_toggle: Option<F>) -> Self
+    where
+        F: Fn(bool) -> Message + 'a,
+    {
+        self.toggle = on_toggle.map(|on_toggle| Box::new(on_toggle) as _);
+        self
+    }
 
     pub fn size(mut self, size: impl Into<Pixels>) -> Self {
         self.size = size.into().0;
@@ -68,19 +75,10 @@ impl<'a, Message> Checkbox<'a, Message> {
         self.class = class.into();
         self
     }
-
-    pub fn primary(self) -> Self {
-        self.style(default)
-    }
-
-    pub fn compact(self) -> Self {
-        self.size(15).spacing(8).text_size(12)
-    }
 }
 
 impl<'a, Message: 'a> From<Checkbox<'a, Message>> for Element<'a, Message, Theme, Renderer> {
     fn from(value: Checkbox<'a, Message>) -> Self {
-        let callback = Rc::new(RefCell::new(value.toggle));
         let mut inner = iced_widget::Checkbox::new(value.checked)
             .size(value.size)
             .width(value.width)
@@ -99,8 +97,8 @@ impl<'a, Message: 'a> From<Checkbox<'a, Message>> for Element<'a, Message, Theme
         if let Some(label) = value.label {
             inner = inner.label(label);
         }
-        if callback.borrow().is_some() {
-            inner = inner.on_toggle(move |checked| callback.borrow_mut().take().unwrap()(checked));
+        if let Some(on_toggle) = value.toggle {
+            inner = inner.on_toggle(on_toggle);
         }
         inner.into()
     }
@@ -139,8 +137,4 @@ pub fn default(theme: &Theme, status: Status) -> Style {
         style.text_color.as_mut().unwrap().a *= 0.4;
     }
     style
-}
-
-pub fn checkbox<'a, Message>(checked: bool) -> Checkbox<'a, Message> {
-    Checkbox::new(checked)
 }

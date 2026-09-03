@@ -37,8 +37,8 @@ impl<'a, Message> Popover<'a, Message> {
         self
     }
 
-    /// Offsets the floating panel relative to the trigger's top-left corner.
-    pub fn offset(mut self, anchor: Anchor) -> Self {
+    /// Anchors the floating panel relative to the trigger.
+    pub fn anchor(mut self, anchor: Anchor) -> Self {
         self.anchor = anchor;
         self
     }
