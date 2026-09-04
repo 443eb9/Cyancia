@@ -69,10 +69,6 @@ impl<'a, Message> Panel<'a, Message> {
         self.style(inset)
     }
 
-    pub fn raised(self) -> Self {
-        self.style(raised)
-    }
-
     pub fn transparent(self) -> Self {
         self.style(transparent)
     }
@@ -87,7 +83,7 @@ impl<'a, Message: 'a> From<Panel<'a, Message>> for Element<'a, Message, Theme, R
 pub fn default(theme: &Theme) -> Style {
     let p = theme.extended_palette();
     Style::default()
-        .background(crate::theme::surface(theme))
+        .background(p.background.weakest.color)
         .color(p.background.base.text)
         .border(Border {
             radius: 0.0.into(),
@@ -100,18 +96,6 @@ pub fn inset(theme: &Theme) -> Style {
     let p = theme.extended_palette();
     Style::default()
         .background(p.background.strongest.color)
-        .color(p.background.base.text)
-        .border(Border {
-            radius: 0.0.into(),
-            width: 1.0,
-            color: p.background.strong.color,
-        })
-}
-
-pub fn raised(theme: &Theme) -> Style {
-    let p = theme.extended_palette();
-    Style::default()
-        .background(crate::theme::raised(theme))
         .color(p.background.base.text)
         .border(Border {
             radius: 0.0.into(),

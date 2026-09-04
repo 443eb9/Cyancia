@@ -320,7 +320,7 @@ impl<'a, Message: 'a> From<Button<'a, Message>> for Element<'a, Message, Theme, 
 pub fn default(theme: &Theme, status: Status) -> Style {
     let p = theme.extended_palette();
     let base = Style {
-        background: Some(Background::Color(crate::theme::raised(theme))),
+        background: Some(Background::Color(p.background.weakest.color)),
         text_color: p.background.base.text,
         border: Border {
             radius: 0.0.into(),

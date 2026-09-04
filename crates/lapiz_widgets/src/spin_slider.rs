@@ -943,11 +943,10 @@ pub fn default(theme: &iced_core::Theme, status: Status) -> Style {
         Status::Disabled => 0.08,
         Status::Active => 0.16,
     });
-    let background = crate::theme::field(theme);
     Style {
-        background: background.into(),
+        background: palette.background.base.color.into(),
         value_bar: value_bar.into(),
-        button_background: crate::theme::surface(theme).into(),
+        button_background: theme.extended_palette().background.weakest.color.into(),
         border_color: palette.background.strong.color,
         text_color: None,
     }

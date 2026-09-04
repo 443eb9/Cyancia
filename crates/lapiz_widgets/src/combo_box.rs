@@ -185,7 +185,7 @@ where
 pub fn menu_style(theme: &Theme) -> menu::Style {
     let p = theme.extended_palette();
     menu::Style {
-        background: crate::theme::raised(theme).into(),
+        background: p.background.weakest.color.into(),
         border: Border {
             radius: 0.0.into(),
             width: 1.0,
@@ -209,7 +209,7 @@ pub fn pick_list_style(theme: &Theme, status: pick_list::Status) -> pick_list::S
         text_color: p.background.base.text,
         placeholder_color: p.background.weak.text,
         handle_color: p.background.weak.text,
-        background: crate::theme::field(theme).into(),
+        background: p.background.base.color.into(),
         border: Border {
             radius: 0.0.into(),
             width: 1.0,

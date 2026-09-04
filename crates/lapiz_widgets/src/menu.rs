@@ -243,7 +243,7 @@ pub fn menu_bar_style(theme: &Theme, _status: iced_aw::style::Status) -> Style {
         bar_background: Color::TRANSPARENT.into(),
         bar_border: Border::default(),
         bar_shadow: Shadow::default(),
-        menu_background: crate::theme::raised(theme).into(),
+        menu_background: p.background.weakest.color.into(),
         menu_border: Border {
             radius: 0.0.into(),
             width: 1.0,

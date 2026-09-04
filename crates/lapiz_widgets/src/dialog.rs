@@ -65,7 +65,6 @@ impl<'a, Message: 'a> From<Dialog<'a, Message>> for Element<'a, Message, Theme, 
             ]);
         }
         Panel::new(Flex::column(sections).width(Length::Fill))
-            .raised()
             .width(value.width)
             .into()
     }

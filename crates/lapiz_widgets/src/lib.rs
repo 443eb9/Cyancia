@@ -32,7 +32,6 @@ pub mod switch;
 pub mod tabs;
 pub mod tag;
 pub mod text_input;
-pub mod theme;
 pub mod title_bar;
 pub mod tooltip;
 
