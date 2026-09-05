@@ -2,7 +2,7 @@ use glam::Vec2;
 use iced::{Element, Length, Padding, Theme};
 use lapiz_math::curve::CubicCurve;
 use lapiz_widgets::{
-    bar::{StatusBar, Toolbar},
+    bar::StatusBar,
     button::{Button, icon_button, toggle_button},
     checkbox::Checkbox,
     collapsible::Collapsible,
@@ -430,10 +430,14 @@ impl Gallery {
             .menu("Filter", filter_menu)
             .menu("Window", window_menu)
             .menu("Help", help_menu);
-        let toolbar = Toolbar::new([
+        let toolbar = Flex::row([
             Label::new("LAPIZ WIDGET GALLERY").strong().into(),
             menu_bar.into(),
-        ]);
+        ])
+        .width(Length::Fill)
+        .height(36)
+        .padding([0, 8])
+        .gap(6);
 
         let content = Flex::column([
             toolbar.into(),
