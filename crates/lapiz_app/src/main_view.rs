@@ -35,7 +35,6 @@ use lapiz_widgets::{
     divider::Divider,
     flex::Flex,
     icon::{self, Icon},
-    kbd::Kbd,
     label::Label,
     menu::{Menu, MenuBar},
     title_bar::TitleBar,
@@ -90,112 +89,114 @@ impl MainView {
         .into()
     }
 
-    fn menu_bar<'a>(current_theme: &Theme) -> MenuBar<'a, MainViewMessage> {
-        let row = |label: &'static str, shortcut: &'static str| {
-            Flex::row([Label::new(label).into(), Kbd::new(shortcut).into()])
-                .width(Length::Fill)
-                .space_between()
-        };
+    fn menu_bar(current_theme: &Theme) -> MenuBar<MainViewMessage> {
         let file = Menu::new()
-            .disabled_item(row("New Canvas…", "Ctrl+N"))
-            .item(row("Open…", "Ctrl+O"), Self::action("OpenFileAction"))
+            .disabled_item("New Canvas…", Some("Ctrl+N"))
+            .item_shortcut("Open…", "Ctrl+O", Self::action("OpenFileAction"))
             .separator()
-            .item(row("Save", "Ctrl+S"), Self::action("SaveFileAction"))
-            .width(236);
+            .item_shortcut("Save", "Ctrl+S", Self::action("SaveFileAction"))
+            .width(236.0);
         let edit = Menu::new()
-            .item(row("Undo", "Ctrl+Z"), Self::action("UndoAction"))
-            .item(row("Redo", "Ctrl+Shift+Z"), Self::action("RedoAction"))
+            .item_shortcut("Undo", "Ctrl+Z", Self::action("UndoAction"))
+            .item_shortcut("Redo", "Ctrl+Shift+Z", Self::action("RedoAction"))
             .separator()
-            .item(
-                row("Paste as New Layer", "Ctrl+V"),
+            .item_shortcut(
+                "Paste as New Layer",
+                "Ctrl+V",
                 Self::action("PasteIntoNewLayerAction"),
             )
-            .width(236);
+            .width(236.0);
         let view = Menu::new()
-            .disabled_item(row("Zoom In", "Ctrl++"))
-            .disabled_item(row("Zoom Out", "Ctrl+-"))
-            .disabled_item(row("Fit on Screen", "Ctrl+0"))
-            .width(236);
+            .disabled_item("Zoom In", Some("Ctrl++"))
+            .disabled_item("Zoom Out", Some("Ctrl+-"))
+            .disabled_item("Fit on Screen", Some("Ctrl+0"))
+            .width(236.0);
         let layer = Menu::new()
-            .item(
-                row("New Paint Layer", "Ctrl+Shift+N"),
+            .item_shortcut(
+                "New Paint Layer",
+                "Ctrl+Shift+N",
                 Self::action("CreateNewLayerAction"),
             )
-            .item(
-                row("Group Selected Layers", "Ctrl+G"),
+            .item_shortcut(
+                "Group Selected Layers",
+                "Ctrl+G",
                 Self::action("GroupSelectedLayersAction"),
             )
             .separator()
-            .item(
-                row("Move Up", "Ctrl+Shift+Up"),
+            .item_shortcut(
+                "Move Up",
+                "Ctrl+Shift+Up",
                 Self::action("MoveLayerUpAction"),
             )
-            .item(
-                row("Move Down", "Ctrl+Shift+Down"),
+            .item_shortcut(
+                "Move Down",
+                "Ctrl+Shift+Down",
                 Self::action("MoveLayerDownAction"),
             )
-            .item(
-                row("Delete Selected Layers", "Ctrl+Delete"),
+            .item_shortcut(
+                "Delete Selected Layers",
+                "Ctrl+Delete",
                 Self::action("DeleteSelectedLayersAction"),
             )
-            .width(236);
+            .width(236.0);
         let select = Menu::new()
-            .item(
-                row("Select Previous Layer", "Ctrl+Up"),
+            .item_shortcut(
+                "Select Previous Layer",
+                "Ctrl+Up",
                 Self::action("SelectPreviousLayerAction"),
             )
-            .item(
-                row("Select Next Layer", "Ctrl+Down"),
+            .item_shortcut(
+                "Select Next Layer",
+                "Ctrl+Down",
                 Self::action("SelectNextLayerAction"),
             )
             .separator()
-            .item(
-                row("Delete Selection", "Ctrl+D"),
+            .item_shortcut(
+                "Delete Selection",
+                "Ctrl+D",
                 Self::action("DeleteSelectionAction"),
             )
-            .width(236);
+            .width(236.0);
         let filter = Menu::new()
-            .item(
-                row("Filter Panel…", "Ctrl+Shift+F"),
+            .item_shortcut(
+                "Filter Panel…",
+                "Ctrl+Shift+F",
                 Self::action("ToggleFilterPanelAction"),
             )
-            .width(236);
+            .width(236.0);
         let themes = Theme::ALL
             .iter()
-            .fold(Menu::new().width(220), |menu, theme| {
-                let label = Label::new(theme.to_string());
+            .fold(Menu::new().width(220.0), |menu, theme| {
                 if theme == current_theme {
-                    menu.selected_item(label, MainViewMessage::SetTheme(theme.clone()))
+                    menu.selected_item(theme.to_string(), MainViewMessage::SetTheme(theme.clone()))
                 } else {
-                    menu.item(label, MainViewMessage::SetTheme(theme.clone()))
+                    menu.item(theme.to_string(), MainViewMessage::SetTheme(theme.clone()))
                 }
             });
         let window = Menu::new()
-            .item(
-                row("Brush Editor", "F5"),
-                Self::action("OpenBrushEditorAction"),
-            )
-            .item(
-                row("Filter Panel", "Ctrl+Shift+F"),
+            .item_shortcut("Brush Editor", "F5", Self::action("OpenBrushEditorAction"))
+            .item_shortcut(
+                "Filter Panel",
+                "Ctrl+Shift+F",
                 Self::action("ToggleFilterPanelAction"),
             )
             .separator()
-            .submenu(Label::new("Theme"), themes)
-            .width(236);
+            .submenu("Theme", themes)
+            .width(236.0);
         let help = Menu::new()
-            .disabled_item(Label::new("Documentation"))
+            .disabled_item("Documentation", None)
             .separator()
-            .disabled_item(Label::new("About Lapiz"));
+            .disabled_item("About Lapiz", None);
 
         MenuBar::new()
-            .menu(Label::new("File"), file)
-            .menu(Label::new("Edit"), edit)
-            .menu(Label::new("View"), view)
-            .menu(Label::new("Layer"), layer)
-            .menu(Label::new("Select"), select)
-            .menu(Label::new("Filter"), filter)
-            .menu(Label::new("Window"), window)
-            .menu(Label::new("Help"), help)
+            .menu("File", file)
+            .menu("Edit", edit)
+            .menu("View", view)
+            .menu("Layer", layer)
+            .menu("Select", select)
+            .menu("Filter", filter)
+            .menu("Window", window)
+            .menu("Help", help)
     }
 
     fn switch_tool_keys(

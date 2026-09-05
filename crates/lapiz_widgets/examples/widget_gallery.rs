@@ -353,92 +353,83 @@ impl Gallery {
             Flex::column(icon_rows).gap(4).padding(8),
         );
 
-        let menu_row = |label: &'static str, shortcut: &'static str| {
-            let shortcut: Element<'_, Message> = if shortcut.is_empty() {
-                Label::new("").into()
-            } else {
-                Kbd::new(shortcut).into()
-            };
-            Flex::row([Label::new(label).into(), shortcut])
-                .width(Length::Fill)
-                .space_between()
-        };
         let recent_menu = Menu::new()
-            .item(Label::new("concept-01.lapiz"), Message::Noop)
-            .item(Label::new("character-study.lapiz"), Message::Noop)
-            .item(Label::new("untitled-4.lapiz"), Message::Noop)
-            .width(220);
+            .item("concept-01.lapiz", Message::Noop)
+            .item("character-study.lapiz", Message::Noop)
+            .item("untitled-4.lapiz", Message::Noop)
+            .width(220.0);
         let file_menu = Menu::new()
-            .item(menu_row("New", "Ctrl+N"), Message::Noop)
-            .item(menu_row("Open", "Ctrl+O"), Message::Noop)
-            .submenu(Label::new("Open Recent"), recent_menu)
+            .item_shortcut("New", "Ctrl+N", Message::Noop)
+            .item_shortcut("Open", "Ctrl+O", Message::Noop)
+            .submenu("Open Recent", recent_menu)
             .separator()
-            .item(menu_row("Save", "Ctrl+S"), Message::Noop)
-            .item(menu_row("Export", "Ctrl+Shift+S"), Message::Noop)
-            .width(220);
+            .item_shortcut("Save", "Ctrl+S", Message::Noop)
+            .item_shortcut("Export", "Ctrl+Shift+S", Message::Noop)
+            .width(220.0);
         let edit_menu = Menu::new()
-            .item(menu_row("Undo", "Ctrl+Z"), Message::Noop)
-            .item(menu_row("Redo", "Ctrl+Shift+Z"), Message::Noop)
+            .item_shortcut("Undo", "Ctrl+Z", Message::Noop)
+            .item_shortcut("Redo", "Ctrl+Shift+Z", Message::Noop)
             .separator()
-            .item(menu_row("Cut", "Ctrl+X"), Message::Noop)
-            .item(menu_row("Copy", "Ctrl+C"), Message::Noop)
-            .item(menu_row("Paste", "Ctrl+V"), Message::Noop)
-            .width(220);
+            .item_shortcut("Cut", "Ctrl+X", Message::Noop)
+            .item_shortcut("Copy", "Ctrl+C", Message::Noop)
+            .item_shortcut("Paste", "Ctrl+V", Message::Noop)
+            .width(220.0);
         let view_menu = Menu::new()
-            .item(menu_row("Zoom In", "Ctrl++"), Message::Noop)
-            .item(menu_row("Zoom Out", "Ctrl+-"), Message::Noop)
-            .item(menu_row("Fit Canvas", "1"), Message::Noop)
+            .item_shortcut("Zoom In", "Ctrl++", Message::Noop)
+            .item_shortcut("Zoom Out", "Ctrl+-", Message::Noop)
+            .item_shortcut("Fit Canvas", "1", Message::Noop)
             .separator()
-            .item(menu_row("Mirror Canvas", "M"), Message::Noop)
-            .width(220);
+            .item_shortcut("Mirror Canvas", "M", Message::Noop)
+            .width(220.0);
         let layer_menu = Menu::new()
-            .item(menu_row("New Layer", "Insert"), Message::Noop)
-            .item(menu_row("Duplicate Layer", "Ctrl+J"), Message::Noop)
+            .item_shortcut("New Layer", "Insert", Message::Noop)
+            .item_shortcut("Duplicate Layer", "Ctrl+J", Message::Noop)
             .separator()
-            .item(menu_row("Merge Down", "Ctrl+E"), Message::Noop)
-            .item(menu_row("Delete Layer", "Del"), Message::Noop)
-            .width(220);
+            .item_shortcut("Merge Down", "Ctrl+E", Message::Noop)
+            .item_shortcut("Delete Layer", "Del", Message::Noop)
+            .width(220.0);
         let select_menu = Menu::new()
-            .item(menu_row("Select All", "Ctrl+A"), Message::Noop)
-            .item(menu_row("Deselect", "Ctrl+Shift+A"), Message::Noop)
-            .item(menu_row("Invert Selection", "Ctrl+I"), Message::Noop)
-            .width(220);
+            .item_shortcut("Select All", "Ctrl+A", Message::Noop)
+            .item_shortcut("Deselect", "Ctrl+Shift+A", Message::Noop)
+            .item_shortcut("Invert Selection", "Ctrl+I", Message::Noop)
+            .width(220.0);
         let filter_menu = Menu::new()
-            .item(Label::new("Gaussian Blur"), Message::Noop)
-            .item(Label::new("Sharpen"), Message::Noop)
-            .item(menu_row("Color Balance", "Ctrl+B"), Message::Noop)
-            .width(220);
-        let theme_menu = Theme::ALL
-            .iter()
-            .cloned()
-            .fold(Menu::new().width(220), |menu, theme| {
-                if theme == self.theme {
-                    menu.selected_item(Label::new(theme.to_string()), Message::ThemeSelected(theme))
-                } else {
-                    menu.item(Label::new(theme.to_string()), Message::ThemeSelected(theme))
-                }
-            });
+            .item("Gaussian Blur", Message::Noop)
+            .item("Sharpen", Message::Noop)
+            .item_shortcut("Color Balance", "Ctrl+B", Message::Noop)
+            .width(220.0);
+        let theme_menu =
+            Theme::ALL
+                .iter()
+                .cloned()
+                .fold(Menu::new().width(220.0), |menu, theme| {
+                    if theme == self.theme {
+                        menu.selected_item(theme.to_string(), Message::ThemeSelected(theme))
+                    } else {
+                        menu.item(theme.to_string(), Message::ThemeSelected(theme))
+                    }
+                });
         let window_menu = Menu::new()
-            .selected_item(menu_row("Canvas", "Tab"), Message::Noop)
-            .item(menu_row("Layers", "F7"), Message::Noop)
-            .item(menu_row("Brush Editor", "F5"), Message::Noop)
+            .selected_item_shortcut("Canvas", "Tab", Message::Noop)
+            .item_shortcut("Layers", "F7", Message::Noop)
+            .item_shortcut("Brush Editor", "F5", Message::Noop)
             .separator()
-            .submenu(Label::new("Theme"), theme_menu)
-            .width(220);
+            .submenu("Theme", theme_menu)
+            .width(220.0);
         let help_menu = Menu::new()
-            .item(menu_row("Keyboard Shortcuts", "F1"), Message::Noop)
+            .item_shortcut("Keyboard Shortcuts", "F1", Message::Noop)
             .separator()
-            .item(Label::new("About Lapiz"), Message::Noop)
-            .width(220);
+            .item("About Lapiz", Message::Noop)
+            .width(220.0);
         let menu_bar = MenuBar::new()
-            .menu(Label::new("File"), file_menu)
-            .menu(Label::new("Edit"), edit_menu)
-            .menu(Label::new("View"), view_menu)
-            .menu(Label::new("Layer"), layer_menu)
-            .menu(Label::new("Select"), select_menu)
-            .menu(Label::new("Filter"), filter_menu)
-            .menu(Label::new("Window"), window_menu)
-            .menu(Label::new("Help"), help_menu);
+            .menu("File", file_menu)
+            .menu("Edit", edit_menu)
+            .menu("View", view_menu)
+            .menu("Layer", layer_menu)
+            .menu("Select", select_menu)
+            .menu("Filter", filter_menu)
+            .menu("Window", window_menu)
+            .menu("Help", help_menu);
         let toolbar = Toolbar::new([
             Label::new("LAPIZ WIDGET GALLERY").strong().into(),
             menu_bar.into(),
