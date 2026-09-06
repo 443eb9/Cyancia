@@ -10,7 +10,7 @@ use iced_wgpu::Renderer;
 use iced_widget::pane_grid;
 use lapiz_actions::{
     ActionFunctionRegistry, ActionId,
-    manifest::{ActionCollection, KeyBindingDefManifest},
+    manifest::{ActionCollection, KeyBindingDefManifest, MenuBarItem, MenuBarManifest},
 };
 use lapiz_assets::AssetAppExt;
 use lapiz_brush::tool::CurrentBrushPresetHandle;
@@ -36,7 +36,7 @@ use lapiz_widgets::{
     flex::Flex,
     icon::{self, Icon},
     label::Label,
-    menu::{Menu, MenuBar},
+    menu::{Item, Menu, MenuBar},
     title_bar::TitleBar,
 };
 use moxcms::{ColorProfile, ProfileText};
@@ -50,6 +50,7 @@ use crate::dock::{
 pub struct MainView {
     dock_manager: DockManager<Theme, Renderer>,
     action_collection: ActionCollection,
+    menu_manifest: MenuBarManifest,
     canvas_group_anchor: Option<DockId>,
 }
 
@@ -72,10 +73,6 @@ pub enum MainViewMessage {
 }
 
 impl MainView {
-    fn action(name: &'static str) -> MainViewMessage {
-        MainViewMessage::TriggerAction(ActionId::new(name.into()))
-    }
-
     fn status_cell<'a>(
         icon: Icon<'a>,
         text: String,
@@ -89,114 +86,60 @@ impl MainView {
         .into()
     }
 
-    fn menu_bar(current_theme: &Theme) -> MenuBar<MainViewMessage> {
-        let file = Menu::new()
-            .disabled_item("New Canvas…", Some("Ctrl+N"))
-            .item_shortcut("Open…", "Ctrl+O", Self::action("OpenFileAction"))
-            .separator()
-            .item_shortcut("Save", "Ctrl+S", Self::action("SaveFileAction"))
-            .width(236.0);
-        let edit = Menu::new()
-            .item_shortcut("Undo", "Ctrl+Z", Self::action("UndoAction"))
-            .item_shortcut("Redo", "Ctrl+Shift+Z", Self::action("RedoAction"))
-            .separator()
-            .item_shortcut(
-                "Paste as New Layer",
-                "Ctrl+V",
-                Self::action("PasteIntoNewLayerAction"),
-            )
-            .width(236.0);
-        let view = Menu::new()
-            .disabled_item("Zoom In", Some("Ctrl++"))
-            .disabled_item("Zoom Out", Some("Ctrl+-"))
-            .disabled_item("Fit on Screen", Some("Ctrl+0"))
-            .width(236.0);
-        let layer = Menu::new()
-            .item_shortcut(
-                "New Paint Layer",
-                "Ctrl+Shift+N",
-                Self::action("CreateNewLayerAction"),
-            )
-            .item_shortcut(
-                "Group Selected Layers",
-                "Ctrl+G",
-                Self::action("GroupSelectedLayersAction"),
-            )
-            .separator()
-            .item_shortcut(
-                "Move Up",
-                "Ctrl+Shift+Up",
-                Self::action("MoveLayerUpAction"),
-            )
-            .item_shortcut(
-                "Move Down",
-                "Ctrl+Shift+Down",
-                Self::action("MoveLayerDownAction"),
-            )
-            .item_shortcut(
-                "Delete Selected Layers",
-                "Ctrl+Delete",
-                Self::action("DeleteSelectedLayersAction"),
-            )
-            .width(236.0);
-        let select = Menu::new()
-            .item_shortcut(
-                "Select Previous Layer",
-                "Ctrl+Up",
-                Self::action("SelectPreviousLayerAction"),
-            )
-            .item_shortcut(
-                "Select Next Layer",
-                "Ctrl+Down",
-                Self::action("SelectNextLayerAction"),
-            )
-            .separator()
-            .item_shortcut(
-                "Delete Selection",
-                "Ctrl+D",
-                Self::action("DeleteSelectionAction"),
-            )
-            .width(236.0);
-        let filter = Menu::new()
-            .item_shortcut(
-                "Filter Panel…",
-                "Ctrl+Shift+F",
-                Self::action("ToggleFilterPanelAction"),
-            )
-            .width(236.0);
-        let themes = Theme::ALL
-            .iter()
-            .fold(Menu::new().width(220.0), |menu, theme| {
-                if theme == current_theme {
-                    menu.selected_item(theme.to_string(), MainViewMessage::SetTheme(theme.clone()))
-                } else {
-                    menu.item(theme.to_string(), MainViewMessage::SetTheme(theme.clone()))
-                }
-            });
-        let window = Menu::new()
-            .item_shortcut("Brush Editor", "F5", Self::action("OpenBrushEditorAction"))
-            .item_shortcut(
-                "Filter Panel",
-                "Ctrl+Shift+F",
-                Self::action("ToggleFilterPanelAction"),
-            )
-            .separator()
-            .submenu("Theme", themes)
-            .width(236.0);
-        let help = Menu::new()
-            .disabled_item("Documentation", None)
-            .separator()
-            .disabled_item("About Lapiz", None);
+    fn menu_bar(&self, current_theme: &Theme) -> MenuBar<MainViewMessage> {
+        fn build_menu(
+            items: &[MenuBarItem],
+            collection: &ActionCollection,
+        ) -> Menu<MainViewMessage> {
+            let mut menu = Menu::new().width(236.0);
+            for item in items {
+                menu = match item {
+                    MenuBarItem::Separator => menu.separator(),
+                    MenuBarItem::Item(action) => {
+                        let message = MainViewMessage::TriggerAction(action.clone());
+                        match collection.shortcut_for(action) {
+                            Some(shortcut) => menu.item_shortcut(
+                                action.to_string(),
+                                &format!("{}", shortcut),
+                                message,
+                            ),
+                            None => menu.item(action.to_string(), message),
+                        }
+                    }
+                    MenuBarItem::Submenu { title, items } => {
+                        menu.submenu(title.clone(), build_menu(items, collection))
+                    }
+                };
+            }
+            menu
+        }
 
-        MenuBar::new()
-            .menu("File", file)
-            .menu("Edit", edit)
-            .menu("View", view)
-            .menu("Layer", layer)
-            .menu("Select", select)
-            .menu("Filter", filter)
-            .menu("Window", window)
-            .menu("Help", help)
+        let mut menu_bar = MenuBar::new();
+        for category in &self.menu_manifest.categories {
+            menu_bar = menu_bar.menu(
+                category.title.clone(),
+                build_menu(&category.items, &self.action_collection),
+            );
+        }
+
+        if let Some(window) = menu_bar.get_menu_mut("Window")
+            && let Some(Item::Submenu { submenu, .. }) = window.get_item_mut("Theme")
+        {
+            *submenu = Theme::ALL
+                .iter()
+                .fold(Menu::new().width(220.0), |menu, theme| {
+                    if theme == current_theme {
+                        menu.selected_item(
+                            theme.to_string(),
+                            MainViewMessage::SetTheme(theme.clone()),
+                        )
+                    } else {
+                        menu.item(theme.to_string(), MainViewMessage::SetTheme(theme.clone()))
+                    }
+                });
+        }
+
+        menu_bar
     }
 
     fn switch_tool_keys(
@@ -249,6 +192,21 @@ impl WindowView for MainView {
         );
         let action_collection = ActionCollection::new(&manifest);
 
+        // TODO: move to a proper config directory once the app has one.
+        let menu_manifest = match std::fs::read_to_string("assets/menu_bar_manifest.toml") {
+            Ok(content) => match toml::from_str(&content) {
+                Ok(manifest) => manifest,
+                Err(error) => {
+                    log::error!("Failed to parse menu bar manifest: {error}");
+                    MenuBarManifest::default()
+                }
+            },
+            Err(error) => {
+                log::error!("Failed to read menu bar manifest: {error}");
+                MenuBarManifest::default()
+            }
+        };
+
         let (main_window, task) = window::open(window::Settings {
             decorations: false,
             size: iced::Size::new(1280.0, 800.0),
@@ -289,6 +247,7 @@ impl WindowView for MainView {
             Self {
                 dock_manager,
                 action_collection,
+                menu_manifest,
                 canvas_group_anchor: None,
             },
             Task::batch([
@@ -315,7 +274,7 @@ impl WindowView for MainView {
 
         let title_content = Flex::row([
             Label::new("LAPIZ").size(13).strong().into(),
-            Self::menu_bar(&services.service::<ApplicationTheme>().0)
+            self.menu_bar(&services.service::<ApplicationTheme>().0)
                 .height(Length::Fill)
                 .into(),
         ])

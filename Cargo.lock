@@ -3138,6 +3138,7 @@ dependencies = [
  "lapiz_undo",
  "lapiz_utils",
  "log",
+ "parse-display",
  "rfd",
  "serde",
  "serde_json",
@@ -3194,6 +3195,7 @@ dependencies = [
  "log",
  "moxcms",
  "parking_lot",
+ "toml",
  "tracing-subscriber",
  "wgpu",
 ]

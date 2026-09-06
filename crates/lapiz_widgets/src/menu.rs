@@ -21,13 +21,16 @@ const SHORTCUT_SIZE: f32 = 10.0;
 
 type MessageSlot<Message> = Rc<RefCell<Option<Message>>>;
 
-enum Item<Message> {
-    Entry {
+pub enum Item<Message> {
+    Action {
         label: String,
         shortcut: Option<String>,
-        message: Option<MessageSlot<Message>>,
+        message: MessageSlot<Message>,
         checked: bool,
-        submenu: Option<Menu<Message>>,
+    },
+    Submenu {
+        label: String,
+        submenu: Menu<Message>,
     },
     Separator,
 }
@@ -35,7 +38,7 @@ enum Item<Message> {
 impl<Message> Item<Message> {
     fn height(&self) -> f32 {
         match self {
-            Item::Entry { .. } => ITEM_HEIGHT,
+            Item::Action { .. } | Item::Submenu { .. } => ITEM_HEIGHT,
             Item::Separator => SEPARATOR_HEIGHT,
         }
     }
@@ -54,44 +57,32 @@ impl<Message> Menu<Message> {
         }
     }
 
-    fn entry(
+    fn action(
         mut self,
         label: String,
         shortcut: Option<String>,
-        message: Option<Message>,
+        message: Message,
         checked: bool,
-        submenu: Option<Menu<Message>>,
     ) -> Self {
-        self.items.push(Item::Entry {
+        self.items.push(Item::Action {
             label,
             shortcut,
-            message: message.map(|message| Rc::new(RefCell::new(Some(message)))),
+            message: Rc::new(RefCell::new(Some(message))),
             checked,
-            submenu,
         });
         self
     }
 
     pub fn item(self, label: impl Into<String>, message: Message) -> Self {
-        self.entry(label.into(), None, Some(message), false, None)
+        self.action(label.into(), None, message, false)
     }
 
     pub fn item_shortcut(self, label: impl Into<String>, shortcut: &str, message: Message) -> Self {
-        self.entry(
-            label.into(),
-            Some(String::from(shortcut)),
-            Some(message),
-            false,
-            None,
-        )
-    }
-
-    pub fn disabled_item(self, label: impl Into<String>, shortcut: Option<&str>) -> Self {
-        self.entry(label.into(), shortcut.map(String::from), None, false, None)
+        self.action(label.into(), Some(String::from(shortcut)), message, false)
     }
 
     pub fn selected_item(self, label: impl Into<String>, message: Message) -> Self {
-        self.entry(label.into(), None, Some(message), true, None)
+        self.action(label.into(), None, message, true)
     }
 
     pub fn selected_item_shortcut(
@@ -100,13 +91,7 @@ impl<Message> Menu<Message> {
         shortcut: &str,
         message: Message,
     ) -> Self {
-        self.entry(
-            label.into(),
-            Some(String::from(shortcut)),
-            Some(message),
-            true,
-            None,
-        )
+        self.action(label.into(), Some(String::from(shortcut)), message, true)
     }
 
     pub fn separator(mut self) -> Self {
@@ -114,13 +99,23 @@ impl<Message> Menu<Message> {
         self
     }
 
-    pub fn submenu(self, label: impl Into<String>, submenu: Menu<Message>) -> Self {
-        self.entry(label.into(), None, None, false, Some(submenu))
+    pub fn submenu(mut self, label: impl Into<String>, submenu: Menu<Message>) -> Self {
+        self.items.push(Item::Submenu {
+            label: label.into(),
+            submenu,
+        });
+        self
     }
 
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
         self
+    }
+
+    pub fn get_item_mut(&mut self, name: &str) -> Option<&mut Item<Message>> {
+        self.items
+            .iter_mut()
+            .find(|item| matches!(item, Item::Action { label, .. } | Item::Submenu { label, .. } if label == name))
     }
 }
 
@@ -160,14 +155,17 @@ impl<Message> MenuBar<Message> {
         self
     }
 
+    pub fn get_menu_mut(&mut self, category: &str) -> Option<&mut Menu<Message>> {
+        self.roots
+            .iter_mut()
+            .find(|(name, _)| name == category)
+            .map(|(_, menu)| menu)
+    }
+
     fn menu_at(&self, path: &[usize]) -> Option<&Menu<Message>> {
-        let mut current: &Menu<Message> = &self.roots.get(*path.first()?)?.1;
+        let mut current = &self.roots.get(*path.first()?)?.1;
         for &index in &path[1..] {
-            let Item::Entry {
-                submenu: Some(submenu),
-                ..
-            } = current.items.get(index)?
-            else {
+            let Item::Submenu { submenu, .. } = current.items.get(index)? else {
                 return None;
             };
             current = submenu;
@@ -532,13 +530,8 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Mes
             Event::Mouse(mouse::Event::CursorMoved { position }) => {
                 let panels = self.panels();
                 if let Some((level, index)) = Self::hit_test(&panels, *position) {
-                    let opens_submenu = matches!(
-                        self.resolve_item(level, index),
-                        Some(Item::Entry {
-                            submenu: Some(_),
-                            ..
-                        })
-                    );
+                    let opens_submenu =
+                        matches!(self.resolve_item(level, index), Some(Item::Submenu { .. }));
                     let changed = if opens_submenu {
                         if self.state.open.get(level + 1) != Some(&index)
                             || self.state.open.len() > level + 2
@@ -568,10 +561,8 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Mes
                     .and_then(|position| Self::hit_test(&panels, position));
                 match hit {
                     Some((level, index)) => {
-                        if let Some(Item::Entry {
-                            message: Some(slot),
-                            ..
-                        }) = self.resolve_item(level, index)
+                        if let Some(Item::Action { message: slot, .. }) =
+                            self.resolve_item(level, index)
                         {
                             if let Some(message) = slot.borrow_mut().take() {
                                 shell.publish(message);
@@ -651,112 +642,40 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Mes
                             p.background.strong.color,
                         );
                     }
-                    Item::Entry {
+                    Item::Action {
                         label,
                         shortcut,
-                        message,
                         checked,
-                        submenu,
+                        ..
                     } => {
-                        let disabled = message.is_none() && submenu.is_none();
+                        let hovered = hit == Some((level, index));
+                        draw_entry(
+                            renderer,
+                            p,
+                            panel.bounds,
+                            *row,
+                            label,
+                            hovered,
+                            *checked,
+                            shortcut.as_deref(),
+                            false,
+                        );
+                    }
+                    Item::Submenu { label, .. } => {
                         let opened = level + 1 < self.state.open.len()
                             && self.state.open[level + 1] == index;
-                        let hovered = !disabled && (opened || hit == Some((level, index)));
-                        if hovered {
-                            renderer.fill_quad(
-                                renderer::Quad {
-                                    bounds: Rectangle::new(
-                                        Point::new(row.x + PANEL_PADDING - 1.0, row.y),
-                                        Size::new(
-                                            row.width - PANEL_PADDING * 2.0 + 2.0,
-                                            row.height,
-                                        ),
-                                    ),
-                                    ..renderer::Quad::default()
-                                },
-                                p.primary.base.color,
-                            );
-                        }
-                        let text_color = if hovered {
-                            p.primary.base.text
-                        } else if disabled {
-                            Color {
-                                a: 0.4,
-                                ..p.background.base.text
-                            }
-                        } else {
-                            p.background.base.text
-                        };
-                        let icon_color = if hovered {
-                            p.primary.base.text
-                        } else {
-                            p.background.weak.text
-                        };
-                        if *checked {
-                            draw_svg_icon(
-                                renderer,
-                                include_bytes!("../assets/icons/check.svg"),
-                                icon_color,
-                                Rectangle::new(
-                                    Point::new(
-                                        row.x + ITEM_PADDING_X + 2.0,
-                                        row.y + (row.height - 10.0) / 2.0,
-                                    ),
-                                    Size::new(10.0, 10.0),
-                                ),
-                                panel.bounds,
-                            );
-                        }
-                        let mut label_text = text_spec(label.clone(), LABEL_SIZE);
-                        label_text.bounds =
-                            Size::new(row.width - ITEM_PADDING_X * 2.0 - ICON_SLOT, row.height);
-                        label_text.align_y = alignment::Vertical::Center;
-                        renderer.fill_text(
-                            label_text,
-                            Point::new(
-                                row.x + ITEM_PADDING_X + ICON_SLOT,
-                                row.y + row.height / 2.0,
-                            ),
-                            text_color,
+                        let hovered = opened || hit == Some((level, index));
+                        draw_entry(
+                            renderer,
+                            p,
                             panel.bounds,
+                            *row,
+                            label,
+                            hovered,
+                            false,
+                            None,
+                            true,
                         );
-                        if submenu.is_none()
-                            && let Some(shortcut) = shortcut.as_deref()
-                        {
-                            let mut shortcut_text = text_spec(shortcut.to_owned(), SHORTCUT_SIZE);
-                            shortcut_text.bounds =
-                                Size::new(row.width - ITEM_PADDING_X * 2.0 - ICON_SLOT, row.height);
-                            shortcut_text.align_x = text::Alignment::Right;
-                            shortcut_text.align_y = alignment::Vertical::Center;
-                            renderer.fill_text(
-                                shortcut_text,
-                                Point::new(
-                                    row.x + row.width - ITEM_PADDING_X,
-                                    row.y + row.height / 2.0,
-                                ),
-                                if hovered {
-                                    text_color
-                                } else {
-                                    p.background.weak.text
-                                },
-                                panel.bounds,
-                            );
-                        }
-                        if submenu.is_some() {
-                            draw_svg_icon(
-                                renderer,
-                                include_bytes!("../assets/icons/chevron_right.svg"),
-                                icon_color,
-                                Rectangle::new(
-                                    Point::new(
-                                        row.x + row.width - ITEM_PADDING_X - 4.0,
-                                        row.y + (row.height - 10.0) / 2.0,
-                                    ),
-                                    Size::new(10.0, 10.0),
-                                ),
-                                panel.bounds,
-                            );
-                        }
                     }
                 }
             }
@@ -775,6 +694,96 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Mes
             .and_then(|position| Self::hit_test(&panels, position))
             .map(|_| mouse::Interaction::Pointer)
             .unwrap_or(mouse::Interaction::None)
+    }
+}
+
+fn draw_entry(
+    renderer: &mut Renderer,
+    p: &iced_core::theme::palette::Extended,
+    panel_bounds: Rectangle,
+    row: Rectangle,
+    label: &str,
+    hovered: bool,
+    checked: bool,
+    shortcut: Option<&str>,
+    chevron: bool,
+) {
+    if hovered {
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds: Rectangle::new(
+                    Point::new(row.x + PANEL_PADDING - 1.0, row.y),
+                    Size::new(row.width - PANEL_PADDING * 2.0 + 2.0, row.height),
+                ),
+                ..renderer::Quad::default()
+            },
+            p.primary.base.color,
+        );
+    }
+    let text_color = if hovered {
+        p.primary.base.text
+    } else {
+        p.background.base.text
+    };
+    let icon_color = if hovered {
+        p.primary.base.text
+    } else {
+        p.background.weak.text
+    };
+    if checked {
+        draw_svg_icon(
+            renderer,
+            include_bytes!("../assets/icons/check.svg"),
+            icon_color,
+            Rectangle::new(
+                Point::new(
+                    row.x + ITEM_PADDING_X + 2.0,
+                    row.y + (row.height - 10.0) / 2.0,
+                ),
+                Size::new(10.0, 10.0),
+            ),
+            panel_bounds,
+        );
+    }
+    let mut label_text = text_spec(label.to_owned(), LABEL_SIZE);
+    label_text.bounds = Size::new(row.width - ITEM_PADDING_X * 2.0 - ICON_SLOT, row.height);
+    label_text.align_y = alignment::Vertical::Center;
+    renderer.fill_text(
+        label_text,
+        Point::new(row.x + ITEM_PADDING_X + ICON_SLOT, row.y + row.height / 2.0),
+        text_color,
+        panel_bounds,
+    );
+    if let Some(shortcut) = shortcut {
+        let mut shortcut_text = text_spec(shortcut.to_owned(), SHORTCUT_SIZE);
+        shortcut_text.bounds = Size::new(row.width - ITEM_PADDING_X * 2.0 - ICON_SLOT, row.height);
+        shortcut_text.align_x = text::Alignment::Right;
+        shortcut_text.align_y = alignment::Vertical::Center;
+        renderer.fill_text(
+            shortcut_text,
+            Point::new(row.x + row.width - ITEM_PADDING_X, row.y + row.height / 2.0),
+            if hovered {
+                text_color
+            } else {
+                p.background.weak.text
+            },
+            panel_bounds,
+        );
+    }
+    if chevron {
+        draw_svg_icon(
+            renderer,
+            include_bytes!("../assets/icons/chevron_right.svg"),
+            icon_color,
+            Rectangle::new(
+                Point::new(
+                    row.x + row.width - ITEM_PADDING_X - 4.0,
+                    row.y + (row.height - 10.0) / 2.0,
+                ),
+                Size::new(10.0, 10.0),
+            ),
+            panel_bounds,
+        );
     }
 }
 
