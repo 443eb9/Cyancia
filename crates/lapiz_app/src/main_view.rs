@@ -300,7 +300,24 @@ impl WindowView for MainView {
             status_cells.extend([
                 Divider::vertical(1).into(),
                 Self::status_cell(icon::canvas_size(), format!("{} × {}", size.x, size.y)),
-                Self::status_cell(icon::palette(), profile_name(canvas.image.profile())),
+                Self::status_cell(
+                    icon::palette(),
+                    match canvas.image.profile().description.as_ref() {
+                        Some(ProfileText::PlainString(name)) => name.clone(),
+                        Some(ProfileText::Localizable(strings)) => strings
+                            .first()
+                            .map(|string| string.value.clone())
+                            .unwrap_or_else(|| String::from("untitled")),
+                        Some(ProfileText::Description(string)) => {
+                            if string.unicode_string.is_empty() {
+                                string.ascii_string.clone()
+                            } else {
+                                string.unicode_string.clone()
+                            }
+                        }
+                        None => String::from("untitled"),
+                    },
+                ),
                 Divider::vertical(1).into(),
                 Self::status_cell(
                     icon::refresh(),
@@ -540,23 +557,5 @@ impl WindowView for MainView {
 
     fn root_window(&self) -> Option<iced_core::window::Id> {
         Some(self.dock_manager.main_window().id)
-    }
-}
-
-fn profile_name(profile: &ColorProfile) -> String {
-    match profile.description.as_ref() {
-        Some(ProfileText::PlainString(name)) => name.clone(),
-        Some(ProfileText::Localizable(strings)) => strings
-            .first()
-            .map(|string| string.value.clone())
-            .unwrap_or_else(|| String::from("untitled")),
-        Some(ProfileText::Description(string)) => {
-            if string.unicode_string.is_empty() {
-                string.ascii_string.clone()
-            } else {
-                string.unicode_string.clone()
-            }
-        }
-        None => String::from("untitled"),
     }
 }
