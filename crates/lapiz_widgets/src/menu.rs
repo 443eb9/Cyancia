@@ -302,6 +302,7 @@ impl<Message> Widget<Message, Theme, Renderer> for MenuBar<Message> {
                 state.open = vec![index];
                 shell.capture_event();
                 shell.invalidate_layout();
+                shell.request_redraw();
             }
             Event::Mouse(mouse::Event::CursorMoved { position }) if !state.open.is_empty() => {
                 if let Some(index) = root_at(layout, *position)
@@ -309,6 +310,7 @@ impl<Message> Widget<Message, Theme, Renderer> for MenuBar<Message> {
                 {
                     state.open[0] = index;
                     shell.invalidate_layout();
+                    shell.request_redraw();
                 }
             }
             _ => {}
@@ -403,7 +405,6 @@ impl<Message> Widget<Message, Theme, Renderer> for MenuBar<Message> {
             origin: bounds.position() + translation,
             root_height: bounds.height,
             viewport: *viewport,
-            panels: Vec::new(),
         })))
     }
 }
@@ -427,7 +428,6 @@ struct MenuOverlay<'a, Message> {
     origin: Point,
     root_height: f32,
     viewport: Rectangle,
-    panels: Vec<Panel>,
 }
 
 impl<'a, Message> MenuOverlay<'a, Message> {
@@ -438,25 +438,9 @@ impl<'a, Message> MenuOverlay<'a, Message> {
             .get(index)
     }
 
-    fn hit_test(&self, position: Point) -> Option<(usize, usize)> {
-        for level in (0..self.panels.len()).rev() {
-            let panel = &self.panels[level];
-            if panel.bounds.contains(position) {
-                for (index, row) in panel.rows.iter().enumerate() {
-                    if row.contains(position) {
-                        return Some((level, index));
-                    }
-                }
-            }
-        }
-        None
-    }
-}
-
-impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Message> {
-    fn layout(&mut self, _renderer: &Renderer, _bounds: Size) -> layout::Node {
-        self.panels.clear();
+    fn panels(&self) -> Vec<Panel> {
         let viewport = self.viewport;
+        let mut panels = Vec::new();
         let mut anchor = Point::new(self.origin.x, self.origin.y + self.root_height + 1.0);
         let mut level = 0;
         while let Some(menu) = self.menu_bar.menu_at(&self.state.open[..level + 1]) {
@@ -489,7 +473,7 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Mes
                 .open
                 .get(level + 1)
                 .and_then(|&index| rows.get(index).copied());
-            self.panels.push(Panel { bounds, rows });
+            panels.push(Panel { bounds, rows });
             match next {
                 Some(row) => {
                     let submenu_width = self
@@ -512,7 +496,27 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Mes
                 None => break,
             }
         }
-        layout::Node::new(Size::ZERO).move_to(self.origin)
+        panels
+    }
+
+    fn hit_test(panels: &[Panel], position: Point) -> Option<(usize, usize)> {
+        for level in (0..panels.len()).rev() {
+            let panel = &panels[level];
+            if panel.bounds.contains(position) {
+                for (index, row) in panel.rows.iter().enumerate() {
+                    if row.contains(position) {
+                        return Some((level, index));
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Message> {
+    fn layout(&mut self, _renderer: &Renderer, bounds: Size) -> layout::Node {
+        layout::Node::new(bounds)
     }
 
     fn update(
@@ -526,7 +530,8 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Mes
     ) {
         match event {
             Event::Mouse(mouse::Event::CursorMoved { position }) => {
-                if let Some((level, index)) = self.hit_test(*position) {
+                let panels = self.panels();
+                if let Some((level, index)) = Self::hit_test(&panels, *position) {
                     let opens_submenu = matches!(
                         self.resolve_item(level, index),
                         Some(Item::Entry {
@@ -552,13 +557,15 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Mes
                     };
                     if changed {
                         shell.invalidate_layout();
+                        shell.request_redraw();
                     }
                 }
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let panels = self.panels();
                 let hit = cursor
                     .position()
-                    .and_then(|position| self.hit_test(position));
+                    .and_then(|position| Self::hit_test(&panels, position));
                 match hit {
                     Some((level, index)) => {
                         if let Some(Item::Entry {
@@ -578,6 +585,7 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Mes
                 }
                 shell.capture_event();
                 shell.invalidate_layout();
+                shell.request_redraw();
             }
             Event::Keyboard(keyboard::Event::KeyPressed {
                 key: keyboard::Key::Named(keyboard::key::Named::Escape),
@@ -586,6 +594,7 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Mes
                 self.state.open.clear();
                 shell.capture_event();
                 shell.invalidate_layout();
+                shell.request_redraw();
             }
             _ => {}
         }
@@ -599,11 +608,12 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Mes
         _layout: Layout<'_>,
         cursor: mouse::Cursor,
     ) {
+        let panels = self.panels();
         let p = theme.extended_palette();
         let hit = cursor
             .position()
-            .and_then(|position| self.hit_test(position));
-        for (level, panel) in self.panels.iter().enumerate() {
+            .and_then(|position| Self::hit_test(&panels, position));
+        for (level, panel) in panels.iter().enumerate() {
             let menu = self
                 .menu_bar
                 .menu_at(&self.state.open[..level + 1])
@@ -759,9 +769,10 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Mes
         cursor: mouse::Cursor,
         _renderer: &Renderer,
     ) -> mouse::Interaction {
+        let panels = self.panels();
         cursor
             .position()
-            .and_then(|position| self.hit_test(position))
+            .and_then(|position| Self::hit_test(&panels, position))
             .map(|_| mouse::Interaction::Pointer)
             .unwrap_or(mouse::Interaction::None)
     }
