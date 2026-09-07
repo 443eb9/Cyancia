@@ -1,12 +1,12 @@
 use iced_core::{Element, Length, Theme};
 use iced_wgpu::Renderer;
 
-use crate::{button::Button, flex::Flex};
+use crate::{button::Button, callback::Callback, flex::Flex};
 
 struct Segment<'a, Message> {
     content: Element<'a, Message, Theme, Renderer>,
     selected: bool,
-    message: Option<Message>,
+    message: Callback<'a, Message>,
 }
 
 pub struct SegmentedControl<'a, Message> {
@@ -15,7 +15,7 @@ pub struct SegmentedControl<'a, Message> {
     height: Length,
 }
 
-impl<'a, Message> SegmentedControl<'a, Message> {
+impl<'a, Message: 'a> SegmentedControl<'a, Message> {
     pub fn new() -> Self {
         Self {
             segments: Vec::new(),
@@ -33,7 +33,21 @@ impl<'a, Message> SegmentedControl<'a, Message> {
         self.segments.push(Segment {
             content: content.into(),
             selected,
-            message: Some(message),
+            message: Callback::Value(message),
+        });
+        self
+    }
+
+    pub fn push_with(
+        mut self,
+        content: impl Into<Element<'a, Message, Theme, Renderer>>,
+        selected: bool,
+        message: impl Fn() -> Message + 'a,
+    ) -> Self {
+        self.segments.push(Segment {
+            content: content.into(),
+            selected,
+            message: Callback::Func(Box::new(message)),
         });
         self
     }
@@ -46,7 +60,7 @@ impl<'a, Message> SegmentedControl<'a, Message> {
         self.segments.push(Segment {
             content: content.into(),
             selected,
-            message: None,
+            message: Callback::Empty,
         });
         self
     }
@@ -62,7 +76,7 @@ impl<'a, Message> SegmentedControl<'a, Message> {
     }
 }
 
-impl<Message> Default for SegmentedControl<'_, Message> {
+impl<'a, Message: 'a> Default for SegmentedControl<'a, Message> {
     fn default() -> Self {
         Self::new()
     }
@@ -73,13 +87,18 @@ impl<'a, Message: 'a> From<SegmentedControl<'a, Message>>
 {
     fn from(value: SegmentedControl<'a, Message>) -> Self {
         let buttons = value.segments.into_iter().map(|segment| {
-            Button::new(segment.content)
+            let b = Button::new(segment.content)
                 .height(Length::Fill)
                 .padding([0, 12])
                 .transparent()
-                .activated(segment.selected)
-                .on_press_maybe(segment.message)
-                .into()
+                .activated(segment.selected);
+
+            match segment.message {
+                Callback::Empty => b,
+                Callback::Value(message) => b.on_press(message),
+                Callback::Func(message) => b.on_press_with(message),
+            }
+            .into()
         });
         Flex::row(buttons)
             .width(value.width)

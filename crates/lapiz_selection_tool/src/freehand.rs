@@ -5,7 +5,7 @@ use glam::Vec2;
 use iced_core::{Element, Length, Theme};
 use iced_runtime::Task;
 use iced_wgpu::Renderer;
-use iced_widget::{row, space};
+use iced_widget::space;
 use lapiz_canvas::{CanvasAppExt, CanvasUndoStackAppExt};
 use lapiz_input::{
     key::KeyboardState,
@@ -14,7 +14,7 @@ use lapiz_input::{
 use lapiz_runtime::Services;
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_utils::log_err::LogErr;
-use lapiz_widgets::{button::Button, form::Form, label::Label, panel::Panel};
+use lapiz_widgets::{form::Form, label::Label, panel::Panel, segmented_control::SegmentedControl};
 use lyon::tessellation::FillRule;
 use tracing::info;
 
@@ -154,18 +154,17 @@ impl ToolFunction for FreehandSelectionTool {
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
         let fields = Form::new().push(
             "Fill Rule",
-            row![
-                Button::new(Label::new("Even Odd"))
-                    .on_press(FreehandSelectionToolMessage::FillRuleChanged(
-                        FillRule::EvenOdd
-                    ))
-                    .activated(self.fill_rule == FillRule::EvenOdd),
-                Button::new(Label::new("Non Zero"))
-                    .on_press(FreehandSelectionToolMessage::FillRuleChanged(
-                        FillRule::NonZero
-                    ))
-                    .activated(self.fill_rule == FillRule::NonZero),
-            ],
+            SegmentedControl::new()
+                .push(
+                    Label::new("Even Odd"),
+                    self.fill_rule == FillRule::EvenOdd,
+                    FreehandSelectionToolMessage::FillRuleChanged(FillRule::EvenOdd),
+                )
+                .push(
+                    Label::new("Non Zero"),
+                    self.fill_rule == FillRule::NonZero,
+                    FreehandSelectionToolMessage::FillRuleChanged(FillRule::NonZero),
+                ),
         );
 
         Some(
@@ -331,18 +330,17 @@ impl ToolFunction for PolygonSelectionTool {
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
         let fields = Form::new().push(
             "Fill Rule",
-            row![
-                Button::new(Label::new("Even Odd"))
-                    .on_press(PolygonSelectionToolMessage::FillRuleChanged(
-                        FillRule::EvenOdd
-                    ))
-                    .activated(self.fill_rule == FillRule::EvenOdd),
-                Button::new(Label::new("Non Zero"))
-                    .on_press(PolygonSelectionToolMessage::FillRuleChanged(
-                        FillRule::NonZero
-                    ))
-                    .activated(self.fill_rule == FillRule::NonZero),
-            ],
+            SegmentedControl::new()
+                .push(
+                    Label::new("Even Odd"),
+                    self.fill_rule == FillRule::EvenOdd,
+                    PolygonSelectionToolMessage::FillRuleChanged(FillRule::EvenOdd),
+                )
+                .push(
+                    Label::new("Non Zero"),
+                    self.fill_rule == FillRule::NonZero,
+                    PolygonSelectionToolMessage::FillRuleChanged(FillRule::NonZero),
+                ),
         );
 
         Some(
