@@ -26,7 +26,6 @@ pub mod slider;
 pub mod spin_box;
 pub mod spin_slider;
 pub mod splitter;
-pub mod style;
 pub mod switch;
 pub mod tabs;
 pub mod tag;
