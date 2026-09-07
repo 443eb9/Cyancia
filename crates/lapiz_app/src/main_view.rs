@@ -40,7 +40,7 @@ use lapiz_widgets::{
     menu::{Item, Menu, MenuBar},
     title_bar::TitleBar,
 };
-use moxcms::{ColorProfile, ProfileText};
+use moxcms::ProfileText;
 
 use crate::dock::{
     BRUSH_PRESETS_DOCK_ID, BrushPresetDock, COLOR_SELECTOR_DOCK_ID, CanvasDock, ColorSelectorDock,

@@ -8,7 +8,6 @@ use lapiz_widgets::{
     collapsible::Collapsible,
     combo_box::{ComboBox, State as ComboState},
     curve_edit::CurveEdit,
-    dialog::Dialog,
     divider::Divider,
     flex::Flex,
     icon::{self, Icon},
@@ -317,24 +316,6 @@ impl Gallery {
         .height(90)
         .on_resize(Message::Resize);
 
-        let dialog = Dialog::new(
-            "Export artwork",
-            Flex::column([
-                Label::new("Format and output settings").muted().into(),
-                TextInput::new("Filename", "concept-01.png")
-                    .width(260)
-                    .into(),
-            ])
-            .gap(8)
-            .padding(12),
-        )
-        .action(Button::new(Label::new("Cancel")).on_press(Message::Noop))
-        .action(
-            Button::new(Label::new("Export"))
-                .primary()
-                .on_press(Message::Noop),
-        );
-
         let icon_rows = icon::ALL.chunks(12).map(|icons| {
             let row = icons.iter().map(|(name, bytes)| {
                 Tooltip::new(
@@ -454,7 +435,6 @@ impl Gallery {
                 .gap(12)
                 .padding([0, 12])
                 .into(),
-            Flex::row([dialog.into()]).gap(12).padding([0, 12]).into(),
             Flex::column([Label::new("SPLITTER").muted().into(), splitter.into()])
                 .gap(5)
                 .padding([0, 12])
