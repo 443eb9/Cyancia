@@ -63,7 +63,6 @@ pub enum MainViewMessage {
     CanvasCreated(CanvasCreated),
     CanvasRemoved(CanvasRemoved),
     TriggerAction(ActionId),
-    SetTheme(Theme),
     ActionMessage(ActionId, Box<dyn Any + Send + Sync>),
     ToolFunctionMessage(ErasedToolFunctionMessage),
     DragWindow(window::Id),
@@ -71,6 +70,13 @@ pub enum MainViewMessage {
     MaximizeWindow(window::Id),
     CloseWindow(window::Id),
     ResizeWindow(window::Id, window::Direction),
+    MenuBar(MenuBarMessage),
+}
+
+#[derive(Clone)]
+pub enum MenuBarMessage {
+    TriggerAction(ActionId),
+    SetTheme(Theme),
 }
 
 impl MainView {
@@ -87,17 +93,17 @@ impl MainView {
         .into()
     }
 
-    fn menu_bar(&self, current_theme: &Theme) -> MenuBar<MainViewMessage> {
+    fn menu_bar(&self, current_theme: &Theme) -> MenuBar<MenuBarMessage> {
         fn build_menu(
             items: &[MenuBarItem],
             collection: &ActionCollection,
-        ) -> Menu<MainViewMessage> {
+        ) -> Menu<MenuBarMessage> {
             let mut menu = Menu::new().width(236.0);
             for item in items {
                 menu = match item {
                     MenuBarItem::Separator => menu.separator(),
                     MenuBarItem::Item(action) => {
-                        let message = MainViewMessage::TriggerAction(action.clone());
+                        let message = MenuBarMessage::TriggerAction(action.clone());
                         match collection.shortcut_for(action) {
                             Some(shortcut) => menu.item_shortcut(
                                 action.to_string(),
@@ -129,13 +135,11 @@ impl MainView {
             *submenu = Theme::ALL
                 .iter()
                 .fold(Menu::new().width(220.0), |menu, theme| {
+                    let message = MenuBarMessage::SetTheme(theme.clone());
                     if theme == current_theme {
-                        menu.selected_item(
-                            theme.to_string(),
-                            MainViewMessage::SetTheme(theme.clone()),
-                        )
+                        menu.selected_item(theme.to_string(), message)
                     } else {
-                        menu.item(theme.to_string(), MainViewMessage::SetTheme(theme.clone()))
+                        menu.item(theme.to_string(), message)
                     }
                 });
         }
@@ -310,14 +314,17 @@ impl WindowView for MainView {
 
         let title_content = Flex::row([
             Label::new("LAPIZ").size(13).strong().into(),
-            self.menu_bar(&services.service::<ApplicationTheme>().0)
-                .height(Length::Fill)
-                .into(),
+            Element::new(
+                self.menu_bar(&services.service::<ApplicationTheme>().0)
+                    .height(Length::Fill),
+            )
+            .map(MainViewMessage::MenuBar),
         ])
         .width(Length::Fill)
         .height(Length::Fill)
         .gap(12)
         .padding([0, 10]);
+
         let title = TitleBar::new(title_content)
             .on_drag(MainViewMessage::DragWindow(window))
             .on_minimize(MainViewMessage::MinimizeWindow(window))
@@ -515,10 +522,6 @@ impl WindowView for MainView {
                 self.dock_manager.unregister_dock(&id);
                 Task::none()
             }
-            MainViewMessage::SetTheme(theme) => {
-                services.service_mut::<ApplicationTheme>().0 = theme;
-                Task::none()
-            }
             MainViewMessage::TriggerAction(action_id) => {
                 if let Some(action_func) = services
                     .service_mut::<ActionFunctionRegistry>()
@@ -556,6 +559,13 @@ impl WindowView for MainView {
             MainViewMessage::MaximizeWindow(id) => window::toggle_maximize(id),
             MainViewMessage::CloseWindow(id) => window::close(id),
             MainViewMessage::ResizeWindow(id, direction) => window::drag_resize(id, direction),
+            MainViewMessage::MenuBar(MenuBarMessage::SetTheme(theme)) => {
+                services.service_mut::<ApplicationTheme>().0 = theme;
+                Task::none()
+            }
+            MainViewMessage::MenuBar(MenuBarMessage::TriggerAction(action_id)) => {
+                Task::done(MainViewMessage::TriggerAction(action_id))
+            }
         }
     }
 

@@ -1,5 +1,3 @@
-use std::{cell::RefCell, rc::Rc};
-
 use iced_core::Renderer as _;
 use iced_core::text::{Paragraph as _, Renderer as _};
 use iced_core::{
@@ -19,13 +17,11 @@ const PANEL_PADDING: f32 = 4.0;
 const LABEL_SIZE: f32 = 12.0;
 const SHORTCUT_SIZE: f32 = 10.0;
 
-type MessageSlot<Message> = Rc<RefCell<Option<Message>>>;
-
 pub enum Item<Message> {
     Action {
         label: String,
         shortcut: Option<String>,
-        message: MessageSlot<Message>,
+        message: Message,
         checked: bool,
     },
     Submenu {
@@ -67,7 +63,7 @@ impl<Message> Menu<Message> {
         self.items.push(Item::Action {
             label,
             shortcut,
-            message: Rc::new(RefCell::new(Some(message))),
+            message,
             checked,
         });
         self
@@ -201,7 +197,10 @@ fn text_spec(content: String, size: f32) -> text::Text<String, Font> {
     }
 }
 
-impl<Message> Widget<Message, Theme, Renderer> for MenuBar<Message> {
+impl<Message> Widget<Message, Theme, Renderer> for MenuBar<Message>
+where
+    Message: Clone,
+{
     fn tag(&self) -> tree::Tag {
         tree::Tag::of::<MenuBarState>()
     }
@@ -512,7 +511,10 @@ impl<'a, Message> MenuOverlay<'a, Message> {
     }
 }
 
-impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Message> {
+impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Message>
+where
+    Message: Clone,
+{
     fn layout(&mut self, _renderer: &Renderer, bounds: Size) -> layout::Node {
         layout::Node::new(bounds)
     }
@@ -561,12 +563,9 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for MenuOverlay<'_, Mes
                     .and_then(|position| Self::hit_test(&panels, position));
                 match hit {
                     Some((level, index)) => {
-                        if let Some(Item::Action { message: slot, .. }) =
-                            self.resolve_item(level, index)
+                        if let Some(Item::Action { message, .. }) = self.resolve_item(level, index)
                         {
-                            if let Some(message) = slot.borrow_mut().take() {
-                                shell.publish(message);
-                            }
+                            shell.publish(message.clone());
                             self.state.open.clear();
                         }
                     }
@@ -807,7 +806,10 @@ fn draw_svg_icon(
     );
 }
 
-impl<'a, Message: 'a> From<MenuBar<Message>> for Element<'a, Message, Theme, Renderer> {
+impl<'a, Message> From<MenuBar<Message>> for Element<'a, Message, Theme, Renderer>
+where
+    Message: Clone + 'a,
+{
     fn from(value: MenuBar<Message>) -> Self {
         Element::new(value)
     }
