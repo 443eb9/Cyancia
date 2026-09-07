@@ -60,7 +60,7 @@ where
             on_confirm: None,
             width: Length::Fill,
             height: Length::Fixed(Self::DEFAULT_HEIGHT),
-            size: Self::DEFAULT_HEIGHT * 0.62,
+            size: 12.0,
             rounded: 4.0,
             prefix: String::new(),
             suffix: String::new(),
