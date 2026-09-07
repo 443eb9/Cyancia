@@ -19,7 +19,10 @@ use lapiz_runtime::Services;
 use state::DockState;
 use style::DockCatalog;
 
-use crate::dock::{Dock, DockWidget, ErasedDock, FloatingDockWidget};
+use crate::{
+    dock::{Dock, DockWidget, ErasedDock, FloatingDockWidget},
+    group::DockGroupId,
+};
 
 const ATTACH_DWELL: Duration = Duration::from_millis(200);
 const MERGE_DISTANCE: f32 = 30.0;
@@ -51,7 +54,7 @@ where
                 raw_id: None,
                 position: Point::ORIGIN,
                 size: Size::ZERO,
-                group: DockGroupData::new(),
+                group: DockGroupData::empty(),
                 dragging_cursor_relative: None,
                 last_overlap: None,
             },
@@ -86,7 +89,11 @@ where
         self.on_open_task(dock_id)
     }
 
-    pub fn open_dock_in_group(&mut self, dock_id: DockId, target: &DockId) -> Task<DockMessage> {
+    pub fn open_dock_in_group(
+        &mut self,
+        dock_id: DockId,
+        target: &DockGroupId,
+    ) -> Task<DockMessage> {
         if self
             .dock_state
             .open_in_group(target, dock_id.clone())
@@ -110,7 +117,7 @@ where
     pub fn open_dock_split(
         &mut self,
         dock_id: DockId,
-        target: &DockId,
+        target: &DockGroupId,
         edge: pane_grid::Edge,
         ratio: f32,
     ) -> Task<DockMessage> {
@@ -168,9 +175,7 @@ where
                                 pane_state.close(pane);
                             }
 
-                            let mut new_group = DockGroupData::new();
-                            new_group.add_dock(dock_id);
-                            return match self.detach_group(new_group) {
+                            return match self.detach_group(DockGroupData::new(dock_id)) {
                                 Some((_, task)) => {
                                     task.map(|m| DockMessage::RawWindowGet(m.0, m.1))
                                 }
@@ -358,9 +363,7 @@ where
                         return iced_runtime::window::drag(id);
                     } else {
                         info.group.remove_dock(&dock_id);
-                        let mut new_group = DockGroupData::new();
-                        new_group.add_dock(dock_id);
-                        return match self.detach_group(new_group) {
+                        return match self.detach_group(DockGroupData::new(dock_id)) {
                             Some((_, task)) => task.map(|m| DockMessage::RawWindowGet(m.0, m.1)),
                             None => Task::none(),
                         };

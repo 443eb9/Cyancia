@@ -19,6 +19,7 @@ use lapiz_canvas::{
     event::{CanvasCreated, CanvasRemoved},
     tools::PanTool,
 };
+use lapiz_dock::group::DockGroupId;
 use lapiz_dock::{
     DockManager, DockMessage,
     dock::{Dock, DockId, ResizeHandleOverlay},
@@ -51,7 +52,7 @@ pub struct MainView {
     dock_manager: DockManager<Theme, Renderer>,
     action_collection: ActionCollection,
     menu_manifest: MenuBarManifest,
-    canvas_group_anchor: Option<DockId>,
+    canvas_group_anchor: Option<DockGroupId>,
 }
 
 pub enum MainViewMessage {
@@ -224,22 +225,57 @@ impl WindowView for MainView {
         dock_manager.register_dock(BrushPresetDock::new(services));
         dock_manager.register_dock(ColorSelectorDock::new(services));
 
-        let tool_options = DockId::new(TOOL_OPTIONS_DOCK_ID.into());
-        let tools = DockId::new(TOOL_BOX_DOCK_ID.into());
-        let color = DockId::new(COLOR_SELECTOR_DOCK_ID.into());
-        let brushes = DockId::new(BRUSH_PRESETS_DOCK_ID.into());
-        let layers = DockId::new(LAYER_DOCK_ID.into());
+        let task_tool_options = dock_manager.open_dock(TOOL_OPTIONS_DOCK_ID.clone());
+        let tool_options = dock_manager
+            .dock_state()
+            .dock_in_group(&TOOL_OPTIONS_DOCK_ID)
+            .unwrap()
+            .id()
+            .clone();
+        let task_tool_box = dock_manager.open_dock_split(
+            TOOL_BOX_DOCK_ID.clone(),
+            &tool_options,
+            pane_grid::Edge::Left,
+            0.06,
+        );
+        let task_color_selector = dock_manager.open_dock_split(
+            COLOR_SELECTOR_DOCK_ID.clone(),
+            &tool_options,
+            pane_grid::Edge::Right,
+            0.76,
+        );
+        let color_selector = dock_manager
+            .dock_state()
+            .dock_in_group(&COLOR_SELECTOR_DOCK_ID)
+            .unwrap()
+            .id()
+            .clone();
+        let task_brush_presets = dock_manager.open_dock_split(
+            BRUSH_PRESETS_DOCK_ID.clone(),
+            &color_selector,
+            pane_grid::Edge::Bottom,
+            0.34,
+        );
+        let brush_preset = &dock_manager
+            .dock_state()
+            .dock_in_group(&BRUSH_PRESETS_DOCK_ID)
+            .unwrap()
+            .id()
+            .clone();
+
+        let task_layer = dock_manager.open_dock_split(
+            LAYER_DOCK_ID.clone(),
+            &brush_preset,
+            pane_grid::Edge::Bottom,
+            0.5,
+        );
+
         let dock_tasks = Task::batch([
-            dock_manager.open_dock(tool_options.clone()),
-            dock_manager.open_dock_split(tools, &tool_options, pane_grid::Edge::Left, 0.06),
-            dock_manager.open_dock_split(
-                color.clone(),
-                &tool_options,
-                pane_grid::Edge::Right,
-                0.76,
-            ),
-            dock_manager.open_dock_split(brushes.clone(), &color, pane_grid::Edge::Bottom, 0.34),
-            dock_manager.open_dock_split(layers, &brushes, pane_grid::Edge::Bottom, 0.5),
+            task_tool_options,
+            task_tool_box,
+            task_brush_presets,
+            task_layer,
+            task_color_selector,
         ])
         .map(MainViewMessage::Dock);
 
@@ -455,16 +491,19 @@ impl WindowView for MainView {
                 let id = <CanvasDock as Dock<Theme, Renderer>>::id(&dock);
                 self.dock_manager.register_dock(dock);
 
-                let target = self
-                    .canvas_group_anchor
-                    .as_ref()
-                    .cloned()
-                    .unwrap_or_else(|| DockId::new(TOOL_OPTIONS_DOCK_ID.into()));
-                let dock_task = self
-                    .dock_manager
-                    .open_dock_in_group(id.clone(), &target)
-                    .map(MainViewMessage::Dock);
-                self.canvas_group_anchor = Some(id);
+                let dock_task = if let Some(target) = self.canvas_group_anchor {
+                    self.dock_manager.open_dock_in_group(id.clone(), &target)
+                } else {
+                    let task = self.dock_manager.open_dock(id.clone());
+                    self.canvas_group_anchor = self
+                        .dock_manager
+                        .dock_state()
+                        .dock_in_group(&id)
+                        .map(|group| group.id().clone());
+                    task
+                }
+                .map(MainViewMessage::Dock);
+
                 Task::batch([
                     tool_task.map(MainViewMessage::ToolFunctionMessage),
                     dock_task,
@@ -474,10 +513,6 @@ impl WindowView for MainView {
                 log::info!("Canvas removed: {}", e.id);
                 let id = DockId::new(construct_canvas_dock_id(e.id).into());
                 self.dock_manager.unregister_dock(&id);
-                if self.canvas_group_anchor.as_ref() == Some(&id) {
-                    self.canvas_group_anchor = None;
-                }
-
                 Task::none()
             }
             MainViewMessage::SetTheme(theme) => {

@@ -1,20 +1,41 @@
 pub mod tab_row;
 
+use lapiz_utils::wrapper;
+use parse_display::Display;
 pub use tab_row::TabRowWidget;
+use uuid::Uuid;
 
 use crate::dock::DockId;
 use indexmap::IndexSet;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Clone, Serialize)]
+wrapper! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display)]
+    pub DockGroupId : Uuid
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct DockGroupData {
+    id: DockGroupId,
     docks: IndexSet<DockId>,
     active: Option<DockId>,
 }
 
 impl DockGroupData {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(dock: DockId) -> Self {
+        Self {
+            id: DockGroupId::new(Uuid::new_v4()),
+            docks: IndexSet::from([dock.clone()]),
+            active: Some(dock),
+        }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            id: DockGroupId::new(Uuid::new_v4()),
+            docks: IndexSet::default(),
+            active: None,
+        }
     }
 
     pub fn add_dock(&mut self, dock_id: DockId) {
@@ -66,5 +87,9 @@ impl DockGroupData {
 
     pub fn extend(&mut self, other: DockGroupData) {
         self.docks.extend(other.docks);
+    }
+
+    pub fn id(&self) -> &DockGroupId {
+        &self.id
     }
 }

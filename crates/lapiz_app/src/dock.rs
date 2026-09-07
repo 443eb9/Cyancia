@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, sync::LazyLock};
 
 use bevy_math::{IRect, Rect};
 use iced::{
@@ -72,7 +72,8 @@ pub enum ColorSelectorDockMessage {
     BackgroundColorChanged(BackgroundColorChanged),
 }
 
-pub const COLOR_SELECTOR_DOCK_ID: &str = "Color";
+pub const COLOR_SELECTOR_DOCK_ID: LazyLock<DockId> =
+    LazyLock::new(|| DockId::new("color_selector_dock".into()));
 
 pub struct ColorSelectorDock {
     selector: ColorSelectorState,
@@ -176,7 +177,7 @@ impl Dock<Theme, Renderer> for ColorSelectorDock {
     type Message = ColorSelectorDockMessage;
 
     fn id(&self) -> DockId {
-        DockId::new(COLOR_SELECTOR_DOCK_ID.into())
+        COLOR_SELECTOR_DOCK_ID.clone()
     }
 
     fn view<'a>(
@@ -359,7 +360,7 @@ impl Dock<Theme, Renderer> for ColorSelectorDock {
     }
 }
 
-pub const LAYER_DOCK_ID: &str = "Layers";
+pub const LAYER_DOCK_ID: LazyLock<DockId> = LazyLock::new(|| DockId::new("layer_dock".into()));
 
 pub struct LayersDock {
     renaming_layer: Option<LayerId>,
@@ -415,7 +416,7 @@ impl Dock<Theme, Renderer> for LayersDock {
     type Message = LayersDockMessage;
 
     fn id(&self) -> DockId {
-        DockId::new(LAYER_DOCK_ID.into())
+        LAYER_DOCK_ID.clone()
     }
 
     fn view<'a>(
@@ -579,9 +580,12 @@ impl Dock<Theme, Renderer> for LayersDock {
     }
 }
 
-pub const TOOL_OPTIONS_DOCK_ID: &str = "Tool Options";
-pub const TOOL_BOX_DOCK_ID: &str = "Tools";
-pub const BRUSH_PRESETS_DOCK_ID: &str = "Brush Presets";
+pub const TOOL_OPTIONS_DOCK_ID: LazyLock<DockId> =
+    LazyLock::new(|| DockId::new("tool_options_dock".into()));
+pub const TOOL_BOX_DOCK_ID: LazyLock<DockId> =
+    LazyLock::new(|| DockId::new("tool_box_dock".into()));
+pub const BRUSH_PRESETS_DOCK_ID: LazyLock<DockId> =
+    LazyLock::new(|| DockId::new("brush_presets_dock".into()));
 
 pub fn construct_canvas_dock_id(canvas: CanvasId) -> String {
     let id = canvas.to_string();
@@ -843,7 +847,7 @@ impl Dock<Theme, iced_wgpu::Renderer> for ToolOptionsDock {
     type Message = ToolOptionsDockMessage;
 
     fn id(&self) -> DockId {
-        DockId::new(TOOL_OPTIONS_DOCK_ID.into())
+        TOOL_OPTIONS_DOCK_ID.clone()
     }
 
     fn view<'a>(
@@ -901,7 +905,7 @@ impl Dock<Theme, Renderer> for ToolBoxDock {
     type Message = ToolBoxDockMessage;
 
     fn id(&self) -> DockId {
-        DockId::new(TOOL_BOX_DOCK_ID.into())
+        TOOL_BOX_DOCK_ID.clone()
     }
 
     fn view<'a>(
@@ -1061,7 +1065,7 @@ impl Dock<Theme, Renderer> for BrushPresetDock {
     type Message = BrushPresetDockMessage;
 
     fn id(&self) -> DockId {
-        DockId::new(BRUSH_PRESETS_DOCK_ID.into())
+        BRUSH_PRESETS_DOCK_ID.clone()
     }
 
     fn view<'a>(
