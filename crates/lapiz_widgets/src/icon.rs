@@ -162,7 +162,7 @@ icons! {
     more => "../assets/icons/more.svg",
     move_tool => "../assets/icons/move.svg",
     nodes => "../assets/icons/nodes.svg",
-    opacity => "../assets/icons/opacity.svg",
+    inherit_alpha => "../assets/icons/inherit_alpha.svg",
     palette => "../assets/icons/palette.svg",
     pencil => "../assets/icons/pencil.svg",
     perspective => "../assets/icons/perspective.svg",

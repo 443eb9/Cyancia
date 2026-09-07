@@ -72,7 +72,7 @@ pub enum ColorSelectorDockMessage {
     BackgroundColorChanged(BackgroundColorChanged),
 }
 
-pub const COLOR_SELECTOR_DOCK_ID: LazyLock<DockId> =
+pub static COLOR_SELECTOR_DOCK_ID: LazyLock<DockId> =
     LazyLock::new(|| DockId::new("color_selector_dock".into()));
 
 pub struct ColorSelectorDock {
@@ -360,7 +360,7 @@ impl Dock<Theme, Renderer> for ColorSelectorDock {
     }
 }
 
-pub const LAYER_DOCK_ID: LazyLock<DockId> = LazyLock::new(|| DockId::new("layer_dock".into()));
+pub static LAYER_DOCK_ID: LazyLock<DockId> = LazyLock::new(|| DockId::new("layer_dock".into()));
 
 pub struct LayersDock {
     renaming_layer: Option<LayerId>,
@@ -580,11 +580,11 @@ impl Dock<Theme, Renderer> for LayersDock {
     }
 }
 
-pub const TOOL_OPTIONS_DOCK_ID: LazyLock<DockId> =
+pub static TOOL_OPTIONS_DOCK_ID: LazyLock<DockId> =
     LazyLock::new(|| DockId::new("tool_options_dock".into()));
-pub const TOOL_BOX_DOCK_ID: LazyLock<DockId> =
+pub static TOOL_BOX_DOCK_ID: LazyLock<DockId> =
     LazyLock::new(|| DockId::new("tool_box_dock".into()));
-pub const BRUSH_PRESETS_DOCK_ID: LazyLock<DockId> =
+pub static BRUSH_PRESETS_DOCK_ID: LazyLock<DockId> =
     LazyLock::new(|| DockId::new("brush_presets_dock".into()));
 
 pub fn construct_canvas_dock_id(canvas: CanvasId) -> String {

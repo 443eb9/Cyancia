@@ -202,23 +202,34 @@ pub fn property_button_style(
         let palette = theme.extended_palette();
         if selected {
             button::Style {
-                background: Some(iced_core::Background::Color(palette.primary.weak.color)),
-                text_color: palette.primary.strong.text,
-                ..Default::default()
-            }
-        } else if matches!(status, button::Status::Hovered) {
-            button::Style {
-                background: Some(iced_core::Background::Color(
-                    palette.primary.weak.color.scale_alpha(0.5),
-                )),
-                text_color: palette.background.base.text,
+                background: Some(iced_core::Background::Color(palette.primary.base.color)),
+                text_color: palette.primary.base.text,
+                border: iced_core::Border {
+                    color: palette.primary.strong.color,
+                    width: 1.0,
+                    ..Default::default()
+                },
                 ..Default::default()
             }
         } else {
-            button::Style {
-                background: None,
-                text_color: palette.background.base.text,
-                ..Default::default()
+            match status {
+                button::Status::Pressed => button::Style {
+                    background: Some(iced_core::Background::Color(palette.primary.base.color)),
+                    text_color: palette.primary.base.text,
+                    ..Default::default()
+                },
+                button::Status::Hovered => button::Style {
+                    background: Some(iced_core::Background::Color(
+                        palette.primary.weak.color.scale_alpha(0.5),
+                    )),
+                    text_color: palette.background.base.text,
+                    ..Default::default()
+                },
+                _ => button::Style {
+                    background: None,
+                    text_color: palette.background.base.text,
+                    ..Default::default()
+                },
             }
         }
     }
@@ -455,9 +466,9 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
                     move |p| p.set_locked(!locked),
                 ));
                 children.push(
-                    Button::new(icon::lock().size(10))
-                        .width(18)
-                        .height(18)
+                    Button::new(icon::lock().size(13))
+                        .width(22)
+                        .height(22)
                         .padding(4)
                         .style(property_button_style(locked))
                         .on_press(on_message(message))
@@ -476,12 +487,16 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
                     canvas,
                     layer_id,
                     properties,
-                    move |p| p.set_disabled_channels(channels),
+                    move |p| {
+                        let mut channels = channels;
+                        channels.toggle_channel_disabled(alpha_index);
+                        p.set_disabled_channels(channels)
+                    },
                 ));
                 children.push(
-                    Button::new(icon::opacity().size(10))
-                        .width(18)
-                        .height(18)
+                    Button::new(icon::inherit_alpha().size(13))
+                        .width(22)
+                        .height(22)
                         .padding(4)
                         .style(property_button_style(
                             channels.is_channel_disabled(alpha_index),
@@ -493,12 +508,14 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
 
             if let Some(channels) = properties.get_locked_channels() {
                 let message = property_command(canvas, layer_id, properties, move |p| {
+                    let mut channels = channels;
+                    channels.toggle_channel_locked(alpha_index);
                     p.set_locked_channels(channels)
                 });
                 children.push(
-                    Button::new(icon::alpha_lock().size(10))
-                        .width(18)
-                        .height(18)
+                    Button::new(icon::alpha_lock().size(13))
+                        .width(22)
+                        .height(22)
                         .padding(4)
                         .style(property_button_style(
                             channels.is_channel_locked(alpha_index),

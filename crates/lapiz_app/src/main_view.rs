@@ -230,12 +230,11 @@ impl WindowView for MainView {
         dock_manager.register_dock(ColorSelectorDock::new(services));
 
         let task_tool_options = dock_manager.open_dock(TOOL_OPTIONS_DOCK_ID.clone());
-        let tool_options = dock_manager
+        let tool_options = *dock_manager
             .dock_state()
             .dock_in_group(&TOOL_OPTIONS_DOCK_ID)
             .unwrap()
-            .id()
-            .clone();
+            .id();
         let task_tool_box = dock_manager.open_dock_split(
             TOOL_BOX_DOCK_ID.clone(),
             &tool_options,
@@ -248,12 +247,11 @@ impl WindowView for MainView {
             pane_grid::Edge::Right,
             0.76,
         );
-        let color_selector = dock_manager
+        let color_selector = *dock_manager
             .dock_state()
             .dock_in_group(&COLOR_SELECTOR_DOCK_ID)
             .unwrap()
-            .id()
-            .clone();
+            .id();
         let task_brush_presets = dock_manager.open_dock_split(
             BRUSH_PRESETS_DOCK_ID.clone(),
             &color_selector,
@@ -269,7 +267,7 @@ impl WindowView for MainView {
 
         let task_layer = dock_manager.open_dock_split(
             LAYER_DOCK_ID.clone(),
-            &brush_preset,
+            brush_preset,
             pane_grid::Edge::Bottom,
             0.5,
         );
@@ -506,7 +504,7 @@ impl WindowView for MainView {
                         .dock_manager
                         .dock_state()
                         .dock_in_group(&id)
-                        .map(|group| group.id().clone());
+                        .map(|group| *group.id());
                     task
                 }
                 .map(MainViewMessage::Dock);
