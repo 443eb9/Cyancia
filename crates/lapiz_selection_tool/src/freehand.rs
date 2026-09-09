@@ -5,7 +5,7 @@ use glam::Vec2;
 use iced_core::{Element, Length, Theme};
 use iced_runtime::Task;
 use iced_wgpu::Renderer;
-use iced_widget::{button, container, row, space};
+use iced_widget::space;
 use lapiz_canvas::{CanvasAppExt, CanvasUndoStackAppExt};
 use lapiz_input::{
     key::KeyboardState,
@@ -14,7 +14,9 @@ use lapiz_input::{
 use lapiz_runtime::Services;
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_utils::log_err::LogErr;
-use lapiz_widgets::{form::Form, style::ButtonStyle};
+use lapiz_widgets::{
+    form::Form, icon, label::Label, panel::Panel, segmented_control::SegmentedControl,
+};
 use lyon::tessellation::FillRule;
 use tracing::info;
 
@@ -52,6 +54,10 @@ impl ToolFunction for FreehandSelectionTool {
 
     fn id() -> ToolId {
         ToolId::new("freehand_selection_tool".into())
+    }
+
+    fn icon() -> icon::Icon<'static> {
+        icon::lasso()
     }
 
     fn begin(
@@ -154,21 +160,26 @@ impl ToolFunction for FreehandSelectionTool {
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
         let fields = Form::new().push(
             "Fill Rule",
-            row![
-                button("Even Odd")
-                    .on_press(FreehandSelectionToolMessage::FillRuleChanged(
-                        FillRule::EvenOdd
-                    ))
-                    .style_pressed(self.fill_rule == FillRule::EvenOdd),
-                button("Non Zero")
-                    .on_press(FreehandSelectionToolMessage::FillRuleChanged(
-                        FillRule::NonZero
-                    ))
-                    .style_pressed(self.fill_rule == FillRule::NonZero),
-            ],
+            SegmentedControl::new()
+                .push(
+                    Label::new("Even Odd"),
+                    self.fill_rule == FillRule::EvenOdd,
+                    FreehandSelectionToolMessage::FillRuleChanged(FillRule::EvenOdd),
+                )
+                .push(
+                    Label::new("Non Zero"),
+                    self.fill_rule == FillRule::NonZero,
+                    FreehandSelectionToolMessage::FillRuleChanged(FillRule::NonZero),
+                ),
         );
 
-        Some(container(fields).padding(8).width(Length::Fill).into())
+        Some(
+            Panel::new(fields)
+                .transparent()
+                .padding(2)
+                .width(Length::Fill)
+                .into(),
+        )
     }
 
     fn canvas_overlay<'a>(
@@ -219,6 +230,10 @@ impl ToolFunction for PolygonSelectionTool {
 
     fn id() -> ToolId {
         ToolId::new("polygon_selection_tool".into())
+    }
+
+    fn icon() -> icon::Icon<'static> {
+        icon::poly_lasso()
     }
 
     fn begin(
@@ -325,21 +340,26 @@ impl ToolFunction for PolygonSelectionTool {
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
         let fields = Form::new().push(
             "Fill Rule",
-            row![
-                button("Even Odd")
-                    .on_press(PolygonSelectionToolMessage::FillRuleChanged(
-                        FillRule::EvenOdd
-                    ))
-                    .style_pressed(self.fill_rule == FillRule::EvenOdd),
-                button("Non Zero")
-                    .on_press(PolygonSelectionToolMessage::FillRuleChanged(
-                        FillRule::NonZero
-                    ))
-                    .style_pressed(self.fill_rule == FillRule::NonZero),
-            ],
+            SegmentedControl::new()
+                .push(
+                    Label::new("Even Odd"),
+                    self.fill_rule == FillRule::EvenOdd,
+                    PolygonSelectionToolMessage::FillRuleChanged(FillRule::EvenOdd),
+                )
+                .push(
+                    Label::new("Non Zero"),
+                    self.fill_rule == FillRule::NonZero,
+                    PolygonSelectionToolMessage::FillRuleChanged(FillRule::NonZero),
+                ),
         );
 
-        Some(container(fields).padding(8).width(Length::Fill).into())
+        Some(
+            Panel::new(fields)
+                .transparent()
+                .padding(2)
+                .width(Length::Fill)
+                .into(),
+        )
     }
 
     fn canvas_overlay<'a>(

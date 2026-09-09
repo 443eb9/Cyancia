@@ -1,14 +1,16 @@
+use iced_core::{
+    Element, Event, Layout, Length, Pixels, Point, Rectangle, Renderer as _, Shell, Size, Theme,
+    alignment,
+    clipboard::Clipboard,
+    layout, mouse, renderer,
+    text::{self, LineHeight, Renderer as _, Shaping, paragraph},
+    widget::{Tree, tree},
+};
+use iced_wgpu::Renderer;
+
 use crate::{
     dock::{DockId, TabEvent},
     group::DockGroupData,
-    style::DockCatalog,
-};
-use iced_core::{
-    Element, Event, Layout, Length, Pixels, Point, Rectangle, Shell, Size, alignment,
-    clipboard::Clipboard,
-    layout, mouse, renderer,
-    text::{self, LineHeight, Shaping, paragraph},
-    widget::{Tree, tree},
 };
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -26,23 +28,12 @@ enum TabAction {
     },
 }
 
-#[derive(Debug)]
-struct TabRowState<Renderer: iced_core::text::Renderer> {
+#[derive(Debug, Default)]
+struct TabRowState {
     action: TabAction,
     hovered: Option<usize>,
-    labels: Vec<paragraph::Plain<Renderer::Paragraph>>,
+    labels: Vec<paragraph::Plain<<Renderer as iced_core::text::Renderer>::Paragraph>>,
     bounds: Vec<Rectangle>,
-}
-
-impl<Renderer: iced_core::text::Renderer> Default for TabRowState<Renderer> {
-    fn default() -> Self {
-        Self {
-            action: Default::default(),
-            hovered: Default::default(),
-            labels: Vec::new(),
-            bounds: Vec::new(),
-        }
-    }
 }
 
 fn hit_test(bounds: &[Rectangle], cursor_rel: Point) -> Option<usize> {
@@ -100,8 +91,8 @@ impl<'a, Message> TabRowWidget<'a, Message> {
     ) -> Self {
         Self {
             group_data,
-            font_size: Pixels(14.0),
-            padding: 8.0,
+            font_size: Pixels(11.0),
+            padding: 7.0,
             on_action: Box::new(on_action),
             title_drag_deadband: 0.0,
             title_of: Box::new(|id| id.to_string()),
@@ -129,19 +120,13 @@ impl<'a, Message> TabRowWidget<'a, Message> {
     }
 }
 
-impl<'a, Message, Theme, Renderer> iced_core::Widget<Message, Theme, Renderer>
-    for TabRowWidget<'a, Message>
-where
-    Message: 'a,
-    Theme: DockCatalog,
-    Renderer: iced_core::Renderer + iced_core::text::Renderer + 'static,
-{
+impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabRowWidget<'_, Message> {
     fn tag(&self) -> tree::Tag {
-        tree::Tag::of::<TabRowState<Renderer>>()
+        tree::Tag::of::<TabRowState>()
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(TabRowState::<Renderer>::default())
+        tree::State::new(TabRowState::default())
     }
 
     fn children(&self) -> Vec<Tree> {
@@ -161,10 +146,13 @@ where
         renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-        let state = tree.state.downcast_mut::<TabRowState<Renderer>>();
+        let state = tree.state.downcast_mut::<TabRowState>();
         state.labels.clear();
         state.bounds.clear();
-        let mut x = 0.0;
+        let height = self.font_size.0 + self.padding * 2.0;
+        let available = limits.max().width;
+
+        let mut natural_widths = Vec::with_capacity(self.group_data.len());
         for dock in &self.group_data.docks {
             let p = paragraph::Plain::new(iced_core::text::Text {
                 content: (self.title_of)(dock),
@@ -177,14 +165,30 @@ where
                 shaping: Shaping::Auto,
                 wrapping: text::Wrapping::None,
             });
-            let width = p.min_width() + self.padding * 2.0;
+            natural_widths.push(p.min_width() + self.padding * 2.0);
+            state.labels.push(p);
+        }
+
+        let total: f32 = natural_widths.iter().sum();
+        let overflow = total > available;
+
+        let mut x = 0.0;
+        for (i, natural) in natural_widths.iter().enumerate() {
+            let width = if overflow {
+                if i + 1 == natural_widths.len() {
+                    (available - x).max(0.0)
+                } else {
+                    natural * available / total
+                }
+            } else {
+                *natural
+            };
             state.bounds.push(Rectangle {
                 x,
                 y: 0.0,
                 width,
-                height: self.font_size.0 + self.padding * 2.0,
+                height,
             });
-            state.labels.push(p);
             x += width;
         }
         layout::Node::new(limits.resolve(
@@ -204,13 +208,28 @@ where
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
     ) {
-        let state = tree.state.downcast_ref::<TabRowState<Renderer>>();
+        let state = tree.state.downcast_ref::<TabRowState>();
         let bounds = layout.bounds();
-        let dock_style = theme.style(
-            &<Theme as DockCatalog>::default(),
-            crate::style::DockStatus::Active,
-        );
+        let dock_style = crate::style::default_style(theme);
         let ts = &dock_style.tab_bar;
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds,
+                ..Default::default()
+            },
+            ts.background,
+        );
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds: Rectangle {
+                    y: bounds.y + bounds.height - 1.0,
+                    height: 1.0,
+                    ..bounds
+                },
+                ..Default::default()
+            },
+            ts.inactive_tab.border.color,
+        );
 
         let active = self.group_data.active();
         let drag_target = if let TabAction::Dragging { index: _ } = state.action {
@@ -247,16 +266,52 @@ where
                 },
                 tab_style.background,
             );
-
-            // Title text
-            renderer.fill_text(
-                state.labels[i]
-                    .as_text()
-                    .with_content(state.labels[i].content().to_string()),
-                tab_rect.center(),
-                tab_style.text_color,
-                tab_rect,
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: Rectangle {
+                        x: tab_rect.x + tab_rect.width - 1.0,
+                        width: 1.0,
+                        ..tab_rect
+                    },
+                    ..Default::default()
+                },
+                ts.inactive_tab.border.color,
             );
+            if is_active {
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: Rectangle {
+                            height: 2.0,
+                            ..tab_rect
+                        },
+                        ..Default::default()
+                    },
+                    tab_style.border.color,
+                );
+            }
+
+            let mut label = state.labels[i]
+                .as_text()
+                .with_content(state.labels[i].content().to_string());
+            let inner = Rectangle {
+                x: tab_rect.x + self.padding,
+                width: (tab_rect.width - self.padding * 2.0).max(0.0),
+                ..tab_rect
+            };
+            let position = if state.labels[i].min_width() > inner.width {
+                // Keep the start of the title visible instead of cutting both ends.
+                // TODO use `Ellipsis` once iced 0.15 lands.
+                label.align_x = text::Alignment::Left;
+                Point::new(inner.x, tab_rect.center().y)
+            } else {
+                tab_rect.center()
+            };
+            let clip = if label.align_x == text::Alignment::Left {
+                inner
+            } else {
+                tab_rect
+            };
+            renderer.fill_text(label, position, tab_style.text_color, clip);
         }
 
         // Drop indicator during tab drag
@@ -297,7 +352,7 @@ where
         _viewport: &Rectangle,
     ) {
         let bounds = layout.bounds();
-        let state = tree.state.downcast_mut::<TabRowState<Renderer>>();
+        let state = tree.state.downcast_mut::<TabRowState>();
 
         match event {
             Event::Mouse(mouse::Event::CursorMoved { position }) => {
@@ -398,7 +453,7 @@ where
         _viewport: &Rectangle,
         _renderer: &Renderer,
     ) -> mouse::Interaction {
-        let state = tree.state.downcast_ref::<TabRowState<Renderer>>();
+        let state = tree.state.downcast_ref::<TabRowState>();
         if let TabAction::Dragging { .. } = state.action {
             return mouse::Interaction::Grabbing;
         }
@@ -412,13 +467,7 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> From<TabRowWidget<'a, Message>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    Message: 'a,
-    Theme: DockCatalog + 'a,
-    Renderer: iced_core::Renderer + iced_core::text::Renderer + 'static,
-{
+impl<'a, Message: 'a> From<TabRowWidget<'a, Message>> for Element<'a, Message, Theme, Renderer> {
     fn from(w: TabRowWidget<'a, Message>) -> Self {
         Element::new(w)
     }

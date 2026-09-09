@@ -1,27 +1,25 @@
 use std::{any::Any, sync::Arc};
 
-use iced::Subscription;
-use iced_aw::ContextMenu;
 use iced_core::{
-    Element, Event, Layout, Length, Point, Rectangle, Size, layout, mouse, renderer, widget, window,
+    Element, Layout, Length, Rectangle, Renderer as _, Size, Theme, layout, mouse, renderer,
+    widget, window,
 };
+use iced_futures::Subscription;
 use iced_runtime::Task;
-use iced_widget::{button, column, pane_grid, space, stack, text};
+use iced_wgpu::Renderer;
+use iced_widget::{pane_grid, space, stack};
 use lapiz_runtime::Services;
 use lapiz_utils::wrapper;
+use lapiz_widgets::menu::{ContextMenu, Menu};
 use parse_display::Display;
 use serde::Serialize;
 
 use crate::{
     AttachInfo, DockState,
-    group::{DockGroupData, TabRowWidget},
+    group::{DockGroupData, tab_row::TabRowWidget},
 };
 
-pub trait Dock<Theme, Renderer>: 'static
-where
-    Theme: 'static,
-    Renderer: iced_core::Renderer + 'static,
-{
+pub trait Dock: 'static {
     type Message: Send + 'static;
 
     fn id(&self) -> DockId;
@@ -45,7 +43,7 @@ where
     }
 }
 
-pub trait ErasedDock<Theme, Renderer>: 'static {
+pub trait ErasedDock: 'static {
     fn id(&self) -> DockId;
     fn view<'a>(
         &'a self,
@@ -63,12 +61,7 @@ pub trait ErasedDock<Theme, Renderer>: 'static {
     fn sub_windows(&self) -> Vec<window::Id>;
 }
 
-impl<T, Theme, Renderer> ErasedDock<Theme, Renderer> for T
-where
-    T: Dock<Theme, Renderer>,
-    Theme: 'static,
-    Renderer: iced_core::Renderer + 'static,
-{
+impl<T: Dock> ErasedDock for T {
     fn id(&self) -> DockId {
         self.id()
     }
@@ -140,27 +133,21 @@ pub enum TabEvent {
     TitleBarDrag,
 }
 
-#[derive(Debug, Clone)]
-pub enum FloatAction {
-    Tab(TabEvent),
-    StartResize(window::Direction),
-}
-
-type DockContentView<'a, Message, Theme, Renderer> =
+type DockContentView<'a, Message> =
     Box<dyn Fn(pane_grid::Pane, DockId) -> Element<'a, Message, Theme, Renderer> + 'a>;
 
-type FloatContentView<'a, Message, Theme, Renderer> =
+type FloatContentView<'a, Message> =
     Box<dyn Fn(DockId) -> Element<'a, Message, Theme, Renderer> + 'a>;
 
-pub struct DockWidget<'a, Message, Theme, Renderer> {
+pub struct DockWidget<'a, Message> {
     state: &'a DockState,
-    content: Option<DockContentView<'a, Message, Theme, Renderer>>,
+    content: Option<DockContentView<'a, Message>>,
     on_action: Box<dyn Fn(DockAction) -> Message + 'a>,
     spacing: f32,
     attach_info: Option<AttachInfo>,
 }
 
-impl<'a, Message, Theme, Renderer> DockWidget<'a, Message, Theme, Renderer> {
+impl<'a, Message> DockWidget<'a, Message> {
     pub fn new(state: &'a DockState, on_action: impl Fn(DockAction) -> Message + 'a) -> Self {
         Self {
             state,
@@ -190,20 +177,8 @@ impl<'a, Message, Theme, Renderer> DockWidget<'a, Message, Theme, Renderer> {
     }
 }
 
-impl<'a, Message, Theme, Renderer> From<DockWidget<'a, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    Message: 'a,
-    Theme: iced_widget::container::Catalog
-        + iced_widget::pane_grid::Catalog
-        + crate::style::DockCatalog
-        + iced_widget::button::Catalog
-        + iced_aw::context_menu::Catalog
-        + iced_widget::text::Catalog
-        + 'a,
-    Renderer: iced_core::Renderer + iced_core::text::Renderer + 'static,
-{
-    fn from(w: DockWidget<'a, Message, Theme, Renderer>) -> Self {
+impl<'a, Message: 'a> From<DockWidget<'a, Message>> for Element<'a, Message, Theme, Renderer> {
+    fn from(w: DockWidget<'a, Message>) -> Self {
         use std::rc::Rc;
 
         let DockWidget {
@@ -232,14 +207,12 @@ where
                 let Some(active) = group_data.active() else {
                     return space().into();
                 };
-                let ctx_menu = ContextMenu::new(Element::new(tabs), move || {
-                    column![
-                        button(text!("Close Active"))
-                            .on_press_with(|| TabEvent::Close(active.clone())),
-                        button(text!("Close Group")).on_press_with(|| TabEvent::CloseGroup),
-                    ]
-                    .into()
-                });
+                let ctx_menu = ContextMenu::new(
+                    Element::new(tabs),
+                    Menu::new()
+                        .item("Close Active", TabEvent::Close(active.clone()))
+                        .item("Close Group", TabEvent::CloseGroup),
+                );
                 let a_titlebar = Rc::clone(&a_titlebar);
                 pane_grid::Content::new(body).title_bar(pane_grid::TitleBar::new(
                     Element::new(ctx_menu)
@@ -274,20 +247,17 @@ where
     }
 }
 
-pub struct FloatingDockWidget<'a, Message, Theme, Renderer> {
+pub struct FloatingDockWidget<'a, Message> {
     group_data: &'a DockGroupData,
-    content: Option<FloatContentView<'a, Message, Theme, Renderer>>,
-    on_action: Box<dyn Fn(FloatAction) -> Message + 'a>,
+    content: Option<FloatContentView<'a, Message>>,
+    on_action: Box<dyn Fn(TabEvent) -> Message + 'a>,
     is_attaching: bool,
 }
 
-impl<'a, Message, Theme, Renderer> FloatingDockWidget<'a, Message, Theme, Renderer>
-where
-    Message: 'a,
-{
+impl<'a, Message> FloatingDockWidget<'a, Message> {
     pub fn new(
         group_data: &'a DockGroupData,
-        on_action: impl Fn(FloatAction) -> Message + 'a,
+        on_action: impl Fn(TabEvent) -> Message + 'a,
     ) -> Self {
         Self {
             group_data,
@@ -311,14 +281,10 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> From<FloatingDockWidget<'a, Message, Theme, Renderer>>
+impl<'a, Message: 'a> From<FloatingDockWidget<'a, Message>>
     for Element<'a, Message, Theme, Renderer>
-where
-    Message: 'a,
-    Theme: crate::style::DockCatalog + 'a,
-    Renderer: iced_core::Renderer + iced_core::text::Renderer + 'static,
 {
-    fn from(w: FloatingDockWidget<'a, Message, Theme, Renderer>) -> Self {
+    fn from(w: FloatingDockWidget<'a, Message>) -> Self {
         use std::rc::Rc;
 
         let FloatingDockWidget {
@@ -328,12 +294,9 @@ where
             is_attaching,
         } = w;
 
-        let on_action: Rc<dyn Fn(FloatAction) -> Message + 'a> = Rc::from(on_action);
-        let a_tab = Rc::clone(&on_action);
-        let a_resize = Rc::clone(&on_action);
+        let on_action: Rc<dyn Fn(TabEvent) -> Message + 'a> = Rc::from(on_action);
 
-        let tab_row =
-            TabRowWidget::new(group_data, move |ev| (a_tab.as_ref())(FloatAction::Tab(ev)));
+        let tab_row = TabRowWidget::new(group_data, move |event| (on_action.as_ref())(event));
 
         let body = group_data
             .active()
@@ -344,19 +307,10 @@ where
             .width(Length::Fill)
             .height(Length::Fill);
 
-        let resize_overlay = ResizeHandleOverlay {
-            on_resize: Box::new(move |dir| (a_resize.as_ref())(FloatAction::StartResize(dir))),
-        };
-
         if is_attaching {
-            stack![
-                Element::new(WindowHintOverlay),
-                content,
-                Element::new(resize_overlay)
-            ]
-            .into()
+            stack![Element::new(WindowHintOverlay), content].into()
         } else {
-            stack![content, Element::new(resize_overlay)].into()
+            content.into()
         }
     }
 }
@@ -376,11 +330,7 @@ struct PaneHintOverlay<'a> {
     spacing: f32,
 }
 
-impl<'a, Message, Theme, Renderer> iced_core::Widget<Message, Theme, Renderer>
-    for PaneHintOverlay<'a>
-where
-    Renderer: iced_core::Renderer,
-{
+impl<Message> iced_core::Widget<Message, Theme, Renderer> for PaneHintOverlay<'_> {
     fn size(&self) -> Size<Length> {
         Size::new(Length::Fill, Length::Fill)
     }
@@ -480,10 +430,7 @@ where
 
 struct WindowHintOverlay;
 
-impl<Message, Theme, Renderer> iced_core::Widget<Message, Theme, Renderer> for WindowHintOverlay
-where
-    Renderer: iced_core::Renderer,
-{
+impl<Message> iced_core::Widget<Message, Theme, Renderer> for WindowHintOverlay {
     fn size(&self) -> Size<Length> {
         Size::new(Length::Fill, Length::Fill)
     }
@@ -515,150 +462,4 @@ where
             iced_core::Background::Color(ATTACH_HINT_COLOR),
         );
     }
-}
-
-// ── ResizeHandleOverlay ───────────────────────────────────────────────────────
-
-const RESIZE_HANDLE_SIZE: f32 = 6.0;
-
-/// Returns the resize `Direction` if `pos` is within `RESIZE_HANDLE_SIZE` pixels
-/// of an edge/corner of `bounds`, or `None` for the interior.
-fn resize_direction(bounds: Rectangle, pos: Point) -> Option<window::Direction> {
-    if !bounds.contains(pos) {
-        return None;
-    }
-    let h = RESIZE_HANDLE_SIZE;
-    let near_w = pos.x - bounds.x < h;
-    let near_e = bounds.x + bounds.width - pos.x < h;
-    let near_n = pos.y - bounds.y < h;
-    let near_s = bounds.y + bounds.height - pos.y < h;
-    match (near_w, near_e, near_n, near_s) {
-        (true, _, true, _) => Some(window::Direction::NorthWest),
-        (_, true, true, _) => Some(window::Direction::NorthEast),
-        (true, _, _, true) => Some(window::Direction::SouthWest),
-        (_, true, _, true) => Some(window::Direction::SouthEast),
-        (true, ..) => Some(window::Direction::West),
-        (_, true, ..) => Some(window::Direction::East),
-        (_, _, true, _) => Some(window::Direction::North),
-        (_, _, _, true) => Some(window::Direction::South),
-        _ => None,
-    }
-}
-
-fn direction_cursor(dir: window::Direction) -> mouse::Interaction {
-    match dir {
-        window::Direction::East | window::Direction::West => {
-            mouse::Interaction::ResizingHorizontally
-        }
-        window::Direction::North | window::Direction::South => {
-            mouse::Interaction::ResizingVertically
-        }
-        window::Direction::NorthWest | window::Direction::SouthEast => {
-            mouse::Interaction::ResizingDiagonallyDown
-        }
-        window::Direction::NorthEast | window::Direction::SouthWest => {
-            mouse::Interaction::ResizingDiagonallyUp
-        }
-    }
-}
-
-/// Transparent overlay that intercepts mouse presses near window edges/corners
-/// and emits a resize-direction message so the caller can call `drag_resize`.
-struct ResizeHandleOverlay<'a, Message> {
-    on_resize: Box<dyn Fn(window::Direction) -> Message + 'a>,
-}
-
-impl<'a, Message, Theme, Renderer> iced_core::Widget<Message, Theme, Renderer>
-    for ResizeHandleOverlay<'a, Message>
-where
-    Renderer: iced_core::Renderer,
-{
-    fn size(&self) -> Size<Length> {
-        Size::new(Length::Fill, Length::Fill)
-    }
-
-    fn tag(&self) -> widget::tree::Tag {
-        widget::tree::Tag::of::<ResizeHandleOverlayState>()
-    }
-
-    fn state(&self) -> widget::tree::State {
-        widget::tree::State::new(ResizeHandleOverlayState { is_resizing: false })
-    }
-
-    fn layout(
-        &mut self,
-        _tree: &mut widget::Tree,
-        _renderer: &Renderer,
-        limits: &layout::Limits,
-    ) -> layout::Node {
-        layout::Node::new(limits.max())
-    }
-
-    fn draw(
-        &self,
-        _tree: &widget::Tree,
-        _renderer: &mut Renderer,
-        _theme: &Theme,
-        _style: &renderer::Style,
-        _layout: Layout<'_>,
-        _cursor: mouse::Cursor,
-        _viewport: &Rectangle,
-    ) {
-    }
-
-    fn update(
-        &mut self,
-        tree: &mut widget::Tree,
-        event: &Event,
-        layout: Layout<'_>,
-        cursor: mouse::Cursor,
-        _renderer: &Renderer,
-        _clipboard: &mut dyn iced_core::Clipboard,
-        shell: &mut iced_core::Shell<'_, Message>,
-        _viewport: &Rectangle,
-    ) {
-        let state = tree.state.downcast_mut::<ResizeHandleOverlayState>();
-
-        match event {
-            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                if let Some(pos) = cursor.position()
-                    && let Some(dir) = resize_direction(layout.bounds(), pos)
-                {
-                    shell.publish((self.on_resize)(dir));
-                    state.is_resizing = true;
-                    shell.capture_event();
-                }
-            }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
-                if state.is_resizing =>
-            {
-                state.is_resizing = false;
-                shell.capture_event();
-            }
-            _ => {}
-        }
-    }
-
-    fn mouse_interaction(
-        &self,
-        _tree: &widget::Tree,
-        layout: Layout<'_>,
-        cursor: mouse::Cursor,
-        _viewport: &Rectangle,
-        _renderer: &Renderer,
-    ) -> mouse::Interaction {
-        // TODO Iced is not updating the position of cursor during window resize.
-        //      So the cursor icon can be incorrect.
-        //      This is also the reason why we are using a state but not using the cursor position
-        //      directly to determine whether we are resizing on left button release.
-        cursor
-            .position()
-            .and_then(|pos| resize_direction(layout.bounds(), pos))
-            .map(direction_cursor)
-            .unwrap_or(mouse::Interaction::None)
-    }
-}
-
-struct ResizeHandleOverlayState {
-    is_resizing: bool,
 }

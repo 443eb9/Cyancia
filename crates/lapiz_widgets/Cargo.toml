@@ -16,3 +16,17 @@ iced_graphics.workspace = true
 iced_widget.workspace = true
 iced_wgpu.workspace = true
 num-traits.workspace = true
+paste.workspace = true
+taffy.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+iced.workspace = true

@@ -7,7 +7,6 @@ use anyhow::Result;
 use bevy_math::{IRect, Rect};
 use encase::ShaderType;
 use glam::{Mat3, Vec2};
-use iced_aw::number_input;
 use iced_core::{
     Alignment, Color, Element, Length, Point, Rectangle, Size, Theme, Vector, Widget,
     keyboard::Modifiers, layout, mouse, renderer, widget,
@@ -15,9 +14,8 @@ use iced_core::{
 use iced_runtime::{Task, futures::Subscription};
 use iced_wgpu::Renderer;
 use iced_widget::{
-    button,
     canvas::{Frame, Path, Stroke},
-    column, container, pick_list, row, space, text,
+    column, row, space, text,
 };
 use lapiz_canvas::{
     CanvasAppExt, CanvasId, CanvasUndoStackAppExt,
@@ -50,7 +48,10 @@ use lapiz_runtime::{Services, event::Event};
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_undo::BatchedUndoCommand;
 use lapiz_utils::log_err::LogErr;
-use lapiz_widgets::form::Form;
+use lapiz_widgets::{
+    button::Button, combo_box::ComboBox, form::Form, icon, label::Label, panel::Panel,
+    spin_box::SpinBox,
+};
 use tracing::warn;
 use wgpu::{
     BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor, BufferUsages,
@@ -617,6 +618,10 @@ impl ToolFunction for FreeTransformTool {
         ToolId::new("free_transform_tool".into())
     }
 
+    fn icon() -> icon::Icon<'static> {
+        icon::transform()
+    }
+
     fn activate(&mut self, _services: &mut Services) -> Task<Self::Message> {
         Task::done(FreeTransformToolMessage::RequestInit)
     }
@@ -983,7 +988,7 @@ impl ToolFunction for FreeTransformTool {
         let fields = Form::new()
             .push(
                 "Sampling",
-                pick_list(
+                ComboBox::new(
                     vec![SamplingMethod::NearestNeighbor],
                     Some(SamplingMethod::NearestNeighbor),
                     FreeTransformToolMessage::SamplingChanged,
@@ -994,7 +999,7 @@ impl ToolFunction for FreeTransformTool {
                 "Translation",
                 row![
                     text("X"),
-                    number_input(
+                    SpinBox::new(
                         &session.translate.x,
                         f32::MIN..=f32::MAX,
                         FreeTransformToolMessage::TranslationXChanged,
@@ -1002,7 +1007,7 @@ impl ToolFunction for FreeTransformTool {
                     .step(1.0)
                     .width(Length::FillPortion(1)),
                     text("Y"),
-                    number_input(
+                    SpinBox::new(
                         &session.translate.y,
                         f32::MIN..=f32::MAX,
                         FreeTransformToolMessage::TranslationYChanged,
@@ -1015,7 +1020,7 @@ impl ToolFunction for FreeTransformTool {
             )
             .push(
                 "Rotation",
-                number_input(
+                SpinBox::new(
                     &session.rotate,
                     f32::MIN..=f32::MAX,
                     FreeTransformToolMessage::RotationChanged,
@@ -1027,7 +1032,7 @@ impl ToolFunction for FreeTransformTool {
                 "Scale",
                 row![
                     text("X"),
-                    number_input(
+                    SpinBox::new(
                         &session.scale.x,
                         f32::MIN..=f32::MAX,
                         FreeTransformToolMessage::ScaleXChanged,
@@ -1035,7 +1040,7 @@ impl ToolFunction for FreeTransformTool {
                     .step(0.01)
                     .width(Length::FillPortion(1)),
                     text("Y"),
-                    number_input(
+                    SpinBox::new(
                         &session.scale.y,
                         f32::MIN..=f32::MAX,
                         FreeTransformToolMessage::ScaleYChanged,
@@ -1048,7 +1053,7 @@ impl ToolFunction for FreeTransformTool {
             )
             .push(
                 "Shear",
-                number_input(
+                SpinBox::new(
                     &session.shear,
                     f32::MIN..=f32::MAX,
                     FreeTransformToolMessage::ShearChanged,
@@ -1058,7 +1063,7 @@ impl ToolFunction for FreeTransformTool {
             )
             .push(
                 "Shear Direction",
-                pick_list(
+                ComboBox::new(
                     vec![ShearAxis::Horizontal, ShearAxis::Vertical],
                     Some(shear_axis),
                     FreeTransformToolMessage::ShearAxisChanged,
@@ -1067,28 +1072,28 @@ impl ToolFunction for FreeTransformTool {
             );
 
         let mirrors = row![
-            button("Mirror Horizontally")
+            Button::new(Label::new("Mirror Horizontally"))
                 .on_press(FreeTransformToolMessage::MirrorHorizontally)
                 .width(Length::Fill),
-            button("Mirror Vertically")
+            Button::new(Label::new("Mirror Vertically"))
                 .on_press(FreeTransformToolMessage::MirrorVertically)
                 .width(Length::Fill),
         ]
         .spacing(4);
         let actions = row![
-            button("Cancel")
+            Button::new(Label::new("Cancel"))
                 .on_press(FreeTransformToolMessage::Cancel)
-                .style(button::danger)
+                .danger()
                 .width(Length::Fill),
-            button("Confirm")
+            Button::new(Label::new("Confirm"))
                 .on_press(FreeTransformToolMessage::Confirm)
-                .style(button::primary)
+                .primary()
                 .width(Length::Fill),
         ]
         .spacing(4);
 
         Some(
-            container(column![fields, mirrors, actions].spacing(8))
+            Panel::new(column![fields, mirrors, actions].spacing(8))
                 .padding(8)
                 .width(Length::Fill)
                 .into(),

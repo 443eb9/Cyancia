@@ -1,8 +1,9 @@
+use iced_widget::pane_grid;
+
 use crate::{
     dock::{DockId, PaneEvent},
-    group::DockGroupData,
+    group::{DockGroupData, DockGroupId},
 };
-use iced_widget::pane_grid;
 
 #[derive(Debug, Default)]
 pub struct DockState {
@@ -16,12 +17,44 @@ impl DockState {
             group.add_dock(dock.clone());
             *pane
         } else {
-            let mut group = DockGroupData::new();
-            group.add_dock(dock.clone());
+            let group = DockGroupData::new(dock);
             let (state, pane) = pane_grid::State::new(group);
             self.panes = Some(state);
             pane
         }
+    }
+
+    pub fn open_in_group(&mut self, target: &DockGroupId, dock: DockId) -> Option<pane_grid::Pane> {
+        let panes = self.panes.as_mut()?;
+        let (pane, group) = panes.iter_mut().find(|(_, group)| group.id() == target)?;
+        group.add_dock(dock.clone());
+        group.set_active(dock);
+        Some(*pane)
+    }
+
+    pub fn open_split(
+        &mut self,
+        target: &DockGroupId,
+        result_edge: pane_grid::Edge,
+        ratio: f32,
+        dock: DockId,
+    ) -> Option<pane_grid::Pane> {
+        let panes = self.panes.as_mut()?;
+        let target_pane = panes
+            .iter()
+            .find(|(_, group)| group.id() == target)
+            .map(|(pane, _)| *pane)?;
+        let group = DockGroupData::new(dock.clone());
+        let axis = match result_edge {
+            pane_grid::Edge::Top | pane_grid::Edge::Bottom => pane_grid::Axis::Horizontal,
+            pane_grid::Edge::Left | pane_grid::Edge::Right => pane_grid::Axis::Vertical,
+        };
+        let (new_pane, split) = panes.split(axis, target_pane, group)?;
+        if matches!(result_edge, pane_grid::Edge::Top | pane_grid::Edge::Left) {
+            panes.swap(target_pane, new_pane);
+        }
+        panes.resize(split, ratio.clamp(0.1, 0.9));
+        Some(new_pane)
     }
 
     pub fn open_group(&mut self, group: DockGroupData) -> pane_grid::Pane {
@@ -102,5 +135,13 @@ impl DockState {
 
     pub fn panes_state_mut(&mut self) -> Option<&mut pane_grid::State<DockGroupData>> {
         self.panes.as_mut()
+    }
+
+    pub fn dock_in_group(&self, dock: &DockId) -> Option<&DockGroupData> {
+        let panes = self.panes.as_ref()?;
+        let (_, group) = panes
+            .iter()
+            .find(|(_, group)| group.iter().any(|id| dock == id))?;
+        Some(group)
     }
 }

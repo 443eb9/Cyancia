@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use iced_core::{Element, Length, Theme};
 use iced_runtime::Task;
 use iced_wgpu::Renderer;
-use iced_widget::{column, container, text};
+use iced_widget::column;
 use lapiz_assets::asset::AssetHandle;
 use lapiz_canvas::{
     CanvasAppExt, CanvasUndoStackAppExt, command::TileReplaceCommand, event::CanvasUpdated,
@@ -19,6 +19,7 @@ use lapiz_shader_graph::graph::{
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_undo::QueuedUndoCommand;
 use lapiz_utils::log_err::LogErr;
+use lapiz_widgets::{icon, label::Label, panel::Panel};
 use log::error;
 
 use crate::{
@@ -96,6 +97,10 @@ impl ToolFunction for BrushTool {
 
     fn id() -> ToolId {
         ToolId::new("brush_tool".into())
+    }
+
+    fn icon() -> icon::Icon<'static> {
+        icon::brush()
     }
 
     #[tracing::instrument(skip_all, name = "brush_tool_begin")]
@@ -274,7 +279,7 @@ impl ToolFunction for BrushTool {
             .iter_external_vars()
             .map(|(id, variable)| {
                 column![
-                    text(variable.name),
+                    Label::new(variable.name),
                     variable
                         .value
                         .ty()
@@ -290,10 +295,14 @@ impl ToolFunction for BrushTool {
             .collect::<Vec<_>>();
 
         Some(
-            container(column(variables).spacing(8).push(text("Variables")))
-                .padding(8)
-                .width(Length::Fill)
-                .into(),
+            Panel::new(
+                column(variables)
+                    .spacing(8)
+                    .push(Label::new("Variables").strong()),
+            )
+            .padding(8)
+            .width(Length::Fill)
+            .into(),
         )
     }
 }

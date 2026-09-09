@@ -8,7 +8,7 @@ use bevy_color::{Oklcha, Srgba};
 use iced_core::{
     Background, Border, Clipboard, Color, Element, Event, Layout, Length, Point, Shell, Size,
     Transformation, Vector,
-    border::Radius,
+    alignment::Vertical,
     gradient::ColorStop,
     keyboard::{self, key},
     layout::{self, Limits, Node},
@@ -23,12 +23,13 @@ use iced_graphics::{
     gradient::Linear,
 };
 use iced_widget::{
-    button, column, container,
+    column, container,
     core::{Rectangle, Widget, mouse::Cursor},
     overlay::menu,
-    row, stack, text,
+    row, stack,
 };
 use indexmap::IndexMap;
+use lapiz_widgets::{button::Button, color::ColorMix, icon, label::Label};
 use uuid::Uuid;
 
 use crate::{
@@ -44,7 +45,6 @@ use crate::{
 pub mod slot;
 
 pub const NODE_WIDTH: f32 = 200.0;
-const NODE_BORDER_RADIUS: f32 = 5.0;
 
 #[derive(Default)]
 pub struct GraphEditorState {
@@ -146,15 +146,15 @@ impl<'a, Data: GraphData> From<GraphEditor<'a, Data>>
                 .into_iter()
                 .nth(comp.subgraph_index)
                 .unwrap();
-            button(node.data.name())
+            Button::new(Label::new(node.data.name()))
                 .on_press(GraphEditorMessage::Editor(
                     GraphEditorEditorMessage::BackToSubgraphOrMain(Some(index)),
                 ))
                 .into()
         });
-        let main_graph_path = button("Main Graph").on_press(GraphEditorMessage::Editor(
-            GraphEditorEditorMessage::BackToSubgraphOrMain(None),
-        ));
+        let main_graph_path = Button::new(Label::new("Main Graph")).on_press(
+            GraphEditorMessage::Editor(GraphEditorEditorMessage::BackToSubgraphOrMain(None)),
+        );
         let path_breadcrumb = row![main_graph_path].extend(subgraph_path);
         stack!(editor_view, path_breadcrumb).into()
     }
@@ -373,21 +373,32 @@ impl<'a> DrawableNode<'a> {
         resources: &GraphResources<Data>,
     ) -> Self {
         let (header_hue, header_chroma) = node.data.header_hue_chroma();
-        let header = container(text(node.data.name()))
-            .style(move |theme| container::Style {
-                background: Some(themed_color(theme, header_hue, header_chroma).into()),
-                border: Border {
-                    radius: Radius {
-                        top_left: NODE_BORDER_RADIUS,
-                        top_right: NODE_BORDER_RADIUS,
+        let header = container(
+            row![
+                container(iced_widget::Space::new().width(3).height(10)).style(move |theme| {
+                    container::Style {
+                        background: Some(themed_color(theme, header_hue, header_chroma).into()),
                         ..Default::default()
-                    },
-                    ..Default::default()
-                },
+                    }
+                }),
+                Label::new(node.data.name()).size(12).strong(),
+                iced_widget::space().width(Length::Fill),
+                icon::grip().size(9).muted(),
+            ]
+            .align_y(Vertical::Center)
+            .spacing(6)
+            .padding([0, 6])
+            .height(24),
+        )
+        .style(move |theme| {
+            let accent = themed_color(theme, header_hue, header_chroma);
+            let panel = theme.extended_palette().background.weaker.color;
+            container::Style {
+                background: Some(accent.mix(&panel, 0.2).into()),
                 ..Default::default()
-            })
-            .width(Length::Fill)
-            .padding(5);
+            }
+        })
+        .width(Length::Fill);
 
         let widget = container(
             column![
@@ -398,8 +409,7 @@ impl<'a> DrawableNode<'a> {
             .width(NODE_WIDTH),
         )
         .style(|t| container::Style {
-            background: Some(t.extended_palette().background.strong.color.into()),
-            border: Border::default().rounded(NODE_BORDER_RADIUS),
+            background: Some(t.extended_palette().background.weaker.color.into()),
             ..Default::default()
         });
 
@@ -956,6 +966,41 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
         }
 
         let mut frame = Frame::with_bounds(renderer, graph_viewport);
+        {
+            let ink = theme.extended_palette().background.base.text;
+            let width = 1.0 / view_transformation.scale_factor();
+            for (step, alpha) in [(20.0, 0.04), (100.0, 0.08)] {
+                let stroke = Stroke {
+                    style: ink.scale_alpha(alpha).into(),
+                    width,
+                    ..Default::default()
+                };
+                let start = (graph_viewport.x / step).floor() * step;
+                let mut x = start;
+                while x < graph_viewport.x + graph_viewport.width {
+                    frame.stroke(
+                        &geometry::Path::line(
+                            Point::new(x, graph_viewport.y),
+                            Point::new(x, graph_viewport.y + graph_viewport.height),
+                        ),
+                        stroke,
+                    );
+                    x += step;
+                }
+                let start = (graph_viewport.y / step).floor() * step;
+                let mut y = start;
+                while y < graph_viewport.y + graph_viewport.height {
+                    frame.stroke(
+                        &geometry::Path::line(
+                            Point::new(graph_viewport.x, y),
+                            Point::new(graph_viewport.x + graph_viewport.width, y),
+                        ),
+                        stroke,
+                    );
+                    y += step;
+                }
+            }
+        }
         for (to, edge) in &self.graph.edges {
             let from_pos = state.slot_pins.get_output(&edge.from);
             let to_pos = state.slot_pins.get_input(to);
@@ -977,13 +1022,29 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
                     geometry::Style::Gradient(g.into())
                 };
 
+                let dx = ((to_pos.x - from_pos.x).abs() * 0.6).clamp(45.0, 160.0);
                 frame.stroke(
-                    &geometry::Path::line(*from_pos, *to_pos),
+                    &geometry::Path::new(|path| {
+                        path.move_to(*from_pos);
+                        path.bezier_curve_to(
+                            Point::new(from_pos.x + dx, from_pos.y),
+                            Point::new(to_pos.x - dx, to_pos.y),
+                            *to_pos,
+                        );
+                    }),
                     Stroke {
                         style,
                         width: 2.0,
                         ..Default::default()
                     },
+                );
+                frame.fill_rectangle(
+                    Point::new(
+                        (from_pos.x + to_pos.x) / 2.0 - 2.5,
+                        (from_pos.y + to_pos.y) / 2.0 - 2.5,
+                    ),
+                    Size::new(5.0, 5.0),
+                    themed_color(theme, edge.from_hue, edge.from_chroma),
                 );
             }
         }
@@ -1011,14 +1072,33 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
                         .zip(layout.children())
                         .filter(|(_, layout)| layout.bounds().intersects(&graph_viewport))
                     {
-                        if state.selected_nodes.contains(&child.node_id) {
+                        let node_bounds = node_layout.bounds();
+                        let selected = state.selected_nodes.contains(&child.node_id);
+                        let shadow_offset = if selected { 4.0 } else { 3.0 };
+                        let shadow_alpha = if selected { 0.28 } else { 0.2 };
+                        renderer.fill_quad(
+                            Quad {
+                                bounds: Rectangle::new(
+                                    Point::new(
+                                        node_bounds.x + shadow_offset,
+                                        node_bounds.y + shadow_offset,
+                                    ),
+                                    node_bounds.size(),
+                                ),
+                                ..Default::default()
+                            },
+                            Color::BLACK.scale_alpha(shadow_alpha),
+                        );
+                        if selected {
                             renderer.fill_quad(
                                 Quad {
-                                    bounds: node_layout.bounds().expand(2.0),
-                                    border: Border::default().rounded(NODE_BORDER_RADIUS),
+                                    bounds: node_bounds.expand(2.0),
+                                    border: Border::default()
+                                        .width(2.0)
+                                        .color(theme.extended_palette().primary.base.color),
                                     ..Default::default()
                                 },
-                                theme.palette().text,
+                                Color::TRANSPARENT,
                             );
                         }
                         child.widget.as_widget().draw(
@@ -1034,7 +1114,6 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
                             renderer.fill_quad(
                                 Quad {
                                     bounds: node_layout.bounds(),
-                                    border: Border::default().rounded(NODE_BORDER_RADIUS),
                                     ..Default::default()
                                 },
                                 Color::from_rgb8(255, 0, 0).scale_alpha(0.3),
@@ -1056,8 +1135,16 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
             && let Some(start_pos) = state.slot_pins.get(resolved_source)
         {
             let mut frame = Frame::with_bounds(renderer, graph_viewport);
+            let dx = ((cursor_pos.x - start_pos.x).abs() * 0.6).clamp(45.0, 160.0);
             frame.stroke(
-                &geometry::Path::line(*start_pos, cursor_pos),
+                &geometry::Path::new(|path| {
+                    path.move_to(*start_pos);
+                    path.bezier_curve_to(
+                        Point::new(start_pos.x + dx, start_pos.y),
+                        Point::new(cursor_pos.x - dx, cursor_pos.y),
+                        cursor_pos,
+                    );
+                }),
                 Stroke {
                     style: themed_color(theme, *hue, *chroma).into(),
                     width: 2.0,
@@ -1121,6 +1208,11 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
         let inverse_view_transformation = view_transformation.inverse();
         let graph_viewport = *viewport * inverse_view_transformation;
 
+        // Menus inside nodes assume the viewport starts at (0, 0) when measuring the
+        // space above/below themselves, so node overlays live in a viewport-relative
+        // frame: the viewport origin is subtracted here and restored by
+        // TransformedGraphOverlay after layout.
+        let viewport_origin = Vector::new(graph_viewport.x, graph_viewport.y);
         for ((child, tree), layout) in self
             .graph
             .nodes
@@ -1132,11 +1224,11 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
                 tree,
                 layout,
                 renderer,
-                &graph_viewport,
-                translation,
+                &Rectangle::new(Point::ORIGIN, graph_viewport.size()),
+                translation - viewport_origin,
             ) {
                 return Some(overlay::Element::new(Box::new(
-                    TransformedGraphOverlay::new(overlay, view_transformation),
+                    TransformedGraphOverlay::new(overlay, view_transformation, viewport_origin),
                 )));
             }
         }
@@ -1197,16 +1289,19 @@ impl<'a, Data: GraphData> From<GraphEditorView<'a, Data>>
 struct TransformedGraphOverlay<'a> {
     content: overlay::Element<'a, GraphEditorMessage, GraphTheme, GraphRenderer>,
     transformation: Transformation,
+    origin: Vector,
 }
 
 impl<'a> TransformedGraphOverlay<'a> {
     fn new(
         content: overlay::Element<'a, GraphEditorMessage, GraphTheme, GraphRenderer>,
         transformation: Transformation,
+        origin: Vector,
     ) -> Self {
         Self {
             content,
             transformation,
+            origin,
         }
     }
 }
@@ -1218,7 +1313,8 @@ impl iced_core::Overlay<GraphEditorMessage, GraphTheme, GraphRenderer>
         let content = self
             .content
             .as_overlay_mut()
-            .layout(renderer, bounds * self.transformation.inverse());
+            .layout(renderer, bounds * self.transformation.inverse())
+            .translate(self.origin);
         let content_bounds = content.bounds();
         let transformed_bounds = content_bounds * self.transformation;
 
@@ -1312,6 +1408,7 @@ impl iced_core::Overlay<GraphEditorMessage, GraphTheme, GraphRenderer>
                 overlay::Element::new(Box::new(TransformedGraphOverlay::new(
                     overlay,
                     transformation,
+                    Vector::ZERO,
                 )))
             })
     }
@@ -1403,9 +1500,9 @@ enum MarqueeMode {
 pub fn themed_color(theme: &GraphTheme, hue: f32, chroma: f32) -> Color {
     let oklch = Oklcha::new(
         match theme.mode() {
-            Mode::None => 0.5,
+            Mode::None => 0.6,
             Mode::Light => 0.7,
-            Mode::Dark => 0.4,
+            Mode::Dark => 0.72,
         },
         chroma,
         hue,

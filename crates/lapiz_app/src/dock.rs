@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, sync::LazyLock};
 
 use bevy_math::{IRect, Rect};
 use iced::{
@@ -6,13 +6,13 @@ use iced::{
     event::listen_with,
     keyboard::{self, Modifiers},
     mouse,
-    widget::{Space, button, column, text},
+    widget::Space,
     window,
 };
 use iced_core::Point;
 use iced_runtime::task;
 use iced_wgpu::Renderer;
-use iced_widget::{container, scrollable, space, stack};
+use iced_widget::{space, stack};
 use lapiz_assets::AssetAppExt;
 use lapiz_brush::{asset::BrushPreset, tool::BrushServicesExt, widget::BrushPresetListDelegate};
 use lapiz_canvas::{
@@ -47,8 +47,19 @@ use lapiz_image::{
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
 use lapiz_render::render_context::RenderContextAppExt;
 use lapiz_runtime::{Services, event::Event};
-use lapiz_tools::ErasedToolFunctionMessage;
+use lapiz_tools::{
+    ErasedToolFunctionMessage, ToolFunctionRegistry, ToolId, manifest::ToolBoxManifest,
+};
 use lapiz_utils::log_err::LogErr;
+use lapiz_widgets::{
+    button::{self, Button},
+    divider::Divider,
+    flex::Flex,
+    icon,
+    label::Label,
+    panel::Panel,
+    scrollable::Scrollable,
+};
 use moxcms::ColorProfile;
 
 #[derive(Clone)]
@@ -63,7 +74,8 @@ pub enum ColorSelectorDockMessage {
     BackgroundColorChanged(BackgroundColorChanged),
 }
 
-pub const COLOR_SELECTOR_DOCK_ID: &str = "color_selector";
+pub static COLOR_SELECTOR_DOCK_ID: LazyLock<DockId> =
+    LazyLock::new(|| DockId::new("color_selector_dock".into()));
 
 pub struct ColorSelectorDock {
     selector: ColorSelectorState,
@@ -163,11 +175,11 @@ impl ColorSelectorDock {
     }
 }
 
-impl Dock<Theme, Renderer> for ColorSelectorDock {
+impl Dock for ColorSelectorDock {
     type Message = ColorSelectorDockMessage;
 
     fn id(&self) -> DockId {
-        DockId::new(COLOR_SELECTOR_DOCK_ID.into())
+        COLOR_SELECTOR_DOCK_ID.clone()
     }
 
     fn view<'a>(
@@ -181,19 +193,29 @@ impl Dock<Theme, Renderer> for ColorSelectorDock {
                 .view()
                 .map(ColorSelectorDockMessage::ConfigEditor)
         } else {
-            column![
-                scrollable(ColorSelector::new(
+            Flex::column([
+                Scrollable::new(ColorSelector::new(
                     &self.selector,
-                    ColorSelectorDockMessage::ColorSelector
+                    ColorSelectorDockMessage::ColorSelector,
                 ))
                 .width(Length::Fill)
-                .height(Length::Fill),
-                button("Settings").on_press(ColorSelectorDockMessage::OpenSettings),
-            ]
+                .height(Length::Fill)
+                .into(),
+                Button::new(Label::new("Settings"))
+                    .width(Length::Fill)
+                    .on_press(ColorSelectorDockMessage::OpenSettings)
+                    .into(),
+            ])
+            .gap(4)
+            .height(Length::Fill)
             .into()
         };
 
-        container(content).padding(2).into()
+        Panel::new(content)
+            .padding(4)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     }
 
     fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
@@ -340,7 +362,7 @@ impl Dock<Theme, Renderer> for ColorSelectorDock {
     }
 }
 
-pub const LAYER_DOCK_ID: &str = "Layers";
+pub static LAYER_DOCK_ID: LazyLock<DockId> = LazyLock::new(|| DockId::new("layer_dock".into()));
 
 pub struct LayersDock {
     renaming_layer: Option<LayerId>,
@@ -392,11 +414,11 @@ pub enum LayersDockMessage {
     EscapePressed,
 }
 
-impl Dock<Theme, Renderer> for LayersDock {
+impl Dock for LayersDock {
     type Message = LayersDockMessage;
 
     fn id(&self) -> DockId {
-        DockId::new(LAYER_DOCK_ID.into())
+        LAYER_DOCK_ID.clone()
     }
 
     fn view<'a>(
@@ -560,11 +582,16 @@ impl Dock<Theme, Renderer> for LayersDock {
     }
 }
 
-pub const TOOL_OPTIONS_DOCK_ID: &str = "tool_options";
-pub const BRUSH_PRESETS_DOCK_ID: &str = "brush_presets";
+pub static TOOL_OPTIONS_DOCK_ID: LazyLock<DockId> =
+    LazyLock::new(|| DockId::new("tool_options_dock".into()));
+pub static TOOL_BOX_DOCK_ID: LazyLock<DockId> =
+    LazyLock::new(|| DockId::new("tool_box_dock".into()));
+pub static BRUSH_PRESETS_DOCK_ID: LazyLock<DockId> =
+    LazyLock::new(|| DockId::new("brush_presets_dock".into()));
 
 pub fn construct_canvas_dock_id(canvas: CanvasId) -> String {
-    format!("canvas_dock_{}", canvas)
+    let id = canvas.to_string();
+    format!("Canvas · {}", &id[..8.min(id.len())])
 }
 
 pub struct CanvasDock {
@@ -602,7 +629,7 @@ pub enum CanvasDockMessage {
     MonitorNameUpdate(Option<String>),
 }
 
-impl Dock<Theme, Renderer> for CanvasDock {
+impl Dock for CanvasDock {
     type Message = CanvasDockMessage;
 
     fn id(&self) -> DockId {
@@ -818,11 +845,11 @@ impl ToolOptionsDock {
     }
 }
 
-impl Dock<Theme, iced_wgpu::Renderer> for ToolOptionsDock {
+impl Dock for ToolOptionsDock {
     type Message = ToolOptionsDockMessage;
 
     fn id(&self) -> DockId {
-        DockId::new(TOOL_OPTIONS_DOCK_ID.into())
+        TOOL_OPTIONS_DOCK_ID.clone()
     }
 
     fn view<'a>(
@@ -834,25 +861,21 @@ impl Dock<Theme, iced_wgpu::Renderer> for ToolOptionsDock {
             return space().into();
         };
 
-        let indicator = text(format!(
-            "Tool: {} | override: {}",
-            tool_proxy
-                .current_tool()
-                .map(ToString::to_string)
-                .unwrap_or_else(|| "-".into()),
-            tool_proxy
-                .override_tool()
-                .map(ToString::to_string)
-                .unwrap_or_else(|| "-".into()),
-        ));
-
         let Some(widget) = tool_proxy.tool_option_widget(services) else {
-            return column![indicator].into();
+            return Panel::new(Label::new("No options for this tool").muted())
+                .padding(8)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into();
         };
 
-        column![indicator, widget.map(ToolOptionsDockMessage::ToolFunction)]
-            .spacing(4)
-            .into()
+        Panel::new(Scrollable::new(
+            widget.map(ToolOptionsDockMessage::ToolFunction),
+        ))
+        .padding(4)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
     }
 
     fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
@@ -863,6 +886,147 @@ impl Dock<Theme, iced_wgpu::Renderer> for ToolOptionsDock {
                 })
                 .unwrap_or_else(Task::none)
                 .map(ToolOptionsDockMessage::ToolFunction),
+        }
+    }
+}
+
+pub struct ToolBoxDock {
+    manifest: ToolBoxManifest,
+}
+
+pub enum ToolBoxDockMessage {
+    Switch(ToolId),
+    ToolFunction(ErasedToolFunctionMessage),
+}
+
+impl ToolBoxDock {
+    pub fn new() -> Self {
+        // TODO: move to a proper config directory once the app has one.
+        let manifest = match std::fs::read_to_string("assets/tool_box_manifest.toml") {
+            Ok(content) => match toml::from_str(&content) {
+                Ok(manifest) => manifest,
+                Err(error) => {
+                    log::error!("Failed to parse tool box manifest: {error}");
+                    ToolBoxManifest::default()
+                }
+            },
+            Err(error) => {
+                log::error!("Failed to read tool box manifest: {error}");
+                ToolBoxManifest::default()
+            }
+        };
+        Self { manifest }
+    }
+}
+
+impl Dock for ToolBoxDock {
+    type Message = ToolBoxDockMessage;
+
+    fn id(&self) -> DockId {
+        TOOL_BOX_DOCK_ID.clone()
+    }
+
+    fn view<'a>(
+        &'a self,
+        _window_id: window::Id,
+        services: &'a Services,
+    ) -> Element<'a, Self::Message, Theme, Renderer> {
+        let active_tool = services
+            .current_tool_proxy()
+            .and_then(|proxy| proxy.current_tool());
+        let tool_button = |tool: &'a ToolId| {
+            let selected = active_tool == Some(tool);
+            let glyph = services
+                .service::<ToolFunctionRegistry>()
+                .icon(tool)
+                .unwrap_or_else(icon::info)
+                .size(12)
+                .style(move |theme, _| {
+                    let p = theme.extended_palette();
+                    icon::Style {
+                        color: Some(if selected {
+                            p.primary.base.text
+                        } else {
+                            p.background.weak.text
+                        }),
+                    }
+                });
+            Button::new(glyph)
+                .width(28)
+                .height(28)
+                .padding(8)
+                .style(move |theme, status| {
+                    let p = theme.extended_palette();
+                    let hovered =
+                        matches!(status, button::Status::Hovered | button::Status::Pressed);
+                    button::Style {
+                        background: Some(
+                            if selected {
+                                p.primary.base.color
+                            } else if hovered {
+                                p.primary.weak.color
+                            } else {
+                                iced::Color::TRANSPARENT
+                            }
+                            .into(),
+                        ),
+                        text_color: if selected {
+                            p.primary.base.text
+                        } else {
+                            p.background.weak.text
+                        },
+                        border: iced::Border {
+                            radius: 0.0.into(),
+                            width: if selected { 1.0 } else { 0.0 },
+                            color: p.primary.base.color,
+                        },
+                        ..Default::default()
+                    }
+                })
+                .on_press(ToolBoxDockMessage::Switch(tool.clone()))
+                .into()
+        };
+        let separator = || {
+            Flex::row([Divider::horizontal(1).into()])
+                .height(7)
+                .padding([3, 0])
+                .into()
+        };
+        let mut items = Vec::new();
+        for group in &self.manifest.groups {
+            if !items.is_empty() {
+                items.push(separator());
+            }
+            let buttons: Vec<_> = group.tools.iter().map(tool_button).collect();
+            items.push(
+                Flex::row(buttons)
+                    .wrap()
+                    .space_evenly()
+                    .gap(1)
+                    .width(Length::Fill)
+                    .into(),
+            );
+        }
+        let content = Flex::column(items).width(Length::Fill).gap(0).padding(4);
+
+        Scrollable::new(content)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
+
+    fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
+        match message {
+            ToolBoxDockMessage::Switch(tool) => services
+                .update_current_tool_proxy(|proxy, services| proxy.switch_tool(tool, services))
+                .unwrap_or_else(Task::none)
+                .map(ToolBoxDockMessage::ToolFunction),
+            ToolBoxDockMessage::ToolFunction(message) => services
+                .update_current_tool_proxy(|proxy, services| {
+                    proxy.handle_message(message, services)
+                })
+                .unwrap_or_else(Task::none)
+                .map(ToolBoxDockMessage::ToolFunction),
         }
     }
 }
@@ -886,11 +1050,11 @@ impl BrushPresetDock {
     }
 }
 
-impl Dock<Theme, Renderer> for BrushPresetDock {
+impl Dock for BrushPresetDock {
     type Message = BrushPresetDockMessage;
 
     fn id(&self) -> DockId {
-        DockId::new(BRUSH_PRESETS_DOCK_ID.into())
+        BRUSH_PRESETS_DOCK_ID.clone()
     }
 
     fn view<'a>(
@@ -904,24 +1068,18 @@ impl Dock<Theme, Renderer> for BrushPresetDock {
             .iter()
             .enumerate()
             .map(|(index, item)| {
-                let mut brush_button = button(text(item.name.clone()))
+                Button::new(Label::new(item.name.clone()))
                     .width(Length::Fill)
-                    .on_press(BrushPresetDockMessage::SelectBrush(index));
-                if item.selected {
-                    brush_button = brush_button.style(move |theme: &Theme, _| {
-                        let palette = theme.extended_palette();
-                        button::Style {
-                            background: Some(palette.primary.strong.color.into()),
-                            text_color: palette.primary.strong.text,
-                            ..Default::default()
-                        }
-                    });
-                }
-                brush_button.into()
+                    .activated(item.selected)
+                    .on_press(BrushPresetDockMessage::SelectBrush(index))
+                    .into()
             })
             .collect::<Vec<Element<'a, _, Theme, Renderer>>>();
 
-        scrollable(column(buttons).spacing(2)).into()
+        Scrollable::new(Flex::column(buttons).gap(2).padding(4))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     }
 
     fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {

@@ -1,21 +1,4 @@
-use iced_core::Padding;
-use iced_core::{Background, Border, Color};
-
-pub trait DockCatalog {
-    type Class<'a>;
-
-    fn default<'a>() -> Self::Class<'a>;
-
-    fn style(&self, class: &Self::Class<'_>, status: DockStatus) -> DockStyle;
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DockStatus {
-    Active,
-    Inactive,
-    Hovered,
-    Dragging,
-}
+use iced_core::{Background, Border, Color, Padding, Theme};
 
 #[derive(Debug, Clone)]
 pub struct DockStyle {
@@ -59,52 +42,40 @@ pub struct DropIndicatorStyle {
     pub merge_overlay_color: Color,
 }
 
-impl DockCatalog for iced::Theme {
-    type Class<'a> = Box<dyn Fn(&Self) -> DockStyle + 'a>;
-
-    fn default<'a>() -> Self::Class<'a> {
-        Box::new(default_style)
-    }
-
-    fn style(&self, class: &Self::Class<'_>, _status: DockStatus) -> DockStyle {
-        class(self)
-    }
-}
-
-pub fn default_style(theme: &iced::Theme) -> DockStyle {
+pub fn default_style(theme: &Theme) -> DockStyle {
     let palette = theme.extended_palette();
 
     DockStyle {
         tab_bar: TabBarStyle {
             background: Background::Color(palette.background.base.color),
-            top_gap_height: 4.0,
-            tab_height: 28.0,
-            tab_padding: Padding::new(8.0),
+            top_gap_height: 0.0,
+            tab_height: 25.0,
+            tab_padding: Padding::new(7.0),
             active_tab: TabStyle {
-                background: Background::Color(palette.background.base.color),
+                background: Background::Color(palette.background.weakest.color),
                 text_color: palette.background.base.text,
                 border: Border {
                     radius: 0.0.into(),
-                    width: 1.0,
-                    color: palette.background.strong.color,
+                    width: 0.0,
+                    color: palette.primary.base.color,
                 },
             },
             inactive_tab: TabStyle {
-                background: Background::Color(palette.background.weak.color),
+                background: Background::Color(palette.background.base.color),
                 text_color: palette.background.weak.text,
                 border: Border {
                     radius: 0.0.into(),
-                    width: 1.0,
-                    color: palette.background.neutral.color,
+                    width: 0.0,
+                    color: palette.background.strong.color,
                 },
             },
             hovered_tab: TabStyle {
-                background: Background::Color(palette.background.strong.color),
-                text_color: palette.background.base.text,
+                background: Background::Color(palette.primary.weak.color),
+                text_color: palette.primary.weak.text,
                 border: Border {
                     radius: 0.0.into(),
-                    width: 1.0,
-                    color: palette.background.strong.color,
+                    width: 0.0,
+                    color: palette.primary.base.color,
                 },
             },
             close_button_size: 16.0,
@@ -112,8 +83,8 @@ pub fn default_style(theme: &iced::Theme) -> DockStyle {
             close_button_hover_color: palette.background.base.text,
         },
         divider: DividerStyle {
-            width: 4.0,
-            color: palette.background.neutral.color,
+            width: 2.0,
+            color: palette.background.strong.color,
             hover_color: palette.primary.base.color,
         },
         drop_indicator: DropIndicatorStyle {

@@ -14,15 +14,22 @@ use iced_core::{
     Clipboard, Event, Layout, Length, Rectangle, Shell, Size, Widget, layout, mouse, renderer,
     widget::{Operation, Tree, tree},
 };
-use iced_widget::{button, column, container, pick_list, row, text, text_editor, text_input};
+use iced_widget::{column, container, row, text, text_editor, text_input};
 use indexmap::IndexMap;
 use lapiz_math::curve::CubicCurve;
 use lapiz_utils::{random_oklch_hue_chroma, wrapper};
-use lapiz_widgets::{curve_edit::CurveEdit, fluent_builder::When, popover::Popover};
+use lapiz_widgets::{
+    button::Button, combo_box::ComboBox, curve_edit::CurveEdit, fluent_builder::When, label::Label,
+    popover::Popover,
+};
 use parking_lot::Mutex;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+fn button<'a, Message: 'a>(label: impl Into<String>) -> Button<'a, Message> {
+    Button::new(Label::new(label.into()))
+}
 
 use crate::{
     GraphElement, GraphRenderer, GraphTheme,
@@ -232,7 +239,7 @@ impl<Data: GraphData> GraphNode<Data> for ScalarMathNode {
         ctx: GraphNodeViewContext<'_, Data>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
-            pick_list(
+            ComboBox::new(
                 ScalarMathNodeMode::ALL,
                 Some(*state),
                 ScalarMathNodeMessage::ModeChanged,
@@ -553,7 +560,7 @@ impl<Data: GraphData> GraphNode<Data> for VectorMathNode {
         ctx: GraphNodeViewContext<'_, Data>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
-            pick_list(
+            ComboBox::new(
                 VectorMathNodeMode::ALL,
                 Some(*state),
                 VectorMathNodeMessage::ModeChanged,
@@ -708,7 +715,7 @@ impl<Data: GraphData> GraphNode<Data> for RectMathNode {
         ctx: GraphNodeViewContext<'_, Data>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
-            pick_list(
+            ComboBox::new(
                 RectMathNodeMode::ALL,
                 Some(*state),
                 RectMathNodeMessage::ModeChanged,
@@ -855,7 +862,7 @@ impl<Data: GraphData> GraphNode<Data> for CompareNode {
         ctx: GraphNodeViewContext<'_, Data>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
-            pick_list(
+            ComboBox::new(
                 CompareNodeMode::ALL,
                 Some(*state),
                 CompareNodeMessage::ModeChanged,
@@ -1482,7 +1489,7 @@ impl<Data: GraphData> GraphNode<Data> for TextureNode {
             .find(|texture| Some(texture.external_id) == **state)
             .cloned();
         ctx.view_all_slots_with_header(
-            pick_list(textures, selected, |texture| {
+            ComboBox::new(textures, selected, |texture| {
                 TextureNodeMessage::TextureChanged(TextureId(Some(texture.external_id)))
             })
             .width(Length::Fill),
@@ -1719,7 +1726,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
             .find(|reference| Some(reference.id) == state.id)
             .cloned();
         ctx.view_all_slots_with_header(
-            pick_list(functions, selected, |reference| {
+            ComboBox::new(functions, selected, |reference| {
                 GraphFunctionNodeMessage::FunctionChanged(reference.id)
             })
             .width(Length::Fill),
@@ -1859,8 +1866,12 @@ impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
             .collect::<Vec<_>>();
         ctx.view_all_slots_with_header(
             column![
-                text_input("Name", &state.name).on_input(GraphInputNodeMessage::NameChanged),
-                pick_list(types, state.ty, GraphInputNodeMessage::TypeChanged).width(Length::Fill),
+                text_input("Name", &state.name)
+                    .size(12.0)
+                    .style(lapiz_widgets::text_input::default)
+                    .on_input(GraphInputNodeMessage::NameChanged),
+                ComboBox::new(types, state.ty, GraphInputNodeMessage::TypeChanged)
+                    .width(Length::Fill),
             ]
             .spacing(2),
             GraphInputNodeMessage::LiteralUpdate,
@@ -1967,8 +1978,12 @@ impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
             .collect::<Vec<_>>();
         ctx.view_all_slots_with_header(
             column![
-                text_input("Name", &state.name).on_input(GraphOutputNodeMessage::NameChanged),
-                pick_list(types, state.ty, GraphOutputNodeMessage::TypeChanged).width(Length::Fill),
+                text_input("Name", &state.name)
+                    .size(12.0)
+                    .style(lapiz_widgets::text_input::default)
+                    .on_input(GraphOutputNodeMessage::NameChanged),
+                ComboBox::new(types, state.ty, GraphOutputNodeMessage::TypeChanged)
+                    .width(Length::Fill),
             ]
             .spacing(2),
             GraphOutputNodeMessage::LiteralUpdate,
@@ -2124,7 +2139,7 @@ impl<Data: GraphData> GraphNode<Data> for ExternalVariableNode {
             .find(|reference| Some(reference.id) == *state)
             .cloned();
         ctx.view_all_slots_with_header(
-            pick_list(variables, selected, |reference| {
+            ComboBox::new(variables, selected, |reference| {
                 ExternalVariableNodeMessage::VariableChanged(reference.id)
             })
             .width(Length::Fill),
@@ -2699,7 +2714,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatInputNode {
             .variable
             .and_then(|id| locals.iter().find(|reference| reference.id == id).cloned());
         ctx.view_all_slots_with_header(
-            pick_list(locals, selected, |reference| {
+            ComboBox::new(locals, selected, |reference| {
                 RepeatInputNodeMessage::VariableChanged(reference.id)
             })
             .width(Length::Fill),
@@ -2805,7 +2820,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatOutputNode {
             .variable
             .and_then(|id| locals.iter().find(|reference| reference.id == id).cloned());
         ctx.view_all_slots_with_header(
-            pick_list(locals, selected, |reference| {
+            ComboBox::new(locals, selected, |reference| {
                 RepeatOutputNodeMessage::VariableChanged(reference.id)
             })
             .width(Length::Fill),
@@ -2900,9 +2915,11 @@ fn repeat_schema_editor_view<Data: GraphData>(
             let id = local.id;
             column![
                 text_input("Variable Name", &local.name)
+                    .size(12.0)
+                    .style(lapiz_widgets::text_input::default)
                     .on_input(move |name| { RepeatNodeMessage::EditorRenameLocal(id, name) }),
                 row![
-                    pick_list(
+                    ComboBox::new(
                         type_names.clone(),
                         local.ty.as_ref().map(|t| t.name()),
                         move |ty| { RepeatNodeMessage::EditorChangeLocalType(id, ty.to_string()) },
@@ -3031,7 +3048,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatNode {
         state: &Self::State,
         ctx: GraphNodeViewContext<'_, Data>,
     ) -> GraphElement<'static, Self::Message> {
-        let trigger = button(text("Edit")).on_press(RepeatNodeMessage::ToggleEditor);
+        let trigger = button("Edit").on_press(RepeatNodeMessage::ToggleEditor);
         let content = state
             .schema_draft
             .as_ref()
@@ -3494,6 +3511,7 @@ fn custom_expression_text_editor(
 > {
     text_editor(content)
         .placeholder("WGSL")
+        .size(12.0)
         .height(Length::Fixed(140.0))
         .on_action(std::convert::identity)
 }
@@ -3681,16 +3699,22 @@ fn custom_expression_variable_rows<Data: GraphData>(
             let id = variable.id;
             column![
                 row![
-                    text_input("Slot Name", &variable.display_name).on_input(move |name| {
-                        CustomExpressionNodeMessage::ChangeDisplayName(kind, id, name)
-                    }),
-                    text_input("WGSL Name", &variable.name).on_input(move |name| {
-                        CustomExpressionNodeMessage::ChangeName(kind, id, name)
-                    }),
+                    text_input("Slot Name", &variable.display_name)
+                        .size(12.0)
+                        .style(lapiz_widgets::text_input::default)
+                        .on_input(move |name| {
+                            CustomExpressionNodeMessage::ChangeDisplayName(kind, id, name)
+                        }),
+                    text_input("WGSL Name", &variable.name)
+                        .size(12.0)
+                        .style(lapiz_widgets::text_input::default)
+                        .on_input(move |name| {
+                            CustomExpressionNodeMessage::ChangeName(kind, id, name)
+                        }),
                 ]
                 .spacing(4),
                 row![
-                    pick_list(
+                    ComboBox::new(
                         type_names.clone(),
                         variable.ty.as_ref().map(|ty| ty.name()),
                         move |ty| {
@@ -3755,14 +3779,14 @@ fn custom_expression_editor_view<Data: GraphData>(
         .width(Length::Fixed(500.0))
         .padding(4)
         .spacing(6)
-        .push(text("Inputs"))
+        .push(text("Inputs").size(12))
         .extend(input_rows)
         .push(
             button("Add Input").on_press(CustomExpressionNodeMessage::AddVariable(
                 CustomExpressionVariableKind::Input,
             )),
         )
-        .push(text("Outputs"))
+        .push(text("Outputs").size(12))
         .extend(output_rows)
         .push(
             button("Add Output").on_press(CustomExpressionNodeMessage::AddVariable(
@@ -3844,7 +3868,7 @@ impl<Data: GraphData> GraphNode<Data> for CustomExpressionNode {
         state: &'a Self::State,
         ctx: GraphNodeViewContext<'_, Data>,
     ) -> GraphElement<'a, Self::Message> {
-        let trigger = button(text("Edit")).on_press(CustomExpressionNodeMessage::ToggleEditor);
+        let trigger = button("Edit").on_press(CustomExpressionNodeMessage::ToggleEditor);
         let content = state
             .draft
             .as_ref()

@@ -10,9 +10,8 @@ use iced_core::{
 use iced_runtime::{Task, futures::Subscription};
 use iced_wgpu::Renderer;
 use iced_widget::{
-    button,
     canvas::{Frame, Path, Stroke},
-    column, container, pick_list, row, space,
+    column, row, space,
 };
 use lapiz_canvas::{
     CanvasAppExt, CanvasId, CanvasUndoStackAppExt,
@@ -45,7 +44,10 @@ use lapiz_runtime::{Services, event::Event};
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_undo::BatchedUndoCommand;
 use lapiz_utils::log_err::LogErr;
-use lapiz_widgets::{form::Form, spin_slider::SpinSlider, style::ButtonStyle};
+use lapiz_widgets::{
+    button::Button, combo_box::ComboBox, form::Form, icon, label::Label, panel::Panel,
+    spin_slider::SpinSlider,
+};
 use parse_display::Display;
 use tracing::warn;
 use wgpu::{
@@ -308,6 +310,10 @@ impl ToolFunction for LiquifyTransformTool {
         ToolId::new("liquify_tool".into())
     }
 
+    fn icon() -> icon::Icon<'static> {
+        icon::smudge()
+    }
+
     fn activate(&mut self, _: &mut Services) -> Task<Self::Message> {
         Task::done(LiquifyToolMessage::RequestInit)
     }
@@ -442,7 +448,7 @@ impl ToolFunction for LiquifyTransformTool {
         let fields = Form::new()
             .push(
                 "Mode",
-                pick_list(
+                ComboBox::new(
                     vec![
                         LiquifyMode::Move,
                         LiquifyMode::Scale,
@@ -474,26 +480,26 @@ impl ToolFunction for LiquifyTransformTool {
             )
             .push(
                 "Reverse Direction",
-                button("Toggle")
-                    .style_pressed(self.props.reverse)
+                Button::new(Label::new("Toggle"))
+                    .activated(self.props.reverse)
                     .on_press(LiquifyToolMessage::ReverseToggled)
                     .width(Length::Fill),
             );
 
         let actions = row![
-            button("Cancel")
+            Button::new(Label::new("Cancel"))
                 .on_press(LiquifyToolMessage::Cancel)
-                .style(button::danger)
+                .danger()
                 .width(Length::Fill),
-            button("Confirm")
+            Button::new(Label::new("Confirm"))
                 .on_press(LiquifyToolMessage::Confirm)
-                .style(button::primary)
+                .primary()
                 .width(Length::Fill),
         ]
         .spacing(4);
 
         Some(
-            container(column![fields, actions].spacing(8))
+            Panel::new(column![fields, actions].spacing(8))
                 .padding(8)
                 .width(Length::Fill)
                 .into(),

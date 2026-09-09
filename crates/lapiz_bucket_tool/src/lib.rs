@@ -6,7 +6,7 @@ use iced_core::{
 use iced_futures::Subscription;
 use iced_runtime::Task;
 use iced_wgpu::Renderer;
-use iced_widget::{button, checkbox, container, pick_list, row};
+use iced_widget::row;
 use lapiz_canvas::{CanvasAppExt, CanvasUndoStackAppExt, command::TileReplaceCommand};
 use lapiz_color::ForegroundBackgroundColorExt;
 use lapiz_image::{
@@ -20,7 +20,8 @@ use lapiz_runtime::{Application, Services, plugin::Plugin};
 use lapiz_tools::{ToolFunction, ToolId, ToolsAppExt};
 use lapiz_utils::log_err::LogErr;
 use lapiz_widgets::{
-    fluent_builder::When, form::Form, spin_slider::SpinSlider, style::ButtonStyle,
+    button::Button, checkbox::Checkbox, combo_box::ComboBox, fluent_builder::When, form::Form,
+    icon, label::Label, panel::Panel, spin_slider::SpinSlider,
 };
 use tracing::error;
 
@@ -81,6 +82,10 @@ impl ToolFunction for BucketTool {
 
     fn id() -> ToolId {
         ToolId::new("bucket_tool".into())
+    }
+
+    fn icon() -> icon::Icon<'static> {
+        icon::fill()
     }
 
     fn end(
@@ -238,7 +243,7 @@ impl ToolFunction for BucketTool {
             )
             .push(
                 "Contiguous",
-                checkbox(self.contiguous).on_toggle(BucketToolMessage::ContiguousChanged),
+                Checkbox::new(self.contiguous).on_toggle(BucketToolMessage::ContiguousChanged),
             )
             .push(
                 "Close Gap",
@@ -247,31 +252,31 @@ impl ToolFunction for BucketTool {
             )
             .push(
                 "Blend Function",
-                pick_list(
+                ComboBox::new(
                     // TODO i18n
                     blend_functions.all_ids().cloned().collect::<Vec<_>>(),
-                    Some(&self.blend_function),
+                    Some(self.blend_function.clone()),
                     BucketToolMessage::BlendFunctionChanged,
                 ),
             )
             .push(
                 "Antialiasing Approach",
                 row![
-                    button("None")
+                    Button::new(Label::new("None"))
                         .on_press(BucketToolMessage::AaApproachSelected(
                             BucketAntialiasApproach::None
                         ))
-                        .style_pressed(matches!(self.aa_approach, BucketAntialiasApproach::None)),
-                    button("FXAA")
+                        .activated(matches!(self.aa_approach, BucketAntialiasApproach::None)),
+                    Button::new(Label::new("FXAA"))
                         .on_press(BucketToolMessage::AaApproachSelected(
                             BucketAntialiasApproach::Fxaa
                         ))
-                        .style_pressed(matches!(self.aa_approach, BucketAntialiasApproach::Fxaa)),
-                    button("Feather")
+                        .activated(matches!(self.aa_approach, BucketAntialiasApproach::Fxaa)),
+                    Button::new(Label::new("Feather"))
                         .on_press(BucketToolMessage::AaApproachSelected(
                             BucketAntialiasApproach::Feather(self.cached_feather)
                         ))
-                        .style_pressed(matches!(
+                        .activated(matches!(
                             self.aa_approach,
                             BucketAntialiasApproach::Feather(_)
                         )),
@@ -289,7 +294,7 @@ impl ToolFunction for BucketTool {
                 },
             );
 
-        Some(container(fields).padding(8).width(Length::Fill).into())
+        Some(Panel::new(fields).padding(8).width(Length::Fill).into())
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
