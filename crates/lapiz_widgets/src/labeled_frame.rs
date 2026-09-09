@@ -1,10 +1,12 @@
 use iced_core::Renderer as _;
 use iced_core::{
-    Border, Element, Layout, Length, Point, Rectangle, Size, Theme, Vector, Widget, layout, mouse,
-    overlay, renderer,
+    Border, Element, Layout, Length, Point, Rectangle, Size, Theme, Vector, Widget, layout,
+    overlay,
+    pointer::mouse,
+    renderer,
     widget::{Operation, Tree},
 };
-use iced_wgpu::Renderer;
+use lapiz_runtime::Renderer;
 
 const BORDER: f32 = 1.0;
 const PADDING: f32 = 12.0;
@@ -25,8 +27,8 @@ impl<'a, Message> LabeledFrame<'a, Message> {
         Self {
             title: title.into(),
             content: content.into(),
-            width: Length::Shrink,
-            height: Length::Shrink,
+            width: Length::Fit,
+            height: Length::Fit,
         }
     }
 
@@ -42,12 +44,8 @@ impl<'a, Message> LabeledFrame<'a, Message> {
 }
 
 impl<Message> Widget<Message, Theme, Renderer> for LabeledFrame<'_, Message> {
-    fn children(&self) -> Vec<Tree> {
-        vec![Tree::new(&self.title), Tree::new(&self.content)]
-    }
-
-    fn diff(&self, tree: &mut Tree) {
-        tree.diff_children(&[&self.title, &self.content]);
+    fn diff(&mut self, tree: &mut Tree) {
+        tree.diff_children(&mut [&mut self.title, &mut self.content]);
     }
 
     fn size(&self) -> Size<Length> {
@@ -124,7 +122,6 @@ impl<Message> Widget<Message, Theme, Renderer> for LabeledFrame<'_, Message> {
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn iced_core::Clipboard,
         shell: &mut iced_core::Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
@@ -137,7 +134,6 @@ impl<Message> Widget<Message, Theme, Renderer> for LabeledFrame<'_, Message> {
             title_layout,
             cursor,
             renderer,
-            clipboard,
             shell,
             viewport,
         );
@@ -147,7 +143,6 @@ impl<Message> Widget<Message, Theme, Renderer> for LabeledFrame<'_, Message> {
             content_layout,
             cursor,
             renderer,
-            clipboard,
             shell,
             viewport,
         );
@@ -163,7 +158,7 @@ impl<Message> Widget<Message, Theme, Renderer> for LabeledFrame<'_, Message> {
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        let p = theme.extended_palette();
+        let p = theme.palette();
         let bounds = layout.bounds();
         renderer.fill_quad(
             renderer::Quad {

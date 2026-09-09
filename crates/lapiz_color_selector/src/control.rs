@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use glam::Vec2;
 use iced_core::{
-    Clipboard, Color, Element, Event, Layout, Length, Point, Rectangle, Renderer as _, Shell, Size,
-    Theme, Vector, Widget,
+    Color, Element, Event, Layout, Length, Point, Rectangle, Renderer as _, Shell, Size, Theme,
+    Vector, Widget,
     layout::{self, Limits},
-    mouse,
+    pointer,
+    pointer::mouse,
     renderer::{self},
     widget::{
         Tree,
@@ -14,8 +15,9 @@ use iced_core::{
 };
 use iced_runtime::Task;
 use iced_wgpu::graphics::geometry;
-use iced_wgpu::{Renderer, primitive};
+use iced_wgpu::primitive;
 use iced_widget::canvas::{Frame, Path, Stroke};
+use lapiz_runtime::Renderer;
 use lapiz_runtime::Services;
 
 use crate::{
@@ -287,7 +289,7 @@ impl Widget<ColorSelectorMessage, Theme, Renderer> for GradientSurface {
     }
 
     fn layout(&mut self, _tree: &mut Tree, _renderer: &Renderer, limits: &Limits) -> layout::Node {
-        let limits = limits.max_width(self.max_width);
+        let limits = limits.width(Length::Fit.max(self.max_width));
         let size = limits.resolve(self.width, self.height, Size::ZERO);
         let size = if self.square {
             let side = size.width.min(size.height).max(1.0);
@@ -305,7 +307,6 @@ impl Widget<ColorSelectorMessage, Theme, Renderer> for GradientSurface {
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _renderer: &Renderer,
-        _clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, ColorSelectorMessage>,
         _viewport: &Rectangle,
     ) {
@@ -322,18 +323,18 @@ impl Widget<ColorSelectorMessage, Theme, Renderer> for GradientSurface {
         };
 
         match event {
-            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+            Event::Pointer(event) if event.is_primary_press() => {
                 shell.publish(ColorSelectorMessage::SurfacePress(
                     self.surface_target,
                     position,
                 ));
                 shell.capture_event();
             }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+            Event::Pointer(event) if event.is_primary_release() => {
                 shell.publish(ColorSelectorMessage::SurfaceRelease);
                 shell.capture_event();
             }
-            Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+            Event::Pointer(pointer::Event::PointerMoved { .. }) => {
                 shell.publish(ColorSelectorMessage::SurfaceMove(position));
                 shell.capture_event();
             }
@@ -442,20 +443,20 @@ impl Widget<ColorSelectorMessage, Theme, Renderer> for PlaneRow {
             .map_or(tree::State::new(()), |surface| surface.state())
     }
 
-    fn children(&self) -> Vec<Tree> {
-        (0..self.surfaces.len())
-            .map(|_| Tree {
-                tag: Tag::stateless(),
-                state: tree::State::None,
+    fn diff(&mut self, tree: &mut Tree) {
+        tree.diff_children_custom(
+            &mut self.surfaces,
+            |tree, surface| surface.diff(tree),
+            |surface| Tree {
+                tag: surface.tag(),
+                state: surface.state(),
                 children: Vec::new(),
-            })
-            .collect()
+            },
+        );
     }
 
-    fn diff(&self, _tree: &mut Tree) {}
-
     fn size(&self) -> Size<Length> {
-        Size::new(Length::Fill, Length::Shrink)
+        Size::new(Length::Fill, Length::Fit)
     }
 
     fn layout(&mut self, tree: &mut Tree, renderer: &Renderer, limits: &Limits) -> layout::Node {
@@ -496,7 +497,6 @@ impl Widget<ColorSelectorMessage, Theme, Renderer> for PlaneRow {
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, ColorSelectorMessage>,
         viewport: &Rectangle,
     ) {
@@ -512,7 +512,6 @@ impl Widget<ColorSelectorMessage, Theme, Renderer> for PlaneRow {
                 child_layout,
                 cursor,
                 renderer,
-                clipboard,
                 shell,
                 viewport,
             );

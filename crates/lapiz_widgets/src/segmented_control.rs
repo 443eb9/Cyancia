@@ -1,5 +1,5 @@
 use iced_core::{Element, Length, Theme};
-use iced_wgpu::Renderer;
+use lapiz_runtime::Renderer;
 
 use crate::{button::Button, callback::Callback, flex::Flex};
 
@@ -19,7 +19,7 @@ impl<'a, Message: 'a> SegmentedControl<'a, Message> {
     pub fn new() -> Self {
         Self {
             segments: Vec::new(),
-            width: Length::Shrink,
+            width: Length::Fit,
             height: Length::Fixed(24.0),
         }
     }

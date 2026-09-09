@@ -4,11 +4,10 @@ use bevy_math::IRect;
 use encase::ShaderType;
 use glam::{IVec2, Vec2};
 use iced_core::{
-    Color, Element, Length, Point, Rectangle, Size, Theme, Vector, Widget, layout, mouse, renderer,
-    widget,
+    Color, Element, Length, Point, Rectangle, Size, Theme, Vector, Widget, layout, pointer::mouse,
+    renderer, widget,
 };
 use iced_runtime::{Task, futures::Subscription};
-use iced_wgpu::Renderer;
 use iced_widget::{
     canvas::{Frame, Path, Stroke},
     column, row, space,
@@ -41,6 +40,7 @@ use lapiz_render::{
     render_context::RenderContextAppExt,
     wesl_jit,
 };
+use lapiz_runtime::Renderer;
 use lapiz_runtime::{Services, event::Event};
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_undo::BatchedUndoCommand;
@@ -756,7 +756,7 @@ impl LiquifyPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("liquify dab pipeline layout"),
-            bind_group_layouts: &[&layout],
+            bind_group_layouts: &[Some(&layout)],
             ..Default::default()
         });
 
@@ -820,7 +820,7 @@ impl LiquifyPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("liquify render pipeline layout"),
-            bind_group_layouts: &[&layout],
+            bind_group_layouts: &[Some(&layout)],
             ..Default::default()
         });
 

@@ -1,5 +1,5 @@
 use iced_core::{Border, Element, Length, Shadow, Theme, Vector};
-use iced_wgpu::Renderer;
+use lapiz_runtime::Renderer;
 
 use crate::button::{self, Button, activated_style, transparent};
 use crate::flex::{self, Flex};
@@ -29,7 +29,7 @@ impl<'a, Message> TabBar<'a, Message> {
         Self {
             tabs: Vec::new(),
             variant: Variant::Line,
-            width: Length::Shrink,
+            width: Length::Fit,
             height: Length::Fixed(26.0),
         }
     }
@@ -112,7 +112,7 @@ fn style(theme: &Theme, status: button::Status, variant: Variant, selected: bool
     if variant == Variant::Block && selected {
         return activated_style(theme, status);
     }
-    let p = theme.extended_palette();
+    let p = theme.palette();
     let mut style = transparent(theme, status);
     if selected {
         style.text_color = p.background.base.text;
@@ -129,7 +129,7 @@ fn style(theme: &Theme, status: button::Status, variant: Variant, selected: bool
 }
 
 fn tab_bar(theme: &Theme, _status: flex::Status) -> flex::Style {
-    let p = theme.extended_palette();
+    let p = theme.palette();
     flex::Style::default().border(Border {
         radius: 0.0.into(),
         width: 1.0,

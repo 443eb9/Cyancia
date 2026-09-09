@@ -5,13 +5,11 @@ use iced::{
     Element, Length, Size, Subscription, Task, Theme,
     event::listen_with,
     keyboard::{self, Modifiers},
-    mouse,
+    pointer,
     widget::Space,
     window,
 };
 use iced_core::Point;
-use iced_runtime::task;
-use iced_wgpu::Renderer;
 use iced_widget::{space, stack};
 use lapiz_assets::AssetAppExt;
 use lapiz_brush::{asset::BrushPreset, tool::BrushServicesExt, widget::BrushPresetListDelegate};
@@ -45,8 +43,12 @@ use lapiz_image::{
     },
     tile::{GpuTileStorage, TileStorageAppExt},
 };
-use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
+use lapiz_input::{
+    key::KeyboardState,
+    mouse::{HoverMouseState, PressedMouseState},
+};
 use lapiz_render::render_context::RenderContextAppExt;
+use lapiz_runtime::Renderer;
 use lapiz_runtime::{Services, event::Event};
 use lapiz_tools::{
     ErasedToolFunctionMessage, ToolFunctionRegistry, ToolId, manifest::ToolBoxManifest,
@@ -598,6 +600,7 @@ pub fn construct_canvas_dock_id(canvas: CanvasId) -> String {
 pub struct CanvasDock {
     canvas: CanvasId,
 
+    is_mouse_pressed: bool,
     compositor: ImageCompositor,
     cursor_position: Point,
 
@@ -610,6 +613,7 @@ impl CanvasDock {
     pub fn new(canvas: CanvasId, window_id: window::Id) -> Self {
         Self {
             canvas,
+            is_mouse_pressed: false,
             compositor: ImageCompositor::default(),
             cursor_position: Point::default(),
             window_id: RefCell::new(window_id),
@@ -623,11 +627,10 @@ pub enum CanvasDockMessage {
     WindowMoved,
     CanvasUpdated(Option<IRect>),
     CanvasFocus(Point),
-    MouseEvent(mouse::Event),
+    PointerEvent(pointer::Event),
     WidgetRectChange(Rect),
     ToolFunctionMessage(ErasedToolFunctionMessage),
     RawWindowIdUpdate(u64),
-    MonitorNameUpdate(Option<String>),
 }
 
 impl Dock for CanvasDock {
@@ -668,7 +671,7 @@ impl Dock for CanvasDock {
             canvas,
             tile_storage: services.service::<GpuTileStorage>().clone(),
             on_focus: Box::new(CanvasDockMessage::CanvasFocus),
-            on_mouse_event: Box::new(CanvasDockMessage::MouseEvent),
+            on_pointer_event: Box::new(CanvasDockMessage::PointerEvent),
             on_widget_rect_change: Box::new(CanvasDockMessage::WidgetRectChange),
             // TODO wrap in arc?
             color_profile: canvas.image.profile().clone(),
@@ -710,7 +713,7 @@ impl Dock for CanvasDock {
 
                 Task::none()
             }
-            CanvasDockMessage::MouseEvent(event) => {
+            CanvasDockMessage::PointerEvent(event) => {
                 if services.current_canvas_id() != Some(self.canvas) {
                     return Task::none();
                 }
@@ -720,35 +723,43 @@ impl Dock for CanvasDock {
                         let keyboard_state = services.service::<KeyboardState>().clone();
 
                         match event {
-                            mouse::Event::ButtonPressed(button) => {
-                                if button != mouse::Button::Left {
-                                    return Task::none();
-                                }
-
+                            pointer::Event::PointerPressed { position, button }
+                                if event.is_primary_press() =>
+                            {
+                                self.is_mouse_pressed = true;
+                                self.cursor_position = position;
                                 tool_proxy.mouse_pressed(
                                     &keyboard_state,
-                                    &PressedMouseState {
-                                        position: self.cursor_position,
-                                    },
+                                    &PressedMouseState::from_button(position, button),
                                     services,
                                 )
                             }
-                            mouse::Event::ButtonReleased(button) => {
-                                if button != mouse::Button::Left {
-                                    return Task::none();
-                                }
-
+                            pointer::Event::PointerReleased { position, button }
+                                if event.is_primary_release() =>
+                            {
+                                self.is_mouse_pressed = false;
+                                self.cursor_position = position;
                                 tool_proxy.mouse_released(
                                     &keyboard_state,
-                                    &PressedMouseState {
-                                        position: self.cursor_position,
-                                    },
+                                    &PressedMouseState::from_button(position, button),
                                     services,
                                 )
                             }
-                            mouse::Event::CursorMoved { position } => {
+                            pointer::Event::PointerMoved { position, source } => {
                                 self.cursor_position = position;
-                                tool_proxy.mouse_moved(&keyboard_state, position, services)
+                                if self.is_mouse_pressed {
+                                    tool_proxy.mouse_moved_pressing(
+                                        &keyboard_state,
+                                        &PressedMouseState::from_pointer(position, source),
+                                        services,
+                                    )
+                                } else {
+                                    tool_proxy.mouse_moved_hovering(
+                                        &keyboard_state,
+                                        &HoverMouseState::from_pointer(position, source),
+                                        services,
+                                    )
+                                }
                             }
                             _ => Task::none(),
                         }
@@ -776,25 +787,11 @@ impl Dock for CanvasDock {
                 })
                 .unwrap_or_else(Task::none)
                 .map(CanvasDockMessage::ToolFunctionMessage),
-            CanvasDockMessage::WindowMoved => {
-                let window_id = *self.window_id.borrow();
-
-                let monitor_name = task::oneshot(move |channel| {
-                    iced_runtime::Action::Window(window::Action::GetMonitorName(window_id, channel))
-                })
-                .map(CanvasDockMessage::MonitorNameUpdate);
-
-                let window_raw_id =
-                    window::raw_id::<()>(window_id).map(CanvasDockMessage::RawWindowIdUpdate);
-
-                Task::batch([monitor_name, window_raw_id])
-            }
+            CanvasDockMessage::WindowMoved => window::raw_id::<()>(*self.window_id.borrow())
+                .map(CanvasDockMessage::RawWindowIdUpdate),
             CanvasDockMessage::RawWindowIdUpdate(id) => {
                 self.raw_window_id = Some(id);
-                Task::none()
-            }
-            CanvasDockMessage::MonitorNameUpdate(name) => {
-                self.monitor_name = name;
+                self.monitor_name = Some(lapiz_runtime::platform::get_window_monitor_name(id));
                 Task::none()
             }
         }
@@ -861,7 +858,7 @@ impl Dock for ToolOptionsDock {
         &'a self,
         _window_id: window::Id,
         services: &'a Services,
-    ) -> Element<'a, Self::Message, Theme, iced_wgpu::Renderer> {
+    ) -> Element<'a, Self::Message, Theme, lapiz_runtime::Renderer> {
         let Some(tool_proxy) = services.current_tool_proxy() else {
             return space().into();
         };
@@ -947,7 +944,7 @@ impl Dock for ToolBoxDock {
                 .unwrap_or_else(icon::info)
                 .size(12)
                 .style(move |theme, _| {
-                    let p = theme.extended_palette();
+                    let p = theme.palette();
                     icon::Style {
                         color: Some(if selected {
                             p.primary.base.text
@@ -961,7 +958,7 @@ impl Dock for ToolBoxDock {
                 .height(28)
                 .padding(8)
                 .style(move |theme, status| {
-                    let p = theme.extended_palette();
+                    let p = theme.palette();
                     let hovered =
                         matches!(status, button::Status::Hovered | button::Status::Pressed);
                     button::Style {

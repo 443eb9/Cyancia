@@ -9,10 +9,9 @@ use encase::ShaderType;
 use glam::{Mat3, Vec2};
 use iced_core::{
     Alignment, Color, Element, Length, Point, Rectangle, Size, Theme, Vector, Widget,
-    keyboard::Modifiers, layout, mouse, renderer, widget,
+    keyboard::Modifiers, layout, pointer::mouse, renderer, widget,
 };
 use iced_runtime::{Task, futures::Subscription};
-use iced_wgpu::Renderer;
 use iced_widget::{
     canvas::{Frame, Path, Stroke},
     column, row, space, text,
@@ -45,6 +44,7 @@ use lapiz_render::{
     util::DevicePollExt,
     wesl_jit,
 };
+use lapiz_runtime::Renderer;
 use lapiz_runtime::{Services, event::Event};
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_undo::BatchedUndoCommand;
@@ -1398,7 +1398,7 @@ impl FreeTransformPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("free transform pipeline layout"),
-            bind_group_layouts: &[&layout],
+            bind_group_layouts: &[Some(&layout)],
             ..Default::default()
         });
 

@@ -3,14 +3,17 @@ use std::{fmt::Display, ops::RangeBounds, str::FromStr};
 use iced_core::Renderer as _;
 use iced_core::svg::Renderer as _;
 use iced_core::{
-    Border, Clipboard, Element, Event, Layout, Length, Point, Radians, Rectangle, Shell, Size,
-    Theme, Widget, keyboard, layout, mouse, renderer, svg,
-    widget::{Operation, Tree},
+    Border, Element, Event, Layout, Length, Point, Radians, Rectangle, Shell, Size, Theme, Widget,
+    keyboard, layout, pointer,
+    pointer::mouse,
+    renderer, svg,
+    widget::{Operation, Tree, tree},
 };
-use iced_wgpu::Renderer;
-use iced_widget::text_input::{self, Value, cursor};
+use iced_widget::text_input;
+use lapiz_runtime::Renderer;
 
 use crate::callback::{CallbackWith, publish_with};
+use crate::text_input as text_input_ops;
 
 const STEPPER_WIDTH: f32 = 16.0;
 const DEFAULT_WIDTH: f32 = 80.0;
@@ -51,15 +54,19 @@ where
             min: bound(bounds.start_bound()),
             max: bound(bounds.end_bound()),
             step: num_traits::One::one(),
-            content: text_input::TextInput::new("", &text)
-                .on_input(InternalMessage::Changed)
-                .size(12.0)
-                .padding([3.0, 6.0])
-                .style(crate::text_input::default),
+            content: Self::text_input(text.clone()),
             on_change: Some(Box::new(on_change)),
             text,
             width: Length::Fixed(DEFAULT_WIDTH),
         }
+    }
+
+    fn text_input(text: String) -> text_input::TextInput<'a, InternalMessage, Theme, Renderer> {
+        text_input::TextInput::new("", text)
+            .on_input(InternalMessage::Changed)
+            .size(12.0)
+            .padding([3.0, 6.0])
+            .style(crate::text_input::default)
     }
 
     pub fn step(mut self, step: T) -> Self {
@@ -123,7 +130,6 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, InternalMessage>,
         viewport: &Rectangle,
     ) {
@@ -134,7 +140,6 @@ where
             content_layout,
             cursor,
             renderer,
-            clipboard,
             shell,
             viewport,
         );
@@ -148,8 +153,9 @@ fn stepper_at(bounds: Rectangle, position: Point) -> Option<bool> {
     Some(position.y < bounds.y + bounds.height / 2.0)
 }
 
-fn sorted_range(start: usize, end: usize) -> std::ops::Range<usize> {
-    if start > end { end..start } else { start..end }
+#[derive(Default)]
+struct SpinBoxTreeState {
+    input_focused: bool,
 }
 
 impl<'a, T, Message> Widget<Message, Theme, Renderer> for SpinBox<'a, T, Message>
@@ -157,22 +163,22 @@ where
     T: Copy + num_traits::Num + PartialOrd + Display + FromStr + 'a,
     Message: 'a,
 {
-    fn children(&self) -> Vec<Tree> {
-        vec![Tree {
-            tag: self.content.tag(),
-            state: self.content.state(),
-            children: self.content.children(),
-        }]
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<SpinBoxTreeState>()
     }
 
-    fn diff(&self, tree: &mut Tree) {
+    fn state(&self) -> tree::State {
+        tree::State::new(SpinBoxTreeState::default())
+    }
+
+    fn diff(&mut self, tree: &mut Tree) {
         tree.diff_children_custom(
-            &[&self.content],
+            std::slice::from_mut(&mut self.content),
             |tree, content| content.diff(tree),
             |content| Tree {
                 tag: content.tag(),
                 state: content.state(),
-                children: content.children(),
+                children: Vec::new(),
             },
         );
     }
@@ -190,7 +196,7 @@ where
         let limits = limits.width(self.width);
         let content = self
             .content
-            .layout(&mut tree.children[0], renderer, &limits, None);
+            .layout(&mut tree.children[0], renderer, &limits);
         layout::Node::with_children(content.size(), vec![content])
     }
 
@@ -201,7 +207,6 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
@@ -210,16 +215,16 @@ where
             .position()
             .and_then(|position| stepper_at(bounds, position));
 
-        let mut messages = Vec::new();
-        let mut sub_shell = Shell::new(&mut messages);
+        let mut messages = iced_core::shell::Bus::new();
+        let mut sub_shell = shell.local(&mut messages);
 
         match event {
-            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) if stepper.is_some() => {
+            Event::Pointer(event) if event.is_primary_press() && stepper.is_some() => {
                 self.step_value(stepper == Some(true), shell);
                 shell.capture_event();
                 shell.request_redraw();
             }
-            Event::Mouse(mouse::Event::WheelScrolled { delta }) if cursor.is_over(bounds) => {
+            Event::Pointer(pointer::Event::WheelScrolled { delta }) if cursor.is_over(bounds) => {
                 match delta {
                     mouse::ScrollDelta::Lines { y, .. } | mouse::ScrollDelta::Pixels { y, .. } => {
                         self.step_value(y.is_sign_positive(), shell);
@@ -228,20 +233,21 @@ where
                 shell.capture_event();
                 shell.request_redraw();
             }
-            Event::Keyboard(keyboard::Event::KeyPressed {
-                key,
-                text,
-                modifiers,
-                ..
-            }) => {
-                let state = tree.children[0]
-                    .state
-                    .downcast_ref::<text_input::State<<Renderer as iced_core::text::Renderer>::Paragraph>>();
-                if !state.is_focused() {
+            Event::Keyboard(keyboard::Event::KeyPressed { key, text, .. }) => {
+                let is_focused = {
+                    let probe = &mut self.content;
+                    text_input_ops::is_focused(|operation| {
+                        probe.operate(
+                            &mut tree.children[0],
+                            layout.children().next().expect("content layout"),
+                            renderer,
+                            operation,
+                        )
+                    })
+                };
+                if !is_focused {
                     return;
                 }
-                let mut value = self.text.clone();
-                let cursor_state = state.cursor().state(&Value::new(&value));
 
                 match key {
                     keyboard::Key::Named(keyboard::key::Named::ArrowUp) if text.is_none() => {
@@ -256,99 +262,7 @@ where
                         shell.request_redraw();
                         return;
                     }
-                    keyboard::Key::Named(
-                        keyboard::key::Named::ArrowLeft
-                        | keyboard::key::Named::ArrowRight
-                        | keyboard::key::Named::Home
-                        | keyboard::key::Named::End,
-                    ) if text.is_none() => {}
-                    keyboard::Key::Named(keyboard::key::Named::Backspace) => {
-                        // The text input deletes a word on ctrl/cmd+backspace, which this
-                        // pre-check cannot simulate, so modifier deletes are blocked.
-                        if modifiers.jump() || modifiers.macos_command() {
-                            return;
-                        }
-                        match cursor_state {
-                            cursor::State::Selection { start, end } => {
-                                value.replace_range(sorted_range(start, end), "");
-                            }
-                            cursor::State::Index(index) if index > 0 => {
-                                value.remove(index - 1);
-                            }
-                            cursor::State::Index(_) => return,
-                        }
-                        shell.capture_event();
-                        if !self.accepts(&value) {
-                            return;
-                        }
-                    }
-                    keyboard::Key::Named(keyboard::key::Named::Delete) => {
-                        if modifiers.jump() || modifiers.macos_command() {
-                            return;
-                        }
-                        match cursor_state {
-                            cursor::State::Selection { start, end } => {
-                                value.replace_range(sorted_range(start, end), "");
-                            }
-                            cursor::State::Index(index) if index < value.len() => {
-                                value.remove(index);
-                            }
-                            cursor::State::Index(_) => return,
-                        }
-                        shell.capture_event();
-                        if !self.accepts(&value) {
-                            return;
-                        }
-                    }
-                    keyboard::Key::Character(characters) if modifiers.command() => match characters
-                        .as_ref()
-                    {
-                        "c" | "a" => {}
-                        "x" => {
-                            let cursor::State::Selection { start, end } = cursor_state else {
-                                return;
-                            };
-                            value.replace_range(sorted_range(start, end), "");
-                            shell.capture_event();
-                            if !self.accepts(&value) {
-                                return;
-                            }
-                        }
-                        "v" => {
-                            let Some(pasted) = clipboard.read(iced_core::clipboard::Kind::Standard)
-                            else {
-                                return;
-                            };
-                            match cursor_state {
-                                cursor::State::Index(index) => {
-                                    value.insert_str(index, &pasted);
-                                }
-                                cursor::State::Selection { start, end } => {
-                                    value.replace_range(sorted_range(start, end), &pasted);
-                                }
-                            }
-                            shell.capture_event();
-                            if !self.accepts(&value) {
-                                return;
-                            }
-                        }
-                        _ => return,
-                    },
-                    _ => {
-                        let Some(typed) = text.as_deref() else {
-                            return;
-                        };
-                        match cursor_state {
-                            cursor::State::Index(index) => value.insert_str(index, typed),
-                            cursor::State::Selection { start, end } => {
-                                value.replace_range(sorted_range(start, end), typed);
-                            }
-                        }
-                        shell.capture_event();
-                        if !self.accepts(&value) {
-                            return;
-                        }
-                    }
+                    _ => {}
                 }
                 self.forward_content(
                     tree,
@@ -356,7 +270,6 @@ where
                     layout,
                     cursor,
                     renderer,
-                    clipboard,
                     &mut sub_shell,
                     viewport,
                 );
@@ -367,26 +280,43 @@ where
                 layout,
                 cursor,
                 renderer,
-                clipboard,
                 &mut sub_shell,
                 viewport,
             ),
+        }
+
+        {
+            let probe = &mut self.content;
+            let is_focused = text_input_ops::is_focused(|operation| {
+                probe.operate(
+                    &mut tree.children[0],
+                    layout.children().next().expect("content layout"),
+                    renderer,
+                    operation,
+                )
+            });
+            tree.state.downcast_mut::<SpinBoxTreeState>().input_focused = is_focused;
         }
 
         shell.request_redraw_at(sub_shell.redraw_request());
         if sub_shell.is_event_captured() {
             shell.capture_event();
         }
-        if sub_shell.is_layout_invalid() {
-            shell.invalidate_layout();
+        if let Some(diff) = sub_shell.is_layout_invalid() {
+            shell.invalidate_layout_with(diff);
         }
         if sub_shell.are_widgets_invalid() {
             shell.invalidate_widgets();
         }
-        for message in messages {
+        for message in messages.drain().map(|(message, _)| message) {
             match message {
                 InternalMessage::Changed(text) => {
-                    self.text = text;
+                    if self.accepts(&text) {
+                        self.text = text;
+                    }
+                    self.content = Self::text_input(self.text.clone());
+                    shell.invalidate_layout();
+
                     if let Ok(value) = T::from_str(&self.text)
                         && self.in_bounds(&value)
                         && value != self.value
@@ -396,7 +326,6 @@ where
                             shell.publish(message);
                         }
                     }
-                    shell.invalidate_layout();
                 }
             }
         }
@@ -430,17 +359,16 @@ where
             &tree.children[0],
             renderer,
             theme,
+            &renderer::Style {
+                text_color: Default::default(),
+            },
             content_layout,
             cursor,
-            None,
             viewport,
         );
 
-        let p = theme.extended_palette();
-        let focused = tree.children[0]
-            .state
-            .downcast_ref::<text_input::State<<Renderer as iced_core::text::Renderer>::Paragraph>>()
-            .is_focused();
+        let p = theme.palette();
+        let focused = tree.state.downcast_ref::<SpinBoxTreeState>().input_focused;
         let border_color = if focused {
             p.primary.base.color
         } else {
