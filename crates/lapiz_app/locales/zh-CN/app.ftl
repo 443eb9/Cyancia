@@ -1,0 +1,50 @@
+menu_file = 文件
+menu_edit = 编辑
+menu_layer = 图层
+menu_select = 选择
+menu_filter = 滤镜
+menu_window = 窗口
+
+open_file_action = 打开
+save_file_action = 保存
+undo_action = 撤销
+redo_action = 重做
+paste_into_new_layer_action = 粘贴为新图层
+create_new_layer_action = 新建图层
+group_selected_layers_action = 图层编组
+move_layer_up_action = 上移图层
+move_layer_down_action = 下移图层
+delete_selected_layers_action = 删除图层
+select_previous_layer_action = 选择上一图层
+select_next_layer_action = 选择下一图层
+delete_selection_action = 删除选区
+toggle_filter_panel_action = 切换滤镜面板
+open_brush_editor_action = 打开笔刷编辑器
+
+menu_theme_submenu = 主题
+menu_language_submenu = 语言
+pan_tool = 平移
+rotate_tool = 旋转
+zoom_tool = 缩放
+free_transform_tool = 自由变换
+brush_tool = 笔刷
+bucket_tool = 油漆桶
+
+rectangular_selection_tool = 矩形选区
+elliptical_selection_tool = 椭圆选区
+freehand_selection_tool = 手绘选区
+polygon_selection_tool = 多边形选区
+magic_wand_selection_tool = 魔棒选区
+perspective_transform_tool = 透视变换
+liquify_tool = 液化
+
+tool_box_dock = 工具箱
+tool_options_dock = 工具选项
+layer_dock = 图层
+color_selector_dock = 颜色
+brush_presets_dock = 笔刷预设
+settings = 设置
+no_tool_options = 此工具没有选项
+canvas_dock = 画布 { $name }
+default_layer_name = 图层
+default_group_name = 图组

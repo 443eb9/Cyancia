@@ -4,6 +4,7 @@ use crate::main_view::MainView;
 
 mod dock;
 mod main_view;
+lapiz_i18n::define_i18n!("app");
 
 use lapiz_abr_bridge::AbrAssetBundle;
 use lapiz_actions::ActionPlugin;
@@ -15,6 +16,7 @@ use lapiz_brush::{BrushPlugin, editor::BrushEditor};
 use lapiz_bucket_tool::BucketPlugin;
 use lapiz_canvas::CanvasPlugin;
 use lapiz_color::ColorPlugin;
+use lapiz_color_selector::ColorSelectorPlugin;
 use lapiz_filter::{FilterPlugin, editor::FilterEditor, panel::FilterPanel};
 use lapiz_image::ImagePlugin;
 use lapiz_input::InputPlugin;
@@ -30,6 +32,8 @@ fn main() {
     tracing_subscriber::fmt()
         .with_env_filter("info,wgpu_hal=warn,iced_winit=warn,iced_wgpu=warn")
         .init();
+
+    i18n::init();
 
     log::info!("Running at {}", std::env::current_dir().unwrap().display());
 
@@ -98,7 +102,8 @@ fn main() {
         .add_plugin(SelectionPlugin)
         .add_plugin(FreeTransformPlugin)
         .add_plugin(ColorPlugin)
-        .add_plugin(ActionPlugin);
+        .add_plugin(ActionPlugin)
+        .add_plugin(ColorSelectorPlugin);
     app.build_plugins();
 
     {
@@ -110,6 +115,8 @@ fn main() {
         rt.window_manager_mut().register_view::<FilterPanel>();
         rt.window_manager_mut().register_view::<FilterEditor>();
     }
+
+    lapiz_i18n::init();
 
     app.run().unwrap();
 }

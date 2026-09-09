@@ -14,7 +14,7 @@ use lapiz_color::{
     platform,
 };
 use lapiz_render::render_context::RenderContextAppExt;
-use lapiz_runtime::Services;
+use lapiz_runtime::{Application, Services, plugin::Plugin};
 use lapiz_widgets::{fluent_builder::When, radio::Radio, spin_slider::SpinSlider};
 use moxcms::ColorProfile;
 use parse_display::Display;
@@ -26,14 +26,25 @@ use crate::{
     render::SurfaceDrawData,
 };
 
+lapiz_i18n::define_i18n!("color_selector");
+
 pub mod config;
 mod control;
 mod pipeline;
 mod render;
 
+pub struct ColorSelectorPlugin;
+
+impl Plugin for ColorSelectorPlugin {
+    fn build(&self, _app: &mut Application) {
+        i18n::init();
+    }
+}
+
 const GRADIENT_RING_GAP: f32 = 5.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
+#[display(style = "snake_case")]
 #[repr(u32)]
 pub enum GradientPlaneShape {
     Square,

@@ -29,6 +29,7 @@ use iced_widget::{
     row, stack,
 };
 use indexmap::IndexMap;
+use lapiz_i18n::t;
 use lapiz_widgets::{button::Button, color::ColorMix, icon, label::Label};
 use uuid::Uuid;
 
@@ -146,13 +147,13 @@ impl<'a, Data: GraphData> From<GraphEditor<'a, Data>>
                 .into_iter()
                 .nth(comp.subgraph_index)
                 .unwrap();
-            Button::new(Label::new(node.data.name()))
+            Button::new(Label::new(t!(node.data.id())))
                 .on_press(GraphEditorMessage::Editor(
                     GraphEditorEditorMessage::BackToSubgraphOrMain(Some(index)),
                 ))
                 .into()
         });
-        let main_graph_path = Button::new(Label::new("Main Graph")).on_press(
+        let main_graph_path = Button::new(Label::new(t!("main_graph"))).on_press(
             GraphEditorMessage::Editor(GraphEditorEditorMessage::BackToSubgraphOrMain(None)),
         );
         let path_breadcrumb = row![main_graph_path].extend(subgraph_path);
@@ -267,7 +268,7 @@ pub struct NodeCreationMenuItem {
 
 impl std::fmt::Display for NodeCreationMenuItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.node_title)
+        f.write_str(&t!(self.node_title))
     }
 }
 
@@ -381,7 +382,7 @@ impl<'a> DrawableNode<'a> {
                         ..Default::default()
                     }
                 }),
-                Label::new(node.data.name()).size(12).strong(),
+                Label::new(t!(node.data.id())).size(12).strong(),
                 iced_widget::space().width(Length::Fill),
                 icon::grip().size(9).muted(),
             ]

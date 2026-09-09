@@ -8,6 +8,7 @@ use lapiz_canvas::{
         MoveLayersCommand,
     },
 };
+use lapiz_i18n::t;
 use lapiz_image::layer::{
     LayerId, LayerPosition, LayerStackNode,
     group_layer::GroupLayer,
@@ -26,7 +27,7 @@ impl ActionFunction for CreateNewLayerAction {
     type Message = ();
 
     fn id(&self) -> ActionId {
-        ActionId::new("CreateNewLayerAction".into())
+        ActionId::new("create_new_layer_action".into())
     }
 
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
@@ -54,7 +55,7 @@ impl ActionFunction for CreateNewLayerAction {
                     }
                     (*cur_parent.id(), cur_position)
                 };
-                let name = canvas.image.next_name_of_layer("Layer".into());
+                let name = canvas.image.next_name_of_layer(t!("default_layer_name"));
 
                 let new_layer =
                     LayerStackNode::without_parent(LayerId::random(), Box::new(PixelLayer), {
@@ -81,7 +82,7 @@ impl ActionFunction for GroupSelectedLayersAction {
     type Message = ();
 
     fn id(&self) -> ActionId {
-        ActionId::new("GroupSelectedLayersAction".into())
+        ActionId::new("group_selected_layers_action".into())
     }
 
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
@@ -90,7 +91,7 @@ impl ActionFunction for GroupSelectedLayersAction {
         };
 
         let cmd = services.update_canvas(&canvas_id, |canvas, _| {
-            let group_name = canvas.image.next_name_of_layer("Group".to_string());
+            let group_name = canvas.image.next_name_of_layer(t!("default_group_name"));
             let reduced_layers = canvas
                 .image
                 .layer_stack()
@@ -150,7 +151,7 @@ impl ActionFunction for MoveLayerUpAction {
     type Message = ();
 
     fn id(&self) -> ActionId {
-        ActionId::new("MoveLayerUpAction".into())
+        ActionId::new("move_layer_up_action".into())
     }
 
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
@@ -216,7 +217,7 @@ impl ActionFunction for MoveLayerDownAction {
     type Message = ();
 
     fn id(&self) -> ActionId {
-        ActionId::new("MoveLayerDownAction".into())
+        ActionId::new("move_layer_down_action".into())
     }
 
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
@@ -282,7 +283,7 @@ impl ActionFunction for DeleteSelectedLayersAction {
     type Message = ();
 
     fn id(&self) -> ActionId {
-        ActionId::new("DeleteSelectedLayersAction".into())
+        ActionId::new("delete_selected_layers_action".into())
     }
 
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
@@ -316,7 +317,7 @@ impl ActionFunction for SelectPreviousLayerAction {
     type Message = ();
 
     fn id(&self) -> ActionId {
-        ActionId::new("SelectPreviousLayerAction".into())
+        ActionId::new("select_previous_layer_action".into())
     }
 
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
@@ -351,7 +352,7 @@ impl ActionFunction for SelectNextLayerAction {
     type Message = ();
 
     fn id(&self) -> ActionId {
-        ActionId::new("SelectNextLayerAction".into())
+        ActionId::new("select_next_layer_action".into())
     }
 
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {

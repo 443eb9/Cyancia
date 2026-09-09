@@ -1,0 +1,50 @@
+menu_file = File
+menu_edit = Edit
+menu_layer = Layer
+menu_select = Select
+menu_filter = Filter
+menu_window = Window
+
+open_file_action = Open
+save_file_action = Save
+undo_action = Undo
+redo_action = Redo
+paste_into_new_layer_action = Paste as New Layer
+create_new_layer_action = New Layer
+group_selected_layers_action = Group Layers
+move_layer_up_action = Move Layer Up
+move_layer_down_action = Move Layer Down
+delete_selected_layers_action = Delete Layers
+select_previous_layer_action = Select Previous Layer
+select_next_layer_action = Select Next Layer
+delete_selection_action = Delete Selection
+toggle_filter_panel_action = Toggle Filter Panel
+open_brush_editor_action = Open Brush Editor
+
+menu_theme_submenu = Theme
+menu_language_submenu = Language
+
+pan_tool = Pan
+rotate_tool = Rotate
+zoom_tool = Zoom
+free_transform_tool = Free Transform
+brush_tool = Brush
+bucket_tool = Bucket
+rectangular_selection_tool = Rectangular Selection
+elliptical_selection_tool = Elliptical Selection
+freehand_selection_tool = Freehand Selection
+polygon_selection_tool = Polygon Selection
+magic_wand_selection_tool = Magic Wand Selection
+perspective_transform_tool = Perspective Transform
+liquify_tool = Liquify
+
+tool_box_dock = Tool Box
+tool_options_dock = Tool Options
+layer_dock = Layers
+color_selector_dock = Color
+brush_presets_dock = Brush Presets
+settings = Settings
+no_tool_options = No options for this tool
+canvas_dock = Canvas { $name }
+default_layer_name = Layer
+default_group_name = Group
