@@ -3,7 +3,6 @@ use std::{any::Any, collections::HashMap, rc::Rc, sync::Arc};
 use iced_core::{Element, Theme};
 use iced_runtime::{Task, futures::Subscription};
 use iced_widget::{Stack, space};
-use lapiz_assets::AssetAppExt;
 use lapiz_input::{
     key::{KeySequence, KeyboardState},
     mouse::{HoverMouseState, PressedMouseState},
@@ -15,7 +14,7 @@ use parse_display::Display;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::manifest::{ToolBinding, ToolBindingManifest, ToolBindingManifestSerializer};
+use crate::manifest::{ToolBinding, ToolBindingManifestConfig};
 
 pub mod manifest;
 
@@ -26,31 +25,23 @@ impl Plugin for ToolsPlugin {
         app.add_service::<ToolFunctionRegistry>()
             .add_service::<ToolProxies>()
             .add_service::<GlobalToolBindings>();
-        app.runtime_mut()
-            .services_mut()
-            .add_asset_serializer::<ToolBindingManifestSerializer>();
     }
 
     fn finish(&self, app: &mut Application) {
-        let mut runtime = app.runtime_mut();
-        let services = runtime.services_mut();
-        let manifest = services
-            .assets()
-            .all_handles_of::<ToolBindingManifest>()
-            .expect("Failed to read tool binding manifests")
-            .into_iter()
-            .next()
-            .expect("At least one tool binding manifest should exist")
-            .get()
-            .expect("Failed to load tool binding manifest");
+        let tool_bindings = ToolBindingManifestConfig::read_or_init_or_fallback();
 
-        let bindings = manifest
+        let bindings = tool_bindings
+            .get()
             .bindings
             .iter()
             .cloned()
             .map(|binding| (binding.shortcut, binding))
             .collect();
-        services.service_mut::<GlobalToolBindings>().bindings = bindings;
+
+        app.runtime_mut()
+            .services_mut()
+            .service_mut::<GlobalToolBindings>()
+            .bindings = bindings;
     }
 }
 

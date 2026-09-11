@@ -1,4 +1,5 @@
-use lapiz_assets::{asset::Asset, loader::AssetSerializer};
+use anyhow::Result;
+use lapiz_config::{Config, Configuration};
 use lapiz_input::key::KeySequence;
 use serde::{Deserialize, Serialize};
 
@@ -17,48 +18,43 @@ fn is_false(b: &bool) -> bool {
     !b
 }
 
+pub type ToolBindingManifestConfig = Config<ToolBindingManifest>;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolBindingManifest {
     pub name: String,
     pub bindings: Vec<ToolBinding>,
 }
 
-impl Asset for ToolBindingManifest {
-    const TYPE_NAME: &'static str = "tool_bindings";
-}
+impl Configuration for ToolBindingManifest {
+    const NAME: &'static str = "tool_bindings.json";
 
-#[derive(Default)]
-pub struct ToolBindingManifestSerializer;
+    const DEFAULT: &'static str = include_str!("../../../default_config/tool_bindings.json");
 
-impl AssetSerializer for ToolBindingManifestSerializer {
-    type Asset = ToolBindingManifest;
-
-    type Error = serde_json::Error;
-
-    fn file_extension() -> &'static str {
-        "tool_bindings"
+    fn parse(value: &str) -> Result<Self> {
+        Ok(serde_json::from_str(value)?)
     }
 
-    fn read(&self, reader: &mut dyn std::io::Read) -> Result<Self::Asset, Self::Error> {
-        serde_json::from_reader(reader)
-    }
-
-    fn write(
-        &self,
-        asset: &Self::Asset,
-        writer: &mut dyn std::io::Write,
-    ) -> Result<(), Self::Error> {
-        serde_json::to_writer(writer, asset)
+    fn unparse(&self) -> Result<String> {
+        Ok(serde_json::to_string(self)?)
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+pub type ToolBoxManifestConfig = Config<ToolBoxManifest>;
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ToolBoxManifest {
     pub groups: Vec<ToolBarGroup>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ToolBarGroup {
     pub name: String,
     pub tools: Vec<ToolId>,
+}
+
+impl Configuration for ToolBoxManifest {
+    const NAME: &'static str = "tool_box_manifest.toml";
+
+    const DEFAULT: &'static str = include_str!("../../../default_config/tool_box_manifest.toml");
 }

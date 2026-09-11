@@ -10,9 +10,8 @@ use iced::{
 use iced_widget::pane_grid;
 use lapiz_actions::{
     ActionFunctionRegistry, ActionId,
-    manifest::{ActionCollection, KeyBindingDefManifest, MenuBarItem, MenuBarManifest},
+    manifest::{ActionBindingManifestConfig, ActionCollection, MenuBarItem, MenuBarManifestConfig},
 };
-use lapiz_assets::AssetAppExt;
 use lapiz_brush::tool::CurrentBrushPresetHandle;
 use lapiz_canvas::{
     CanvasAppExt, CanvasToolProxyAppExt,
@@ -24,7 +23,7 @@ use lapiz_dock::{
     dock::{Dock, DockId},
     group::DockGroupId,
 };
-use lapiz_i18n::t;
+use lapiz_i18n::{config::LanguageConfig, t};
 use lapiz_input::key::KeyboardState;
 use lapiz_runtime::{
     ApplicationTheme, Renderer, Services,
@@ -32,6 +31,7 @@ use lapiz_runtime::{
     windows::{WindowView, WindowViewId},
 };
 use lapiz_tools::{ErasedToolFunctionMessage, GlobalToolBindings, ToolFunction};
+use lapiz_utils::log_err::LogErr;
 use lapiz_widgets::{
     bar::StatusBar,
     divider::Divider,
@@ -53,7 +53,7 @@ use crate::dock::{
 pub struct MainView {
     dock_manager: DockManager,
     action_collection: ActionCollection,
-    menu_manifest: MenuBarManifest,
+    menu_manifest: MenuBarManifestConfig,
     canvas_group_anchor: Option<DockGroupId>,
 }
 
@@ -121,7 +121,8 @@ impl MainView {
         }
 
         let mut menu_bar = MenuBar::new();
-        for category in &self.menu_manifest.categories {
+        let menu_manifest = self.menu_manifest.get();
+        for category in &menu_manifest.categories {
             menu_bar = menu_bar.menu(
                 t!(&category.title),
                 build_menu(&category.items, &self.action_collection),
@@ -207,31 +208,15 @@ impl WindowView for MainView {
     }
 
     fn boot(services: &mut Services) -> (Self, Task<Self::Message>) {
-        let assets = services.assets();
-        let manifests = assets.all_handles_of::<KeyBindingDefManifest>().unwrap();
-        let manifest = manifests.first().unwrap().get().unwrap();
-
+        let action_bindings = ActionBindingManifestConfig::read_or_init_or_fallback().get();
         log::info!(
             "Loading {} key bindings from manifest {}",
-            manifest.actions.len(),
-            manifest.name
+            action_bindings.actions.len(),
+            action_bindings.name
         );
-        let action_collection = ActionCollection::new(&manifest);
+        let action_collection = ActionCollection::new(&action_bindings);
 
-        // TODO: move to a proper config directory once the app has one.
-        let menu_manifest = match std::fs::read_to_string("assets/menu_bar_manifest.toml") {
-            Ok(content) => match toml::from_str(&content) {
-                Ok(manifest) => manifest,
-                Err(error) => {
-                    log::error!("Failed to parse menu bar manifest: {error}");
-                    MenuBarManifest::default()
-                }
-            },
-            Err(error) => {
-                log::error!("Failed to read menu bar manifest: {error}");
-                MenuBarManifest::default()
-            }
-        };
+        let menu_manifest = MenuBarManifestConfig::read_or_init_or_fallback();
 
         let (main_window, task) = window::open(window::Settings {
             decorations: false,
@@ -573,6 +558,9 @@ impl WindowView for MainView {
             }
             MainViewMessage::MenuBar(MenuBarMessage::SetLanguage(id)) => {
                 lapiz_i18n::set_language(&id);
+                LanguageConfig::read_or_init_or_fallback()
+                    .update(|c| c.lang = Some(id))
+                    .log_err();
                 Task::none()
             }
             MainViewMessage::MenuBar(MenuBarMessage::TriggerAction(action_id)) => {

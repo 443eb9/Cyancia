@@ -1,7 +1,6 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use iced_runtime::Task;
-use lapiz_assets::AssetAppExt;
 use lapiz_runtime::{Application, Services, plugin::Plugin, service::Service};
 use lapiz_utils::wrapper;
 use parse_display::Display;
@@ -14,7 +13,6 @@ use crate::{
         CreateNewLayerAction, DeleteSelectedLayersAction, GroupSelectedLayersAction,
         MoveLayerDownAction, MoveLayerUpAction, SelectNextLayerAction, SelectPreviousLayerAction,
     },
-    manifest::KeyBindingDefManifestLoader,
     selection::DeleteSelectionAction,
     window::{OpenBrushEditorAction, ToggleFilterPanelAction},
 };
@@ -36,9 +34,6 @@ pub struct ActionPlugin;
 impl Plugin for ActionPlugin {
     fn build(&self, app: &mut Application) {
         let mut runtime = app.runtime_mut();
-        runtime
-            .services_mut()
-            .add_asset_serializer::<KeyBindingDefManifestLoader>();
         runtime.add_service::<ActionFunctionRegistry>();
         let services = runtime.services_mut();
         services

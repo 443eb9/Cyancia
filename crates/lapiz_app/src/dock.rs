@@ -27,12 +27,12 @@ use lapiz_color::{
     model::rgb::Rgb,
 };
 use lapiz_color_selector::{
-    ColorModel, ColorSelector, ColorSelectorMessage, ColorSelectorState, GradientPlaneShape,
+    ColorSelector, ColorSelectorMessage, ColorSelectorState,
     config::{
-        ColorSelectorConfig, ColorSelectorConfigEditorState, ColorSelectorConfigMessage,
-        GradientBarConfig, GradientPlaneConfig, GradientPlaneFlipAxis,
+        ColorSelectorConfigEditorState, ColorSelectorConfigGroup, ColorSelectorConfigMessage,
     },
 };
+use lapiz_config::Config;
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;
 use lapiz_image::{
@@ -50,7 +50,7 @@ use lapiz_input::{
 use lapiz_render::render_context::RenderContextAppExt;
 use lapiz_runtime::{Renderer, Services, event::Event};
 use lapiz_tools::{
-    ErasedToolFunctionMessage, ToolFunctionRegistry, ToolId, manifest::ToolBoxManifest,
+    ErasedToolFunctionMessage, ToolFunctionRegistry, ToolId, manifest::ToolBoxManifestConfig,
 };
 use lapiz_utils::log_err::LogErr;
 use lapiz_widgets::{
@@ -75,6 +75,7 @@ pub enum ColorSelectorDockMessage {
     SettingsWindowClosed,
     ForegroundColorChanged(ForegroundColorChanged),
     BackgroundColorChanged(BackgroundColorChanged),
+    ConfigChanged,
 }
 
 pub static COLOR_SELECTOR_DOCK_ID: LazyLock<DockId> =
@@ -85,6 +86,7 @@ pub struct ColorSelectorDock {
     config_editor: ColorSelectorConfigEditorState,
     window_id: RefCell<window::Id>,
     settings_window_id: Option<window::Id>,
+    cached_config: Config<ColorSelectorConfigGroup>,
 
     last_color: Color,
     is_foreground_color: bool,
@@ -92,86 +94,21 @@ pub struct ColorSelectorDock {
 
 impl ColorSelectorDock {
     pub fn new(services: &Services) -> Self {
-        let configs = vec![ColorSelectorConfig {
-            name: "RGB".to_string(),
-            max_plane_size: 512,
-            max_planes_per_row: 2,
-            planes: vec![
-                GradientPlaneConfig {
-                    model: ColorModel::Rgb,
-                    shape: GradientPlaneShape::Square,
-                    variable_channels: 0b110,
-                    flip_axis: GradientPlaneFlipAxis::empty(),
-                    rotation: 0.0,
-                    show_primary_channel_ring: false,
-                    primary_channel_ring_width: 20.0,
-                    ring_bar_saturated_hue_channel: false,
-                    ring_rotation: 0.0,
-                    reversed_ring: false,
-                },
-                GradientPlaneConfig {
-                    model: ColorModel::OkLab,
-                    shape: GradientPlaneShape::Square,
-                    variable_channels: 0b110,
-                    flip_axis: GradientPlaneFlipAxis::empty(),
-                    rotation: 0.0,
-                    show_primary_channel_ring: true,
-                    primary_channel_ring_width: 20.0,
-                    ring_bar_saturated_hue_channel: true,
-                    ring_rotation: std::f32::consts::FRAC_PI_2,
-                    reversed_ring: false,
-                },
-            ],
-            bars: vec![
-                GradientBarConfig {
-                    model: ColorModel::Rgb,
-                    channel: 0,
-                    bar_height: 20.0,
-                    show_channel_label: true,
-                    show_precise_spin_box: true,
-                    show_primary_channel_lock: true,
-                },
-                GradientBarConfig {
-                    model: ColorModel::Rgb,
-                    channel: 1,
-                    bar_height: 20.0,
-                    show_channel_label: true,
-                    show_precise_spin_box: false,
-                    show_primary_channel_lock: true,
-                },
-                GradientBarConfig {
-                    model: ColorModel::Rgb,
-                    channel: 2,
-                    bar_height: 20.0,
-                    show_channel_label: false,
-                    show_precise_spin_box: true,
-                    show_primary_channel_lock: true,
-                },
-                GradientBarConfig {
-                    model: ColorModel::Hsv,
-                    channel: 0,
-                    bar_height: 20.0,
-                    show_channel_label: true,
-                    show_precise_spin_box: true,
-                    show_primary_channel_lock: false,
-                },
-            ],
-            out_of_gamut_color: Rgb::new(0.5, 0.5, 0.5),
-            use_out_of_gamut_color: true,
-            clip_to_gamut: true,
-        }];
+        let cached_config = Config::<ColorSelectorConfigGroup>::read_or_init_or_fallback();
+        let configs = cached_config.get();
 
         Self {
             selector: ColorSelectorState::new(
                 Color::Rgb(Rgb::new(0.0, 0.0, 0.0)),
                 ColorProfile::new_srgb(),
-                configs.clone(),
+                configs.configs.clone(),
                 0,
                 services,
             ),
-            config_editor: ColorSelectorConfigEditorState::new(configs, Some(0)),
+            config_editor: ColorSelectorConfigEditorState::new(configs.configs.clone(), Some(0)),
             window_id: RefCell::new(window::Id::unique()),
             settings_window_id: None,
+            cached_config,
             last_color: **services.foreground_color(),
             is_foreground_color: true,
         }
@@ -282,10 +219,17 @@ impl Dock for ColorSelectorDock {
                     Task::none()
                 }
             }
-            ColorSelectorDockMessage::ConfigEditor(ColorSelectorConfigMessage::Confirmed) => self
-                .selector
-                .set_configs(self.config_editor.configs().to_vec(), services)
-                .map(ColorSelectorDockMessage::ColorSelector),
+            ColorSelectorDockMessage::ConfigEditor(ColorSelectorConfigMessage::Confirmed) => {
+                let configs = ColorSelectorConfigGroup {
+                    configs: self.config_editor.configs().to_vec(),
+                };
+
+                self.cached_config
+                    .update(|old| *old = configs.clone())
+                    .log_err();
+
+                Task::none()
+            }
             ColorSelectorDockMessage::ConfigEditor(m) => {
                 self.config_editor.update(m);
                 Task::none()
@@ -310,6 +254,12 @@ impl Dock for ColorSelectorDock {
                 self.last_color = event.new;
                 self.selector
                     .set_color(event.new, services)
+                    .map(ColorSelectorDockMessage::ColorSelector)
+            }
+            ColorSelectorDockMessage::ConfigChanged => {
+                let new_config = self.cached_config.get();
+                self.selector
+                    .set_configs(new_config.configs.clone(), services)
                     .map(ColorSelectorDockMessage::ColorSelector)
             }
         }
@@ -348,11 +298,17 @@ impl Dock for ColorSelectorDock {
         let background_color_changed = BackgroundColorChanged::listen_to()
             .map(ColorSelectorDockMessage::BackgroundColorChanged);
 
+        let config_changed = self
+            .cached_config
+            .listen_to()
+            .map(|_| ColorSelectorDockMessage::ConfigChanged);
+
         Subscription::batch([
             window_moved,
             settings_window_closed,
             foreground_color_changed,
             background_color_changed,
+            config_changed,
         ])
     }
 
@@ -892,7 +848,7 @@ impl Dock for ToolOptionsDock {
 }
 
 pub struct ToolBoxDock {
-    manifest: ToolBoxManifest,
+    manifest: ToolBoxManifestConfig,
 }
 
 pub enum ToolBoxDockMessage {
@@ -902,20 +858,7 @@ pub enum ToolBoxDockMessage {
 
 impl ToolBoxDock {
     pub fn new() -> Self {
-        // TODO: move to a proper config directory once the app has one.
-        let manifest = match std::fs::read_to_string("assets/tool_box_manifest.toml") {
-            Ok(content) => match toml::from_str(&content) {
-                Ok(manifest) => manifest,
-                Err(error) => {
-                    log::error!("Failed to parse tool box manifest: {error}");
-                    ToolBoxManifest::default()
-                }
-            },
-            Err(error) => {
-                log::error!("Failed to read tool box manifest: {error}");
-                ToolBoxManifest::default()
-            }
-        };
+        let manifest = ToolBoxManifestConfig::read_or_init_or_fallback();
         Self { manifest }
     }
 }
@@ -935,7 +878,7 @@ impl Dock for ToolBoxDock {
         let active_tool = services
             .current_tool_proxy()
             .and_then(|proxy| proxy.current_tool());
-        let tool_button = |tool: &'a ToolId| {
+        let tool_button = |tool: &ToolId| {
             let selected = active_tool == Some(tool);
             let glyph = services
                 .service::<ToolFunctionRegistry>()
@@ -994,7 +937,8 @@ impl Dock for ToolBoxDock {
                 .into()
         };
         let mut items = Vec::new();
-        for group in &self.manifest.groups {
+        let manifest = self.manifest.get();
+        for group in &manifest.groups {
             if !items.is_empty() {
                 items.push(separator());
             }
