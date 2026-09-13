@@ -38,8 +38,9 @@ setup-package:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "$(cargo about --version 2>/dev/null || true)" != "cargo-about {{ cargo-about-version }}" ]; then
-        RUSTFLAGS="" cargo install cargo-about --locked --version {{ cargo-about-version }}
+        RUSTFLAGS="" cargo install cargo-about --locked --version {{ cargo-about-version }} --features cli
     fi
+    cargo about --version
 
 setup-deny:
     #!/usr/bin/env bash
