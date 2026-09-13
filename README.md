@@ -18,8 +18,8 @@ The name "Lapiz" means pencil in Spanish. It looks like the English word "Lapis"
 This project uses [just](https://just.systems/) as the build system.
 
 ```bash
-just setup
-just setup-linux
+just setup # setup all required tools
+
 just build dev # or: just build release
 just run dev # or: just run release
 just package dev # or: just package release

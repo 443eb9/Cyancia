@@ -13,40 +13,40 @@ os-name := os()
 default:
     @just --list
 
-setup: setup-rust setup-format
+setup: setup-rust setup-format setup-package setup-deny setup-reuse setup-linux
 
 setup-rust:
     cargo --version
 
 setup-format:
-    rustup toolchain install {{nightly}} --profile minimal --component rustfmt --no-self-update
+    rustup toolchain install {{ nightly }} --profile minimal --component rustfmt --no-self-update
 
 setup-package:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ "$(cargo about --version 2>/dev/null || true)" != "cargo-about {{cargo-about-version}}" ]; then
-        RUSTFLAGS="" cargo install cargo-about --locked --version {{cargo-about-version}}
+    if [ "$(cargo about --version 2>/dev/null || true)" != "cargo-about {{ cargo-about-version }}" ]; then
+        RUSTFLAGS="" cargo install cargo-about --locked --version {{ cargo-about-version }}
     fi
 
 setup-deny:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ "$(cargo deny --version 2>/dev/null || true)" != "cargo-deny {{cargo-deny-version}}" ]; then
-        RUSTFLAGS="" cargo install cargo-deny --locked --version {{cargo-deny-version}}
+    if [ "$(cargo deny --version 2>/dev/null || true)" != "cargo-deny {{ cargo-deny-version }}" ]; then
+        RUSTFLAGS="" cargo install cargo-deny --locked --version {{ cargo-deny-version }}
     fi
 
 setup-reuse:
     #!/usr/bin/env bash
     set -euo pipefail
-    if ! reuse --version 2>/dev/null | grep -Fq "{{reuse-version}}"; then
-        pipx install --force "reuse[charset-normalizer]=={{reuse-version}}"
+    if ! reuse --version 2>/dev/null | grep -Fq "{{ reuse-version }}"; then
+        pipx install --force "reuse[charset-normalizer]=={{ reuse-version }}"
     fi
 
 setup-linux:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ "{{os-name}}" != "linux" ]; then
-        echo "setup-linux: skipped on {{os-name}}"
+    if [ "{{ os-name }}" != "linux" ]; then
+        echo "setup-linux: skipped on {{ os-name }}"
         exit 0
     fi
     sudo apt-get update
@@ -55,16 +55,16 @@ setup-linux:
         libwayland-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev \
         libxcb-xfixes0-dev libfontconfig1-dev libudev-dev libdbus-1-dev \
         libasound2-dev libegl1-mesa-dev libgbm-dev
-    if ! wild --version 2>/dev/null | grep -Fq "{{wild-version}}"; then
-        RUSTFLAGS="" cargo install wild-linker --locked --version {{wild-version}}
+    if ! wild --version 2>/dev/null | grep -Fq "{{ wild-version }}"; then
+        RUSTFLAGS="" cargo install wild-linker --locked --version {{ wild-version }}
     fi
     wild --version
 
-fmt: setup-format
-    cargo +{{nightly}} fmt --all
+fmt:
+    cargo +{{ nightly }} fmt --all
 
-fmt-check: setup-format
-    cargo +{{nightly}} fmt --all -- --check
+fmt-check:
+    cargo +{{ nightly }} fmt --all -- --check
 
 lint:
     cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -76,20 +76,20 @@ test-doc:
     cargo test --workspace --doc --locked
 
 test-wgsl:
-    npx --yes wgsl-test@{{wgsl-test-version}} run --projectDir crates/lapiz_color
+    npx --yes wgsl-test@{{ wgsl-test-version }} run --projectDir crates/lapiz_color
 
 check: fmt-check lint test test-doc test-wgsl
 
-deny: setup-deny
+deny:
     cargo deny check advisories bans licenses sources
 
-reuse: setup-reuse
+reuse:
     reuse lint
 
 build profile:
     #!/usr/bin/env bash
     set -euo pipefail
-    case "{{profile}}" in
+    case "{{ profile }}" in
         dev) cargo build --locked ;;
         release) cargo build --release --locked ;;
         *) echo "profile must be dev or release" >&2; exit 2 ;;
@@ -98,7 +98,7 @@ build profile:
 run profile:
     #!/usr/bin/env bash
     set -euo pipefail
-    case "{{profile}}" in
+    case "{{ profile }}" in
         dev) cargo run --locked ;;
         release) cargo run --release --locked ;;
         *) echo "profile must be dev or release" >&2; exit 2 ;;
@@ -107,9 +107,9 @@ run profile:
 verify-release-tag tag:
     #!/usr/bin/env bash
     set -euo pipefail
-    expected="v{{version}}"
-    if [ "{{tag}}" != "$expected" ]; then
-        echo "tag {{tag}} does not match lapiz_app version $expected" >&2
+    expected="v{{ version }}"
+    if [ "{{ tag }}" != "$expected" ]; then
+        echo "tag {{ tag }} does not match lapiz_app version $expected" >&2
         exit 1
     fi
 
@@ -117,14 +117,14 @@ package profile: check (build profile)
     #!/usr/bin/env bash
     set -euo pipefail
 
-    case "{{profile}}" in
+    case "{{ profile }}" in
         dev)
             bindir=target/debug
-            ver="{{version}}-dev"
+            ver="{{ version }}-dev"
             ;;
         release)
             bindir=target/release
-            ver="{{version}}"
+            ver="{{ version }}"
             ;;
         *)
             echo "profile must be dev or release" >&2
@@ -132,14 +132,14 @@ package profile: check (build profile)
             ;;
     esac
 
-    host_target="{{target}}"
+    host_target="{{ target }}"
     case "$host_target" in
         x86_64-*) arch=x86_64 ;;
         aarch64-*) arch=arm64 ;;
         *) arch="${host_target%%-*}" ;;
     esac
 
-    if [ "{{os-name}}" = "windows" ]; then
+    if [ "{{ os-name }}" = "windows" ]; then
         binary=lapiz_app.exe
         ext=zip
     else
@@ -147,7 +147,7 @@ package profile: check (build profile)
         ext=tar.gz
     fi
 
-    name="lapiz-$ver-{{sha}}-{{os-name}}-$arch"
+    name="lapiz-$ver-{{ sha }}-{{ os-name }}-$arch"
     staging="target/package/$name"
     archive="target/package/$name.$ext"
     checksum="target/package/$name.sha256"
