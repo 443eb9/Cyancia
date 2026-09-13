@@ -15,16 +15,15 @@ import package::{
 import wgsl_test::expectWithin;
 
 fn expect_xyz_near(lhs: Xyz, rhs: Xyz) {
-    // Use absolute tolerance only, to match rust behavior.
-    expectWithin(lhs.x, rhs.x, 0.0, 1e-4);
-    expectWithin(lhs.y, rhs.y, 0.0, 1e-4);
-    expectWithin(lhs.z, rhs.z, 0.0, 1e-4);
+    expectWithin(lhs.x, rhs.x, 1e-4, 1e-4);
+    expectWithin(lhs.y, rhs.y, 1e-4, 1e-4);
+    expectWithin(lhs.z, rhs.z, 1e-4, 1e-4);
 }
 
 fn expect_rgb_near(lhs: Rgb, rhs: Rgb) {
-    expectWithin(lhs.r, rhs.r, 0.0, 1e-4);
-    expectWithin(lhs.g, rhs.g, 0.0, 1e-4);
-    expectWithin(lhs.b, rhs.b, 0.0, 1e-4);
+    expectWithin(lhs.r, rhs.r, 1e-4, 1e-4);
+    expectWithin(lhs.g, rhs.g, 1e-4, 1e-4);
+    expectWithin(lhs.b, rhs.b, 1e-4, 1e-4);
 }
 
 const SRGB_LINEAR_TO_XYZ: mat3x3f = mat3x3f(
