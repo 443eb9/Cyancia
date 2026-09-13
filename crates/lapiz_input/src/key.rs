@@ -20,6 +20,11 @@ impl KeyboardState {
         self.pressed.retain(|&mut c| c != key);
     }
 
+    pub fn clear(&mut self) {
+        self.pressed.clear();
+        self.modifiers = Modifiers::empty();
+    }
+
     pub fn set_modifiers(&mut self, modifiers: Modifiers) {
         self.modifiers = modifiers;
     }
