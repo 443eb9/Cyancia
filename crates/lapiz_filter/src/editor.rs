@@ -1,5 +1,6 @@
 use std::{collections::BTreeSet, sync::Arc};
 
+use anyhow::Result;
 use iced_core::{Element, Length, keyboard, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
@@ -80,11 +81,16 @@ pub enum FilterEditorMessage {
 impl WindowView for FilterEditor {
     type Message = FilterEditorMessage;
 
+    type BootParams = ();
+
     fn id() -> WindowViewId {
         WindowViewId::new("filter_editor")
     }
 
-    fn boot(services: &mut Services) -> (Self, Task<Self::Message>) {
+    fn boot(
+        _params: Option<Self::BootParams>,
+        services: &mut Services,
+    ) -> Result<(Self, Task<Self::Message>)> {
         let filters = FilterPresetListDelegate::new(
             services
                 .assets()
@@ -92,7 +98,7 @@ impl WindowView for FilterEditor {
                 .expect("Failed to list filter presets"),
         );
         let (main_window, open) = iced_runtime::window::open(window::Settings::default());
-        (
+        Ok((
             Self {
                 windows: [main_window].into(),
                 main_window,
@@ -107,7 +113,7 @@ impl WindowView for FilterEditor {
                 graph_editor_state: GraphEditorState::default(),
             },
             open.discard(),
-        )
+        ))
     }
 
     fn view<'a>(
