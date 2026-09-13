@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci:
+  check:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
