@@ -197,7 +197,7 @@ package profile: (build profile)
     staging="target/package/$name"
     archive="target/package/$name.$ext"
     checksum="target/package/$name.sha256"
-    third_party="target/package/THIRD_PARTY_LICENSES.html"
+    third_party="$staging/THIRD_PARTY_LICENSES.html"
 
     case "$staging" in
         target/package/lapiz-*) ;;
@@ -245,7 +245,6 @@ package profile: (build profile)
     esac
 
     cargo about generate about.hbs --output-file "$third_party"
-    cp "$third_party" "$staging/"
 
     # Include only tracked assets that are not matched by .gitignore.
     # During local development, we may introduce some external assets for testing
