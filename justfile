@@ -148,17 +148,17 @@ package profile: check (build profile)
     fi
 
     name="lapiz-$ver-{{sha}}-{{os-name}}-$arch"
-    staging="target/pack/$name"
-    archive="target/pack/$name.$ext"
-    checksum="target/pack/$name.sha256"
-    third_party="target/pack/THIRD_PARTY_LICENSES.html"
+    staging="target/package/$name"
+    archive="target/package/$name.$ext"
+    checksum="target/package/$name.sha256"
+    third_party="target/package/THIRD_PARTY_LICENSES.html"
 
     case "$staging" in
-        target/pack/lapiz-*) ;;
+        target/package/lapiz-*) ;;
         *) echo "unsafe staging path: $staging" >&2; exit 1 ;;
     esac
 
-    mkdir -p target/pack
+    mkdir -p target/package
     if [ -e "$staging" ]; then
         find "$staging" -depth -delete
     fi
@@ -187,15 +187,15 @@ package profile: check (build profile)
 
     rm -f "$archive" "$checksum"
     if [ "$ext" = zip ]; then
-        /c/Windows/System32/tar.exe -C target/pack -caf "$archive" "$name"
+        /c/Windows/System32/tar.exe -C target/package -caf "$archive" "$name"
     else
-        tar -C target/pack -czf "$archive" "$name"
+        tar -C target/package -czf "$archive" "$name"
     fi
 
     if command -v sha256sum >/dev/null; then
-        (cd target/pack && sha256sum "$name.$ext" > "$name.sha256")
+        (cd target/package && sha256sum "$name.$ext" > "$name.sha256")
     else
-        (cd target/pack && shasum -a 256 "$name.$ext" > "$name.sha256")
+        (cd target/package && shasum -a 256 "$name.$ext" > "$name.sha256")
     fi
 
     echo "Packaged: $archive + $checksum"

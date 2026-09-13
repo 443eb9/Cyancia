@@ -53,9 +53,9 @@ jobs:
           retention-days: 1
           if-no-files-found: error
           path: |
-            target/pack/*.zip
-            target/pack/*.tar.gz
-            target/pack/*.sha256
+            target/package/*.zip
+            target/package/*.tar.gz
+            target/package/*.sha256
 
   publish:
     needs: build
