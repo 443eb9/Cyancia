@@ -69,6 +69,8 @@ jobs:
             target/package/*.zip
             target/package/*.tar.gz
             target/package/*.sha256
+            target/package/*.debug
+            target/package/*.pdb
 
   publish:
     needs: build

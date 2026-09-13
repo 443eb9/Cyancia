@@ -67,7 +67,7 @@ setup-linux-dependencies:
     fi
     sudo apt-get update
     sudo apt-get install -y --no-install-recommends \
-        clang pkg-config libx11-dev libxkbcommon-dev libxkbcommon-x11-dev \
+        binutils clang pkg-config libx11-dev libxkbcommon-dev libxkbcommon-x11-dev \
         libwayland-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev \
         libxcb-xfixes0-dev libfontconfig1-dev libudev-dev libdbus-1-dev \
         libasound2-dev libegl1-mesa-dev libgbm-dev
@@ -214,6 +214,36 @@ package profile: (build profile)
     cp README.md LICENSE "$staging/"
     cp LICENSES/MIT.txt "$staging/MIT.txt"
 
+    case "{{ os-name }}" in
+        linux)
+            debug_symbols="target/package/$name.debug"
+            objcopy --only-keep-debug "$staging/$binary" "$debug_symbols"
+            strip --strip-debug "$staging/$binary"
+            objcopy --add-gnu-debuglink="$debug_symbols" "$staging/$binary"
+            ;;
+        macos)
+            dsym="target/package/$name.dSYM"
+            debug_symbols="$dsym.tar.gz"
+            rm -rf "$dsym" "$debug_symbols"
+            dsymutil "$staging/$binary" -o "$dsym"
+            strip -S "$staging/$binary"
+            tar -C target/package -czf "$debug_symbols" "$name.dSYM"
+            rm -rf "$dsym"
+            ;;
+        windows)
+            debug_symbols="target/package/$name.pdb"
+            if [ ! -f "$bindir/lapiz_app.pdb" ]; then
+                echo "missing debug symbols: $bindir/lapiz_app.pdb" >&2
+                exit 1
+            fi
+            cp "$bindir/lapiz_app.pdb" "$debug_symbols"
+            ;;
+        *)
+            echo "unsupported packaging platform: {{ os-name }}" >&2
+            exit 1
+            ;;
+    esac
+
     cargo about generate about.hbs --output-file "$third_party"
     cp "$third_party" "$staging/"
 
@@ -244,4 +274,4 @@ package profile: (build profile)
         (cd target/package && shasum -a 256 "$name.$ext" > "$name.sha256")
     fi
 
-    echo "Packaged: $archive + $checksum"
+    echo "Packaged: $archive + $checksum + $debug_symbols"
