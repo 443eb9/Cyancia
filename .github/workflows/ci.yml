@@ -33,6 +33,7 @@ jobs:
           tool: just
 
       - run: just setup-rust
+      - run: just setup-format
 
       - uses: Swatinem/rust-cache@v2
         with:
