@@ -59,5 +59,6 @@ items = [
 [[categories]]
 title = "menu_about"
 items = [
-    "generate_report_action"
+    "generate_report_action",
+    "debug_manual_panic_action",
 ]

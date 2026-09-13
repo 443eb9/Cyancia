@@ -23,6 +23,7 @@ delete_selection_action = 删除选区
 toggle_filter_panel_action = 切换滤镜面板
 open_brush_editor_action = 打开笔刷编辑器
 generate_report_action = 生成报告
+debug_manual_panic_action = 调试手动崩溃（真的会崩溃！）
 
 menu_theme_submenu = 主题
 menu_language_submenu = 语言

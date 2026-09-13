@@ -23,6 +23,7 @@ delete_selection_action = Delete Selection
 toggle_filter_panel_action = Toggle Filter Panel
 open_brush_editor_action = Open Brush Editor
 generate_report_action = Generate Report
+debug_manual_panic_action = Debug Manual Panic (really crashes!)
 
 menu_theme_submenu = Theme
 menu_language_submenu = Language

@@ -3230,6 +3230,7 @@ dependencies = [
  "lapiz_image_adapter",
  "lapiz_input",
  "lapiz_render",
+ "lapiz_report",
  "lapiz_runtime",
  "lapiz_selection_tool",
  "lapiz_shader_graph",
@@ -3696,6 +3697,9 @@ dependencies = [
  "anyhow",
  "chrono",
  "gfxinfo",
+ "lapiz_runtime",
+ "lapiz_utils",
+ "log",
  "sysinfo",
  "wgpu",
 ]

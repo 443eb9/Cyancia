@@ -1,10 +1,87 @@
-use std::fmt::Write;
+use std::{backtrace::Backtrace, fmt::Write, fs, panic::Location};
 
-use anyhow::anyhow;
-use chrono::Local;
+use anyhow::{Result, anyhow};
+use chrono::{Local, Utc};
 use gfxinfo::active_gpu;
+use lapiz_utils::log_err::LogErr;
 use sysinfo::{System, get_current_pid};
 use wgpu::{AllocatorReport, Device};
+
+fn panic_reports_path() -> Result<std::path::PathBuf> {
+    Ok(std::env::current_exe()?
+        .parent()
+        .ok_or_else(|| anyhow!("no parent"))?
+        .join("panic_reports"))
+}
+
+pub fn setup_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let Ok(mut report) = panic_report(
+            info.payload_as_str(),
+            info.location(),
+            Backtrace::force_capture(),
+        )
+        .logged_err() else {
+            return;
+        };
+
+        sysinfo_report(&mut report).log_err();
+        wgpu_report(
+            &mut report,
+            &lapiz_runtime::renderer::global_render_context().device,
+        )
+        .log_err();
+
+        log::error!("{}", report);
+        let Ok(panic_reports) = panic_reports_path() else {
+            return;
+        };
+        fs::create_dir_all(&panic_reports).log_err();
+        fs::write(
+            panic_reports.join(format!(
+                "panic-{}.txt",
+                Utc::now().to_rfc3339().replace(':', "-")
+            )),
+            report,
+        )
+        .log_err();
+    }));
+}
+
+pub fn panic_report(
+    payload: Option<&str>,
+    location: Option<&Location>,
+    backtrace: Backtrace,
+) -> anyhow::Result<String> {
+    let mut buf = String::new();
+    let w = &mut buf;
+
+    writeln!(w, "Program panicked at {}", Utc::now().to_rfc3339())?;
+    if let Some(location) = location {
+        writeln!(
+            w,
+            "in {} at {}:{}",
+            location.file(),
+            location.line(),
+            location.column()
+        )?;
+    } else {
+        writeln!(w, "at unknown location")?;
+    }
+    writeln!(
+        w,
+        "{}",
+        if let Some(payload) = payload {
+            payload
+        } else {
+            "<no string payload available>"
+        }
+    )?;
+    writeln!(w)?;
+    writeln!(w, "Stacktrace:\n{}", backtrace)?;
+
+    Ok(buf)
+}
 
 pub fn report(device: &Device) -> anyhow::Result<String> {
     let mut buf = String::new();

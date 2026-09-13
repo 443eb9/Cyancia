@@ -51,3 +51,18 @@ impl ActionFunction for GenerateReportAction {
         Task::none()
     }
 }
+
+#[derive(Default)]
+pub struct DebugManualPanicAction;
+
+impl ActionFunction for DebugManualPanicAction {
+    type Message = ();
+
+    fn id(&self) -> ActionId {
+        ActionId("debug_manual_panic_action".into())
+    }
+
+    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
+        panic!("Debug panic");
+    }
+}

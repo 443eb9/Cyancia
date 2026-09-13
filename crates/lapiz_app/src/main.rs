@@ -31,6 +31,8 @@ use lapiz_transform_tool::FreeTransformPlugin;
 use lapiz_undo::UndoPlugin;
 
 fn main() {
+    lapiz_report::setup_panic_hook();
+
     tracing_subscriber::fmt()
         .with_env_filter("info,wgpu_hal=warn,iced_winit=warn,iced_wgpu=warn")
         .init();
