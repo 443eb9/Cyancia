@@ -9,9 +9,25 @@
 
 > Cute orange photo by Dariusz Duchiewicz on [Pexels](https://www.pexels.com/photo/bright-basket-of-oranges-and-apples-36492525/)
 
-A GPU powered, programmable, highly customizable and blazing fast digital painting program written in Rust, build with ❤ and passion, and open-source forever under GPL-3.0 License.
+A GPU powered, programmable, highly customizable and blazing fast digital painting program written in Rust, build with ❤ and passion, and open-source forever under the GPL-3.0-or-later License.
 
 The name "Lapiz" means pencil in Spanish. It looks like the English word "Lapis", which is a kind of blue, natural blue mineral and one of the oldest and most precious blue pigments. About the pronounciation, neither English nor Spanish is my native language, so it pronounces whatever you like.
+
+## Development
+
+This project uses [just](https://just.systems/) as the build system.
+
+```bash
+just setup
+just setup-linux
+just build dev # or: just build release
+just run dev # or: just run release
+just pack dev # or: just pack release
+
+just check
+just deny
+just reuse
+```
 
 ## LLM Assisted Contributions
 
@@ -27,4 +43,4 @@ This project is accepting LLM assisted contributions. BUT will absolutely reject
 
 ## License
 
-This project is licensed under the GPL-3.0 License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the GPL-3.0-or-later License. See [LICENSE](LICENSE) for details.

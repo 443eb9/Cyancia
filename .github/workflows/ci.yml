@@ -4,54 +4,62 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     env:
       CARGO_TERM_COLOR: always
-      RUSTFLAGS: -Dwarnings
     steps:
       - uses: actions/checkout@v6
 
-      - uses: dtolnay/rust-toolchain@1.96.0
+      - uses: actions/setup-node@v4
         with:
-          components: clippy
+          node-version-file: .node-version
 
-      - name: Install pinned nightly rustfmt
-        run: rustup toolchain install nightly-2026-06-16 --profile minimal --component rustfmt --no-self-update
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - run: just setup-rust
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace-deps
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          cache-on-failure: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config \
-            libx11-dev \
-            libxkbcommon-dev \
-            libxkbcommon-x11-dev \
-            libwayland-dev \
-            libxcb1-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libfontconfig1-dev \
-            libudev-dev \
-            libdbus-1-dev \
-            libasound2-dev \
-            libegl1-mesa-dev \
-            libgbm-dev
+      - run: just setup-linux
+      - run: just check
 
-      - name: Check formatting
-        run: cargo +nightly-2026-06-16 fmt --all -- --check
+  deny:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - run: just setup-rust
+      - run: just deny
 
-      - name: Run clippy
-        run: cargo +1.96.0 clippy --workspace --all-targets --locked -- -D warnings
-
-      - name: Run tests
-        run: cargo +1.96.0 test --workspace --all-targets --locked
+  reuse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - run: just reuse

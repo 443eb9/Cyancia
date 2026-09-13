@@ -1,2 +1,0 @@
-- [ ] Is the `.lazuli` format updated? If so, update the `VERSION` constant.
-- [ ] Is there any new layer properties/layer types are added but the spec is not updated?
