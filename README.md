@@ -22,7 +22,7 @@ just setup
 just setup-linux
 just build dev # or: just build release
 just run dev # or: just run release
-just pack dev # or: just pack release
+just package dev # or: just package release
 
 just check
 just deny

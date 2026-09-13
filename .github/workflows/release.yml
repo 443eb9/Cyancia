@@ -45,7 +45,8 @@ jobs:
           shared-key: workspace-deps
           save-if: false
       - run: just setup-linux
-      - run: just pack release
+      - run: just setup-package
+      - run: just package release
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ runner.os }}-${{ runner.arch }}

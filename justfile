@@ -21,7 +21,7 @@ setup-rust:
 setup-format:
     rustup toolchain install {{nightly}} --profile minimal --component rustfmt --no-self-update
 
-setup-pack:
+setup-package:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "$(cargo about --version 2>/dev/null || true)" != "cargo-about {{cargo-about-version}}" ]; then
@@ -113,7 +113,7 @@ verify-release-tag tag:
         exit 1
     fi
 
-pack profile: check (build profile) setup-pack
+package profile: check (build profile)
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -172,9 +172,9 @@ pack profile: check (build profile) setup-pack
     cp "$third_party" "$staging/"
 
     # Include only tracked assets that are not matched by .gitignore.
-    # On local development, we may introduce some external assets for testing
-    # like bundles created by someone else.
-    # They should not be included in the packaged output.
+    # During local development, we may introduce some external assets for testing
+    # like bundles created by someone else. They should not be included in the
+    # packaged output.
     while IFS= read -r -d '' source; do
         if git check-ignore --no-index -q -- "$source"; then
             echo "Excluded ignored asset: $source"
