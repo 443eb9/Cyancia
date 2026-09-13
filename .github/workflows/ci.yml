@@ -64,4 +64,27 @@ jobs:
         with:
           tool: just
       - run: just setup-rust
+      - run: just setup-reuse
       - run: just reuse
+
+  wgsl-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - name: Install Vulkan software driver
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libvulkan1 mesa-vulkan-drivers
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - run: just test-wgsl
