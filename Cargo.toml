@@ -162,6 +162,7 @@ proc-macro2 = "1"
 proc-macro-crate = "3.5"
 quote = "1"
 raw-window-handle = { version = "0.6", features = ["std"] }
+rand = "0.10"
 rayon = "1"
 rfd = "0.17"
 rmp = "0.8"

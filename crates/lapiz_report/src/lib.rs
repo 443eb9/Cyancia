@@ -1,4 +1,4 @@
-use std::{backtrace::Backtrace, fmt::Write, fs, panic::Location};
+use std::{backtrace::Backtrace, fmt::Write, fs, panic::Location, sync::LazyLock};
 
 use anyhow::{Result, anyhow};
 use chrono::{Local, Utc};
@@ -6,6 +6,9 @@ use gfxinfo::active_gpu;
 use lapiz_utils::log_err::LogErr;
 use sysinfo::{System, get_current_pid};
 use wgpu::{AllocatorReport, Device};
+
+const EMOTICONS_LIST: LazyLock<Vec<&'static str>> =
+    LazyLock::new(|| include_str!("emoticons.txt").lines().collect());
 
 fn panic_reports_path() -> Result<std::path::PathBuf> {
     Ok(std::env::current_exe()?
@@ -77,6 +80,14 @@ pub fn panic_report(
             "<no string payload available>"
         }
     )?;
+
+    writeln!(w)?;
+    writeln!(
+        w,
+        "{}",
+        EMOTICONS_LIST[rand::random_range(0..EMOTICONS_LIST.len())]
+    )?;
+
     writeln!(w)?;
     writeln!(w, "Stacktrace:\n{}", backtrace)?;
 
