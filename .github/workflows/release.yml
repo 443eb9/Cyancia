@@ -33,20 +33,28 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v6
+
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
+
       - uses: taiki-e/install-action@v2
         with:
           tool: just
-      - run: just setup-rust
+
+      - run: just setup
+
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: workspace-deps
           save-if: false
-      - run: just setup-linux
-      - run: just setup-package
+
+      - run: just check
+
+      - run: just test
+
       - run: just package release
+
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ runner.os }}-${{ runner.arch }}
@@ -64,6 +72,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v6
+
       - uses: actions/download-artifact@v5
         with:
           path: dist

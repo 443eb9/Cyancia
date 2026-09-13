@@ -13,7 +13,7 @@ os-name := os()
 default:
     @just --list
 
-setup: setup-rust setup-format setup-package setup-deny setup-reuse setup-linux
+setup: setup-rust setup-format setup-package setup-deny setup-reuse setup-linux-graphics
 
 setup-rust:
     cargo --version
@@ -42,7 +42,7 @@ setup-reuse:
         pipx install --force "reuse[charset-normalizer]=={{ reuse-version }}"
     fi
 
-setup-linux:
+setup-linux-graphics:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "{{ os-name }}" != "linux" ]; then
@@ -60,16 +60,16 @@ setup-linux:
     fi
     wild --version
 
+setup-for-fmt: setup-format
+
 fmt:
     cargo +{{ nightly }} fmt --all
 
-fmt-check:
-    cargo +{{ nightly }} fmt --all -- --check
+setup-for-test: setup-rust setup-linux-graphics
 
-lint:
-    cargo clippy --workspace --all-targets --locked -- -D warnings
+test: test-unit test-doc test-wgsl
 
-test:
+test-unit:
     cargo test --workspace --all-targets --locked
 
 test-doc:
@@ -78,13 +78,23 @@ test-doc:
 test-wgsl:
     npx --yes wgsl-test@{{ wgsl-test-version }} run --projectDir crates/lapiz_color
 
-check: fmt-check lint test test-doc test-wgsl
+setup-for-check: setup-rust setup-linux-graphics
 
-deny:
+check: check-fmt check-clippy check-deny check-reuse
+
+check-fmt:
+    cargo +{{ nightly }} fmt --all -- --check
+
+check-clippy:
+    cargo clippy --workspace --all-targets --locked -- -D warnings
+
+check-deny:
     cargo deny check advisories bans licenses sources
 
-reuse:
+check-reuse:
     reuse lint
+
+setup-for-build: setup-rust setup-linux-graphics
 
 build profile:
     #!/usr/bin/env bash
@@ -113,7 +123,9 @@ verify-release-tag tag:
         exit 1
     fi
 
-package profile: check (build profile)
+setup-for-package: setup-for-build
+
+package profile: (build profile)
     #!/usr/bin/env bash
     set -euo pipefail
 

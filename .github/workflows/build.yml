@@ -1,0 +1,57 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - run: just setup
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace-deps
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          cache-on-failure: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      - run: just check
+
+      - run: just test
+
+      - run: just package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ runner.os }}-${{ runner.arch }}
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            target/package/*.zip
+            target/package/*.tar.gz
+            target/package/*.sha256
