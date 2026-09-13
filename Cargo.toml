@@ -44,10 +44,14 @@ opt-level = 1
 [profile.dev.package."*"]
 opt-level = 3
 
+[profile.release]
+debug = "full"
+
 [workspace.package]
 publish = false
 edition = "2024"
 rust-version = "1.96.0"
+license = "GPL-3.0-or-later"
 
 [workspace.lints.clippy]
 type_complexity = "allow"
@@ -148,7 +152,7 @@ num-traits = "0.2"
 num_enum = "0.7"
 palette = "0.7"
 parking_lot = { version = "0.12", features = ["deadlock_detection"] }
-paste = "1"
+paste = { package = "pastey", version = "0.2" }
 parse-display = "0.11"
 path-clean = "1"
 proc-macro2 = "1"
