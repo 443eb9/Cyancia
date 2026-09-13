@@ -1,0 +1,17 @@
+[package]
+name = "lapiz_report"
+version = "0.1.0"
+license.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+gfxinfo.workspace = true
+sysinfo.workspace = true
+wgpu.workspace = true

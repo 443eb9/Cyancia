@@ -55,3 +55,9 @@ items = [
         # Injected in runtime
     ] }
 ]
+
+[[categories]]
+title = "menu_about"
+items = [
+    "generate_report_action"
+]

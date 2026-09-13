@@ -7,6 +7,7 @@ use parse_display::Display;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    about::GenerateReportAction,
     edit::{PasteIntoNewLayerAction, RedoAction, UndoAction},
     file::{ExportFileAction, OpenFileAction, SaveFileAction},
     layer::{
@@ -17,6 +18,7 @@ use crate::{
     window::{OpenBrushEditorAction, ToggleFilterPanelAction},
 };
 
+pub mod about;
 pub mod edit;
 pub mod file;
 pub mod layer;
@@ -52,7 +54,8 @@ impl Plugin for ActionPlugin {
             .add_action_function::<OpenBrushEditorAction>()
             .add_action_function::<ToggleFilterPanelAction>()
             .add_action_function::<UndoAction>()
-            .add_action_function::<RedoAction>();
+            .add_action_function::<RedoAction>()
+            .add_action_function::<GenerateReportAction>();
     }
 }
 

@@ -4,6 +4,7 @@ menu_layer = Layer
 menu_select = Select
 menu_filter = Filter
 menu_window = Window
+menu_about = About
 
 open_file_action = Open
 save_file_action = Save
@@ -21,6 +22,7 @@ select_next_layer_action = Select Next Layer
 delete_selection_action = Delete Selection
 toggle_filter_panel_action = Toggle Filter Panel
 open_brush_editor_action = Open Brush Editor
+generate_report_action = Generate Report
 
 menu_theme_submenu = Theme
 menu_language_submenu = Language
