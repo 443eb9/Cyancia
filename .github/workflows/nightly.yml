@@ -21,9 +21,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
 
@@ -31,12 +31,14 @@ jobs:
         with:
           tool: just
 
-      - run: just setup
+      - run: just setup-rust
 
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: workspace-deps
           save-if: false
+
+      - run: just setup-ci
 
       - run: just check
 
@@ -44,7 +46,7 @@ jobs:
 
       - run: just package dev
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: nightly-${{ runner.os }}-${{ runner.arch }}
           retention-days: 1
@@ -60,9 +62,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true

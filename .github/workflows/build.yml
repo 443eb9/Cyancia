@@ -22,9 +22,9 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .node-version
 
@@ -32,7 +32,7 @@ jobs:
         with:
           tool: just
 
-      - run: just setup
+      - run: just setup-rust
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -40,13 +40,15 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           cache-on-failure: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
+      - run: just setup-ci
+
       - run: just check
 
       - run: just test
 
-      - run: just package
+      - run: just package dev
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: build-${{ runner.os }}-${{ runner.arch }}
           retention-days: 1

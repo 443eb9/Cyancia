@@ -25,8 +25,8 @@ just run dev # or: just run release
 just package dev # or: just package release
 
 just check
-just deny
-just reuse
+just check-deny
+just check-reuse
 ```
 
 ## LLM Assisted Contributions

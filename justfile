@@ -13,10 +13,23 @@ os-name := os()
 default:
     @just --list
 
-setup: setup-rust setup-format setup-package setup-deny setup-reuse setup-linux-graphics
+setup: setup-rust setup-node setup-format setup-package setup-deny setup-reuse setup-linux
+
+setup-ci: setup setup-ci-vulkan
 
 setup-rust:
     cargo --version
+
+setup-node:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    expected="$(tr -d '[:space:]' < .node-version)"
+    actual="$(node --version)"
+    case "$actual" in
+        "v$expected".*) ;;
+        *) echo "Node.js $expected is required, found $actual" >&2; exit 1 ;;
+    esac
+    npm --version
 
 setup-format:
     rustup toolchain install {{ nightly }} --profile minimal --component rustfmt --no-self-update
@@ -42,11 +55,13 @@ setup-reuse:
         pipx install --force "reuse[charset-normalizer]=={{ reuse-version }}"
     fi
 
-setup-linux-graphics:
+setup-linux: setup-linux-dependencies setup-linux-linker
+
+setup-linux-dependencies:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "{{ os-name }}" != "linux" ]; then
-        echo "setup-linux: skipped on {{ os-name }}"
+        echo "setup-linux-dependencies: skipped on {{ os-name }}"
         exit 0
     fi
     sudo apt-get update
@@ -55,17 +70,35 @@ setup-linux-graphics:
         libwayland-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev \
         libxcb-xfixes0-dev libfontconfig1-dev libudev-dev libdbus-1-dev \
         libasound2-dev libegl1-mesa-dev libgbm-dev
+
+setup-linux-linker: setup-linux-dependencies
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{ os-name }}" != "linux" ]; then
+        echo "setup-linux-linker: skipped on {{ os-name }}"
+        exit 0
+    fi
     if ! wild --version 2>/dev/null | grep -Fq "{{ wild-version }}"; then
         RUSTFLAGS="" cargo install wild-linker --locked --version {{ wild-version }}
     fi
     wild --version
+
+setup-ci-vulkan: setup-linux-dependencies
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{ os-name }}" != "linux" ]; then
+        echo "setup-ci-vulkan: skipped on {{ os-name }}"
+        exit 0
+    fi
+    # GitHub-hosted Linux runners need a software Vulkan implementation for WGSL tests.
+    sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers
 
 setup-for-fmt: setup-format
 
 fmt:
     cargo +{{ nightly }} fmt --all
 
-setup-for-test: setup-rust setup-linux-graphics
+setup-for-test: setup-rust setup-node setup-linux
 
 test: test-unit test-doc test-wgsl
 
@@ -78,7 +111,7 @@ test-doc:
 test-wgsl:
     npx --yes wgsl-test@{{ wgsl-test-version }} run --projectDir crates/lapiz_color
 
-setup-for-check: setup-rust setup-linux-graphics
+setup-for-check: setup-rust setup-format setup-deny setup-reuse setup-linux
 
 check: check-fmt check-clippy check-deny check-reuse
 
@@ -94,7 +127,7 @@ check-deny:
 check-reuse:
     reuse lint
 
-setup-for-build: setup-rust setup-linux-graphics
+setup-for-build: setup-rust setup-linux
 
 build profile:
     #!/usr/bin/env bash
@@ -123,7 +156,7 @@ verify-release-tag tag:
         exit 1
     fi
 
-setup-for-package: setup-for-build
+setup-for-package: setup-for-build setup-package
 
 package profile: (build profile)
     #!/usr/bin/env bash

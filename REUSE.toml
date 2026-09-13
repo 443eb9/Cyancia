@@ -10,19 +10,19 @@ path = [
   "assets/**",
   "crates/**",
   "default_config/**",
-  "deny.toml",
   "docs/**",
 
   ".gitignore",
   ".node-version",
-  "about.toml",
   "about.hbs",
-  "Cargo.toml",
+  "about.toml",
   "Cargo.lock",
+  "Cargo.toml",
+  "deny.toml",
   "justfile",
   "README.md",
-  "rustfmt.toml",
   "rust-toolchain.toml",
+  "rustfmt.toml",
 ]
 SPDX-FileCopyrightText = "Contributors to Lapiz"
 SPDX-License-Identifier = "GPL-3.0-or-later"
