@@ -70,7 +70,7 @@ setup-linux-dependencies:
         binutils clang pkg-config libx11-dev libxkbcommon-dev libxkbcommon-x11-dev \
         libwayland-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev \
         libxcb-xfixes0-dev libfontconfig1-dev libudev-dev libdbus-1-dev \
-        libasound2-dev libegl1-mesa-dev libgbm-dev
+        libasound2-dev libegl1-mesa-dev libgbm-dev libdrm-dev
 
 setup-linux-linker: setup-linux-dependencies
     #!/usr/bin/env bash
