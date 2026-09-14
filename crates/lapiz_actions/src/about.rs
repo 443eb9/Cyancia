@@ -62,7 +62,7 @@ impl ActionFunction for DebugManualPanicAction {
         ActionId("debug_manual_panic_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
+    fn trigger(&self, _services: &mut Services) -> Task<Self::Message> {
         panic!("Debug panic");
     }
 }

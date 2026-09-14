@@ -7,7 +7,7 @@ use lapiz_utils::log_err::LogErr;
 use sysinfo::{System, get_current_pid};
 use wgpu::{AllocatorReport, Device};
 
-const EMOTICONS_LIST: LazyLock<Vec<&'static str>> =
+static EMOTICONS_LIST: LazyLock<Vec<&'static str>> =
     LazyLock::new(|| include_str!("emoticons.txt").lines().collect());
 
 fn panic_reports_path() -> Result<std::path::PathBuf> {
@@ -71,15 +71,7 @@ pub fn panic_report(
     } else {
         writeln!(w, "at unknown location")?;
     }
-    writeln!(
-        w,
-        "{}",
-        if let Some(payload) = payload {
-            payload
-        } else {
-            "<no string payload available>"
-        }
-    )?;
+    writeln!(w, "{}", payload.unwrap_or("<no string payload available>"))?;
 
     writeln!(w)?;
     writeln!(
