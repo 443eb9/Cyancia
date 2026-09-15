@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
 lapiz_assets.workspace = true
 lapiz_canvas.workspace = true
 lapiz_config.workspace = true
@@ -20,6 +21,7 @@ lapiz_image_adapter.workspace = true
 lapiz_input.workspace = true
 lapiz_lazuli.workspace = true
 lapiz_render.workspace = true
+lapiz_report.workspace = true
 lapiz_runtime.workspace = true
 lapiz_tools.workspace = true
 lapiz_undo.workspace = true

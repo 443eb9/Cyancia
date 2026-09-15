@@ -29,6 +29,7 @@ lapiz_image.workspace = true
 lapiz_image_adapter.workspace = true
 lapiz_input.workspace = true
 lapiz_render.workspace = true
+lapiz_report.workspace = true
 lapiz_runtime.workspace = true
 lapiz_selection_tool.workspace = true
 lapiz_transform_tool.workspace = true
