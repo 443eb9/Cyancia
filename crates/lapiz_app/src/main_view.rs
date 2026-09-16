@@ -14,13 +14,17 @@ use lapiz_actions::{
     manifest::{ActionBindingManifestConfig, ActionCollection, MenuBarItem, MenuBarManifestConfig},
 };
 use lapiz_brush::tool::CurrentBrushPresetHandle;
+use lapiz_builtin_docks::{
+    BRUSH_PRESETS_DOCK_ID, COLOR_SELECTOR_DOCK_ID, CanvasDock, LAYER_DOCK_ID, TOOL_BOX_DOCK_ID,
+    TOOL_OPTIONS_DOCK_ID, construct_canvas_dock_id,
+};
 use lapiz_canvas::{
     CanvasAppExt, CanvasToolProxyAppExt,
     event::{CanvasCreated, CanvasRemoved},
     tools::PanTool,
 };
 use lapiz_dock::{
-    DockManager, DockMessage,
+    DockManager, DockMessage, DockRegistry,
     dock::{Dock, DockId},
     group::DockGroupId,
 };
@@ -44,12 +48,6 @@ use lapiz_widgets::{
 };
 use moxcms::ProfileText;
 use unic_langid::LanguageIdentifier;
-
-use crate::dock::{
-    BRUSH_PRESETS_DOCK_ID, BrushPresetDock, COLOR_SELECTOR_DOCK_ID, CanvasDock, ColorSelectorDock,
-    LAYER_DOCK_ID, LayersDock, TOOL_BOX_DOCK_ID, TOOL_OPTIONS_DOCK_ID, ToolBoxDock,
-    ToolOptionsDock, construct_canvas_dock_id,
-};
 
 pub struct MainView {
     dock_manager: DockManager,
@@ -234,12 +232,8 @@ impl WindowView for MainView {
             },
             ..Default::default()
         });
-        let (mut dock_manager, dock_manager_task) = DockManager::new(main_window);
-        dock_manager.register_dock(LayersDock::new());
-        dock_manager.register_dock(ToolBoxDock::new());
-        dock_manager.register_dock(ToolOptionsDock::new(services));
-        dock_manager.register_dock(BrushPresetDock::new(services));
-        dock_manager.register_dock(ColorSelectorDock::new(services));
+        let dock_registry = services.remove_service::<DockRegistry>();
+        let (mut dock_manager, dock_manager_task) = dock_registry.build(main_window);
 
         let task_tool_options = dock_manager.open_dock(TOOL_OPTIONS_DOCK_ID.clone());
         let tool_options = *dock_manager

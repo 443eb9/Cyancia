@@ -9,6 +9,7 @@ members = [
     "crates/lapiz_assets",
     "crates/lapiz_brush",
     "crates/lapiz_bucket_tool",
+    "crates/lapiz_builtin_docks",
     "crates/lapiz_canvas",
     "crates/lapiz_color",
     "crates/lapiz_color_selector",
@@ -66,6 +67,7 @@ lapiz_anti_aliasing = { version = "0.1.0", path = "crates/lapiz_anti_aliasing" }
 lapiz_assets = { version = "0.1.0", path = "crates/lapiz_assets" }
 lapiz_brush = { version = "0.1.0", path = "crates/lapiz_brush" }
 lapiz_bucket_tool = { version = "0.1.0", path = "crates/lapiz_bucket_tool" }
+lapiz_builtin_docks = { version = "0.1.0", path = "crates/lapiz_builtin_docks" }
 lapiz_canvas = { version = "0.1.0", path = "crates/lapiz_canvas" }
 lapiz_color = { version = "0.1.0", path = "crates/lapiz_color" }
 lapiz_color_selector = { version = "0.1.0", path = "crates/lapiz_color_selector" }

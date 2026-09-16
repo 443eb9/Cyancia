@@ -10,7 +10,7 @@ use iced_core::{Element, Point, Size, Theme, Vector, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
 use iced_widget::pane_grid;
-use lapiz_runtime::{Renderer, Services};
+use lapiz_runtime::{Renderer, Services, service::Service};
 use lapiz_widgets::window_decorations::WindowDecorations;
 use state::DockState;
 
@@ -27,6 +27,29 @@ pub mod style;
 const ATTACH_DWELL: Duration = Duration::from_millis(200);
 const MERGE_DISTANCE: f32 = 30.0;
 const _FLOATING_WINDOW_SNAP_DISTANCE: f32 = 10.0;
+
+#[derive(Default)]
+pub struct DockRegistry {
+    inner: HashMap<DockId, Box<dyn ErasedDock>>,
+}
+
+impl DockRegistry {
+    pub fn register<T: Dock>(&mut self, dock: T) {
+        self.inner.insert(dock.id(), Box::new(dock));
+    }
+
+    pub fn build(self, main_window: window::Id) -> (DockManager, Task<DockMessage>) {
+        let (mut manager, task) = DockManager::new(main_window);
+
+        for dock in self.inner.into_values() {
+            manager.register_dock_boxed(dock);
+        }
+
+        (manager, task)
+    }
+}
+
+impl Service for DockRegistry {}
 
 pub struct DockManager {
     main_window: GroupWindowInfo,
