@@ -7,14 +7,13 @@ pub mod tool_options;
 
 lapiz_i18n::define_i18n!("builtin_docks");
 
-pub use brush_preset::{BRUSH_PRESETS_DOCK_ID, BrushPresetDock, BrushPresetDockMessage};
-pub use canvas::{CanvasDock, CanvasDockMessage, construct_canvas_dock_id};
-pub use color_selector::{COLOR_SELECTOR_DOCK_ID, ColorSelectorDock, ColorSelectorDockMessage};
 use lapiz_dock::DockRegistry;
 use lapiz_runtime::{Application, plugin::Plugin};
-pub use layers::{LAYER_DOCK_ID, LayersDock, LayersDockMessage};
-pub use tool_box::{TOOL_BOX_DOCK_ID, ToolBoxDock, ToolBoxDockMessage};
-pub use tool_options::{TOOL_OPTIONS_DOCK_ID, ToolOptionsDock, ToolOptionsDockMessage};
+
+use crate::{
+    brush_preset::BrushPresetDock, color_selector::ColorSelectorDock, layers::LayersDock,
+    tool_box::ToolBoxDock, tool_options::ToolOptionsDock,
+};
 
 pub struct BuiltinDocksPlugin;
 

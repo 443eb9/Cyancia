@@ -15,8 +15,12 @@ use lapiz_actions::{
 };
 use lapiz_brush::tool::CurrentBrushPresetHandle;
 use lapiz_builtin_docks::{
-    BRUSH_PRESETS_DOCK_ID, COLOR_SELECTOR_DOCK_ID, CanvasDock, LAYER_DOCK_ID, TOOL_BOX_DOCK_ID,
-    TOOL_OPTIONS_DOCK_ID, construct_canvas_dock_id,
+    brush_preset::BRUSH_PRESETS_DOCK_ID,
+    canvas::{CanvasDock, construct_canvas_dock_id},
+    color_selector::COLOR_SELECTOR_DOCK_ID,
+    layers::LAYER_DOCK_ID,
+    tool_box::TOOL_BOX_DOCK_ID,
+    tool_options::TOOL_OPTIONS_DOCK_ID,
 };
 use lapiz_canvas::{
     CanvasAppExt, CanvasToolProxyAppExt,
