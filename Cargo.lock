@@ -3280,6 +3280,8 @@ dependencies = [
  "bevy_math 0.18.1 (git+https://github.com/443eb9/bevy.git?branch=release-0.18.1)",
  "iced",
  "iced_core",
+ "iced_futures",
+ "iced_runtime",
  "iced_widget",
  "lapiz_assets",
  "lapiz_brush",
@@ -3294,10 +3296,13 @@ dependencies = [
  "lapiz_render",
  "lapiz_runtime",
  "lapiz_tools",
+ "lapiz_undo",
  "lapiz_utils",
  "lapiz_widgets",
+ "log",
  "moxcms 0.9.0",
  "rust-embed",
+ "serde",
 ]
 
 [[package]]
