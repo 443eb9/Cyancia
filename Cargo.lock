@@ -3179,6 +3179,7 @@ dependencies = [
  "lapiz_assets",
  "lapiz_canvas",
  "lapiz_config",
+ "lapiz_dirs",
  "lapiz_i18n",
  "lapiz_image",
  "lapiz_image_adapter",
@@ -3235,6 +3236,7 @@ dependencies = [
  "lapiz_color",
  "lapiz_color_selector",
  "lapiz_config",
+ "lapiz_dirs",
  "lapiz_dock",
  "lapiz_eye_dropper",
  "lapiz_filter",
@@ -3307,6 +3309,7 @@ dependencies = [
  "lapiz_assets",
  "lapiz_canvas",
  "lapiz_color",
+ "lapiz_dirs",
  "lapiz_i18n",
  "lapiz_image",
  "lapiz_input",
@@ -3487,10 +3490,18 @@ dependencies = [
  "directories",
  "futures",
  "iced_futures",
+ "lapiz_dirs",
  "parking_lot",
  "serde",
  "tempfile",
  "toml 1.1.5+spec-1.1.0",
+]
+
+[[package]]
+name = "lapiz_dirs"
+version = "0.1.0"
+dependencies = [
+ "directories",
 ]
 
 [[package]]
@@ -3743,6 +3754,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "gfxinfo",
+ "lapiz_dirs",
  "lapiz_runtime",
  "lapiz_utils",
  "log",

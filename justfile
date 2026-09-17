@@ -144,8 +144,9 @@ run profile:
     set -euo pipefail
     case "{{ profile }}" in
         dev) cargo run --locked ;;
+        dev-local) cargo run --locked --features lapiz_dirs/dev_local ;;
         release) cargo run --release --locked ;;
-        *) echo "profile must be dev or release" >&2; exit 2 ;;
+        *) echo "profile must be dev, dev-local or release" >&2; exit 2 ;;
     esac
 
 verify-release-tag tag:

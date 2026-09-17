@@ -13,6 +13,7 @@ workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 gfxinfo.workspace = true
+lapiz_dirs.workspace = true
 lapiz_runtime.workspace = true
 lapiz_utils.workspace = true
 log.workspace = true
