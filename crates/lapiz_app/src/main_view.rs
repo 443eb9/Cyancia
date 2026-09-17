@@ -26,21 +26,31 @@ use lapiz_builtin_docks::{
 use lapiz_canvas::{
     CanvasAppExt, CanvasToolProxyAppExt,
     event::{CanvasCreated, CanvasRemoved},
+    recent::{RecentFileRecord, RecentFiles},
     tools::PanTool,
 };
+use lapiz_config::Config;
 use lapiz_dock::{
     DockManager, DockMessage, DockRegistry,
     dock::{Dock, DockId},
     group::DockGroupId,
 };
 use lapiz_i18n::{config::LanguageConfig, t};
+use lapiz_image::{
+    texel::TexelType,
+    tile::{GpuLayerInfo, TileStorageAppExt},
+};
 use lapiz_input::key::KeyboardState;
 use lapiz_runtime::{
     ApplicationTheme, Renderer, Services,
     event::Event,
     windows::{WindowView, WindowViewId},
 };
-use lapiz_tools::{ErasedToolFunctionMessage, GlobalToolBindings, ToolFunction};
+use lapiz_tools::{
+    ErasedToolFunctionMessage, GlobalToolBindings, ToolFunction, ToolFunctionRegistry, ToolProxies,
+    ToolProxy,
+};
+use lapiz_undo::{UndoStack, UndoStacks};
 use lapiz_utils::log_err::LogErr;
 use lapiz_widgets::{
     bar::StatusBar,
@@ -505,6 +515,31 @@ impl WindowView for MainView {
             }
             MainViewMessage::CanvasCreated(e) => {
                 log::info!("Canvas created: {}", e.id);
+
+                let tool_proxy = ToolProxy::new(services.service::<ToolFunctionRegistry>());
+                services
+                    .service_mut::<ToolProxies>()
+                    .insert(*e.id, tool_proxy);
+                let undo_stack = UndoStack::new(*e.id, 200);
+                services
+                    .service_mut::<UndoStacks>()
+                    .insert(*e.id, undo_stack);
+
+                let canvas = services.canvas(&e.id).unwrap();
+                services.tile_storage().declare_layer(
+                    canvas.image.selection_layer(),
+                    GpuLayerInfo {
+                        // TODO This will change when image depth is not 8 bit
+                        texel_type: TexelType::A8,
+                    },
+                );
+
+                Config::<RecentFiles>::read_or_init_or_fallback()
+                    .update(|c| {
+                        c.update(canvas.file_path());
+                    })
+                    .log_err();
+
                 let tool_task = services
                     .update_tool_proxy(&e.id, |tool_proxy, services| {
                         tool_proxy.switch_tool(PanTool::id(), services)

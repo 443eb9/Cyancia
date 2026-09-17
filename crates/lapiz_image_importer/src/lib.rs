@@ -298,49 +298,10 @@ pub fn start_import(services: &mut Services, path: PathBuf) {
             ));
     } else {
         let archive = futures::executor::block_on(importer.import(services, &path)).logged_err();
-        if let Ok(archive) = archive {
-            open_imported_canvas(path, archive, services).log_err();
+        if let Ok(archive) = archive
+            && let Ok(image) = CImage::from_lazuli(&archive, services).logged_err()
+        {
+            services.add_canvas(CCanvas::new(path, image, archive));
         }
     }
-}
-
-pub(crate) fn open_imported_canvas(
-    path: PathBuf,
-    archive: LazuliArchive,
-    services: &mut Services,
-) -> Result<()> {
-    let image = CImage::from_lazuli(&archive, services)?;
-    let canvas = CCanvas::new(path.clone(), image, archive);
-    let canvas_id = canvas.id();
-    let tool_proxy = ToolProxy::new(services.service::<ToolFunctionRegistry>());
-    services
-        .service_mut::<ToolProxies>()
-        .insert(*canvas_id, tool_proxy);
-    let undo_stack = UndoStack::new(*canvas_id, 200);
-    services
-        .service_mut::<UndoStacks>()
-        .insert(*canvas_id, undo_stack);
-
-    services.tile_storage().declare_layer(
-        canvas.image.selection_layer(),
-        GpuLayerInfo {
-            // TODO This will change when image depth is not 8 bit
-            texel_type: TexelType::A8,
-        },
-    );
-
-    services.add_canvas(canvas);
-    CanvasCreated::broadcast(CanvasCreated { id: canvas_id });
-    Config::<RecentFiles>::read_or_init_or_fallback()
-        .update(|c| {
-            if let Some(index) = c.files.iter().position(|r| r.path == path) {
-                let rec = c.files.remove(index);
-                c.files.push(rec);
-            } else {
-                c.files.push(RecentFileRecord { path });
-            }
-        })
-        .log_err();
-
-    Ok(())
 }

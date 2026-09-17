@@ -4,8 +4,10 @@ use anyhow::Result;
 use iced_core::{Alignment, Element, Length, Size, Theme, window};
 use iced_runtime::Task;
 use iced_widget::{Space, column, row};
+use lapiz_canvas::{CCanvas, CanvasAppExt};
 use lapiz_config::Config;
 use lapiz_i18n::t;
+use lapiz_image::CImage;
 use lapiz_runtime::{
     Renderer, Services,
     windows::{WindowView, WindowViewId},
@@ -15,7 +17,6 @@ use lapiz_widgets::{button::Button, label::Label, panel::Panel};
 
 use crate::{
     ErasedImportDialogMessage, ImageImporterRegistry, PendingImport, config::ImageImporterConfig,
-    open_imported_canvas,
 };
 
 pub const IMPORT_DIALOG_VIEW_ID: &str = "import_dialog";
@@ -126,9 +127,12 @@ impl WindowView for ImportDialogView {
                 let archive =
                     futures::executor::block_on(self.importer.import(services, &self.path))
                         .logged_err();
-                if let Ok(archive) = archive {
-                    open_imported_canvas(self.path.clone(), archive, services).log_err();
+                if let Ok(archive) = archive
+                    && let Ok(image) = CImage::from_lazuli(&archive, services).logged_err()
+                {
+                    services.add_canvas(CCanvas::new(self.path.clone(), image, archive));
                 }
+
                 Config::<ImageImporterConfig>::read_or_init_or_fallback()
                     .update(|config| match self.importer.to_toml() {
                         Ok(value) => {
