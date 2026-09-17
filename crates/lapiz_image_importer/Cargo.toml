@@ -1,0 +1,12 @@
+[package]
+name = "lapiz_image_importer"
+version = "0.1.0"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]

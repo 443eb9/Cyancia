@@ -16,11 +16,12 @@ members = [
     "crates/lapiz_config",
     "crates/lapiz_dirs",
     "crates/lapiz_dock",
-    "crates/lapiz_image_exporter",
     "crates/lapiz_eye_dropper",
     "crates/lapiz_filter",
     "crates/lapiz_i18n",
     "crates/lapiz_image",
+    "crates/lapiz_image_exporter",
+    "crates/lapiz_image_importer",
     "crates/lapiz_input",
     "crates/lapiz_lazuli",
     "crates/lapiz_math",
@@ -76,11 +77,12 @@ lapiz_color_selector = { version = "0.1.0", path = "crates/lapiz_color_selector"
 lapiz_config = { version = "0.1.0", path = "crates/lapiz_config" }
 lapiz_dirs = { version = "0.1.0", path = "crates/lapiz_dirs" }
 lapiz_dock = { version = "0.1.0", path = "crates/lapiz_dock" }
-lapiz_image_exporter = { version = "0.1.0", path = "crates/lapiz_image_exporter" }
 lapiz_eye_dropper = { version = "0.1.0", path = "crates/lapiz_eye_dropper" }
 lapiz_filter = { version = "0.1.0", path = "crates/lapiz_filter" }
 lapiz_i18n = { version = "0.1.0", path = "crates/lapiz_i18n" }
 lapiz_image = { version = "0.1.0", path = "crates/lapiz_image" }
+lapiz_image_exporter = { version = "0.1.0", path = "crates/lapiz_image_exporter" }
+lapiz_image_importer = { version = "0.1.0", path = "crates/lapiz_image_importer" }
 lapiz_input = { version = "0.1.0", path = "crates/lapiz_input" }
 lapiz_lazuli = { version = "0.1.0", path = "crates/lapiz_lazuli" }
 lapiz_math = { version = "0.1.0", path = "crates/lapiz_math" }

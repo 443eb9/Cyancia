@@ -3681,6 +3681,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "lapiz_image_importer"
+version = "0.1.0"
+
+[[package]]
 name = "lapiz_input"
 version = "0.1.0"
 dependencies = [
