@@ -187,7 +187,7 @@ fn start_export(services: &mut Services, allow_silent_export: bool, path: PathBu
     let can_silent_export = services
         .service::<SilentSaveCanvases>()
         .contains(canvas.id());
-    if adapter.has_export_options() && !(allow_silent_export && can_silent_export) {
+    if adapter.has_options() && !(allow_silent_export && can_silent_export) {
         let params = PendingExport {
             path,
             allow_silent_export,

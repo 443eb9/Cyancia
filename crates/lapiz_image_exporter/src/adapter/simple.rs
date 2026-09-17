@@ -19,7 +19,7 @@ macro_rules! simple_exporters {
             pub struct $name;
 
             impl ImageFormatExporter for $name {
-                type ExportDialogMessage = ();
+                type DialogMessage = ();
 
                 fn extension() -> &'static str {
                     $extension
@@ -33,15 +33,15 @@ macro_rules! simple_exporters {
                     lapiz_i18n::t!($description)
                 }
 
-                fn has_export_options() -> bool {
+                fn has_options() -> bool {
                     false
                 }
 
-                fn export_dialog_view(&self, _: &Services) -> Element<'_, (), Theme, Renderer> {
+                fn dialog_view(&self, _: &Services) -> Element<'_, (), Theme, Renderer> {
                     iced_widget::Column::new().into()
                 }
 
-                fn export_dialog_update(&mut self, _: (), _: &mut Services) -> Task<()> {
+                fn dialog_update(&mut self, _: (), _: &mut Services) -> Task<()> {
                     Task::none()
                 }
 

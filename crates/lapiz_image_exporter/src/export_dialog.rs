@@ -99,7 +99,7 @@ impl WindowView for ExportDialogView {
     ) -> impl Into<Element<'a, Self::Message, Theme, Renderer>> {
         let options = self
             .adapter
-            .export_dialog_view(services)
+            .dialog_view(services)
             .map(ExportDialogMessage::Adapter);
         let footer = row![]
             .when(self.allow_silent_export, |r| {
@@ -145,7 +145,7 @@ impl WindowView for ExportDialogView {
         match message {
             ExportDialogMessage::Adapter(message) => self
                 .adapter
-                .export_dialog_update(message, services)
+                .dialog_update(message, services)
                 .map(ExportDialogMessage::Adapter),
             ExportDialogMessage::DontAskAgainToggled(checked) => {
                 self.dont_ask_again = checked;

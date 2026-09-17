@@ -35,7 +35,7 @@ pub enum AvifExportMessage {
 }
 
 impl ImageFormatExporter for AvifExporter {
-    type ExportDialogMessage = AvifExportMessage;
+    type DialogMessage = AvifExportMessage;
 
     fn extension() -> &'static str {
         "avif"
@@ -45,7 +45,7 @@ impl ImageFormatExporter for AvifExporter {
         t!("avif_image_description")
     }
 
-    fn export_dialog_view(&self, _: &Services) -> Element<'_, AvifExportMessage, Theme, Renderer> {
+    fn dialog_view(&self, _: &Services) -> Element<'_, AvifExportMessage, Theme, Renderer> {
         Form::new()
             .push(
                 t!("quality"),
@@ -56,7 +56,7 @@ impl ImageFormatExporter for AvifExporter {
             .into()
     }
 
-    fn export_dialog_update(
+    fn dialog_update(
         &mut self,
         message: AvifExportMessage,
         _: &mut Services,

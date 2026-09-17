@@ -38,7 +38,7 @@ pub enum JpgExportMessage {
 }
 
 impl ImageFormatExporter for JpgExporter {
-    type ExportDialogMessage = JpgExportMessage;
+    type DialogMessage = JpgExportMessage;
 
     fn extension() -> &'static str {
         "jpg"
@@ -52,7 +52,7 @@ impl ImageFormatExporter for JpgExporter {
         t!("jpg_image_description")
     }
 
-    fn export_dialog_view(&self, _: &Services) -> Element<'_, JpgExportMessage, Theme, Renderer> {
+    fn dialog_view(&self, _: &Services) -> Element<'_, JpgExportMessage, Theme, Renderer> {
         Form::new()
             .push(
                 t!("quality"),
@@ -67,7 +67,7 @@ impl ImageFormatExporter for JpgExporter {
             .into()
     }
 
-    fn export_dialog_update(
+    fn dialog_update(
         &mut self,
         message: JpgExportMessage,
         _: &mut Services,

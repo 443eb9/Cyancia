@@ -58,7 +58,7 @@ pub(crate) fn default_embed_profile() -> bool {
 }
 
 pub trait ImageFormatExporter: 'static {
-    type ExportDialogMessage: Send + 'static;
+    type DialogMessage: Send + 'static;
 
     fn extension() -> &'static str;
 
@@ -68,20 +68,20 @@ pub trait ImageFormatExporter: 'static {
 
     fn description() -> String;
 
-    fn has_export_options() -> bool {
+    fn has_options() -> bool {
         true
     }
 
-    fn export_dialog_view<'a>(
+    fn dialog_view<'a>(
         &'a self,
         services: &'a Services,
-    ) -> Element<'a, Self::ExportDialogMessage, Theme, Renderer>;
+    ) -> Element<'a, Self::DialogMessage, Theme, Renderer>;
 
-    fn export_dialog_update(
+    fn dialog_update(
         &mut self,
-        message: Self::ExportDialogMessage,
+        message: Self::DialogMessage,
         services: &mut Services,
-    ) -> Task<Self::ExportDialogMessage>;
+    ) -> Task<Self::DialogMessage>;
 
     #[allow(async_fn_in_trait)]
     async fn export(&self, services: &Services, canvas: &CCanvas, path: &Path) -> Result<()>;
@@ -97,14 +97,14 @@ pub trait ErasedImageFormatAdapter: Send + Sync + 'static {
 
     fn description(&self) -> String;
 
-    fn has_export_options(&self) -> bool;
+    fn has_options(&self) -> bool;
 
-    fn export_dialog_view<'a>(
+    fn dialog_view<'a>(
         &'a self,
         services: &'a Services,
     ) -> Element<'a, ErasedExportDialogMessage, Theme, Renderer>;
 
-    fn export_dialog_update(
+    fn dialog_update(
         &mut self,
         message: ErasedExportDialogMessage,
         services: &mut Services,
@@ -135,27 +135,27 @@ where
         T::description()
     }
 
-    fn has_export_options(&self) -> bool {
-        T::has_export_options()
+    fn has_options(&self) -> bool {
+        T::has_options()
     }
 
-    fn export_dialog_view<'a>(
+    fn dialog_view<'a>(
         &'a self,
         services: &'a Services,
     ) -> Element<'a, ErasedExportDialogMessage, Theme, Renderer> {
-        self.export_dialog_view(services)
+        self.dialog_view(services)
             .map(|message| Box::new(message) as ErasedExportDialogMessage)
     }
 
-    fn export_dialog_update(
+    fn dialog_update(
         &mut self,
         message: ErasedExportDialogMessage,
         services: &mut Services,
     ) -> Task<ErasedExportDialogMessage> {
         let message = *message
-            .downcast::<T::ExportDialogMessage>()
+            .downcast::<T::DialogMessage>()
             .expect("Invalid export dialog message type");
-        self.export_dialog_update(message, services)
+        self.dialog_update(message, services)
             .map(|message| Box::new(message) as ErasedExportDialogMessage)
     }
 

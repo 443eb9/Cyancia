@@ -113,7 +113,7 @@ pub enum PngExportMessage {
 }
 
 impl ImageFormatExporter for PngExporter {
-    type ExportDialogMessage = PngExportMessage;
+    type DialogMessage = PngExportMessage;
 
     fn extension() -> &'static str {
         "png"
@@ -123,7 +123,7 @@ impl ImageFormatExporter for PngExporter {
         t!("png_image_description")
     }
 
-    fn export_dialog_view(&self, _: &Services) -> Element<'_, PngExportMessage, Theme, Renderer> {
+    fn dialog_view(&self, _: &Services) -> Element<'_, PngExportMessage, Theme, Renderer> {
         Form::new()
             .push(
                 t!("compression"),
@@ -148,7 +148,7 @@ impl ImageFormatExporter for PngExporter {
             .into()
     }
 
-    fn export_dialog_update(
+    fn dialog_update(
         &mut self,
         message: PngExportMessage,
         _: &mut Services,

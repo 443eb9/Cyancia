@@ -14,7 +14,7 @@ use crate::ImageFormatExporter;
 pub struct LazuliExporter;
 
 impl ImageFormatExporter for LazuliExporter {
-    type ExportDialogMessage = ();
+    type DialogMessage = ();
 
     fn extension() -> &'static str {
         lapiz_lazuli::EXTENSION
@@ -24,15 +24,15 @@ impl ImageFormatExporter for LazuliExporter {
         t!("lazuli_image_description")
     }
 
-    fn has_export_options() -> bool {
+    fn has_options() -> bool {
         false
     }
 
-    fn export_dialog_view(&self, _: &Services) -> Element<'_, (), Theme, Renderer> {
+    fn dialog_view(&self, _: &Services) -> Element<'_, (), Theme, Renderer> {
         iced_widget::Column::new().into()
     }
 
-    fn export_dialog_update(&mut self, _: (), _: &mut Services) -> Task<()> {
+    fn dialog_update(&mut self, _: (), _: &mut Services) -> Task<()> {
         Task::none()
     }
 
