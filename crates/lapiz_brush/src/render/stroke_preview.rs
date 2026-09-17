@@ -8,6 +8,7 @@ use glam::{IVec4, Vec2, Vec4};
 use iced_runtime::Task;
 use image::{ImageFormat, RgbaImage};
 use lapiz_assets::asset::AssetHandle;
+use lapiz_dirs::cache_dir;
 use lapiz_image::{
     layer_bounds::LayerBoundsPipeline,
     texel::TexelType,
@@ -51,12 +52,7 @@ pub fn load_cached_stroke_preview_or_generate(
     brush: &AssetHandle<BrushPreset>,
     services: &Services,
 ) -> Result<Task<Result<RgbaImage>>> {
-    // TODO resolve path at a dedicated module
-    let cache_dir = std::env::current_exe()?
-        .parent()
-        .ok_or_else(|| anyhow!("Unable to resolve the executable directory."))?
-        .join("cache");
-    let cache_path = cache_dir.join(format!("preview-{}.png", brush.id()));
+    let cache_path = cache_dir().join(format!("preview-{}.png", brush.id()));
 
     if cache_path.exists()
         && let Ok(img) = image::open(&cache_path).logged_err()
@@ -66,7 +62,6 @@ pub fn load_cached_stroke_preview_or_generate(
     }
 
     info!("Generating stroke preview for brush {}", brush.id());
-    fs::create_dir_all(&cache_dir)?;
 
     let (instance, errs) = BrushPresetInstance::from_asset(
         brush,
