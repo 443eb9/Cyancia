@@ -73,7 +73,7 @@ impl Plugin for ImageImporterPlugin {
 pub type ErasedImportDialogMessage = Box<dyn Any + Send>;
 
 pub trait ImageFormatImporter: 'static {
-    type ImportDialogMessage: Send + 'static;
+    type DialogMessage: Send + 'static;
 
     fn extension() -> &'static str;
 
@@ -83,20 +83,20 @@ pub trait ImageFormatImporter: 'static {
 
     fn description() -> String;
 
-    fn has_import_options() -> bool {
+    fn has_options() -> bool {
         true
     }
 
-    fn import_dialog_view<'a>(
+    fn dialog_view<'a>(
         &'a self,
         services: &'a Services,
-    ) -> Element<'a, Self::ImportDialogMessage, Theme, Renderer>;
+    ) -> Element<'a, Self::DialogMessage, Theme, Renderer>;
 
-    fn import_dialog_update(
+    fn dialog_update(
         &mut self,
-        message: Self::ImportDialogMessage,
+        message: Self::DialogMessage,
         services: &mut Services,
-    ) -> Task<Self::ImportDialogMessage>;
+    ) -> Task<Self::DialogMessage>;
 
     #[allow(async_fn_in_trait)]
     async fn import(&self, services: &Services, path: &Path) -> Result<LazuliArchive>;
@@ -110,14 +110,14 @@ pub trait ImageFormatImporter: 'static {
 pub trait ErasedImageFormatImporter: Send + Sync + 'static {
     fn extension(&self) -> &'static str;
     fn description(&self) -> String;
-    fn has_import_options(&self) -> bool;
+    fn has_options(&self) -> bool;
 
-    fn import_dialog_view<'a>(
+    fn dialog_view<'a>(
         &'a self,
         services: &'a Services,
     ) -> Element<'a, ErasedImportDialogMessage, Theme, Renderer>;
 
-    fn import_dialog_update(
+    fn dialog_update(
         &mut self,
         message: ErasedImportDialogMessage,
         services: &mut Services,
@@ -147,27 +147,27 @@ where
         T::description()
     }
 
-    fn has_import_options(&self) -> bool {
-        T::has_import_options()
+    fn has_options(&self) -> bool {
+        T::has_options()
     }
 
-    fn import_dialog_view<'a>(
+    fn dialog_view<'a>(
         &'a self,
         services: &'a Services,
     ) -> Element<'a, ErasedImportDialogMessage, Theme, Renderer> {
-        self.import_dialog_view(services)
+        self.dialog_view(services)
             .map(|message| Box::new(message) as ErasedImportDialogMessage)
     }
 
-    fn import_dialog_update(
+    fn dialog_update(
         &mut self,
         message: ErasedImportDialogMessage,
         services: &mut Services,
     ) -> Task<ErasedImportDialogMessage> {
         let message = *message
-            .downcast::<T::ImportDialogMessage>()
+            .downcast::<T::DialogMessage>()
             .expect("Invalid import dialog message type");
-        self.import_dialog_update(message, services)
+        self.dialog_update(message, services)
             .map(|message| Box::new(message) as ErasedImportDialogMessage)
     }
 
@@ -289,7 +289,7 @@ pub fn start_import(services: &mut Services, path: PathBuf) {
         return;
     };
 
-    if importer.has_import_options() {
+    if importer.has_options() {
         services
             .service_mut::<WindowCommandBuffer>()
             .push(OpenWindowViewCommand::new_with_params(

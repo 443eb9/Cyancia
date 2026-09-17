@@ -13,7 +13,7 @@ use crate::ImageFormatImporter;
 pub struct LazuliImporter;
 
 impl ImageFormatImporter for LazuliImporter {
-    type ImportDialogMessage = ();
+    type DialogMessage = ();
 
     fn extension() -> &'static str {
         lapiz_lazuli::EXTENSION
@@ -23,15 +23,15 @@ impl ImageFormatImporter for LazuliImporter {
         t!("lazuli_image_description")
     }
 
-    fn has_import_options() -> bool {
+    fn has_options() -> bool {
         false
     }
 
-    fn import_dialog_view(&self, _: &Services) -> Element<'_, (), Theme, Renderer> {
+    fn dialog_view(&self, _: &Services) -> Element<'_, (), Theme, Renderer> {
         iced_widget::Column::new().into()
     }
 
-    fn import_dialog_update(&mut self, _: (), _: &mut Services) -> Task<()> {
+    fn dialog_update(&mut self, _: (), _: &mut Services) -> Task<()> {
         Task::none()
     }
 

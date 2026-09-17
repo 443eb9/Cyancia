@@ -16,7 +16,7 @@ macro_rules! simple_importers {
             pub struct $name;
 
             impl ImageFormatImporter for $name {
-                type ImportDialogMessage = ();
+                type DialogMessage = ();
 
                 fn extension() -> &'static str {
                     $extension
@@ -30,15 +30,15 @@ macro_rules! simple_importers {
                     lapiz_i18n::t!($description)
                 }
 
-                fn has_import_options() -> bool {
+                fn has_options() -> bool {
                     false
                 }
 
-                fn import_dialog_view(&self, _: &Services) -> Element<'_, (), Theme, Renderer> {
+                fn dialog_view(&self, _: &Services) -> Element<'_, (), Theme, Renderer> {
                     iced_widget::Column::new().into()
                 }
 
-                fn import_dialog_update(&mut self, _: (), _: &mut Services) -> Task<()> {
+                fn dialog_update(&mut self, _: (), _: &mut Services) -> Task<()> {
                     Task::none()
                 }
 

@@ -85,7 +85,7 @@ impl WindowView for ImportDialogView {
     ) -> impl Into<Element<'a, Self::Message, Theme, Renderer>> {
         let options = self
             .importer
-            .import_dialog_view(services)
+            .dialog_view(services)
             .map(ImportDialogMessage::Importer);
         let footer = row![
             Space::new().width(Length::Fill),
@@ -120,7 +120,7 @@ impl WindowView for ImportDialogView {
         match message {
             ImportDialogMessage::Importer(message) => self
                 .importer
-                .import_dialog_update(message, services)
+                .dialog_update(message, services)
                 .map(ImportDialogMessage::Importer),
             ImportDialogMessage::Confirm => {
                 let archive =
