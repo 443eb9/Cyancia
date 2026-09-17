@@ -24,6 +24,7 @@ use crate::{
 pub mod command;
 pub mod control;
 pub mod event;
+pub mod recent;
 pub mod render;
 pub mod resource;
 pub mod tools;

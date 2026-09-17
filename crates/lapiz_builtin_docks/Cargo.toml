@@ -1,0 +1,38 @@
+[package]
+name = "lapiz_builtin_docks"
+version = "0.1.0"
+license.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+bevy_math.workspace = true
+iced.workspace = true
+iced_core.workspace = true
+iced_widget.workspace = true
+iced_futures.workspace = true
+iced_runtime.workspace = true
+lapiz_assets.workspace = true
+lapiz_brush.workspace = true
+lapiz_canvas.workspace = true
+lapiz_color.workspace = true
+lapiz_color_selector.workspace = true
+lapiz_config.workspace = true
+lapiz_dock.workspace = true
+lapiz_i18n.workspace = true
+lapiz_image.workspace = true
+lapiz_input.workspace = true
+lapiz_render.workspace = true
+lapiz_runtime.workspace = true
+lapiz_tools.workspace = true
+lapiz_undo.workspace = true
+lapiz_utils.workspace = true
+lapiz_widgets.workspace = true
+log.workspace = true
+moxcms.workspace = true
+rust-embed.workspace = true
+serde.workspace = true

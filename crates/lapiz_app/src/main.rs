@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use crate::main_view::MainView;
 
-mod dock;
 mod main_view;
 lapiz_i18n::define_i18n!("app");
 
@@ -14,6 +13,7 @@ use lapiz_assets::{
 };
 use lapiz_brush::{BrushPlugin, editor::BrushEditor};
 use lapiz_bucket_tool::BucketPlugin;
+use lapiz_builtin_docks::BuiltinDocksPlugin;
 use lapiz_canvas::CanvasPlugin;
 use lapiz_color::ColorPlugin;
 use lapiz_color_selector::ColorSelectorPlugin;
@@ -109,7 +109,8 @@ fn main() {
         .add_plugin(ColorPlugin)
         .add_plugin(ActionPlugin)
         .add_plugin(ColorSelectorPlugin)
-        .add_plugin(ImageAdapterPlugin);
+        .add_plugin(ImageAdapterPlugin)
+        .add_plugin(BuiltinDocksPlugin);
     app.build_plugins();
 
     {

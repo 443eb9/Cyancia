@@ -1,4 +1,4 @@
-pub use iced_core::widget::text::{Catalog, Style, StyleFn};
+pub use iced_core::widget::text::{Catalog, Style, StyleFn, Wrapping};
 use iced_core::{Element, Font, Length, Pixels, Theme, alignment, font, text};
 use lapiz_runtime::Renderer;
 
@@ -11,7 +11,7 @@ impl<'a> Label<'a> {
         Self {
             inner: iced_widget::Text::new(content)
                 .size(12)
-                .wrapping(text::Wrapping::None)
+                .wrapping(Wrapping::WordOrGlyph)
                 .align_y(alignment::Vertical::Center)
                 .style(default),
         }
@@ -44,6 +44,11 @@ impl<'a> Label<'a> {
 
     pub fn align_y(mut self, alignment: impl Into<alignment::Vertical>) -> Self {
         self.inner = self.inner.align_y(alignment);
+        self
+    }
+
+    pub fn wrapping(mut self, wrapping: Wrapping) -> Self {
+        self.inner = self.inner.wrapping(wrapping);
         self
     }
 

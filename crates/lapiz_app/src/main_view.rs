@@ -14,13 +14,22 @@ use lapiz_actions::{
     manifest::{ActionBindingManifestConfig, ActionCollection, MenuBarItem, MenuBarManifestConfig},
 };
 use lapiz_brush::tool::CurrentBrushPresetHandle;
+use lapiz_builtin_docks::{
+    brush_preset::BRUSH_PRESETS_DOCK_ID,
+    canvas::{CanvasDock, construct_canvas_dock_id},
+    color_selector::COLOR_SELECTOR_DOCK_ID,
+    layers::LAYER_DOCK_ID,
+    recent_files::RECENT_FILES_DOCK_ID,
+    tool_box::TOOL_BOX_DOCK_ID,
+    tool_options::TOOL_OPTIONS_DOCK_ID,
+};
 use lapiz_canvas::{
     CanvasAppExt, CanvasToolProxyAppExt,
     event::{CanvasCreated, CanvasRemoved},
     tools::PanTool,
 };
 use lapiz_dock::{
-    DockManager, DockMessage,
+    DockManager, DockMessage, DockRegistry,
     dock::{Dock, DockId},
     group::DockGroupId,
 };
@@ -44,12 +53,6 @@ use lapiz_widgets::{
 };
 use moxcms::ProfileText;
 use unic_langid::LanguageIdentifier;
-
-use crate::dock::{
-    BRUSH_PRESETS_DOCK_ID, BrushPresetDock, COLOR_SELECTOR_DOCK_ID, CanvasDock, ColorSelectorDock,
-    LAYER_DOCK_ID, LayersDock, TOOL_BOX_DOCK_ID, TOOL_OPTIONS_DOCK_ID, ToolBoxDock,
-    ToolOptionsDock, construct_canvas_dock_id,
-};
 
 pub struct MainView {
     dock_manager: DockManager,
@@ -234,12 +237,8 @@ impl WindowView for MainView {
             },
             ..Default::default()
         });
-        let (mut dock_manager, dock_manager_task) = DockManager::new(main_window);
-        dock_manager.register_dock(LayersDock::new());
-        dock_manager.register_dock(ToolBoxDock::new());
-        dock_manager.register_dock(ToolOptionsDock::new(services));
-        dock_manager.register_dock(BrushPresetDock::new(services));
-        dock_manager.register_dock(ColorSelectorDock::new(services));
+        let dock_registry = services.remove_service::<DockRegistry>();
+        let (mut dock_manager, dock_manager_task) = dock_registry.build(main_window);
 
         let task_tool_options = dock_manager.open_dock(TOOL_OPTIONS_DOCK_ID.clone());
         let tool_options = *dock_manager
@@ -247,6 +246,8 @@ impl WindowView for MainView {
             .dock_in_group(&TOOL_OPTIONS_DOCK_ID)
             .unwrap()
             .id();
+        let task_landing_page =
+            dock_manager.open_dock_in_group(RECENT_FILES_DOCK_ID.clone(), &tool_options);
         let task_tool_box = dock_manager.open_dock_split(
             TOOL_BOX_DOCK_ID.clone(),
             &tool_options,
@@ -286,6 +287,7 @@ impl WindowView for MainView {
 
         let dock_tasks = Task::batch([
             task_tool_options,
+            task_landing_page,
             task_tool_box,
             task_brush_presets,
             task_layer,

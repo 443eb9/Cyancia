@@ -3230,6 +3230,7 @@ dependencies = [
  "lapiz_assets",
  "lapiz_brush",
  "lapiz_bucket_tool",
+ "lapiz_builtin_docks",
  "lapiz_canvas",
  "lapiz_color",
  "lapiz_color_selector",
@@ -3364,6 +3365,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "lapiz_builtin_docks"
+version = "0.1.0"
+dependencies = [
+ "bevy_math 0.18.1 (git+https://github.com/443eb9/bevy.git?branch=release-0.18.1)",
+ "iced",
+ "iced_core",
+ "iced_futures",
+ "iced_runtime",
+ "iced_widget",
+ "lapiz_assets",
+ "lapiz_brush",
+ "lapiz_canvas",
+ "lapiz_color",
+ "lapiz_color_selector",
+ "lapiz_config",
+ "lapiz_dock",
+ "lapiz_i18n",
+ "lapiz_image",
+ "lapiz_input",
+ "lapiz_render",
+ "lapiz_runtime",
+ "lapiz_tools",
+ "lapiz_undo",
+ "lapiz_utils",
+ "lapiz_widgets",
+ "log",
+ "moxcms 0.9.0",
+ "rust-embed",
+ "serde",
+]
+
+[[package]]
 name = "lapiz_canvas"
 version = "0.1.0"
 dependencies = [
@@ -3378,6 +3411,7 @@ dependencies = [
  "iced_widget",
  "indexmap",
  "lapiz_color",
+ "lapiz_config",
  "lapiz_i18n",
  "lapiz_image",
  "lapiz_input",
