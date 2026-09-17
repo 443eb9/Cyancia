@@ -10,3 +10,23 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+anyhow.workspace = true
+futures.workspace = true
+iced_core.workspace = true
+iced_runtime.workspace = true
+iced_widget.workspace = true
+lapiz_canvas.workspace = true
+lapiz_config.workspace = true
+lapiz_i18n.workspace = true
+lapiz_image.workspace = true
+lapiz_lazuli.workspace = true
+lapiz_runtime.workspace = true
+lapiz_tools.workspace = true
+lapiz_undo.workspace = true
+lapiz_utils.workspace = true
+lapiz_widgets.workspace = true
+log.workspace = true
+rust-embed.workspace = true
+serde.workspace = true
+toml.workspace = true
+tracing.workspace = true

@@ -6,6 +6,8 @@ use std::{
 use anyhow::{Result, anyhow, bail};
 use flate2::{Compression, read::DeflateDecoder, write::DeflateEncoder};
 use glam::{IVec2, UVec2};
+use imagers::{DynamicImage, GenericImageView};
+use lapiz_i18n::t;
 use lapiz_lazuli::{ImageProperties, LayerNode, LazuliArchive};
 use lapiz_render::render_context::RenderContextAppExt;
 use lapiz_runtime::Services;
@@ -18,8 +20,10 @@ use crate::{
     CImage,
     layer::{
         Layer, LayerId, LayerStack, LayerStackNode, LayerTypeRegistry, SpecialLayers,
+        pixel_layer::PixelLayer,
         properties::{
-            EncodedLayerProperties, LayerProperties, LayerTexelTypePropertyExt, TexelSource,
+            EncodedLayerProperties, LayerProperties, LayerTexelTypePropertyExt, NamePropertyExt,
+            TexelSource,
         },
     },
     texel::TexelType,
@@ -27,7 +31,7 @@ use crate::{
 };
 
 impl CImage {
-    pub fn read_archive(archive: &LazuliArchive, services: &Services) -> Result<Self> {
+    pub fn from_lazuli(archive: &LazuliArchive, services: &Services) -> Result<Self> {
         let image_props = archive.read_image_properties()?;
         let layer_stack = LayerStack::read_entire_tree(
             image_props.root_layer,
@@ -106,6 +110,69 @@ impl CImage {
 
         Ok(())
     }
+
+    pub fn image_to_lazuli(img: DynamicImage, profile: ColorProfile) -> Result<LazuliArchive> {
+        let size = UVec2::new(img.width(), img.height());
+
+        // This is a workaround to write correct layer structure and properties
+        // into lazuli archive
+        let mut layer = PixelLayer::new();
+        layer.properties_mut().set_name(t!("background_layer"));
+        let layer_id = *layer.id();
+        let image = Self::from_layer(size, layer, profile);
+        let archive = LazuliArchive::new_in_memory()?;
+        archive.write_image_properties(&ImageProperties {
+            width: image.size.x,
+            height: image.size.y,
+            tile_size: GpuTileStorage::TILE_SIZE,
+            color_profile: image.profile.encode()?,
+            root_layer: **image.layers.root_node().id(),
+            texel_type: image.texel_type.encode(),
+        })?;
+        image.layers.write_entire_tree(&archive)?;
+
+        let texel_type = image
+            .layers
+            .get_layer(&layer_id)
+            .expect("Imported pixel layer should exist")
+            .properties()
+            .get_texel_type()
+            .expect("Pixel layer should declare its texel type");
+
+        let tile_size = GpuTileStorage::TILE_SIZE;
+        let pixel_size = texel_type
+            .wgpu_format()
+            .block_copy_size(None)
+            .expect("Image texel format should have a fixed block size")
+            as usize;
+        let tile_stride = tile_size as usize * pixel_size;
+        let tile_count = GpuTileStorage::calc_tile_count(UVec2::new(img.width(), img.height()));
+
+        for tile_y in 0..tile_count.y {
+            for tile_x in 0..tile_count.x {
+                let origin = UVec2::new(tile_x, tile_y) * tile_size;
+                let width = tile_size.min(img.width() - origin.x);
+                let height = tile_size.min(img.height() - origin.y);
+                let source = texel_type.convert_image_to_wgpu(DynamicImage::from(
+                    img.view(origin.x, origin.y, width, height).to_image(),
+                ));
+                let source_stride = width as usize * pixel_size;
+                let mut tile = vec![0; tile_stride * tile_size as usize];
+                for row in 0..height as usize {
+                    tile[row * tile_stride..row * tile_stride + source_stride]
+                        .copy_from_slice(&source[row * source_stride..(row + 1) * source_stride]);
+                }
+                GpuTileStorage::write_tile_data(
+                    &archive,
+                    layer_id,
+                    IVec2::new(tile_x as i32, tile_y as i32),
+                    &tile,
+                )?;
+            }
+        }
+
+        Ok(archive)
+    }
 }
 
 impl GpuTileStorage {
@@ -151,7 +218,7 @@ impl GpuTileStorage {
         Ok(())
     }
 
-    fn write_tile_data(
+    pub(crate) fn write_tile_data(
         archive: &LazuliArchive,
         layer_id: LayerId,
         tile: IVec2,

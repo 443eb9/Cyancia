@@ -3183,6 +3183,7 @@ dependencies = [
  "lapiz_i18n",
  "lapiz_image",
  "lapiz_image_exporter",
+ "lapiz_image_importer",
  "lapiz_input",
  "lapiz_lazuli",
  "lapiz_render",
@@ -3243,6 +3244,7 @@ dependencies = [
  "lapiz_i18n",
  "lapiz_image",
  "lapiz_image_exporter",
+ "lapiz_image_importer",
  "lapiz_input",
  "lapiz_render",
  "lapiz_report",
@@ -3683,6 +3685,28 @@ dependencies = [
 [[package]]
 name = "lapiz_image_importer"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "iced_core",
+ "iced_runtime",
+ "iced_widget",
+ "lapiz_canvas",
+ "lapiz_config",
+ "lapiz_i18n",
+ "lapiz_image",
+ "lapiz_lazuli",
+ "lapiz_runtime",
+ "lapiz_tools",
+ "lapiz_undo",
+ "lapiz_utils",
+ "lapiz_widgets",
+ "log",
+ "rust-embed",
+ "serde",
+ "toml 1.1.5+spec-1.1.0",
+ "tracing",
+]
 
 [[package]]
 name = "lapiz_input"

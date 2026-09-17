@@ -1,28 +1,17 @@
 use std::{ffi::OsStr, path::PathBuf};
 
 use iced_runtime::Task;
-use lapiz_canvas::{
-    CCanvas, CanvasAppExt,
-    event::CanvasCreated,
-    recent::{RecentFileRecord, RecentFiles},
-};
+use lapiz_canvas::CanvasAppExt;
 use lapiz_config::Config;
-use lapiz_image::{
-    CImage,
-    texel::TexelType,
-    tile::{GpuLayerInfo, TileStorageAppExt},
-};
 use lapiz_image_exporter::{
     ImageFormatAdapterRegistry, PendingExport, SilentSaveCanvases, config::ImageExporterConfig,
     export_dialog::EXPORT_DIALOG_VIEW_ID,
 };
+use lapiz_image_importer::{ImageImporterRegistry, start_import};
 use lapiz_runtime::{
     Services,
-    event::Event,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},
 };
-use lapiz_tools::{ToolFunctionRegistry, ToolProxies, ToolProxy};
-use lapiz_undo::{UndoStack, UndoStacks};
 use lapiz_utils::log_err::LogErr;
 use rfd::AsyncFileDialog;
 
@@ -43,9 +32,15 @@ impl ActionFunction for OpenFileAction {
         ActionId::new("open_file_action".into())
     }
 
-    fn trigger(&self, _services: &mut Services) -> Task<Self::Message> {
+    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
+        let mut dialog = AsyncFileDialog::new();
+        for format in services.service::<ImageImporterRegistry>().iter_formats() {
+            let mut extensions = vec![format.extension];
+            extensions.extend(format.aliases);
+            dialog = dialog.add_filter(&format.description, &extensions);
+        }
         Task::future(async {
-            let Some(file) = AsyncFileDialog::new().pick_file().await else {
+            let Some(file) = dialog.pick_file().await else {
                 log::error!("Unable to get selected file path.");
                 return OpenFileMessage::Canceled;
             };
@@ -62,53 +57,7 @@ impl ActionFunction for OpenFileAction {
             return Task::none();
         };
 
-        let Ok((image, archive)) = CImage::from_file(&path, services).logged_err() else {
-            return Task::none();
-        };
-        log::info!("Opened image from file {:?}.", path);
-
-        let canvas = CCanvas::new(path.clone(), image, archive);
-        let canvas_id = canvas.id();
-        let tool_proxy = ToolProxy::new(services.service::<ToolFunctionRegistry>());
-        services
-            .service_mut::<ToolProxies>()
-            .insert(*canvas_id, tool_proxy);
-        let undo_stack = UndoStack::new(*canvas_id, 200);
-        services
-            .service_mut::<UndoStacks>()
-            .insert(*canvas_id, undo_stack);
-
-        // TODO this should not be done here
-        let tiles = services.tile_storage();
-        for layer in canvas.image.layer_stack().iter_layers() {
-            tiles.declare_layer(
-                *layer.id(),
-                GpuLayerInfo {
-                    // TODO
-                    texel_type: TexelType::RGBA8,
-                },
-            );
-        }
-        tiles.declare_layer(
-            canvas.image.selection_layer(),
-            GpuLayerInfo {
-                // TODO This will change when image depth is not 8 bit
-                texel_type: TexelType::A8,
-            },
-        );
-
-        services.add_canvas(canvas);
-        CanvasCreated::broadcast(CanvasCreated { id: canvas_id });
-        Config::<RecentFiles>::read_or_init_or_fallback()
-            .update(|c| {
-                if let Some(index) = c.files.iter().position(|r| r.path == path) {
-                    let rec = c.files.remove(index);
-                    c.files.push(rec);
-                } else {
-                    c.files.push(RecentFileRecord { path });
-                }
-            })
-            .log_err();
+        start_import(services, path);
 
         Task::none()
     }
