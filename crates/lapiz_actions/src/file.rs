@@ -45,7 +45,7 @@ impl ActionFunction for OpenFileAction {
                 std::iter::once(format.extension).chain(format.aliases.iter().copied())
             })
             .collect::<Vec<_>>();
-        dialog = dialog.add_filter(&t!("all_formats"), &all_extensions);
+        dialog = dialog.add_filter(t!("all_formats"), &all_extensions);
         for format in formats {
             let mut extensions = vec![format.extension];
             extensions.extend(format.aliases);

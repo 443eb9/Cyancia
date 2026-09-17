@@ -4,19 +4,11 @@ use iced_core::{Element, Length, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
 use iced_widget::scrollable;
-use lapiz_canvas::{CCanvas, CanvasAppExt, event::CanvasCreated, recent::RecentFiles};
+use lapiz_canvas::recent::RecentFiles;
 use lapiz_config::Config;
 use lapiz_dock::dock::{Dock, DockId};
-use lapiz_image::{
-    CImage,
-    texel::TexelType,
-    tile::{GpuLayerInfo, TileStorageAppExt},
-};
 use lapiz_image_importer::start_import;
-use lapiz_runtime::{Renderer, Services, Theme, event::Event};
-use lapiz_tools::{ToolFunctionRegistry, ToolProxies, ToolProxy};
-use lapiz_undo::{UndoStack, UndoStacks};
-use lapiz_utils::log_err::LogErr;
+use lapiz_runtime::{Renderer, Services, Theme};
 use lapiz_widgets::{button::Button, flex::Flex, label::Label};
 
 pub struct LandingDock {

@@ -114,9 +114,11 @@ impl CImage {
     pub fn image_to_lazuli(img: DynamicImage, profile: ColorProfile) -> Result<LazuliArchive> {
         let size = UVec2::new(img.width(), img.height());
 
-        // This is a workaround to write correct layer structure and properties
-        // into lazuli archive
-        let mut layer = PixelLayer::new();
+        let mut layer = LayerStackNode::without_parent(
+            LayerId::random(),
+            Box::new(PixelLayer),
+            LayerProperties::new::<PixelLayer>(),
+        );
         layer.properties_mut().set_name(t!("background_layer"));
         let layer_id = *layer.id();
         let image = Self::from_layer(size, layer, profile);

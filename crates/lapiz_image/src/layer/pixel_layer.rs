@@ -329,15 +329,6 @@ pub struct PixelBlendCache {
 }
 
 impl PixelLayer {
-    // This is discouraged to use.
-    pub fn new() -> LayerStackNode {
-        LayerStackNode::without_parent(
-            LayerId::random(),
-            Box::new(Self),
-            LayerProperties::new::<Self>(),
-        )
-    }
-
     pub fn from_path(
         path: impl AsRef<Path>,
         tiles: &GpuTileStorage,
@@ -360,7 +351,11 @@ impl PixelLayer {
     }
 
     pub fn from_image(img: DynamicImage, tiles: &GpuTileStorage) -> LayerStackNode {
-        let layer = Self::new();
+        let layer = LayerStackNode::without_parent(
+            LayerId::random(),
+            Box::new(Self),
+            LayerProperties::new::<Self>(),
+        );
         tiles.upload_image(*layer.id(), img);
         layer
     }
