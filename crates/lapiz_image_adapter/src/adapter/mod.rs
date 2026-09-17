@@ -5,11 +5,11 @@ mod pixels;
 mod png;
 mod simple;
 
-pub use avif::AvifAdapter;
-pub use jpg::JpgAdapter;
-pub use lazuli::LazuliAdapter;
-pub use png::PngAdapter;
+pub use avif::AvifExporter;
+pub use jpg::JpgExporter;
+pub use lazuli::LazuliExporter;
+pub use png::PngExporter;
 pub use simple::{
-    BmpAdapter, FarbfeldAdapter, GifAdapter, HdrAdapter, IcoAdapter, OpenExrAdapter, PnmAdapter,
-    QoiAdapter, TgaAdapter, TiffAdapter, WebPAdapter,
+    BmpExporter, FarbfeldExporter, GifExporter, HdrExporter, IcoExporter, OpenExrExporter,
+    PnmExporter, QoiExporter, TgaExporter, TiffExporter, WebPExporter,
 };

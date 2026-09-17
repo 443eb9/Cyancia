@@ -10,7 +10,7 @@ use lapiz_render::render_context::RenderContextAppExt;
 use lapiz_runtime::{Renderer, Services};
 
 use super::pixels;
-use crate::ImageFormatAdapter;
+use crate::ImageFormatExporter;
 
 macro_rules! simple_adapters {
     ($($name:ident($extension:literal, [$($alias:literal),*], $format:expr, $description:literal))*) => {
@@ -18,7 +18,7 @@ macro_rules! simple_adapters {
             #[derive(Default)]
             pub struct $name;
 
-            impl ImageFormatAdapter for $name {
+            impl ImageFormatExporter for $name {
                 type ExportDialogMessage = ();
 
                 fn extension() -> &'static str {
@@ -77,15 +77,15 @@ macro_rules! simple_adapters {
 }
 
 simple_adapters! {
-    WebPAdapter("webp", [], ImageFormat::WebP, "webp_image_description")
-    GifAdapter("gif", [], ImageFormat::Gif, "gif_image_description")
-    BmpAdapter("bmp", [], ImageFormat::Bmp, "bmp_image_description")
-    TiffAdapter("tiff", ["tif"], ImageFormat::Tiff, "tiff_image_description")
-    TgaAdapter("tga", [], ImageFormat::Tga, "tga_image_description")
-    QoiAdapter("qoi", [], ImageFormat::Qoi, "qoi_image_description")
-    FarbfeldAdapter("ff", [], ImageFormat::Farbfeld, "farbfeld_image_description")
-    IcoAdapter("ico", [], ImageFormat::Ico, "ico_image_description")
-    HdrAdapter("hdr", [], ImageFormat::Hdr, "hdr_image_description")
-    OpenExrAdapter("exr", [], ImageFormat::OpenExr, "openexr_image_description")
-    PnmAdapter("pnm", ["pam"], ImageFormat::Pnm, "pnm_image_description")
+    WebPExporter("webp", [], ImageFormat::WebP, "webp_image_description")
+    GifExporter("gif", [], ImageFormat::Gif, "gif_image_description")
+    BmpExporter("bmp", [], ImageFormat::Bmp, "bmp_image_description")
+    TiffExporter("tiff", ["tif"], ImageFormat::Tiff, "tiff_image_description")
+    TgaExporter("tga", [], ImageFormat::Tga, "tga_image_description")
+    QoiExporter("qoi", [], ImageFormat::Qoi, "qoi_image_description")
+    FarbfeldExporter("ff", [], ImageFormat::Farbfeld, "farbfeld_image_description")
+    IcoExporter("ico", [], ImageFormat::Ico, "ico_image_description")
+    HdrExporter("hdr", [], ImageFormat::Hdr, "hdr_image_description")
+    OpenExrExporter("exr", [], ImageFormat::OpenExr, "openexr_image_description")
+    PnmExporter("pnm", ["pam"], ImageFormat::Pnm, "pnm_image_description")
 }

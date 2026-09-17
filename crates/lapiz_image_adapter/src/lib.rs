@@ -12,14 +12,7 @@ use iced_runtime::Task;
 use lapiz_canvas::{CCanvas, CanvasId};
 use lapiz_runtime::{Renderer, Services, Theme, plugin::Plugin, service::Service};
 
-use crate::{
-    adapter::{
-        AvifAdapter, BmpAdapter, FarbfeldAdapter, GifAdapter, HdrAdapter, IcoAdapter, JpgAdapter,
-        LazuliAdapter, OpenExrAdapter, PngAdapter, PnmAdapter, QoiAdapter, TgaAdapter, TiffAdapter,
-        WebPAdapter,
-    },
-    config::ImageAdapterConfig,
-};
+use crate::config::ImageAdapterConfig;
 
 lapiz_i18n::define_i18n!("image_adapter");
 
@@ -37,23 +30,24 @@ impl Plugin for ImageAdapterPlugin {
         runtime.add_service::<ImageFormatAdapterRegistry>();
         runtime.add_service::<SilentSaveCanvases>();
         let services = runtime.services_mut();
+        use adapter::*;
         services
             .service_mut::<ImageFormatAdapterRegistry>()
-            .register::<PngAdapter>()
-            .register::<JpgAdapter>()
-            .register::<WebPAdapter>()
-            .register::<AvifAdapter>()
-            .register::<LazuliAdapter>()
-            .register::<GifAdapter>()
-            .register::<BmpAdapter>()
-            .register::<TiffAdapter>()
-            .register::<TgaAdapter>()
-            .register::<QoiAdapter>()
-            .register::<FarbfeldAdapter>()
-            .register::<IcoAdapter>()
-            .register::<HdrAdapter>()
-            .register::<OpenExrAdapter>()
-            .register::<PnmAdapter>();
+            .register::<PngExporter>()
+            .register::<JpgExporter>()
+            .register::<WebPExporter>()
+            .register::<AvifExporter>()
+            .register::<LazuliExporter>()
+            .register::<GifExporter>()
+            .register::<BmpExporter>()
+            .register::<TiffExporter>()
+            .register::<TgaExporter>()
+            .register::<QoiExporter>()
+            .register::<FarbfeldExporter>()
+            .register::<IcoExporter>()
+            .register::<HdrExporter>()
+            .register::<OpenExrExporter>()
+            .register::<PnmExporter>();
     }
 }
 
@@ -63,7 +57,7 @@ pub(crate) fn default_embed_profile() -> bool {
     true
 }
 
-pub trait ImageFormatAdapter: 'static {
+pub trait ImageFormatExporter: 'static {
     type ExportDialogMessage: Send + 'static;
 
     fn extension() -> &'static str;
@@ -131,7 +125,7 @@ pub trait ErasedImageFormatAdapter: Send + Sync + 'static {
 
 impl<T> ErasedImageFormatAdapter for T
 where
-    T: ImageFormatAdapter + Send + Sync,
+    T: ImageFormatExporter + Send + Sync,
 {
     fn extension(&self) -> &'static str {
         T::extension()
@@ -171,7 +165,7 @@ where
         canvas: &'a CCanvas,
         path: &'a Path,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + 'a>> {
-        Box::pin(ImageFormatAdapter::export(self, services, canvas, path))
+        Box::pin(ImageFormatExporter::export(self, services, canvas, path))
     }
 
     fn to_toml(&self) -> Result<toml::Value> {
@@ -205,7 +199,7 @@ pub struct ImageFormatAdapterRegistry {
 impl Service for ImageFormatAdapterRegistry {}
 
 impl ImageFormatAdapterRegistry {
-    pub fn register<A: ImageFormatAdapter + Send + Sync + Default>(&mut self) -> &mut Self {
+    pub fn register<A: ImageFormatExporter + Send + Sync + Default>(&mut self) -> &mut Self {
         let entry = AdapterEntry {
             extension: A::extension(),
             aliases: A::aliases(),

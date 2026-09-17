@@ -17,7 +17,7 @@ use parse_display::Display;
 use serde::{Deserialize, Serialize};
 
 use super::pixels;
-use crate::ImageFormatAdapter;
+use crate::ImageFormatExporter;
 
 const COMPRESSIONS: [PngCompression; 4] = [
     PngCompression::Default,
@@ -36,14 +36,14 @@ const FILTERS: [PngFilter; 6] = [
 ];
 
 #[derive(Serialize, Deserialize)]
-pub struct PngAdapter {
+pub struct PngExporter {
     compression: PngCompression,
     filter: PngFilter,
     #[serde(default = "crate::default_embed_profile")]
     embed_profile: bool,
 }
 
-impl Default for PngAdapter {
+impl Default for PngExporter {
     fn default() -> Self {
         Self {
             compression: PngCompression::Default,
@@ -112,7 +112,7 @@ pub enum PngExportMessage {
     EmbedProfileToggled(bool),
 }
 
-impl ImageFormatAdapter for PngAdapter {
+impl ImageFormatExporter for PngExporter {
     type ExportDialogMessage = PngExportMessage;
 
     fn extension() -> &'static str {

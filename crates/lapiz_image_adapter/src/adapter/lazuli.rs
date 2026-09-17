@@ -8,12 +8,12 @@ use lapiz_i18n::t;
 use lapiz_lazuli::LazuliArchive;
 use lapiz_runtime::{Renderer, Services};
 
-use crate::ImageFormatAdapter;
+use crate::ImageFormatExporter;
 
 #[derive(Default)]
-pub struct LazuliAdapter;
+pub struct LazuliExporter;
 
-impl ImageFormatAdapter for LazuliAdapter {
+impl ImageFormatExporter for LazuliExporter {
     type ExportDialogMessage = ();
 
     fn extension() -> &'static str {

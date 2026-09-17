@@ -13,16 +13,16 @@ use lapiz_widgets::{checkbox::Checkbox, form::Form, spin_slider::SpinSlider};
 use serde::{Deserialize, Serialize};
 
 use super::pixels;
-use crate::ImageFormatAdapter;
+use crate::ImageFormatExporter;
 
 #[derive(Serialize, Deserialize)]
-pub struct JpgAdapter {
+pub struct JpgExporter {
     quality: u8,
     #[serde(default = "crate::default_embed_profile")]
     embed_profile: bool,
 }
 
-impl Default for JpgAdapter {
+impl Default for JpgExporter {
     fn default() -> Self {
         Self {
             quality: 90,
@@ -37,7 +37,7 @@ pub enum JpgExportMessage {
     EmbedProfileToggled(bool),
 }
 
-impl ImageFormatAdapter for JpgAdapter {
+impl ImageFormatExporter for JpgExporter {
     type ExportDialogMessage = JpgExportMessage;
 
     fn extension() -> &'static str {
