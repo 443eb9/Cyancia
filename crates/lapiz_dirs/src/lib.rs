@@ -83,3 +83,22 @@ static REPORTS_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
 pub fn reports_dir() -> &'static Path {
     &REPORTS_DIR
 }
+
+static ASSETS_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
+    let path = if let Ok(dir) = std::env::var("ASSETS_DIR") {
+        PathBuf::from(dir)
+    } else if let Some(dir) = BASE_DIRS.as_ref() {
+        dir.data_dir().join("lapiz").join("assets")
+    } else if let Ok(dir) = std::env::current_exe() {
+        dir.parent().unwrap().join("assets")
+    } else {
+        PathBuf::from("assets")
+    };
+
+    fs::create_dir_all(&path).unwrap();
+    path
+});
+
+pub fn assets_dir() -> &'static Path {
+    &ASSETS_DIR
+}

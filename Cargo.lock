@@ -3235,6 +3235,7 @@ dependencies = [
  "lapiz_color",
  "lapiz_color_selector",
  "lapiz_config",
+ "lapiz_dirs",
  "lapiz_dock",
  "lapiz_eye_dropper",
  "lapiz_filter",

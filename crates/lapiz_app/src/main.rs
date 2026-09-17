@@ -17,6 +17,7 @@ use lapiz_bucket_tool::BucketPlugin;
 use lapiz_canvas::CanvasPlugin;
 use lapiz_color::ColorPlugin;
 use lapiz_color_selector::ColorSelectorPlugin;
+use lapiz_dirs::assets_dir;
 use lapiz_eye_dropper::EyeDropperPlugin;
 use lapiz_filter::{FilterPlugin, editor::FilterEditor, panel::FilterPanel};
 use lapiz_image::ImagePlugin;
@@ -44,11 +45,11 @@ fn main() {
     let mut app = Application::default();
     let mut asset_bundles = Vec::<Arc<dyn ErasedAssetBundle>>::new();
     asset_bundles.push(Arc::new(
-        AssetDirectory::new("assets/builtin_assets").unwrap(),
+        AssetDirectory::new(assets_dir().join("builtin_assets")).unwrap(),
     ));
 
     {
-        let (standard_bundles, errs) = StandardAssetBundle::scan_bundles("assets");
+        let (standard_bundles, errs) = StandardAssetBundle::scan_bundles(assets_dir());
         log::info!(
             "Loaded {} lazurite bundles with {} errors",
             standard_bundles.len(),
@@ -68,7 +69,7 @@ fn main() {
     }
 
     {
-        let (abr_bundles, errs) = AbrAssetBundle::scan_bundles("assets");
+        let (abr_bundles, errs) = AbrAssetBundle::scan_bundles(assets_dir());
         log::info!(
             "Loaded {} abr bundles with {} errors",
             abr_bundles.len(),
