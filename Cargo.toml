@@ -17,6 +17,7 @@ members = [
     "crates/lapiz_config",
     "crates/lapiz_dirs",
     "crates/lapiz_dock",
+    "crates/lapiz_effect",
     "crates/lapiz_eye_dropper",
     "crates/lapiz_filter",
     "crates/lapiz_i18n",
@@ -65,6 +66,7 @@ lapiz_color_selector = { path = "crates/lapiz_color_selector", version = "0.1.0"
 lapiz_config = { path = "crates/lapiz_config", version = "0.1.0" }
 lapiz_dirs = { path = "crates/lapiz_dirs", version = "0.1.0" }
 lapiz_dock = { path = "crates/lapiz_dock", version = "0.1.0" }
+lapiz_effect = { path = "crates/lapiz_effect", version = "0.1.0" }
 lapiz_eye_dropper = { path = "crates/lapiz_eye_dropper", version = "0.1.0" }
 lapiz_filter = { path = "crates/lapiz_filter", version = "0.1.0" }
 lapiz_i18n = { path = "crates/lapiz_i18n", version = "0.1.0" }
