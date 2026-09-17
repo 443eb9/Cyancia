@@ -12,6 +12,7 @@ use lapiz_image::{
     texel::TexelType,
     tile::{GpuLayerInfo, TileStorageAppExt},
 };
+use lapiz_image_importer::start_import;
 use lapiz_runtime::{Renderer, Services, Theme, event::Event};
 use lapiz_tools::{ToolFunctionRegistry, ToolProxies, ToolProxy};
 use lapiz_undo::{UndoStack, UndoStacks};
@@ -81,52 +82,7 @@ impl Dock for LandingDock {
                     return Task::none();
                 };
 
-                // TODO This is copied from OpenFileAction and should be avoided
-                let Ok((image, archive)) = CImage::from_file(&file.path, services).logged_err()
-                else {
-                    return Task::none();
-                };
-                log::info!("Opened image from file {:?}.", file.path);
-
-                let canvas = CCanvas::new(file.path.clone(), image, archive);
-                let canvas_id = canvas.id();
-                let tool_proxy = ToolProxy::new(services.service::<ToolFunctionRegistry>());
-                services
-                    .service_mut::<ToolProxies>()
-                    .insert(*canvas_id, tool_proxy);
-                let undo_stack = UndoStack::new(*canvas_id, 200);
-                services
-                    .service_mut::<UndoStacks>()
-                    .insert(*canvas_id, undo_stack);
-
-                // TODO this should not be done here
-                let tiles = services.tile_storage();
-                for layer in canvas.image.layer_stack().iter_layers() {
-                    tiles.declare_layer(
-                        *layer.id(),
-                        GpuLayerInfo {
-                            // TODO
-                            texel_type: TexelType::RGBA8,
-                        },
-                    );
-                }
-                tiles.declare_layer(
-                    canvas.image.selection_layer(),
-                    GpuLayerInfo {
-                        // TODO This will change when image depth is not 8 bit
-                        texel_type: TexelType::A8,
-                    },
-                );
-
-                services.add_canvas(canvas);
-                CanvasCreated::broadcast(CanvasCreated { id: canvas_id });
-
-                self.config
-                    .update(|c| {
-                        let rec = c.files.remove(i);
-                        c.files.push(rec);
-                    })
-                    .log_err();
+                start_import(services, file.path.clone());
 
                 Task::none()
             }

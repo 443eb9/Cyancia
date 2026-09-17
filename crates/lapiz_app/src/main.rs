@@ -111,7 +111,6 @@ fn main() {
         .add_plugin(ColorPlugin)
         .add_plugin(ActionPlugin)
         .add_plugin(ColorSelectorPlugin)
-        .add_plugin(ImageAdapterPlugin)
         .add_plugin(BuiltinDocksPlugin)
         .add_plugin(ImageImporterPlugin)
         .add_plugin(ImageExporterPlugin);
