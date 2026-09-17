@@ -12,7 +12,7 @@ use lapiz_runtime::{Renderer, Services};
 use super::pixels;
 use crate::ImageFormatExporter;
 
-macro_rules! simple_adapters {
+macro_rules! simple_exporters {
     ($($name:ident($extension:literal, [$($alias:literal),*], $format:expr, $description:literal))*) => {
         $(
             #[derive(Default)]
@@ -76,7 +76,7 @@ macro_rules! simple_adapters {
     };
 }
 
-simple_adapters! {
+simple_exporters! {
     WebPExporter("webp", [], ImageFormat::WebP, "webp_image_description")
     GifExporter("gif", [], ImageFormat::Gif, "gif_image_description")
     BmpExporter("bmp", [], ImageFormat::Bmp, "bmp_image_description")

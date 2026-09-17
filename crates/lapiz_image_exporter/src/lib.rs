@@ -10,20 +10,20 @@ use anyhow::Result;
 use iced_core::Element;
 use iced_runtime::Task;
 use lapiz_canvas::{CCanvas, CanvasId};
-use lapiz_runtime::{Renderer, Services, Theme, plugin::Plugin, service::Service};
+use lapiz_runtime::{Application, Renderer, Services, Theme, plugin::Plugin, service::Service};
 
-use crate::config::ImageAdapterConfig;
+use crate::config::ImageExporterConfig;
 
-lapiz_i18n::define_i18n!("image_adapter");
+lapiz_i18n::define_i18n!("image_exporter");
 
 pub mod adapter;
 pub mod config;
 pub mod export_dialog;
 
-pub struct ImageAdapterPlugin;
+pub struct ImageExporterPlugin;
 
-impl Plugin for ImageAdapterPlugin {
-    fn build(&self, app: &mut lapiz_runtime::Application) {
+impl Plugin for ImageExporterPlugin {
+    fn build(&self, app: &mut Application) {
         i18n::init();
 
         let mut runtime = app.runtime_mut();
@@ -241,7 +241,7 @@ impl ImageFormatAdapterRegistry {
     pub fn create_with_saved_settings(
         &self,
         extension: &str,
-        config: &ImageAdapterConfig,
+        config: &ImageExporterConfig,
     ) -> Option<Box<dyn ErasedImageFormatAdapter>> {
         let extension = self.find_extension(extension)?;
         let mut adapter = self.create(extension)?;

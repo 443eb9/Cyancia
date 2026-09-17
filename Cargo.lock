@@ -3182,7 +3182,7 @@ dependencies = [
  "lapiz_dirs",
  "lapiz_i18n",
  "lapiz_image",
- "lapiz_image_adapter",
+ "lapiz_image_exporter",
  "lapiz_input",
  "lapiz_lazuli",
  "lapiz_render",
@@ -3242,7 +3242,7 @@ dependencies = [
  "lapiz_filter",
  "lapiz_i18n",
  "lapiz_image",
- "lapiz_image_adapter",
+ "lapiz_image_exporter",
  "lapiz_input",
  "lapiz_render",
  "lapiz_report",
@@ -3652,7 +3652,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "lapiz_image_adapter"
+name = "lapiz_image_exporter"
 version = "0.1.0"
 dependencies = [
  "anyhow",

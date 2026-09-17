@@ -12,8 +12,8 @@ use lapiz_image::{
     texel::TexelType,
     tile::{GpuLayerInfo, TileStorageAppExt},
 };
-use lapiz_image_adapter::{
-    ImageFormatAdapterRegistry, PendingExport, SilentSaveCanvases, config::ImageAdapterConfig,
+use lapiz_image_exporter::{
+    ImageFormatAdapterRegistry, PendingExport, SilentSaveCanvases, config::ImageExporterConfig,
     export_dialog::EXPORT_DIALOG_VIEW_ID,
 };
 use lapiz_runtime::{
@@ -218,7 +218,7 @@ fn start_export(services: &mut Services, allow_silent_export: bool, path: PathBu
         return;
     };
 
-    let config = Config::<ImageAdapterConfig>::read_or_init_or_fallback();
+    let config = Config::<ImageExporterConfig>::read_or_init_or_fallback();
     let Some(adapter) = adapters.create_with_saved_settings(extension, &config.get()) else {
         return;
     };
