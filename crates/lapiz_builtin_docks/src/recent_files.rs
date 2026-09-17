@@ -1,10 +1,10 @@
 use std::sync::{Arc, LazyLock};
 
-use iced_core::{Element, Length, window};
+use iced_core::{Element, Length, image::Handle, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
-use iced_widget::scrollable;
-use lapiz_canvas::recent::RecentFiles;
+use iced_widget::{Image, scrollable};
+use lapiz_canvas::recent::{RecentFiles, recent_file_thumbnail_path};
 use lapiz_config::Config;
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_image_importer::start_import;
@@ -53,11 +53,18 @@ impl Dock for LandingDock {
         scrollable(
             Flex::row(self.files.files.iter().enumerate().map(|(i, f)| {
                 let file_name = f.path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                Button::new(Label::new(file_name))
-                    .width(100.0)
-                    .height(140.0)
-                    .on_press(LandingDockMessage::OpenFile(i))
-                    .into()
+                Button::new(
+                    Flex::column([
+                        Image::new(Handle::from_path(recent_file_thumbnail_path(&f.path))).into(),
+                        Label::new(file_name).into(),
+                    ])
+                    .gap(4.0)
+                    .padding(2.0),
+                )
+                .width(100.0)
+                .height(140.0)
+                .on_press(LandingDockMessage::OpenFile(i))
+                .into()
             }))
             .wrap()
             .width(Length::Fill),

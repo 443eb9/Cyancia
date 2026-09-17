@@ -149,7 +149,7 @@ iced_futures = { version = "0.15.0-dev", features = ["smol"] }
 iced_graphics = { version = "0.15.0-dev", features = ["geometry"] }
 iced_runtime = "0.15.0-dev"
 iced_wgpu = { version = "0.15.0-dev", features = ["geometry", "svg"] }
-iced_widget = { version = "0.15.0-dev", features = ["wgpu", "canvas", "svg", "advanced"] }
+iced_widget = { version = "0.15.0-dev", features = ["wgpu", "canvas", "svg", "advanced", "image"] }
 iced_winit = "0.15.0-dev"
 image = "0.25"
 indexmap = { version = "2", features = ["serde"] }
