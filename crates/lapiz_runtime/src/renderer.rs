@@ -328,6 +328,33 @@ impl iced_core::renderer::Headless for Renderer {
     }
 }
 
+impl iced_core::image::Renderer for Renderer {
+    type Handle = iced_core::image::Handle;
+
+    #[inline]
+    fn load_image(
+        &self,
+        handle: &Self::Handle,
+    ) -> Result<iced_core::image::Allocation, iced_core::image::Error> {
+        self.inner.load_image(handle)
+    }
+
+    #[inline]
+    fn measure_image(&self, handle: &Self::Handle) -> Option<iced_core::Size<u32>> {
+        self.inner.measure_image(handle)
+    }
+
+    #[inline]
+    fn draw_image(
+        &mut self,
+        image: iced_core::Image,
+        bounds: iced_core::Rectangle,
+        clip_bounds: iced_core::Rectangle,
+    ) {
+        self.inner.draw_image(image, bounds, clip_bounds);
+    }
+}
+
 pub struct Compositor {
     render_context: RenderContext,
     display: Arc<dyn compositor::Display>,

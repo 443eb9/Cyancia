@@ -98,14 +98,15 @@ impl DockManager {
         self.docks.remove(dock_id);
     }
 
-    pub fn open_dock(&mut self, dock_id: DockId) -> Task<DockMessage> {
+    pub fn open_dock(&mut self, services: &mut Services, dock_id: DockId) -> Task<DockMessage> {
         self.dock_state.open(dock_id.clone());
 
-        self.on_open_task(dock_id)
+        self.on_open_task(services, dock_id)
     }
 
     pub fn open_dock_in_group(
         &mut self,
+        services: &mut Services,
         dock_id: DockId,
         target: &DockGroupId,
     ) -> Task<DockMessage> {
@@ -114,15 +115,15 @@ impl DockManager {
             .open_in_group(target, dock_id.clone())
             .is_none()
         {
-            return self.open_dock(dock_id);
+            return self.open_dock(services, dock_id);
         }
 
-        self.on_open_task(dock_id)
+        self.on_open_task(services, dock_id)
     }
 
-    fn on_open_task(&mut self, dock_id: DockId) -> Task<DockMessage> {
+    fn on_open_task(&mut self, services: &mut Services, dock_id: DockId) -> Task<DockMessage> {
         if let Some(dock) = self.docks.get_mut(&dock_id) {
-            dock.on_open()
+            dock.on_open(services)
                 .map(move |message| DockMessage::Dock(dock_id.clone(), message))
         } else {
             Task::none()
@@ -131,6 +132,7 @@ impl DockManager {
 
     pub fn open_dock_split(
         &mut self,
+        services: &mut Services,
         dock_id: DockId,
         target: &DockGroupId,
         edge: pane_grid::Edge,
@@ -141,13 +143,17 @@ impl DockManager {
             .open_split(target, edge, ratio, dock_id.clone())
             .is_none()
         {
-            return self.open_dock(dock_id);
+            return self.open_dock(services, dock_id);
         }
 
-        self.on_open_task(dock_id)
+        self.on_open_task(services, dock_id)
     }
 
-    pub fn on_dock_action(&mut self, action: DockAction) -> Task<DockMessage> {
+    pub fn on_dock_action(
+        &mut self,
+        services: &mut Services,
+        action: DockAction,
+    ) -> Task<DockMessage> {
         match action {
             DockAction::Pane(event) => self.dock_state.update(event),
             DockAction::Tab(pane, tab_event) => {
@@ -171,7 +177,7 @@ impl DockManager {
 
                         if let Some(dock) = self.docks.get_mut(&dock_id) {
                             return dock
-                                .on_close()
+                                .on_close(services)
                                 .map(move |m| DockMessage::Dock(dock_id.clone(), m));
                         }
                     }
@@ -217,7 +223,7 @@ impl DockManager {
                             };
 
                             let task = dock
-                                .on_close()
+                                .on_close(services)
                                 .map(move |m| DockMessage::Dock(dock_id.clone(), m));
                             tasks.push(task);
                         }
@@ -734,7 +740,7 @@ impl DockManager {
 
     pub fn update(&mut self, action: DockMessage, services: &mut Services) -> Task<DockMessage> {
         let task = match action {
-            DockMessage::Main(dock_action) => self.on_dock_action(dock_action),
+            DockMessage::Main(dock_action) => self.on_dock_action(services, dock_action),
             DockMessage::Float { id, action } => self.on_float_action(id, action),
             DockMessage::Dock(dock_id, msg) => {
                 if let Some(dock) = self.docks.get_mut(&dock_id) {

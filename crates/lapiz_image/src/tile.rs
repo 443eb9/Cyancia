@@ -10,7 +10,7 @@ use dashmap::{DashMap, Entry};
 use encase::ShaderType;
 use futures::{FutureExt, future::join_all};
 use glam::{IVec2, UVec2};
-use image::{DynamicImage, GenericImageView};
+use image::{DynamicImage, GenericImageView, ImageBuffer, imageops::FilterType};
 use indexmap::{IndexMap, IndexSet};
 use lapiz_render::{
     buffer::BufferVec, readback::readback_buffer_raw_on_submit_async,
@@ -897,5 +897,74 @@ impl DynamicLayerStorage {
             },
             GpuTileStorage::TILE_COPY_SIZE,
         );
+    }
+
+    pub async fn generate_thumbnail(
+        &self,
+        size: UVec2,
+        pixel_region: IRect,
+        fill: bool,
+    ) -> Result<DynamicImage> {
+        if self.tiles.is_empty() {
+            anyhow::bail!("Cannot generate a thumbnail for an empty layer");
+        }
+        if size.x == 0 || size.y == 0 {
+            anyhow::bail!("Thumbnail dimensions must be non-zero");
+        }
+        if pixel_region.is_empty() {
+            anyhow::bail!("Pixel region must be non-empty");
+        }
+
+        let texel_type = self.layer_info.texel_type;
+        let channels = match texel_type.format {
+            TexelFormat::Alpha => 1usize,
+            TexelFormat::Rgba => 4,
+        };
+
+        let tiles = self
+            .readback(&self.device, &self.queue, self.tiles.keys().copied())
+            .await?;
+
+        let region_size = pixel_region.max - pixel_region.min;
+        let img_width = region_size.x as u32;
+        let img_height = region_size.y as u32;
+        let tile_size = GpuTileStorage::TILE_SIZE as i32;
+        let tile_row = GpuTileStorage::TILE_SIZE as usize * channels;
+        let img_row = img_width as usize * channels;
+        let mut raw = vec![0u8; img_row * img_height as usize];
+
+        for (coord, data) in &tiles {
+            let tile_offset = *coord * tile_size - pixel_region.min;
+            let x_start = (-tile_offset.x).clamp(0, tile_size) as usize;
+            let x_end = (region_size.x - tile_offset.x).clamp(0, tile_size) as usize;
+            let y_start = (-tile_offset.y).clamp(0, tile_size) as usize;
+            let y_end = (region_size.y - tile_offset.y).clamp(0, tile_size) as usize;
+            if x_start >= x_end || y_start >= y_end {
+                continue;
+            }
+
+            let copy_len = (x_end - x_start) * channels;
+            for y in y_start..y_end {
+                let src = y * tile_row + x_start * channels;
+                let dst = (tile_offset.y + y as i32) as usize * img_row
+                    + (tile_offset.x + x_start as i32) as usize * channels;
+                raw[dst..dst + copy_len].copy_from_slice(&data[src..src + copy_len]);
+            }
+        }
+
+        let img = match (texel_type.format, texel_type.depth) {
+            (TexelFormat::Alpha, TexelDepth::Bit8) => {
+                DynamicImage::ImageLuma8(ImageBuffer::from_raw(img_width, img_height, raw).unwrap())
+            }
+            (TexelFormat::Rgba, TexelDepth::Bit8) => {
+                DynamicImage::ImageRgba8(ImageBuffer::from_raw(img_width, img_height, raw).unwrap())
+            }
+        };
+
+        if fill {
+            Ok(img.resize_exact(size.x, size.y, FilterType::Triangle))
+        } else {
+            Ok(img.resize(size.x, size.y, FilterType::Triangle))
+        }
     }
 }

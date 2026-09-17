@@ -150,9 +150,13 @@ impl CImage {
     }
 
     pub fn image_tile_rect(&self) -> IRect {
-        GpuTileStorage::pixel_rect_to_tile(IRect {
+        GpuTileStorage::pixel_rect_to_tile(self.image_pixel_rect())
+    }
+
+    pub fn image_pixel_rect(&self) -> IRect {
+        IRect {
             min: IVec2::ZERO,
             max: self.size.as_ivec2(),
-        })
+        }
     }
 }

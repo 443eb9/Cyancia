@@ -15,6 +15,7 @@ bevy_math.workspace = true
 bytemuck.workspace = true
 lapiz_color.workspace = true
 lapiz_config.workspace = true
+lapiz_dirs.workspace = true
 lapiz_image.workspace = true
 lapiz_i18n.workspace = true
 lapiz_input.workspace = true
@@ -42,6 +43,7 @@ tracing.workspace = true
 uuid.workspace = true
 wesl.workspace = true
 wgpu.workspace = true
+xxhash-rust.workspace = true
 
 [build-dependencies]
 lapiz_image.workspace = true
