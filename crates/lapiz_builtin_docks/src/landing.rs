@@ -6,7 +6,11 @@ use std::{
 use iced_core::{Element, Length, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
-use lapiz_canvas::{CCanvas, CanvasAppExt, event::CanvasCreated, recent::RecentFiles};
+use lapiz_canvas::{
+    CCanvas, CanvasAppExt,
+    event::CanvasCreated,
+    recent::{RecentFileRecord, RecentFiles},
+};
 use lapiz_config::{Config, Configuration};
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_image::{
@@ -113,6 +117,13 @@ impl Dock for LandingDock {
 
                 services.add_canvas(canvas);
                 CanvasCreated::broadcast(CanvasCreated { id: canvas_id });
+
+                self.config
+                    .update(|c| {
+                        let rec = c.files.remove(i);
+                        c.files.push(rec);
+                    })
+                    .log_err();
 
                 Task::none()
             }

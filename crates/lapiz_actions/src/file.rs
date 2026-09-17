@@ -1,7 +1,11 @@
 use std::{ffi::OsStr, path::PathBuf};
 
 use iced_runtime::Task;
-use lapiz_canvas::{CCanvas, CanvasAppExt, event::CanvasCreated};
+use lapiz_canvas::{
+    CCanvas, CanvasAppExt,
+    event::CanvasCreated,
+    recent::{RecentFileRecord, RecentFiles},
+};
 use lapiz_config::Config;
 use lapiz_image::{
     CImage,
@@ -63,7 +67,7 @@ impl ActionFunction for OpenFileAction {
         };
         log::info!("Opened image from file {:?}.", path);
 
-        let canvas = CCanvas::new(path, image, archive);
+        let canvas = CCanvas::new(path.clone(), image, archive);
         let canvas_id = canvas.id();
         let tool_proxy = ToolProxy::new(services.service::<ToolFunctionRegistry>());
         services
@@ -95,6 +99,16 @@ impl ActionFunction for OpenFileAction {
 
         services.add_canvas(canvas);
         CanvasCreated::broadcast(CanvasCreated { id: canvas_id });
+        Config::<RecentFiles>::read_or_init_or_fallback()
+            .update(|c| {
+                if let Some(index) = c.files.iter().position(|r| r.path == path) {
+                    let rec = c.files.remove(index);
+                    c.files.push(rec);
+                } else {
+                    c.files.push(RecentFileRecord { path });
+                }
+            })
+            .log_err();
 
         Task::none()
     }
