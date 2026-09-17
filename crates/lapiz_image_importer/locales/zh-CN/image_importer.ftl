@@ -1,5 +1,6 @@
 import = 导入
 cancel = 取消
+all_formats = 所有格式
 jpg_image_description = JPEG 图像
 png_image_description = PNG 图像
 lazuli_image_description = Lazuli 图像

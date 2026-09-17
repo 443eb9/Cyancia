@@ -3,6 +3,7 @@ use std::{ffi::OsStr, path::PathBuf};
 use iced_runtime::Task;
 use lapiz_canvas::CanvasAppExt;
 use lapiz_config::Config;
+use lapiz_i18n::t;
 use lapiz_image_exporter::{
     ImageFormatAdapterRegistry, PendingExport, SilentSaveCanvases, config::ImageExporterConfig,
     export_dialog::EXPORT_DIALOG_VIEW_ID,
@@ -34,7 +35,18 @@ impl ActionFunction for OpenFileAction {
 
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
         let mut dialog = AsyncFileDialog::new();
-        for format in services.service::<ImageImporterRegistry>().iter_formats() {
+        let formats = services
+            .service::<ImageImporterRegistry>()
+            .iter_formats()
+            .collect::<Vec<_>>();
+        let all_extensions = formats
+            .iter()
+            .flat_map(|format| {
+                std::iter::once(format.extension).chain(format.aliases.iter().copied())
+            })
+            .collect::<Vec<_>>();
+        dialog = dialog.add_filter(&t!("all_formats"), &all_extensions);
+        for format in formats {
             let mut extensions = vec![format.extension];
             extensions.extend(format.aliases);
             dialog = dialog.add_filter(&format.description, &extensions);

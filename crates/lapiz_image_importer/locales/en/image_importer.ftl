@@ -1,5 +1,6 @@
 import = Import
 cancel = Cancel
+all_formats = All formats
 jpg_image_description = JPEG image
 png_image_description = PNG image
 lazuli_image_description = Lazuli image
