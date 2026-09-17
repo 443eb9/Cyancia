@@ -3364,6 +3364,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "lapiz_cache"
+version = "0.1.0"
+
+[[package]]
 name = "lapiz_canvas"
 version = "0.1.0"
 dependencies = [
