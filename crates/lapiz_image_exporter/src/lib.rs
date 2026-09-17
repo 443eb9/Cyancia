@@ -12,7 +12,7 @@ use iced_runtime::Task;
 use lapiz_canvas::{CCanvas, CanvasId};
 use lapiz_runtime::{Application, Renderer, Services, Theme, plugin::Plugin, service::Service};
 
-use crate::config::ImageExporterConfig;
+use crate::{config::ImageExporterConfig, export_dialog::ExportDialogView};
 
 lapiz_i18n::define_i18n!("image_exporter");
 
@@ -29,6 +29,10 @@ impl Plugin for ImageExporterPlugin {
         let mut runtime = app.runtime_mut();
         runtime.add_service::<ImageFormatAdapterRegistry>();
         runtime.add_service::<SilentSaveCanvases>();
+        runtime
+            .window_manager_mut()
+            .register_view::<ExportDialogView>();
+
         let services = runtime.services_mut();
         use adapter::*;
         services

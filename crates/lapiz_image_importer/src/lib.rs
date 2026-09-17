@@ -21,7 +21,10 @@ use lapiz_runtime::{
 };
 use lapiz_utils::log_err::LogErr;
 
-use crate::{config::ImageImporterConfig, import_dialog::IMPORT_DIALOG_VIEW_ID};
+use crate::{
+    config::ImageImporterConfig,
+    import_dialog::{IMPORT_DIALOG_VIEW_ID, ImportDialogView},
+};
 
 lapiz_i18n::define_i18n!("image_importer");
 
@@ -37,6 +40,10 @@ impl Plugin for ImageImporterPlugin {
 
         let mut runtime = app.runtime_mut();
         runtime.add_service::<ImageImporterRegistry>();
+        runtime
+            .window_manager_mut()
+            .register_view::<ImportDialogView>();
+
         let services = runtime.services_mut();
         use importer::*;
         services
