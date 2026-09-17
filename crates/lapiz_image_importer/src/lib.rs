@@ -9,27 +9,16 @@ use std::{
 use anyhow::Result;
 use iced_core::Element;
 use iced_runtime::Task;
-use lapiz_canvas::{
-    CCanvas, CanvasAppExt,
-    event::CanvasCreated,
-    recent::{RecentFileRecord, RecentFiles},
-};
+use lapiz_canvas::{CCanvas, CanvasAppExt};
 use lapiz_config::Config;
-use lapiz_image::{
-    CImage,
-    texel::TexelType,
-    tile::{GpuLayerInfo, TileStorageAppExt},
-};
+use lapiz_image::CImage;
 use lapiz_lazuli::LazuliArchive;
 use lapiz_runtime::{
     Application, Renderer, Services, Theme,
-    event::Event,
     plugin::Plugin,
     service::Service,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},
 };
-use lapiz_tools::{ToolFunctionRegistry, ToolProxies, ToolProxy};
-use lapiz_undo::{UndoStack, UndoStacks};
 use lapiz_utils::log_err::LogErr;
 
 use crate::{config::ImageImporterConfig, import_dialog::IMPORT_DIALOG_VIEW_ID};
