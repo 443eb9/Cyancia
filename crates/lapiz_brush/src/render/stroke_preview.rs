@@ -54,7 +54,7 @@ pub fn load_cached_stroke_preview_or_generate(
 ) -> Result<Task<Result<RgbaImage>>> {
     let cache_path = cache_dir()
         .join("brush_stroke_preview")
-        .join(format!("preview_{}.png", brush.id()));
+        .join(format!("preview-{}.png", brush.id()));
 
     if cache_path.exists()
         && let Ok(img) = image::open(&cache_path).logged_err()

@@ -3,19 +3,13 @@ use std::{backtrace::Backtrace, fmt::Write, fs, panic::Location, sync::LazyLock}
 use anyhow::{Result, anyhow};
 use chrono::{Local, Utc};
 use gfxinfo::active_gpu;
+use lapiz_dirs::panic_reports_dir;
 use lapiz_utils::log_err::LogErr;
 use sysinfo::{System, get_current_pid};
 use wgpu::{AllocatorReport, Device};
 
 static EMOTICONS_LIST: LazyLock<Vec<&'static str>> =
     LazyLock::new(|| include_str!("emoticons.txt").lines().collect());
-
-fn panic_reports_path() -> Result<std::path::PathBuf> {
-    Ok(std::env::current_exe()?
-        .parent()
-        .ok_or_else(|| anyhow!("no parent"))?
-        .join("panic_reports"))
-}
 
 pub fn setup_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
@@ -36,12 +30,8 @@ pub fn setup_panic_hook() {
         .log_err();
 
         log::error!("{}", report);
-        let Ok(panic_reports) = panic_reports_path() else {
-            return;
-        };
-        fs::create_dir_all(&panic_reports).log_err();
         fs::write(
-            panic_reports.join(format!(
+            panic_reports_dir().join(format!(
                 "panic-{}.txt",
                 Utc::now().to_rfc3339().replace(':', "-")
             )),

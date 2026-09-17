@@ -45,3 +45,41 @@ static CACHE_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
 pub fn cache_dir() -> &'static Path {
     &CACHE_DIR
 }
+
+static PANIC_REPORTS_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
+    let path = if let Ok(dir) = std::env::var("PANIC_REPORTS_DIR") {
+        PathBuf::from(dir)
+    } else if let Some(dir) = BASE_DIRS.as_ref() {
+        dir.cache_dir().join("lapiz").join("panic_reports")
+    } else if let Ok(dir) = std::env::current_exe() {
+        dir.parent().unwrap().join("panic_reports")
+    } else {
+        PathBuf::from("panic_reports")
+    };
+
+    fs::create_dir_all(&path).unwrap();
+    path
+});
+
+pub fn panic_reports_dir() -> &'static Path {
+    &PANIC_REPORTS_DIR
+}
+
+static REPORTS_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
+    let path = if let Ok(dir) = std::env::var("REPORTS_DIR") {
+        PathBuf::from(dir)
+    } else if let Some(dir) = BASE_DIRS.as_ref() {
+        dir.cache_dir().join("lapiz").join("reports")
+    } else if let Ok(dir) = std::env::current_exe() {
+        dir.parent().unwrap().join("reports")
+    } else {
+        PathBuf::from("reports")
+    };
+
+    fs::create_dir_all(&path).unwrap();
+    path
+});
+
+pub fn reports_dir() -> &'static Path {
+    &REPORTS_DIR
+}
