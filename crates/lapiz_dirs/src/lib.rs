@@ -102,7 +102,7 @@ pub fn reports_dir() -> &'static Path {
 
 static ASSETS_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     #[cfg(feature = "dev_local")]
-    let path = PathBuf::new().join("target").join("assets");
+    let path = PathBuf::from("assets");
 
     #[cfg(not(feature = "dev_local"))]
     let path = if let Ok(dir) = std::env::var("ASSETS_DIR") {
