@@ -35,10 +35,10 @@ pub trait Dock: 'static {
     fn subscription(&self, _services: &Services) -> Subscription<Self::Message> {
         Subscription::none()
     }
-    fn on_open(&mut self) -> Task<Self::Message> {
+    fn on_open(&mut self, _services: &mut Services) -> Task<Self::Message> {
         Task::none()
     }
-    fn on_close(&mut self) -> Task<Self::Message> {
+    fn on_close(&mut self, _services: &mut Services) -> Task<Self::Message> {
         Task::none()
     }
     fn sub_windows(&self) -> Vec<window::Id> {
@@ -60,8 +60,8 @@ pub trait ErasedDock: 'static {
         services: &mut Services,
     ) -> Task<Box<dyn Any + Send>>;
     fn subscription(&self, services: &Services) -> Subscription<Box<dyn Any + Send>>;
-    fn on_open(&mut self) -> Task<Box<dyn Any + Send>>;
-    fn on_close(&mut self) -> Task<Box<dyn Any + Send>>;
+    fn on_open(&mut self, services: &mut Services) -> Task<Box<dyn Any + Send>>;
+    fn on_close(&mut self, services: &mut Services) -> Task<Box<dyn Any + Send>>;
     fn sub_windows(&self) -> Vec<window::Id>;
 }
 
@@ -100,12 +100,12 @@ impl<T: Dock> ErasedDock for T {
             .map(|m| Box::new(m) as Box<dyn Any + Send>)
     }
 
-    fn on_open(&mut self) -> Task<Box<dyn Any + Send>> {
-        self.on_open().map(|m| Box::new(m) as Box<dyn Any + Send>)
+    fn on_open(&mut self, services: &mut Services) -> Task<Box<dyn Any + Send>> {
+        self.on_open(services).map(|m| Box::new(m) as Box<dyn Any + Send>)
     }
 
-    fn on_close(&mut self) -> Task<Box<dyn Any + Send>> {
-        self.on_close().map(|m| Box::new(m) as Box<dyn Any + Send>)
+    fn on_close(&mut self, services: &mut Services) -> Task<Box<dyn Any + Send>> {
+        self.on_close(services).map(|m| Box::new(m) as Box<dyn Any + Send>)
     }
 
     fn sub_windows(&self) -> Vec<window::Id> {

@@ -250,21 +250,23 @@ impl WindowView for MainView {
         let dock_registry = services.remove_service::<DockRegistry>();
         let (mut dock_manager, dock_manager_task) = dock_registry.build(main_window);
 
-        let task_tool_options = dock_manager.open_dock(TOOL_OPTIONS_DOCK_ID.clone());
+        let task_tool_options = dock_manager.open_dock(services, TOOL_OPTIONS_DOCK_ID.clone());
         let tool_options = *dock_manager
             .dock_state()
             .dock_in_group(&TOOL_OPTIONS_DOCK_ID)
             .unwrap()
             .id();
         let task_landing_page =
-            dock_manager.open_dock_in_group(RECENT_FILES_DOCK_ID.clone(), &tool_options);
+            dock_manager.open_dock_in_group(services, RECENT_FILES_DOCK_ID.clone(), &tool_options);
         let task_tool_box = dock_manager.open_dock_split(
+            services,
             TOOL_BOX_DOCK_ID.clone(),
             &tool_options,
             pane_grid::Edge::Left,
             0.06,
         );
         let task_color_selector = dock_manager.open_dock_split(
+            services,
             COLOR_SELECTOR_DOCK_ID.clone(),
             &tool_options,
             pane_grid::Edge::Right,
@@ -276,6 +278,7 @@ impl WindowView for MainView {
             .unwrap()
             .id();
         let task_brush_presets = dock_manager.open_dock_split(
+            services,
             BRUSH_PRESETS_DOCK_ID.clone(),
             &color_selector,
             pane_grid::Edge::Bottom,
@@ -289,6 +292,7 @@ impl WindowView for MainView {
             .clone();
 
         let task_layer = dock_manager.open_dock_split(
+            services,
             LAYER_DOCK_ID.clone(),
             brush_preset,
             pane_grid::Edge::Bottom,
@@ -550,9 +554,10 @@ impl WindowView for MainView {
                 self.dock_manager.register_dock(dock);
 
                 let dock_task = if let Some(target) = self.canvas_group_anchor {
-                    self.dock_manager.open_dock_in_group(id.clone(), &target)
+                    self.dock_manager
+                        .open_dock_in_group(services, id.clone(), &target)
                 } else {
-                    let task = self.dock_manager.open_dock(id.clone());
+                    let task = self.dock_manager.open_dock(services, id.clone());
                     self.canvas_group_anchor = self
                         .dock_manager
                         .dock_state()

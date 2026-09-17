@@ -227,14 +227,14 @@ impl Dock for CanvasDock {
         }
     }
 
-    fn on_open(&mut self) -> Task<Self::Message> {
+    fn on_open(&mut self, _services: &mut Services) -> Task<Self::Message> {
         Task::batch([
             Task::done(CanvasDockMessage::WindowMoved),
             Task::done(CanvasDockMessage::CanvasUpdated(None)),
         ])
     }
 
-    fn on_close(&mut self) -> Task<Self::Message> {
+    fn on_close(&mut self, _services: &mut Services) -> Task<Self::Message> {
         CanvasRemoved::broadcast(CanvasRemoved { id: self.canvas });
 
         Task::none()

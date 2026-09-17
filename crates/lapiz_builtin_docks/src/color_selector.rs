@@ -221,7 +221,7 @@ impl Dock for ColorSelectorDock {
         }
     }
 
-    fn on_open(&mut self) -> Task<Self::Message> {
+    fn on_open(&mut self, _services: &mut Services) -> Task<Self::Message> {
         Task::done(ColorSelectorDockMessage::WindowMoved)
     }
 
