@@ -1,4 +1,4 @@
-pub use iced_core::widget::text::{Catalog, Style, StyleFn, Wrapping};
+pub use iced_core::widget::text::{Catalog, Ellipsis, Style, StyleFn, Wrapping};
 use iced_core::{Element, Font, Length, Pixels, Theme, alignment, font, text};
 use lapiz_runtime::Renderer;
 
@@ -49,6 +49,11 @@ impl<'a> Label<'a> {
 
     pub fn wrapping(mut self, wrapping: Wrapping) -> Self {
         self.inner = self.inner.wrapping(wrapping);
+        self
+    }
+
+    pub fn ellipsis(mut self, ellipsis: Ellipsis) -> Self {
+        self.inner = self.inner.ellipsis(ellipsis);
         self
     }
 

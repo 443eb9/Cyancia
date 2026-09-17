@@ -1,9 +1,9 @@
 use std::sync::{Arc, LazyLock};
 
-use iced_core::{Element, Length, image::Handle, window};
+use iced_core::{Element, Length, image::Handle, text::Ellipsis, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
-use iced_widget::{Image, scrollable};
+use iced_widget::{Column, Image, container, scrollable};
 use lapiz_canvas::recent::{RecentFiles, recent_file_thumbnail_path};
 use lapiz_config::Config;
 use lapiz_dock::dock::{Dock, DockId};
@@ -51,23 +51,32 @@ impl Dock for LandingDock {
         _services: &'a Services,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
         scrollable(
-            Flex::row(self.files.files.iter().enumerate().map(|(i, f)| {
-                let file_name = f.path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                Button::new(
-                    Flex::column([
-                        Image::new(Handle::from_path(recent_file_thumbnail_path(&f.path))).into(),
-                        Label::new(file_name).into(),
-                    ])
-                    .gap(4.0)
-                    .padding(2.0),
-                )
-                .width(100.0)
-                .height(140.0)
-                .on_press(LandingDockMessage::OpenFile(i))
-                .into()
-            }))
-            .wrap()
-            .width(Length::Fill),
+            container(
+                Flex::row(self.files.files.iter().enumerate().map(|(i, f)| {
+                    let file_name = f.path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                    Button::new(
+                        Flex::column([
+                            Image::new(Handle::from_path(recent_file_thumbnail_path(&f.path)))
+                                .into(),
+                            // FIXME Ellipsis not working
+                            Label::new(file_name)
+                                .width(Length::Fill)
+                                .height(Length::Fill)
+                                .ellipsis(Ellipsis::End)
+                                .into(),
+                        ])
+                        .gap(4.0)
+                        .padding(2.0),
+                    )
+                    .width(100.0)
+                    .height(140.0)
+                    .on_press(LandingDockMessage::OpenFile(i))
+                    .into()
+                }))
+                .wrap()
+                .width(Length::Fill),
+            )
+            .padding(4.0),
         )
         .width(Length::Fill)
         .height(Length::Fill)
