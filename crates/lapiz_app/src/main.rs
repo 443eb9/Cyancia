@@ -121,7 +121,6 @@ fn main() {
 
         rt.window_manager_mut().set_root_view::<MainView>();
         rt.window_manager_mut().register_view::<MainView>();
-        rt.window_manager_mut().register_view::<BrushEditor>();
         rt.window_manager_mut().register_view::<FilterPanel>();
         rt.window_manager_mut().register_view::<FilterEditor>();
         rt.window_manager_mut().register_view::<ExportDialogView>();
