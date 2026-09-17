@@ -6,7 +6,7 @@ use std::{
 use iced_core::{Element, Length, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
-use lapiz_canvas::{CCanvas, CanvasAppExt, event::CanvasCreated};
+use lapiz_canvas::{CCanvas, CanvasAppExt, event::CanvasCreated, recent::RecentFiles};
 use lapiz_config::{Config, Configuration};
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_image::{
@@ -34,22 +34,6 @@ impl LandingDock {
             config,
         }
     }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct RecentFiles {
-    pub files: Vec<RecentFileRecord>,
-}
-
-impl Configuration for RecentFiles {
-    const NAME: &'static str = "recent_files.toml";
-
-    const DEFAULT: &'static str = "files = []";
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct RecentFileRecord {
-    pub path: PathBuf,
 }
 
 pub enum LandingDockMessage {

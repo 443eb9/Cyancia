@@ -3320,6 +3320,7 @@ dependencies = [
  "iced_widget",
  "indexmap",
  "lapiz_color",
+ "lapiz_config",
  "lapiz_i18n",
  "lapiz_image",
  "lapiz_input",
