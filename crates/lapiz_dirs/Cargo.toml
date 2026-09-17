@@ -11,3 +11,6 @@ workspace = true
 
 [dependencies]
 directories.workspace = true
+
+[features]
+dev_local = []

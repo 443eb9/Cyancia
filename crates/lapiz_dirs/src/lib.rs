@@ -9,6 +9,10 @@ use directories::BaseDirs;
 static BASE_DIRS: LazyLock<Option<BaseDirs>> = LazyLock::new(BaseDirs::new);
 
 static CONFIG_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
+    #[cfg(feature = "dev_local")]
+    let path = PathBuf::new().join("target").join("configs");
+
+    #[cfg(not(feature = "dev_local"))]
     let path = if let Ok(dir) = std::env::var("CONFIG_DIR") {
         PathBuf::from(dir)
     } else if let Some(dir) = BASE_DIRS.as_ref() {
@@ -28,6 +32,10 @@ pub fn config_dir() -> &'static Path {
 }
 
 static CACHE_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
+    #[cfg(feature = "dev_local")]
+    let path = PathBuf::new().join("target").join("cache");
+
+    #[cfg(not(feature = "dev_local"))]
     let path = if let Ok(dir) = std::env::var("CACHE_DIR") {
         PathBuf::from(dir)
     } else if let Some(dir) = BASE_DIRS.as_ref() {
@@ -47,6 +55,10 @@ pub fn cache_dir() -> &'static Path {
 }
 
 static PANIC_REPORTS_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
+    #[cfg(feature = "dev_local")]
+    let path = PathBuf::new().join("target").join("panic_reports");
+
+    #[cfg(not(feature = "dev_local"))]
     let path = if let Ok(dir) = std::env::var("PANIC_REPORTS_DIR") {
         PathBuf::from(dir)
     } else if let Some(dir) = BASE_DIRS.as_ref() {
@@ -66,6 +78,10 @@ pub fn panic_reports_dir() -> &'static Path {
 }
 
 static REPORTS_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
+    #[cfg(feature = "dev_local")]
+    let path = PathBuf::new().join("target").join("reports");
+
+    #[cfg(not(feature = "dev_local"))]
     let path = if let Ok(dir) = std::env::var("REPORTS_DIR") {
         PathBuf::from(dir)
     } else if let Some(dir) = BASE_DIRS.as_ref() {
@@ -85,6 +101,10 @@ pub fn reports_dir() -> &'static Path {
 }
 
 static ASSETS_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
+    #[cfg(feature = "dev_local")]
+    let path = PathBuf::new().join("target").join("assets");
+
+    #[cfg(not(feature = "dev_local"))]
     let path = if let Ok(dir) = std::env::var("ASSETS_DIR") {
         PathBuf::from(dir)
     } else if let Some(dir) = BASE_DIRS.as_ref() {

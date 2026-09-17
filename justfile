@@ -145,6 +145,7 @@ run profile:
     case "{{ profile }}" in
         dev) cargo run --locked ;;
         release) cargo run --release --locked ;;
+        dev-local) cargo run --locked --features lapiz_dirs/dev_local ;;
         *) echo "profile must be dev or release" >&2; exit 2 ;;
     esac
 
