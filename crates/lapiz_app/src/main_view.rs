@@ -18,6 +18,7 @@ use lapiz_builtin_docks::{
     brush_preset::BRUSH_PRESETS_DOCK_ID,
     canvas::{CanvasDock, construct_canvas_dock_id},
     color_selector::COLOR_SELECTOR_DOCK_ID,
+    landing::LANDING_DOCK_ID,
     layers::LAYER_DOCK_ID,
     tool_box::TOOL_BOX_DOCK_ID,
     tool_options::TOOL_OPTIONS_DOCK_ID,
@@ -245,6 +246,8 @@ impl WindowView for MainView {
             .dock_in_group(&TOOL_OPTIONS_DOCK_ID)
             .unwrap()
             .id();
+        let task_landing_page =
+            dock_manager.open_dock_in_group(LANDING_DOCK_ID.clone(), &tool_options);
         let task_tool_box = dock_manager.open_dock_split(
             TOOL_BOX_DOCK_ID.clone(),
             &tool_options,
@@ -284,6 +287,7 @@ impl WindowView for MainView {
 
         let dock_tasks = Task::batch([
             task_tool_options,
+            task_landing_page,
             task_tool_box,
             task_brush_presets,
             task_layer,

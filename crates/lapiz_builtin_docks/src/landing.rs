@@ -57,7 +57,7 @@ pub enum LandingDockMessage {
     RecentFilesChanged,
 }
 
-static LANDING_DOCK_ID: LazyLock<DockId> = LazyLock::new(|| DockId::new("landing_dock".into()));
+pub static LANDING_DOCK_ID: LazyLock<DockId> = LazyLock::new(|| DockId::new("landing_dock".into()));
 
 impl Dock for LandingDock {
     type Message = LandingDockMessage;
