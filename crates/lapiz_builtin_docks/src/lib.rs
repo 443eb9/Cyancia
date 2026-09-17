@@ -1,7 +1,7 @@
 pub mod brush_preset;
 pub mod canvas;
 pub mod color_selector;
-pub mod landing;
+pub mod recent_files;
 pub mod layers;
 pub mod tool_box;
 pub mod tool_options;
@@ -12,7 +12,7 @@ use lapiz_dock::DockRegistry;
 use lapiz_runtime::{Application, plugin::Plugin};
 
 use crate::{
-    brush_preset::BrushPresetDock, color_selector::ColorSelectorDock, landing::LandingDock,
+    brush_preset::BrushPresetDock, color_selector::ColorSelectorDock, recent_files::LandingDock,
     layers::LayersDock, tool_box::ToolBoxDock, tool_options::ToolOptionsDock,
 };
 

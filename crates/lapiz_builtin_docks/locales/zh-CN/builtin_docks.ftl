@@ -20,4 +20,4 @@ brush_presets_dock = 笔刷预设
 settings = 设置
 no_tool_options = 此工具没有选项
 canvas_dock = 画布 { $name }
-landing_dock = 欢迎
+recent_files_dock = 最近文件
