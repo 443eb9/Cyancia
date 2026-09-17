@@ -8,13 +8,13 @@ use lapiz_i18n::t;
 use lapiz_lazuli::LazuliArchive;
 use lapiz_runtime::{Renderer, Services};
 
-use crate::ImageFormatAdapter;
+use crate::ImageFormatExporter;
 
 #[derive(Default)]
-pub struct LazuliAdapter;
+pub struct LazuliExporter;
 
-impl ImageFormatAdapter for LazuliAdapter {
-    type ExportDialogMessage = ();
+impl ImageFormatExporter for LazuliExporter {
+    type DialogMessage = ();
 
     fn extension() -> &'static str {
         lapiz_lazuli::EXTENSION
@@ -24,15 +24,15 @@ impl ImageFormatAdapter for LazuliAdapter {
         t!("lazuli_image_description")
     }
 
-    fn has_export_options() -> bool {
+    fn has_options() -> bool {
         false
     }
 
-    fn export_dialog_view(&self, _: &Services) -> Element<'_, (), Theme, Renderer> {
+    fn dialog_view(&self, _: &Services) -> Element<'_, (), Theme, Renderer> {
         iced_widget::Column::new().into()
     }
 
-    fn export_dialog_update(&mut self, _: (), _: &mut Services) -> Task<()> {
+    fn dialog_update(&mut self, _: (), _: &mut Services) -> Task<()> {
         Task::none()
     }
 

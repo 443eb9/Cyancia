@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use crate::{
     control::CanvasTransform,
-    event::CanvasActiveLayerChanged,
+    event::{CanvasActiveLayerChanged, CanvasCreated},
     tools::{PanTool, RotateTool, ZoomTool},
 };
 
@@ -195,6 +195,7 @@ impl CanvasManager {
         let id = canvas.id;
         self.current_canvas = Some(id);
         self.canvases.insert(id, canvas);
+        CanvasCreated::broadcast(CanvasCreated { id });
         id
     }
 

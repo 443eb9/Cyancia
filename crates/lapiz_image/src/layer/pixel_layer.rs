@@ -351,9 +351,13 @@ impl PixelLayer {
     }
 
     pub fn from_image(img: DynamicImage, tiles: &GpuTileStorage) -> LayerStackNode {
-        let id = LayerId::random();
-        tiles.upload_image(id, img);
-        LayerStackNode::without_parent(id, Box::new(Self), LayerProperties::new::<Self>())
+        let layer = LayerStackNode::without_parent(
+            LayerId::random(),
+            Box::new(Self),
+            LayerProperties::new::<Self>(),
+        );
+        tiles.upload_image(*layer.id(), img);
+        layer
     }
 }
 

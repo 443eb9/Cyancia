@@ -17,7 +17,7 @@ use lapiz_widgets::{
 };
 
 use crate::{
-    ErasedExportDialogMessage, ImageAdapterConfig, ImageFormatAdapterRegistry, PendingExport,
+    ErasedExportDialogMessage, ImageExporterConfig, ImageFormatAdapterRegistry, PendingExport,
     SilentSaveCanvases,
 };
 
@@ -62,7 +62,7 @@ impl WindowView for ExportDialogView {
             .and_then(|extension| extension.to_str())
             .and_then(|extension| registry.find_extension(extension))
             .expect("Export dialog opened for a path without a registered format");
-        let config = Config::<ImageAdapterConfig>::read_or_init_or_fallback();
+        let config = Config::<ImageExporterConfig>::read_or_init_or_fallback();
         let adapter = registry
             .create_with_saved_settings(extension, &config.get())
             .expect("Export dialog opened for a path without a registered format");
@@ -99,7 +99,7 @@ impl WindowView for ExportDialogView {
     ) -> impl Into<Element<'a, Self::Message, Theme, Renderer>> {
         let options = self
             .adapter
-            .export_dialog_view(services)
+            .dialog_view(services)
             .map(ExportDialogMessage::Adapter);
         let footer = row![]
             .when(self.allow_silent_export, |r| {
@@ -145,7 +145,7 @@ impl WindowView for ExportDialogView {
         match message {
             ExportDialogMessage::Adapter(message) => self
                 .adapter
-                .export_dialog_update(message, services)
+                .dialog_update(message, services)
                 .map(ExportDialogMessage::Adapter),
             ExportDialogMessage::DontAskAgainToggled(checked) => {
                 self.dont_ask_again = checked;
@@ -165,7 +165,7 @@ impl WindowView for ExportDialogView {
                 } else {
                     silent_saves.remove(self.canvas_id);
                 }
-                Config::<ImageAdapterConfig>::read_or_init_or_fallback()
+                Config::<ImageExporterConfig>::read_or_init_or_fallback()
                     .update(|config| match self.adapter.to_toml() {
                         Ok(value) => {
                             config.adapters.insert(self.extension.to_string(), value);

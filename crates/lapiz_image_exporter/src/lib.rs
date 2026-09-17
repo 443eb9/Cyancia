@@ -10,50 +10,44 @@ use anyhow::Result;
 use iced_core::Element;
 use iced_runtime::Task;
 use lapiz_canvas::{CCanvas, CanvasId};
-use lapiz_runtime::{Renderer, Services, Theme, plugin::Plugin, service::Service};
+use lapiz_runtime::{Application, Renderer, Services, Theme, plugin::Plugin, service::Service};
 
-use crate::{
-    adapter::{
-        AvifAdapter, BmpAdapter, FarbfeldAdapter, GifAdapter, HdrAdapter, IcoAdapter, JpgAdapter,
-        LazuliAdapter, OpenExrAdapter, PngAdapter, PnmAdapter, QoiAdapter, TgaAdapter, TiffAdapter,
-        WebPAdapter,
-    },
-    config::ImageAdapterConfig,
-};
+use crate::config::ImageExporterConfig;
 
-lapiz_i18n::define_i18n!("image_adapter");
+lapiz_i18n::define_i18n!("image_exporter");
 
 pub mod adapter;
 pub mod config;
 pub mod export_dialog;
 
-pub struct ImageAdapterPlugin;
+pub struct ImageExporterPlugin;
 
-impl Plugin for ImageAdapterPlugin {
-    fn build(&self, app: &mut lapiz_runtime::Application) {
+impl Plugin for ImageExporterPlugin {
+    fn build(&self, app: &mut Application) {
         i18n::init();
 
         let mut runtime = app.runtime_mut();
         runtime.add_service::<ImageFormatAdapterRegistry>();
         runtime.add_service::<SilentSaveCanvases>();
         let services = runtime.services_mut();
+        use adapter::*;
         services
             .service_mut::<ImageFormatAdapterRegistry>()
-            .register::<PngAdapter>()
-            .register::<JpgAdapter>()
-            .register::<WebPAdapter>()
-            .register::<AvifAdapter>()
-            .register::<LazuliAdapter>()
-            .register::<GifAdapter>()
-            .register::<BmpAdapter>()
-            .register::<TiffAdapter>()
-            .register::<TgaAdapter>()
-            .register::<QoiAdapter>()
-            .register::<FarbfeldAdapter>()
-            .register::<IcoAdapter>()
-            .register::<HdrAdapter>()
-            .register::<OpenExrAdapter>()
-            .register::<PnmAdapter>();
+            .register::<PngExporter>()
+            .register::<JpgExporter>()
+            .register::<WebPExporter>()
+            .register::<AvifExporter>()
+            .register::<LazuliExporter>()
+            .register::<GifExporter>()
+            .register::<BmpExporter>()
+            .register::<TiffExporter>()
+            .register::<TgaExporter>()
+            .register::<QoiExporter>()
+            .register::<FarbfeldExporter>()
+            .register::<IcoExporter>()
+            .register::<HdrExporter>()
+            .register::<OpenExrExporter>()
+            .register::<PnmExporter>();
     }
 }
 
@@ -63,8 +57,8 @@ pub(crate) fn default_embed_profile() -> bool {
     true
 }
 
-pub trait ImageFormatAdapter: 'static {
-    type ExportDialogMessage: Send + 'static;
+pub trait ImageFormatExporter: 'static {
+    type DialogMessage: Send + 'static;
 
     fn extension() -> &'static str;
 
@@ -74,20 +68,20 @@ pub trait ImageFormatAdapter: 'static {
 
     fn description() -> String;
 
-    fn has_export_options() -> bool {
+    fn has_options() -> bool {
         true
     }
 
-    fn export_dialog_view<'a>(
+    fn dialog_view<'a>(
         &'a self,
         services: &'a Services,
-    ) -> Element<'a, Self::ExportDialogMessage, Theme, Renderer>;
+    ) -> Element<'a, Self::DialogMessage, Theme, Renderer>;
 
-    fn export_dialog_update(
+    fn dialog_update(
         &mut self,
-        message: Self::ExportDialogMessage,
+        message: Self::DialogMessage,
         services: &mut Services,
-    ) -> Task<Self::ExportDialogMessage>;
+    ) -> Task<Self::DialogMessage>;
 
     #[allow(async_fn_in_trait)]
     async fn export(&self, services: &Services, canvas: &CCanvas, path: &Path) -> Result<()>;
@@ -103,14 +97,14 @@ pub trait ErasedImageFormatAdapter: Send + Sync + 'static {
 
     fn description(&self) -> String;
 
-    fn has_export_options(&self) -> bool;
+    fn has_options(&self) -> bool;
 
-    fn export_dialog_view<'a>(
+    fn dialog_view<'a>(
         &'a self,
         services: &'a Services,
     ) -> Element<'a, ErasedExportDialogMessage, Theme, Renderer>;
 
-    fn export_dialog_update(
+    fn dialog_update(
         &mut self,
         message: ErasedExportDialogMessage,
         services: &mut Services,
@@ -131,7 +125,7 @@ pub trait ErasedImageFormatAdapter: Send + Sync + 'static {
 
 impl<T> ErasedImageFormatAdapter for T
 where
-    T: ImageFormatAdapter + Send + Sync,
+    T: ImageFormatExporter + Send + Sync,
 {
     fn extension(&self) -> &'static str {
         T::extension()
@@ -141,27 +135,27 @@ where
         T::description()
     }
 
-    fn has_export_options(&self) -> bool {
-        T::has_export_options()
+    fn has_options(&self) -> bool {
+        T::has_options()
     }
 
-    fn export_dialog_view<'a>(
+    fn dialog_view<'a>(
         &'a self,
         services: &'a Services,
     ) -> Element<'a, ErasedExportDialogMessage, Theme, Renderer> {
-        self.export_dialog_view(services)
+        self.dialog_view(services)
             .map(|message| Box::new(message) as ErasedExportDialogMessage)
     }
 
-    fn export_dialog_update(
+    fn dialog_update(
         &mut self,
         message: ErasedExportDialogMessage,
         services: &mut Services,
     ) -> Task<ErasedExportDialogMessage> {
         let message = *message
-            .downcast::<T::ExportDialogMessage>()
+            .downcast::<T::DialogMessage>()
             .expect("Invalid export dialog message type");
-        self.export_dialog_update(message, services)
+        self.dialog_update(message, services)
             .map(|message| Box::new(message) as ErasedExportDialogMessage)
     }
 
@@ -171,7 +165,7 @@ where
         canvas: &'a CCanvas,
         path: &'a Path,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + 'a>> {
-        Box::pin(ImageFormatAdapter::export(self, services, canvas, path))
+        Box::pin(ImageFormatExporter::export(self, services, canvas, path))
     }
 
     fn to_toml(&self) -> Result<toml::Value> {
@@ -205,7 +199,7 @@ pub struct ImageFormatAdapterRegistry {
 impl Service for ImageFormatAdapterRegistry {}
 
 impl ImageFormatAdapterRegistry {
-    pub fn register<A: ImageFormatAdapter + Send + Sync + Default>(&mut self) -> &mut Self {
+    pub fn register<A: ImageFormatExporter + Send + Sync + Default>(&mut self) -> &mut Self {
         let entry = AdapterEntry {
             extension: A::extension(),
             aliases: A::aliases(),
@@ -247,7 +241,7 @@ impl ImageFormatAdapterRegistry {
     pub fn create_with_saved_settings(
         &self,
         extension: &str,
-        config: &ImageAdapterConfig,
+        config: &ImageExporterConfig,
     ) -> Option<Box<dyn ErasedImageFormatAdapter>> {
         let extension = self.find_extension(extension)?;
         let mut adapter = self.create(extension)?;

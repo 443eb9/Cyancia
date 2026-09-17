@@ -21,7 +21,8 @@ use lapiz_dirs::assets_dir;
 use lapiz_eye_dropper::EyeDropperPlugin;
 use lapiz_filter::{FilterPlugin, editor::FilterEditor, panel::FilterPanel};
 use lapiz_image::ImagePlugin;
-use lapiz_image_adapter::{ImageAdapterPlugin, export_dialog::ExportDialogView};
+use lapiz_image_exporter::{ImageExporterPlugin, export_dialog::ExportDialogView};
+use lapiz_image_importer::{ImageImporterPlugin, import_dialog::ImportDialogView};
 use lapiz_input::InputPlugin;
 use lapiz_render::RenderPlugin;
 use lapiz_runtime::{Application, windows::WindowCommandBuffer};
@@ -110,8 +111,9 @@ fn main() {
         .add_plugin(ColorPlugin)
         .add_plugin(ActionPlugin)
         .add_plugin(ColorSelectorPlugin)
-        .add_plugin(ImageAdapterPlugin)
-        .add_plugin(BuiltinDocksPlugin);
+        .add_plugin(BuiltinDocksPlugin)
+        .add_plugin(ImageImporterPlugin)
+        .add_plugin(ImageExporterPlugin);
     app.build_plugins();
 
     {
@@ -123,6 +125,7 @@ fn main() {
         rt.window_manager_mut().register_view::<FilterPanel>();
         rt.window_manager_mut().register_view::<FilterEditor>();
         rt.window_manager_mut().register_view::<ExportDialogView>();
+        rt.window_manager_mut().register_view::<ImportDialogView>();
     }
 
     lapiz_i18n::init();

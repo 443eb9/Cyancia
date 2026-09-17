@@ -13,17 +13,17 @@ use lapiz_widgets::{form::Form, spin_slider::SpinSlider};
 use serde::{Deserialize, Serialize};
 
 use super::pixels;
-use crate::ImageFormatAdapter;
+use crate::ImageFormatExporter;
 
 // ravif speed, 1 (slowest, best compression) to 10 (fastest)
 const AVIF_SPEED: u8 = 4;
 
 #[derive(Serialize, Deserialize)]
-pub struct AvifAdapter {
+pub struct AvifExporter {
     quality: u8,
 }
 
-impl Default for AvifAdapter {
+impl Default for AvifExporter {
     fn default() -> Self {
         Self { quality: 80 }
     }
@@ -34,8 +34,8 @@ pub enum AvifExportMessage {
     QualityChanged(u8),
 }
 
-impl ImageFormatAdapter for AvifAdapter {
-    type ExportDialogMessage = AvifExportMessage;
+impl ImageFormatExporter for AvifExporter {
+    type DialogMessage = AvifExportMessage;
 
     fn extension() -> &'static str {
         "avif"
@@ -45,7 +45,7 @@ impl ImageFormatAdapter for AvifAdapter {
         t!("avif_image_description")
     }
 
-    fn export_dialog_view(&self, _: &Services) -> Element<'_, AvifExportMessage, Theme, Renderer> {
+    fn dialog_view(&self, _: &Services) -> Element<'_, AvifExportMessage, Theme, Renderer> {
         Form::new()
             .push(
                 t!("quality"),
@@ -56,7 +56,7 @@ impl ImageFormatAdapter for AvifAdapter {
             .into()
     }
 
-    fn export_dialog_update(
+    fn dialog_update(
         &mut self,
         message: AvifExportMessage,
         _: &mut Services,

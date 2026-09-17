@@ -17,7 +17,7 @@ use parse_display::Display;
 use serde::{Deserialize, Serialize};
 
 use super::pixels;
-use crate::ImageFormatAdapter;
+use crate::ImageFormatExporter;
 
 const COMPRESSIONS: [PngCompression; 4] = [
     PngCompression::Default,
@@ -36,14 +36,14 @@ const FILTERS: [PngFilter; 6] = [
 ];
 
 #[derive(Serialize, Deserialize)]
-pub struct PngAdapter {
+pub struct PngExporter {
     compression: PngCompression,
     filter: PngFilter,
     #[serde(default = "crate::default_embed_profile")]
     embed_profile: bool,
 }
 
-impl Default for PngAdapter {
+impl Default for PngExporter {
     fn default() -> Self {
         Self {
             compression: PngCompression::Default,
@@ -112,8 +112,8 @@ pub enum PngExportMessage {
     EmbedProfileToggled(bool),
 }
 
-impl ImageFormatAdapter for PngAdapter {
-    type ExportDialogMessage = PngExportMessage;
+impl ImageFormatExporter for PngExporter {
+    type DialogMessage = PngExportMessage;
 
     fn extension() -> &'static str {
         "png"
@@ -123,7 +123,7 @@ impl ImageFormatAdapter for PngAdapter {
         t!("png_image_description")
     }
 
-    fn export_dialog_view(&self, _: &Services) -> Element<'_, PngExportMessage, Theme, Renderer> {
+    fn dialog_view(&self, _: &Services) -> Element<'_, PngExportMessage, Theme, Renderer> {
         Form::new()
             .push(
                 t!("compression"),
@@ -148,7 +148,7 @@ impl ImageFormatAdapter for PngAdapter {
             .into()
     }
 
-    fn export_dialog_update(
+    fn dialog_update(
         &mut self,
         message: PngExportMessage,
         _: &mut Services,

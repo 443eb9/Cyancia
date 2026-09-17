@@ -1,10 +1,7 @@
 wesl::wesl_pkg!(pub image);
 
 use std::{
-    ffi::OsStr,
-    fs::File,
-    io::{BufRead, BufReader, Seek},
-    path::Path,
+    io::{BufRead, Seek},
     sync::Arc,
 };
 
@@ -13,8 +10,7 @@ use bevy_math::IRect;
 use glam::{IVec2, UVec2};
 use imagers::{ImageDecoder, ImageReader};
 use lapiz_i18n::t;
-use lapiz_lazuli::LazuliArchive;
-use lapiz_runtime::{Application, Services, plugin::Plugin};
+use lapiz_runtime::{Application, plugin::Plugin};
 use moxcms::ColorProfile;
 // TODO move CImage to another place to avoid this.
 extern crate image as imagers;
@@ -27,7 +23,7 @@ use crate::{
         group_layer::GroupLayer, pixel_layer::PixelLayer, properties::NamePropertyExt,
     },
     texel::TexelType,
-    tile::{GpuTileStorage, TileStorageAppExt},
+    tile::GpuTileStorage,
 };
 
 pub mod blend_modes;
@@ -99,23 +95,6 @@ impl CImage {
             layers,
             name_generator: Default::default(),
             special_layers: SpecialLayers::new(),
-        }
-    }
-
-    pub fn from_file(
-        path: impl AsRef<Path>,
-        services: &Services,
-    ) -> Result<(CImage, LazuliArchive)> {
-        let path = path.as_ref();
-        if path.extension() == Some(OsStr::new("lazuli")) {
-            let archive = LazuliArchive::open(path)?;
-            let img = CImage::read_archive(&archive, services)?;
-            Ok((img, archive))
-        } else {
-            let (img, profile) = Self::load_image_with_profile(BufReader::new(File::open(path)?))?;
-            let img = Self::from_image(img, profile, services.tile_storage());
-
-            Ok((img, LazuliArchive::new_in_memory()?))
         }
     }
 
