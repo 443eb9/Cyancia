@@ -1,13 +1,12 @@
 use std::{cell::RefCell, fs::File};
 
-use anyhow::Result;
 use bevy_math::{IRect, Rect, UVec2};
 use iced::{Element, Subscription, Task, Theme, pointer, widget::Space, window};
 use iced_core::Point;
 use iced_widget::stack;
-use image::{DynamicImage, ImageEncoder, codecs::png::PngEncoder};
+use image::{ImageEncoder, codecs::png::PngEncoder};
 use lapiz_canvas::{
-    CCanvas, CanvasAppExt, CanvasId, CanvasManager, CanvasToolProxyAppExt,
+    CanvasAppExt, CanvasId, CanvasManager, CanvasToolProxyAppExt,
     event::{CanvasRemoved, CanvasUpdated},
     recent::recent_file_thumbnail_path,
     widget::canvas::CanvasWidget,
@@ -26,7 +25,6 @@ use lapiz_render::render_context::RenderContextAppExt;
 use lapiz_runtime::{Renderer, Services, event::Event};
 use lapiz_tools::ErasedToolFunctionMessage;
 use lapiz_utils::log_err::LogErr;
-use wgpu::{Device, Queue};
 
 pub fn construct_canvas_dock_id(canvas: CanvasId) -> String {
     format!("canvas_{}", canvas)

@@ -101,11 +101,13 @@ impl<T: Dock> ErasedDock for T {
     }
 
     fn on_open(&mut self, services: &mut Services) -> Task<Box<dyn Any + Send>> {
-        self.on_open(services).map(|m| Box::new(m) as Box<dyn Any + Send>)
+        self.on_open(services)
+            .map(|m| Box::new(m) as Box<dyn Any + Send>)
     }
 
     fn on_close(&mut self, services: &mut Services) -> Task<Box<dyn Any + Send>> {
-        self.on_close(services).map(|m| Box::new(m) as Box<dyn Any + Send>)
+        self.on_close(services)
+            .map(|m| Box::new(m) as Box<dyn Any + Send>)
     }
 
     fn sub_windows(&self) -> Vec<window::Id> {

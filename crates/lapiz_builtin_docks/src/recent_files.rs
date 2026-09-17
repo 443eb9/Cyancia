@@ -3,7 +3,7 @@ use std::sync::{Arc, LazyLock};
 use iced_core::{Element, Length, image::Handle, text::Ellipsis, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
-use iced_widget::{Column, Image, container, scrollable};
+use iced_widget::{Image, container, scrollable};
 use lapiz_canvas::recent::{RecentFiles, recent_file_thumbnail_path};
 use lapiz_config::Config;
 use lapiz_dock::dock::{Dock, DockId};

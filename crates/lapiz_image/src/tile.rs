@@ -962,9 +962,9 @@ impl DynamicLayerStorage {
         };
 
         if fill {
-            Ok(img.resize_exact(size.x as u32, size.y as u32, FilterType::Triangle))
+            Ok(img.resize_exact(size.x, size.y, FilterType::Triangle))
         } else {
-            Ok(img.resize(size.x as u32, size.y as u32, FilterType::Triangle))
+            Ok(img.resize(size.x, size.y, FilterType::Triangle))
         }
     }
 }

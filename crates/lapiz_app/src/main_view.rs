@@ -1,16 +1,9 @@
 use std::{any::Any, sync::Arc};
 
 use anyhow::Result;
-use bevy_math::UVec2;
-use iced::{
-    Element, Length, Subscription, Task, Theme,
-    keyboard::{
-        key, {self},
-    },
-    pointer, window,
-};
+use iced::{Element, Length, Subscription, Task, Theme, keyboard::key, pointer, window};
+use iced_core::keyboard;
 use iced_widget::pane_grid;
-use image::DynamicImage;
 use lapiz_actions::{
     ActionFunctionRegistry, ActionId,
     manifest::{ActionBindingManifestConfig, ActionCollection, MenuBarItem, MenuBarManifestConfig},
@@ -26,13 +19,12 @@ use lapiz_builtin_docks::{
     tool_options::TOOL_OPTIONS_DOCK_ID,
 };
 use lapiz_canvas::{
-    CanvasAppExt, CanvasId, CanvasToolProxyAppExt,
+    CanvasAppExt, CanvasToolProxyAppExt,
     event::{CanvasCreated, CanvasRemoved},
-    recent::{RecentFiles, recent_file_thumbnail_path},
+    recent::RecentFiles,
     tools::PanTool,
 };
 use lapiz_config::Config;
-use lapiz_dirs::cache_dir;
 use lapiz_dock::{
     DockManager, DockMessage, DockRegistry,
     dock::{Dock, DockId},
