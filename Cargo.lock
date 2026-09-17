@@ -3227,6 +3227,7 @@ dependencies = [
  "iced_runtime",
  "iced_wgpu",
  "iced_widget",
+ "image",
  "lapiz_abr_bridge",
  "lapiz_actions",
  "lapiz_assets",
@@ -3373,12 +3374,14 @@ dependencies = [
 name = "lapiz_builtin_docks"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bevy_math 0.18.1 (git+https://github.com/443eb9/bevy.git?branch=release-0.18.1)",
  "iced",
  "iced_core",
  "iced_futures",
  "iced_runtime",
  "iced_widget",
+ "image",
  "lapiz_assets",
  "lapiz_brush",
  "lapiz_canvas",
@@ -3400,6 +3403,7 @@ dependencies = [
  "moxcms 0.9.0",
  "rust-embed",
  "serde",
+ "wgpu",
 ]
 
 [[package]]
@@ -3418,6 +3422,7 @@ dependencies = [
  "indexmap",
  "lapiz_color",
  "lapiz_config",
+ "lapiz_dirs",
  "lapiz_i18n",
  "lapiz_image",
  "lapiz_input",
@@ -3438,6 +3443,7 @@ dependencies = [
  "uuid",
  "wesl",
  "wgpu",
+ "xxhash-rust",
 ]
 
 [[package]]

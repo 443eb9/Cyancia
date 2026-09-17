@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 bevy_math.workspace = true
+image.workspace = true
 lapiz_abr_bridge.workspace = true
 lapiz_actions.workspace = true
 lapiz_assets.workspace = true

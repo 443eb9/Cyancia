@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use lapiz_config::Configuration;
+use lapiz_dirs::cache_dir;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct RecentFiles {
@@ -30,4 +32,13 @@ impl Configuration for RecentFiles {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct RecentFileRecord {
     pub path: PathBuf,
+}
+
+pub fn recent_file_thumbnail_path(path: &Path) -> PathBuf {
+    cache_dir().join("file_thumbnails").join(format!(
+        "{}.png",
+        Uuid::from_u128(xxhash_rust::xxh3::xxh3_128(
+            path.as_os_str().as_encoded_bytes(),
+        ))
+    ))
 }

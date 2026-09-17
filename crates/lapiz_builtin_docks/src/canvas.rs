@@ -1,12 +1,15 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, fs::File};
 
-use bevy_math::{IRect, Rect};
+use anyhow::Result;
+use bevy_math::{IRect, Rect, UVec2};
 use iced::{Element, Subscription, Task, Theme, pointer, widget::Space, window};
 use iced_core::Point;
 use iced_widget::stack;
+use image::{DynamicImage, ImageEncoder, codecs::png::PngEncoder};
 use lapiz_canvas::{
-    CanvasAppExt, CanvasId, CanvasManager, CanvasToolProxyAppExt,
+    CCanvas, CanvasAppExt, CanvasId, CanvasManager, CanvasToolProxyAppExt,
     event::{CanvasRemoved, CanvasUpdated},
+    recent::recent_file_thumbnail_path,
     widget::canvas::CanvasWidget,
 };
 use lapiz_dock::dock::{Dock, DockId};
@@ -22,6 +25,8 @@ use lapiz_input::{
 use lapiz_render::render_context::RenderContextAppExt;
 use lapiz_runtime::{Renderer, Services, event::Event};
 use lapiz_tools::ErasedToolFunctionMessage;
+use lapiz_utils::log_err::LogErr;
+use wgpu::{Device, Queue};
 
 pub fn construct_canvas_dock_id(canvas: CanvasId) -> String {
     format!("canvas_{}", canvas)
@@ -50,6 +55,99 @@ impl CanvasDock {
             raw_window_id: None,
             monitor_name: None,
         }
+    }
+
+    fn update_thumbnail(&self, services: &Services) -> Task<CanvasDockMessage> {
+        let Some(canvas) = services.canvas(&self.canvas) else {
+            return Task::none();
+        };
+
+        let root_id = *canvas.image.layer_stack().root_id();
+        let tiles = services.tile_storage().clone();
+        let file_path = canvas.file_path().clone();
+        let image_rect = canvas.image.image_pixel_rect();
+        let canvas_id = self.canvas;
+        let color_profile = canvas.image.profile().clone();
+
+        Task::future(async move {
+            let root_layer = tiles.get_layer(root_id).unwrap();
+            let Ok(result) = root_layer
+                .generate_thumbnail(UVec2::splat(256), image_rect, false)
+                .await
+                .logged_err()
+            else {
+                return;
+            };
+
+            let path = recent_file_thumbnail_path(file_path.as_path());
+            if let Some(parent) = path.parent()
+                && std::fs::create_dir_all(parent).logged_err().is_err()
+            {
+                return;
+            }
+
+            let Ok(mut file) = File::create(&path).logged_err() else {
+                return;
+            };
+            let Ok(encoded_profile) = color_profile.encode() else {
+                return;
+            };
+            let mut encoder = PngEncoder::new(&mut file);
+            if encoder
+                .set_icc_profile(encoded_profile)
+                .logged_err()
+                .is_err()
+            {
+                return;
+            }
+            if encoder
+                .write_image(
+                    result.as_bytes(),
+                    result.width(),
+                    result.height(),
+                    result.color().into(),
+                )
+                .logged_err()
+                .is_err()
+            {
+                return;
+            }
+
+            log::info!(
+                "Saved thumbnail for canvas {} to {}",
+                canvas_id,
+                path.display()
+            );
+        })
+        .discard()
+    }
+
+    fn request_composite(&mut self, services: &mut Services, dirty_tiles: Option<IRect>) {
+        services.service_scope::<LayerPreviewOverriders, _>(|overriders, services| {
+            let Some(canvas) = services.canvas(&self.canvas) else {
+                return;
+            };
+            let tiles = services.tile_storage();
+            let blend_functions = services.service::<BlendFunctionRegistry>();
+            let device = services.render_device();
+            let queue = services.render_queue();
+            self.compositor.create_cache(
+                overriders,
+                &canvas.image,
+                tiles,
+                blend_functions,
+                device,
+                queue,
+            );
+            self.compositor.composite(
+                overriders,
+                dirty_tiles.unwrap_or_else(|| canvas.image.image_tile_rect()),
+                &canvas.image,
+                tiles,
+                device,
+                queue,
+            );
+        });
     }
 }
 
@@ -115,31 +213,7 @@ impl Dock for CanvasDock {
     fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
         match message {
             CanvasDockMessage::CanvasUpdated(dirty_tiles) => {
-                services.service_scope::<LayerPreviewOverriders, _>(|overriders, services| {
-                    let Some(canvas) = services.canvas(&self.canvas) else {
-                        return;
-                    };
-                    let tiles = services.tile_storage();
-                    let blend_functions = services.service::<BlendFunctionRegistry>();
-                    let device = services.render_device();
-                    let queue = services.render_queue();
-                    self.compositor.create_cache(
-                        overriders,
-                        &canvas.image,
-                        tiles,
-                        blend_functions,
-                        device,
-                        queue,
-                    );
-                    self.compositor.composite(
-                        overriders,
-                        dirty_tiles.unwrap_or_else(|| canvas.image.image_tile_rect()),
-                        &canvas.image,
-                        tiles,
-                        device,
-                        queue,
-                    );
-                });
+                self.request_composite(services, dirty_tiles);
 
                 Task::none()
             }
@@ -227,17 +301,20 @@ impl Dock for CanvasDock {
         }
     }
 
-    fn on_open(&mut self, _services: &mut Services) -> Task<Self::Message> {
+    fn on_open(&mut self, services: &mut Services) -> Task<Self::Message> {
+        self.request_composite(services, None);
+
         Task::batch([
             Task::done(CanvasDockMessage::WindowMoved),
-            Task::done(CanvasDockMessage::CanvasUpdated(None)),
+            self.update_thumbnail(services),
         ])
     }
 
-    fn on_close(&mut self, _services: &mut Services) -> Task<Self::Message> {
+    fn on_close(&mut self, services: &mut Services) -> Task<Self::Message> {
         CanvasRemoved::broadcast(CanvasRemoved { id: self.canvas });
 
-        Task::none()
+        self.request_composite(services, None);
+        self.update_thumbnail(services)
     }
 
     fn subscription(&self, services: &Services) -> Subscription<Self::Message> {

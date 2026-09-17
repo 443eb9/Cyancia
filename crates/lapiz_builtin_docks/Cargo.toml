@@ -10,12 +10,14 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+anyhow.workspace = true
 bevy_math.workspace = true
 iced.workspace = true
 iced_core.workspace = true
 iced_widget.workspace = true
 iced_futures.workspace = true
 iced_runtime.workspace = true
+image.workspace = true
 lapiz_assets.workspace = true
 lapiz_brush.workspace = true
 lapiz_canvas.workspace = true
@@ -37,3 +39,4 @@ log.workspace = true
 moxcms.workspace = true
 rust-embed.workspace = true
 serde.workspace = true
+wgpu.workspace = true
