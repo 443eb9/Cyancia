@@ -1,5 +1,5 @@
 [package]
-name = "lapiz_cache"
+name = "lapiz_dirs"
 version = "0.1.0"
 publish.workspace = true
 edition.workspace = true
@@ -10,3 +10,4 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+directories.workspace = true

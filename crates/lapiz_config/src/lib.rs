@@ -17,24 +17,9 @@ use iced_futures::{
     BoxStream, Subscription,
     subscription::{EventStream, Hasher, Recipe, from_recipe},
 };
+use lapiz_dirs::config_dir;
 use parking_lot::Mutex;
 use serde::{Serialize, de::DeserializeOwned};
-
-pub fn resolve_config_dir(name: &str) -> PathBuf {
-    static BASE_DIRS: LazyLock<Option<BaseDirs>> = LazyLock::new(BaseDirs::new);
-
-    let config_base = if let Ok(dir) = std::env::var("CONFIG_DIR") {
-        PathBuf::from(dir)
-    } else if let Some(dir) = BASE_DIRS.as_ref() {
-        dir.config_local_dir().to_path_buf()
-    } else if let Ok(dir) = std::env::current_exe() {
-        dir.parent().unwrap().to_path_buf()
-    } else {
-        PathBuf::from(".")
-    };
-
-    config_base.join(name)
-}
 
 pub trait Configuration: Serialize + DeserializeOwned + Clone + Send + Sync + 'static {
     const NAME: &'static str;
@@ -84,7 +69,7 @@ pub struct Config<T: Configuration> {
 
 impl<T: Configuration> Config<T> {
     fn persist(value: &T) -> Result<()> {
-        let path = resolve_config_dir(T::NAME);
+        let path = config_dir().join(T::NAME);
         let parent = path
             .parent()
             .ok_or_else(|| anyhow!("config path has no parent: {}", path.display()))?;
@@ -108,7 +93,7 @@ impl<T: Configuration> Config<T> {
             });
         }
 
-        let path = resolve_config_dir(T::NAME);
+        let path = config_dir().join(T::NAME);
         let value = match std::fs::read_to_string(&path) {
             Ok(content) => T::parse(&content)?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

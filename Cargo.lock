@@ -3364,10 +3364,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lapiz_cache"
-version = "0.1.0"
-
-[[package]]
 name = "lapiz_canvas"
 version = "0.1.0"
 dependencies = [
@@ -3457,10 +3453,18 @@ dependencies = [
  "directories",
  "futures",
  "iced_futures",
+ "lapiz_dirs",
  "parking_lot",
  "serde",
  "tempfile",
  "toml 1.1.5+spec-1.1.0",
+]
+
+[[package]]
+name = "lapiz_dirs"
+version = "0.1.0"
+dependencies = [
+ "directories",
 ]
 
 [[package]]
