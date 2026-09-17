@@ -1,8 +1,8 @@
 pub mod brush_preset;
 pub mod canvas;
 pub mod color_selector;
-pub mod recent_files;
 pub mod layers;
+pub mod recent_files;
 pub mod tool_box;
 pub mod tool_options;
 
@@ -12,8 +12,8 @@ use lapiz_dock::DockRegistry;
 use lapiz_runtime::{Application, plugin::Plugin};
 
 use crate::{
-    brush_preset::BrushPresetDock, color_selector::ColorSelectorDock, recent_files::LandingDock,
-    layers::LayersDock, tool_box::ToolBoxDock, tool_options::ToolOptionsDock,
+    brush_preset::BrushPresetDock, color_selector::ColorSelectorDock, layers::LayersDock,
+    recent_files::LandingDock, tool_box::ToolBoxDock, tool_options::ToolOptionsDock,
 };
 
 pub struct BuiltinDocksPlugin;
@@ -36,7 +36,7 @@ impl Plugin for BuiltinDocksPlugin {
         }
 
         registry.register(LandingDock::new());
-        registry.register(LayersDock::new());
+        registry.register(LayersDock::default());
         registry.register(ToolBoxDock::new());
 
         app.add_service_instance(registry);

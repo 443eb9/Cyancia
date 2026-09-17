@@ -31,6 +31,10 @@ pub enum ToolBoxDockMessage {
 }
 
 impl ToolBoxDock {
+    #[allow(
+        clippy::new_without_default,
+        reason = "Default cannot express the semantic of reading config from disk."
+    )]
     pub fn new() -> Self {
         let manifest = ToolBoxManifestConfig::read_or_init_or_fallback();
         Self { manifest }

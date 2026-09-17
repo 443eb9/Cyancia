@@ -1,18 +1,11 @@
-use std::{
-    path::PathBuf,
-    sync::{Arc, LazyLock},
-};
+use std::sync::{Arc, LazyLock};
 
 use iced_core::{Element, Length, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
-use iced_widget::{container, scrollable};
-use lapiz_canvas::{
-    CCanvas, CanvasAppExt,
-    event::CanvasCreated,
-    recent::{RecentFileRecord, RecentFiles},
-};
-use lapiz_config::{Config, Configuration};
+use iced_widget::scrollable;
+use lapiz_canvas::{CCanvas, CanvasAppExt, event::CanvasCreated, recent::RecentFiles};
+use lapiz_config::Config;
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_image::{
     CImage,
@@ -24,7 +17,6 @@ use lapiz_tools::{ToolFunctionRegistry, ToolProxies, ToolProxy};
 use lapiz_undo::{UndoStack, UndoStacks};
 use lapiz_utils::log_err::LogErr;
 use lapiz_widgets::{button::Button, flex::Flex, label::Label};
-use serde::{Deserialize, Serialize};
 
 pub struct LandingDock {
     config: Config<RecentFiles>,
@@ -32,6 +24,10 @@ pub struct LandingDock {
 }
 
 impl LandingDock {
+    #[allow(
+        clippy::new_without_default,
+        reason = "Default cannot express the semantic of reading config from disk."
+    )]
     pub fn new() -> Self {
         let config = Config::<RecentFiles>::read_or_init_or_fallback();
         Self {
@@ -58,8 +54,8 @@ impl Dock for LandingDock {
 
     fn view<'a>(
         &'a self,
-        window_id: window::Id,
-        services: &'a Services,
+        _window_id: window::Id,
+        _services: &'a Services,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
         scrollable(
             Flex::row(self.files.files.iter().enumerate().map(|(i, f)| {

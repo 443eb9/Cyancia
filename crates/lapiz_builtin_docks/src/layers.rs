@@ -27,6 +27,7 @@ use lapiz_utils::log_err::LogErr;
 
 pub static LAYER_DOCK_ID: LazyLock<DockId> = LazyLock::new(|| DockId::new("layer_dock".into()));
 
+#[derive(Default)]
 pub struct LayersDock {
     renaming_layer: Option<LayerId>,
     rename_value: String,
@@ -34,14 +35,6 @@ pub struct LayersDock {
 }
 
 impl LayersDock {
-    pub fn new() -> Self {
-        Self {
-            renaming_layer: None,
-            rename_value: String::new(),
-            drop_preview: None,
-        }
-    }
-
     fn push_property_change(
         services: &mut Services,
         layer_id: LayerId,

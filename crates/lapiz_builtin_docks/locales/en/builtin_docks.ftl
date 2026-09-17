@@ -1,3 +1,4 @@
+# TODO These names should live in own tool crates
 pan_tool = Pan
 rotate_tool = Rotate
 zoom_tool = Zoom
