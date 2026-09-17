@@ -4,14 +4,12 @@ use std::{
     hash::Hash,
     io::Write,
     marker::PhantomData,
-    path::PathBuf,
     sync::{Arc, LazyLock},
 };
 
 use anyhow::{Result, anyhow};
 use arc_swap::ArcSwap;
 use async_broadcast::{InactiveReceiver, Receiver, RecvError, Sender};
-use directories::BaseDirs;
 use futures::stream;
 use iced_futures::{
     BoxStream, Subscription,

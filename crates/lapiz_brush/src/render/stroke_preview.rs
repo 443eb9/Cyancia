@@ -1,7 +1,4 @@
-use std::{
-    f32::consts::TAU,
-    fs::{self, File},
-};
+use std::{f32::consts::TAU, fs::File};
 
 use anyhow::{Result, anyhow, ensure};
 use glam::{IVec4, Vec2, Vec4};

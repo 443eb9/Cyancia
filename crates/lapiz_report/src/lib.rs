@@ -1,6 +1,6 @@
 use std::{backtrace::Backtrace, fmt::Write, fs, panic::Location, sync::LazyLock};
 
-use anyhow::{Result, anyhow};
+use anyhow::anyhow;
 use chrono::{Local, Utc};
 use gfxinfo::active_gpu;
 use lapiz_dirs::panic_reports_dir;
