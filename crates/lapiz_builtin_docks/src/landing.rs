@@ -6,6 +6,7 @@ use std::{
 use iced_core::{Element, Length, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
+use iced_widget::{container, scrollable};
 use lapiz_canvas::{
     CCanvas, CanvasAppExt,
     event::CanvasCreated,
@@ -59,13 +60,18 @@ impl Dock for LandingDock {
         window_id: window::Id,
         services: &'a Services,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
-        Flex::row(self.files.files.iter().enumerate().map(|(i, f)| {
-            let file_name = f.path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            Button::new(Label::new(file_name))
-                .on_press(LandingDockMessage::OpenFile(i))
-                .into()
-        }))
-        .wrap()
+        scrollable(
+            Flex::row(self.files.files.iter().enumerate().map(|(i, f)| {
+                let file_name = f.path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                Button::new(Label::new(file_name))
+                    .width(100.0)
+                    .height(140.0)
+                    .on_press(LandingDockMessage::OpenFile(i))
+                    .into()
+            }))
+            .wrap()
+            .width(Length::Fill),
+        )
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
