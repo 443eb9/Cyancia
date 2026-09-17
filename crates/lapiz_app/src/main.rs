@@ -91,7 +91,7 @@ fn main() {
     app.add_service_instance(lapiz_runtime::renderer::global_render_context())
         .add_service::<WindowCommandBuffer>()
         .add_plugin(AssetsPlugin {
-            asset_root: "assets".into(),
+            asset_root: assets_dir().into(),
             bundles: asset_bundles,
         })
         .add_plugin(UndoPlugin)
