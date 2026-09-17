@@ -12,7 +12,7 @@ static CONFIG_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     let path = if let Ok(dir) = std::env::var("CONFIG_DIR") {
         PathBuf::from(dir)
     } else if let Some(dir) = BASE_DIRS.as_ref() {
-        dir.config_local_dir().join("lapiz")
+        dir.config_local_dir().join("lapiz").join("configs")
     } else if let Ok(dir) = std::env::current_exe() {
         dir.parent().unwrap().join("configs")
     } else {
