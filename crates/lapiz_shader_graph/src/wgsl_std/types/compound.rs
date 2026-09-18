@@ -64,12 +64,16 @@ impl GraphValueType for ColorType {
         GraphValueTypeId::new("color")
     }
 
+    fn wgsl_array_element_stride(&self) -> Option<u64> {
+        Some(super::runtime_array_stride::<Vec4>())
+    }
+
     fn default_literal(&self) -> Self::AssociatedLiteralType {
         Vec4::ZERO
     }
 
-    fn wgsl_type(&self) -> Option<(&'static str, u64)> {
-        Some(("vec4f", <Vec4 as ShaderType>::min_size().get()))
+    fn wgsl_type_name(&self) -> Option<&'static str> {
+        Some("vec4f")
     }
 
     fn push_shader_layout(
@@ -162,12 +166,16 @@ impl GraphValueType for RectType {
         GraphValueTypeId::new("rect")
     }
 
+    fn wgsl_array_element_stride(&self) -> Option<u64> {
+        Some(super::runtime_array_stride::<Rect>())
+    }
+
     fn default_literal(&self) -> Self::AssociatedLiteralType {
         Rect::default()
     }
 
-    fn wgsl_type(&self) -> Option<(&'static str, u64)> {
-        Some(("Rect", <Rect as ShaderType>::min_size().get()))
+    fn wgsl_type_name(&self) -> Option<&'static str> {
+        Some("Rect")
     }
 
     fn push_shader_layout(

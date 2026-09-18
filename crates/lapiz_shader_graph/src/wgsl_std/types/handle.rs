@@ -157,7 +157,7 @@ impl GraphValueType for TextureType {
         TextureReference::NULL
     }
 
-    fn wgsl_type(&self) -> Option<(&'static str, u64)> {
+    fn wgsl_type_name(&self) -> Option<&'static str> {
         None
     }
 
@@ -538,7 +538,7 @@ impl GraphValueType for LayerType {
         LayerReference
     }
 
-    fn wgsl_type(&self) -> Option<(&'static str, u64)> {
+    fn wgsl_type_name(&self) -> Option<&'static str> {
         None
     }
 
@@ -632,9 +632,8 @@ impl GraphValueType for ArrayType {
     ) -> Result<(u32, DynamicBindGroupLayoutEntries, String)> {
         let element = self
             .element_type
-            .wgsl_type()
+            .wgsl_type_name()
             .context("Array element type has no GPU representation")?
-            .0
             .to_string();
         push_storage_layout(
             stage,
@@ -663,12 +662,12 @@ impl GraphValueType for ArrayType {
         device: &Device,
         _queue: &Queue,
     ) -> Result<Self::PreparedShaderType> {
-        let (_, element_size) = self
+        let stride = self
             .element_type
-            .wgsl_type()
+            .wgsl_array_element_stride()
             .context("Array element type has no GPU representation")?;
         let size = u64::from(self.len)
-            .checked_mul(element_size)
+            .checked_mul(stride)
             .context("Array too large")?;
         // Fresh wgpu buffers are zero-initialized.
         Ok(PreparedArray {
@@ -686,7 +685,7 @@ impl GraphValueType for ArrayType {
         ArrayLiteral
     }
 
-    fn wgsl_type(&self) -> Option<(&'static str, u64)> {
+    fn wgsl_type_name(&self) -> Option<&'static str> {
         None
     }
 

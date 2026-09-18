@@ -60,8 +60,11 @@ impl GraphValueType for F32Type {
         0.0
     }
 
-    fn wgsl_type(&self) -> Option<(&'static str, u64)> {
-        Some(("f32", <f32 as ShaderType>::min_size().get()))
+    fn wgsl_type_name(&self) -> Option<&'static str> {
+        Some("f32")
+    }
+    fn wgsl_array_element_stride(&self) -> Option<u64> {
+        Some(super::runtime_array_stride::<f32>())
     }
 
     fn push_shader_layout(
@@ -130,8 +133,11 @@ impl GraphValueType for I32Type {
         0
     }
 
-    fn wgsl_type(&self) -> Option<(&'static str, u64)> {
-        Some(("i32", <i32 as ShaderType>::min_size().get()))
+    fn wgsl_type_name(&self) -> Option<&'static str> {
+        Some("i32")
+    }
+    fn wgsl_array_element_stride(&self) -> Option<u64> {
+        Some(super::runtime_array_stride::<i32>())
     }
 
     fn push_shader_layout(
@@ -196,8 +202,11 @@ impl GraphValueType for U32Type {
         0
     }
 
-    fn wgsl_type(&self) -> Option<(&'static str, u64)> {
-        Some(("u32", <u32 as ShaderType>::min_size().get()))
+    fn wgsl_type_name(&self) -> Option<&'static str> {
+        Some("u32")
+    }
+    fn wgsl_array_element_stride(&self) -> Option<u64> {
+        Some(super::runtime_array_stride::<u32>())
     }
 
     fn push_shader_layout(
@@ -263,8 +272,12 @@ impl GraphValueType for BoolType {
         false
     }
 
-    fn wgsl_type(&self) -> Option<(&'static str, u64)> {
-        Some(("bool", <u32 as ShaderType>::min_size().get()))
+    fn wgsl_type_name(&self) -> Option<&'static str> {
+        Some("bool")
+    }
+    // Bools are host-shared as u32, so their array stride matches u32.
+    fn wgsl_array_element_stride(&self) -> Option<u64> {
+        Some(super::runtime_array_stride::<u32>())
     }
 
     // FIXME This is not working is some expr references bool type,

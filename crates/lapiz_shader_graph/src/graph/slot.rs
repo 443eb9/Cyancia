@@ -206,7 +206,10 @@ pub trait GraphValueType: Send + Sync + 'static + DynClone {
     }
 
     fn default_literal(&self) -> Self::AssociatedLiteralType;
-    fn wgsl_type(&self) -> Option<(&'static str, u64)>;
+    fn wgsl_type_name(&self) -> Option<&'static str>;
+    fn wgsl_array_element_stride(&self) -> Option<u64> {
+        None
+    }
     fn hue_chroma(&self) -> (f32, f32);
     fn view_literal(
         &self,
@@ -323,7 +326,10 @@ pub trait ErasedGraphValueType: Send + Sync + 'static + DynClone + Downcast {
     }
 
     fn default_literal(&self) -> Box<dyn GraphLiteralValue>;
-    fn wgsl_type(&self) -> Option<(&'static str, u64)>;
+    fn wgsl_type_name(&self) -> Option<&'static str>;
+    fn wgsl_array_element_stride(&self) -> Option<u64> {
+        None
+    }
     fn view_literal(
         &self,
         slot_id: GraphInputSlotId,
@@ -456,8 +462,12 @@ impl<T: GraphValueType> ErasedGraphValueType for T {
         Box::new(self.default_literal())
     }
 
-    fn wgsl_type(&self) -> Option<(&'static str, u64)> {
-        GraphValueType::wgsl_type(self)
+    fn wgsl_type_name(&self) -> Option<&'static str> {
+        GraphValueType::wgsl_type_name(self)
+    }
+
+    fn wgsl_array_element_stride(&self) -> Option<u64> {
+        GraphValueType::wgsl_array_element_stride(self)
     }
 
     fn view_literal(

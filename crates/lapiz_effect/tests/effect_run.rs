@@ -141,7 +141,7 @@ impl GraphValueType for EffectParamType {
             texture_intensity: 0.25,
         }
     }
-    fn wgsl_type(&self) -> Option<(&'static str, u64)> {
+    fn wgsl_type_name(&self) -> Option<&'static str> {
         None
     }
     fn hue_chroma(&self) -> (f32, f32) {
@@ -817,6 +817,39 @@ fn reference_exposure(input: &image::DynamicImage) -> f32 {
     let count = u64::from(W * H);
     let average = sum as f32 / (count as f32 * 65535.0).max(1.0);
     (0.18 / average.max(0.001)).clamp(0.25, 4.0)
+}
+
+// Runtime-sized array buffers must follow WGSL strides: a vec3 element keeps
+// 12 bytes of data in a 16-byte slot, so the allocation is len * 16.
+#[test]
+fn array_buffers_use_wgsl_strides() {
+    if !gpu_available() {
+        eprintln!("skipping: no wgpu adapter available");
+        return;
+    }
+
+    let context = RenderContext::default();
+    for (name, element, stride) in [
+        (
+            "f32",
+            Arc::new(F32Type) as Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType>,
+            4_u64,
+        ),
+        ("vec2f", Arc::new(Vec2FType), 8),
+        ("vec3f", Arc::new(Vec3FType), 16),
+        ("vec4f", Arc::new(Vec4FType), 16),
+    ] {
+        let len = 10;
+        let array = ArrayType { element_type: element, len };
+        let prepared = array
+            .prepare_to_shader(&ArrayLiteral, &context.device, &context.queue)
+            .unwrap();
+        assert_eq!(
+            prepared.buffer.size(),
+            len as u64 * stride,
+            "array<{name}> buffer must allocate len * stride"
+        );
+    }
 }
 
 #[test]

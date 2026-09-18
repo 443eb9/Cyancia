@@ -3758,9 +3758,9 @@ impl GraphNode for CustomExpressionNode {
                 ctx.output_slot_idents
                     .insert(ctx.outputs[index], output.clone());
             }
-            let (ty, _) = variable
+            let ty = variable
                 .ty
-                .wgsl_type()
+                .wgsl_type_name()
                 .ok_or_else(|| GraphNodeCodeGenError::Custom(anyhow!("Invalid type")))?;
             code.push_str(&format!("var {output}: {ty};\n"));
             outputs.push(output);
@@ -3776,9 +3776,9 @@ impl GraphNode for CustomExpressionNode {
             ));
         }
         for variable in state.outputs.values() {
-            let (ty, _) = variable
+            let ty = variable
                 .ty
-                .wgsl_type()
+                .wgsl_type_name()
                 .ok_or_else(|| GraphNodeCodeGenError::Custom(anyhow!("Invalid type")))?;
             code.push_str(&format!("var {}: {ty};\n", variable.name));
         }

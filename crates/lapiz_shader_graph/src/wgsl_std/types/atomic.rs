@@ -1,4 +1,5 @@
 use anyhow::Result;
+use encase::StorageBuffer;
 use iced_core::Element;
 use iced_widget::space;
 use lapiz_render::{
@@ -8,9 +9,11 @@ use lapiz_render::{
 use lapiz_utils::random_oklch_hue_chroma;
 use wesl::syntax::*;
 use wesl_quote::quote_declaration;
-use wgpu::{Buffer, BufferDescriptor, BufferUsages, Device, Queue};
+use wgpu::{Buffer, Device, Queue};
 
-use super::{I32Type, U32Type, prepare_uniform_storage, push_buffer_binding};
+use super::{
+    I32Type, U32Type, prepare_uniform_storage, push_buffer_binding, write_storage_buffer,
+};
 use crate::{
     GraphRenderer, GraphTheme,
     graph::{
@@ -117,7 +120,7 @@ macro_rules! atomic_type {
                 0
             }
 
-            fn wgsl_type(&self) -> Option<(&'static str, u64)> {
+            fn wgsl_type_name(&self) -> Option<&'static str> {
                 None
             }
 
@@ -192,20 +195,11 @@ macro_rules! atomic_array_type {
             }
 
             fn prepare_to_shader(&self, data: &Vec<$value>, device: &Device, _queue: &Queue) -> Result<PreparedAtomicArray> {
-                let mut bytes = Vec::with_capacity(self.len as usize * std::mem::size_of::<$value>());
-                for value in data.iter().copied().chain(std::iter::repeat(0)).take(self.len as usize) {
-                    bytes.extend_from_slice(&value.to_ne_bytes());
-                }
-                let buffer = device.create_buffer(&BufferDescriptor {
-                    label: Some(concat!("graph ", $prefix, " literal")),
-                    size: (bytes.len() as u64).max(4),
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-                    mapped_at_creation: true,
-                });
-                if !bytes.is_empty() {
-                    buffer.slice(..bytes.len() as u64).get_mapped_range_mut().copy_from_slice(&bytes);
-                }
-                buffer.unmap();
+                let mut values = data.clone();
+                values.resize(self.len as usize, 0);
+                let mut bytes = StorageBuffer::new(Vec::new());
+                bytes.write(&values)?;
+                let buffer = write_storage_buffer(device, bytes.as_ref(), concat!("graph ", $prefix, " literal"))?;
                 Ok(PreparedAtomicArray { buffer, len: self.len })
             }
 
@@ -249,7 +243,7 @@ macro_rules! atomic_array_type {
                 vec![0; self.len as usize]
             }
 
-            fn wgsl_type(&self) -> Option<(&'static str, u64)> {
+            fn wgsl_type_name(&self) -> Option<&'static str> {
                 None
             }
 

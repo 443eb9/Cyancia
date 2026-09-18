@@ -1,5 +1,7 @@
 use anyhow::Result;
-use encase::{DynamicUniformBuffer, ShaderType, internal::WriteInto};
+use encase::{
+    DynamicUniformBuffer, ShaderSize, ShaderType, internal::WriteInto, private::ArrayMetadata,
+};
 use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
     bind_group_layout_entries::{DynamicBindGroupLayoutEntries, binding_types},
@@ -25,16 +27,30 @@ pub use vector::*;
 fn write_storage_buffer(device: &Device, bytes: &[u8], label: &str) -> Result<Buffer> {
     let buffer = device.create_buffer(&BufferDescriptor {
         label: Some(label),
-        size: bytes.len() as u64,
+        size: (bytes.len() as u64).max(4),
         usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
         mapped_at_creation: true,
     });
-    buffer
-        .slice(..)
-        .get_mapped_range_mut()
-        .copy_from_slice(bytes);
+    if !bytes.is_empty() {
+        buffer
+            .slice(..bytes.len() as u64)
+            .get_mapped_range_mut()
+            .copy_from_slice(bytes);
+    }
     buffer.unmap();
     Ok(buffer)
+}
+
+// The stride encase assigns to the elements of `array<T>` in a storage buffer.
+// WGSL rounds each element up to its alignment, so the stride can exceed the
+// element size (vec3f: size 12, stride 16); read encase's own layout instead
+// of restating the rule.
+fn runtime_array_stride<T>() -> u64
+where
+    T: ShaderType + ShaderSize,
+    Vec<T>: ShaderType<ExtraMetadata = ArrayMetadata>,
+{
+    <Vec<T> as ShaderType>::METADATA.stride().get()
 }
 
 // Inputs bind storage read-only; outputs bind read-write for both eval and main.
@@ -84,4 +100,63 @@ fn prepare_uniform_storage<T: ShaderType + WriteInto>(
     let mut bytes = DynamicUniformBuffer::new(Vec::new());
     bytes.write(literal)?;
     write_storage_buffer(device, bytes.as_ref(), label)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use lapiz_image::texel::TexelType;
+
+    use super::*;
+    use crate::graph::slot::ErasedGraphValueType;
+
+    // Runtime-sized array strides follow WGSL alignment rules, which round an
+    // element's size up to its alignment; vec3 keeps 12 bytes of data in a
+    // 16-byte slot.
+    #[test]
+    fn array_strides_match_wgsl_layout_rules() {
+        let cases: Vec<(&str, Arc<dyn ErasedGraphValueType>, u64)> = vec![
+            ("f32", Arc::new(F32Type), 4),
+            ("i32", Arc::new(I32Type), 4),
+            ("u32", Arc::new(U32Type), 4),
+            ("bool", Arc::new(BoolType), 4),
+            ("vec2f", Arc::new(Vec2FType), 8),
+            ("vec3f", Arc::new(Vec3FType), 16),
+            ("vec4f", Arc::new(Vec4FType), 16),
+            ("vec2i", Arc::new(Vec2IType), 8),
+            ("vec3i", Arc::new(Vec3IType), 16),
+            ("vec4i", Arc::new(Vec4IType), 16),
+            ("vec2u", Arc::new(Vec2UType), 8),
+            ("vec3u", Arc::new(Vec3UType), 16),
+            ("vec4u", Arc::new(Vec4UType), 16),
+            ("color", Arc::new(ColorType), 16),
+            ("rect", Arc::new(RectType), 16),
+        ];
+        for (name, ty, expected) in cases {
+            assert_eq!(
+                ty.wgsl_array_element_stride(),
+                Some(expected),
+                "wrong stride for {name}"
+            );
+        }
+
+        // Handle-like and composite types have no host-shareable stride.
+        assert_eq!(
+            LayerType {
+                texel_type: TexelType::RGBA8,
+            }
+            .wgsl_array_element_stride(),
+            None
+        );
+        assert_eq!(TextureType::default().wgsl_array_element_stride(), None);
+        assert_eq!(
+            ArrayType {
+                element_type: Arc::new(F32Type),
+                len: 4,
+            }
+            .wgsl_array_element_stride(),
+            None
+        );
+    }
 }
