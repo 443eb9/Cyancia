@@ -1,5 +1,8 @@
 //! Persistent effect definitions. Pass ports live in graph nodes, not in this asset.
 
+use std::io::{Read, Write};
+
+use lapiz_assets::{asset::Asset, loader::AssetSerializer};
 use lapiz_shader_graph::save::SerializableGraph;
 use lapiz_utils::wrapper;
 use serde::{Deserialize, Serialize};
@@ -37,6 +40,43 @@ pub struct EffectAsset {
     pub passes: Vec<SerializableEffectPass>,
     pub inputs: Vec<SerializableEffectInputSlot>,
     pub outputs: Vec<SerializableEffectOutputSlot>,
+}
+
+impl Asset for EffectAsset {
+    const TYPE_NAME: &'static str = "effect";
+}
+
+#[derive(Default)]
+pub struct EffectAssetSerializer;
+
+#[derive(Debug, thiserror::Error)]
+pub enum EffectAssetSerializerError {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    TomlDe(#[from] toml::de::Error),
+    #[error(transparent)]
+    TomlSer(#[from] toml::ser::Error),
+}
+
+impl AssetSerializer for EffectAssetSerializer {
+    type Asset = EffectAsset;
+    type Error = EffectAssetSerializerError;
+
+    fn file_extension() -> &'static str {
+        "lef"
+    }
+
+    fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset, Self::Error> {
+        let mut source = String::new();
+        reader.read_to_string(&mut source)?;
+        Ok(toml::from_str(&source)?)
+    }
+
+    fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<(), Self::Error> {
+        writer.write_all(toml::to_string(asset)?.as_bytes())?;
+        Ok(())
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

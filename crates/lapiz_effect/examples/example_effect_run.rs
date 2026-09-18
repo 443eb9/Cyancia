@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, sync::Arc};
+use std::{collections::HashMap, env, fs::File, path::Path, sync::Arc};
 
 use anyhow::{Context, Result, ensure};
 use encase::{ShaderType, StorageBuffer};
@@ -6,6 +6,7 @@ use futures::executor::block_on;
 use iced_core::{Element, Point, widget::Void};
 use image::{GrayImage, RgbaImage};
 use indexmap::IndexMap;
+use lapiz_assets::loader::AssetSerializer;
 use lapiz_effect::{
     asset::*,
     instance::{EffectInputSlot, EffectInstance, EffectOutputSlot, EffectPass},
@@ -32,8 +33,9 @@ use lapiz_shader_graph::{
         Graph, GraphResources,
         function::ASSET_GRAPH_FUNCTION_STORAGE,
         node::{
-            GraphNodeCodeGenContext, GraphNodeCodeGenError, GraphNodeCreateSlotsContext,
-            GraphNodeId, StatelessCommonGraphNode, stateless,
+            GraphNode, GraphNodeCodeGenContext, GraphNodeCodeGenError, GraphNodeCreateSlotsContext,
+            GraphNodeDefaultStateContext, GraphNodeId, GraphNodeUpdateContext,
+            GraphNodeViewContext, StatelessCommonGraphNode, stateless,
         },
         slot::{GraphDefaultInputSlot, GraphDefaultOutputSlot, GraphShaderStage, GraphValueType},
         variable::GraphShaderLiteral,
@@ -270,27 +272,34 @@ impl StatelessCommonGraphNode for AutoExposureNode {
     }
 }
 
-#[derive(Clone)]
-struct ApplyEffectNode {
+#[derive(Default, Clone)]
+struct ApplyEffectNode;
+
+#[derive(Clone, Serialize, Deserialize)]
+struct ApplyEffectNodeState {
     target: EffectPassInputSlotId,
 }
-impl Default for ApplyEffectNode {
-    fn default() -> Self {
-        Self {
-            target: EffectPassInputSlotId::new(Uuid::nil()),
-        }
-    }
-}
 
-#[stateless]
-impl StatelessCommonGraphNode for ApplyEffectNode {
+impl GraphNode for ApplyEffectNode {
+    type State = ApplyEffectNodeState;
+    type Message = ();
+
     fn id(&self) -> &'static str {
         "example_apply_effect"
+    }
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_>) -> Self::State {
+        ApplyEffectNodeState {
+            target: EffectPassInputSlotId::new(Uuid::nil()),
+        }
     }
     fn header_hue_chroma(&self) -> (f32, f32) {
         random_oklch_hue_chroma!(ApplyEffectNode)
     }
-    fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
+    fn create_inputs(
+        &self,
+        _: &Self::State,
+        _: GraphNodeCreateSlotsContext<'_>,
+    ) -> Vec<GraphDefaultInputSlot> {
         vec![
             GraphDefaultInputSlot::new::<Vec2IType>("pixel".into()),
             GraphDefaultInputSlot::new::<RectType>("bounds".into()),
@@ -305,11 +314,24 @@ impl StatelessCommonGraphNode for ApplyEffectNode {
             ),
         ]
     }
-    fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
+    fn create_outputs(
+        &self,
+        _: &Self::State,
+        _: GraphNodeCreateSlotsContext<'_>,
+    ) -> Vec<GraphDefaultOutputSlot> {
         vec![GraphDefaultOutputSlot::new::<ColorType>("color".into())]
     }
+    fn view<'a>(
+        &self,
+        _: &'a Self::State,
+        _: GraphNodeViewContext<'_>,
+    ) -> Element<'a, Self::Message, GraphTheme, GraphRenderer> {
+        Void.into()
+    }
+    fn update(&self, _: &mut Self::State, _: Self::Message, _: GraphNodeUpdateContext<'_>) {}
     fn generate_code(
         &self,
+        state: &Self::State,
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let pixel = ctx.get_input(0)?;
@@ -319,7 +341,7 @@ impl StatelessCommonGraphNode for ApplyEffectNode {
         let exposure = ctx.get_input(4)?;
         let texture = ctx.get_input(5)?;
         let output = ctx.get_output(0)?;
-        let target = format!("pass_input_{}_load", self.target.0.simple());
+        let target = format!("pass_input_{}_load", state.target.0.simple());
         Ok(format!(
             "let example_shift = max(i32(round(abs({ca}) * 3.0)), 0);\nlet example_center = {target}({pixel});\nlet example_r = {target}({pixel} + vec2i(example_shift, 0)).r;\nlet example_b = {target}({pixel} - vec2i(example_shift, 0)).b;\nlet example_tex_size = vec2i(textureDimensions({texture}));\nlet example_tex_coord = vec2u((({pixel} % example_tex_size) + example_tex_size) % example_tex_size);\nlet example_gray = textureLoad({texture}, example_tex_coord, 0).r;\nlet example_modulation = mix(1.0, example_gray, clamp({texture_intensity}, 0.0, 1.0));\nlet {output} = vec4f(vec3f(example_r, example_center.g, example_b) * {exposure} * example_modulation, example_center.a);\n"
         ))
@@ -383,7 +405,7 @@ fn output_node(
     (node, id)
 }
 
-fn build_effect(
+fn generate_effect(
     resources: GraphResources,
 ) -> (
     EffectInstance,
@@ -501,12 +523,10 @@ fn build_effect(
     });
     let ca = apply_graph.add_node(Point::ORIGIN, ChromaticAbberrationIntensityNode);
     let texture_amount = apply_graph.add_node(Point::ORIGIN, TextureIntensityNode);
-    let apply = apply_graph.add_node(
-        Point::ORIGIN,
-        ApplyEffectNode {
-            target: target_apply_port,
-        },
-    );
+    let apply = apply_graph.add_node(Point::ORIGIN, ApplyEffectNode);
+    apply_graph.update_node_state::<ApplyEffectNode>(apply, |state| {
+        state.target = target_apply_port;
+    });
     let (layer_out, layer_out_id) = output_node(
         &mut apply_graph,
         PassOutput::Effect(layer_output),
@@ -763,19 +783,36 @@ fn main() -> Result<()> {
     env_logger::init();
     let args = env::args().collect::<Vec<_>>();
     ensure!(
-        args.len() == 4,
-        "usage: example_effect_run <input-image> <a8-texture> <output-image>"
+        args.len() == 5,
+        "usage: example_effect_run <effect.lef> <input-image> <a8-texture> <output-image>"
     );
-    let input_image = image::open(&args[1])?;
+    let effect_path = Path::new(&args[1]);
+    ensure!(
+        effect_path.extension().and_then(|ext| ext.to_str())
+            == Some(EffectAssetSerializer::file_extension()),
+        "effect path must use the .{} extension",
+        EffectAssetSerializer::file_extension()
+    );
+
+    let input_image = image::open(&args[2])?;
     let width = input_image.width();
     let height = input_image.height();
-    let texture_image = image::open(&args[2])?.to_luma8();
+    let texture_image = image::open(&args[3])?.to_luma8();
     let context = RenderContext::default();
-    let histogram_type = ArrayAtomicU32Type {
+    let graph_resources = resources(ArrayAtomicU32Type {
         len: HISTOGRAM_SIZE,
-    };
-    let (effect, target_id, params_id, texture_id, layer_output, histogram_output) =
-        build_effect(resources(histogram_type));
+    });
+    let (generated, target_id, params_id, texture_id, layer_output, histogram_output) =
+        generate_effect(graph_resources.clone());
+
+    let serializer = EffectAssetSerializer;
+    serializer
+        .write(&generated.as_asset()?, &mut File::create(effect_path)?)
+        .context("failed to save generated effect")?;
+    let asset = serializer
+        .read(&mut File::open(effect_path)?)
+        .context("failed to load generated effect")?;
+    let effect = EffectInstance::from_asset(&asset, graph_resources)?;
     let renderer =
         EffectRenderer::from_instance(&effect, context.device.clone(), context.queue.clone())?;
     let params_type = EffectParamType;
@@ -809,6 +846,6 @@ fn main() -> Result<()> {
         histogram_output,
         width,
         height,
-        &args[3],
+        &args[4],
     ))
 }

@@ -39,13 +39,47 @@ pub enum PassInput {
     Effect(EffectInputSlotId),
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct PassInputNodeState {
     pub id: EffectPassInputSlotId,
     pub input: Option<PassInput>,
-
-    #[serde(skip)]
     pub cached_ty: Option<Arc<dyn ErasedGraphValueType>>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SerializablePassInputNodeState {
+    id: EffectPassInputSlotId,
+    input: Option<PassInput>,
+    ty: Option<String>,
+}
+
+impl GraphSerializable for PassInputNodeState {
+    fn to_toml(&self) -> Result<toml::Value> {
+        SerializablePassInputNodeState {
+            id: self.id,
+            input: self.input,
+            ty: self.cached_ty.as_ref().map(|ty| ty.id().id),
+        }
+        .to_toml()
+    }
+
+    fn from_toml(value: toml::Value, resources: &GraphResources) -> Result<Self> {
+        let serializable = SerializablePassInputNodeState::from_toml(value, resources)?;
+        let cached_ty = serializable
+            .ty
+            .map(|ty| {
+                resources
+                    .type_registry
+                    .resolve_type(&ty)
+                    .with_context(|| format!("Unknown pass input type '{ty}'"))
+            })
+            .transpose()?;
+        Ok(Self {
+            id: serializable.id,
+            input: serializable.input,
+            cached_ty,
+        })
+    }
 }
 
 // UI source/target selectors arrive with the editor adapter; nothing can move
@@ -165,7 +199,6 @@ pub enum PassOutput {
 pub struct PassOutputNodeState {
     pub id: EffectPassOutputSlotId,
     pub output: Option<PassOutput>,
-
     pub cached_ty: Option<Arc<dyn ErasedGraphValueType>>,
 }
 
@@ -179,6 +212,7 @@ enum SerializablePassOutput {
 struct SerializablePassOutputNodeState {
     id: EffectPassOutputSlotId,
     output: Option<SerializablePassOutput>,
+    ty: Option<String>,
 }
 
 impl GraphSerializable for PassOutputNodeState {
@@ -192,6 +226,7 @@ impl GraphSerializable for PassOutputNodeState {
                 }),
                 PassOutput::Effect(id) => SerializablePassOutput::Effect(*id),
             }),
+            ty: self.cached_ty.as_ref().map(|ty| ty.id().id),
         }
         .to_toml()
     }
@@ -214,10 +249,19 @@ impl GraphSerializable for PassOutputNodeState {
                 }
             })
             .transpose()?;
+        let cached_ty = serializable
+            .ty
+            .map(|ty| {
+                resources
+                    .type_registry
+                    .resolve_type(&ty)
+                    .with_context(|| format!("Unknown pass output type '{ty}'"))
+            })
+            .transpose()?;
         Ok(Self {
             id: serializable.id,
             output,
-            cached_ty: None,
+            cached_ty,
         })
     }
 }

@@ -9,9 +9,7 @@ use lapiz_shader_graph::graph::{
 
 use crate::{
     asset::*,
-    nodes::{
-        DispatchIndexNode, EFFECT_GRAPH_NODES, PassInput, PassInputNode, PassOutput, PassOutputNode,
-    },
+    nodes::{DispatchIndexNode, PassInput, PassInputNode, PassOutput, PassOutputNode},
     render::{EffectPassInputSlotSource, EffectPassOutputSlotTarget},
 };
 
@@ -80,7 +78,7 @@ impl EffectInstance {
                 &pass.graph,
                 GraphResources {
                     type_registry: resources.type_registry.clone(),
-                    node_registry: EFFECT_GRAPH_NODES.clone(),
+                    node_registry: resources.node_registry.clone(),
                     functions: ASSET_GRAPH_FUNCTION_STORAGE.clone(),
                 },
             );

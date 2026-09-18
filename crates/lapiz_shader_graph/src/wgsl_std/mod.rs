@@ -1,3 +1,5 @@
+use lapiz_image::texel::TexelType;
+
 use crate::graph::{node::GraphNodeRegistry, variable::GraphTypeRegistry};
 
 pub mod casters;
@@ -60,8 +62,11 @@ pub fn builtin_types() -> GraphTypeRegistry {
     types.register_type::<Vec3UType>();
     types.register_type::<Vec4UType>();
     types.register_type::<ColorType>();
-    types.register_type::<TextureType>();
-    types.register_type::<RectType>();
+
+    for texel_type in TexelType::ALL_POSSIBLE_FORMATS {
+        types.register_type_value(TextureType { texel_type });
+        types.register_type_value(LayerType { texel_type });
+    }
 
     types.register_caster::<F32ToVec2FCaster>();
     types.register_caster::<Vec2FToF32Caster>();

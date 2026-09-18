@@ -1,0 +1,26 @@
+name = "Manual Effect"
+
+[[passes]]
+id = "11111111-1111-1111-1111-111111111111"
+name = "Empty Pass"
+dispatch_strategy = "Once"
+
+[passes.graph]
+nodes = []
+inputs = {}
+outputs = {}
+
+[[inputs]]
+name = "Layer Input"
+id = "22222222-2222-2222-2222-222222222222"
+ty = "layer_rgba8"
+
+[[inputs]]
+name = "Mask Texture"
+id = "33333333-3333-3333-3333-333333333333"
+ty = "texture_a8"
+
+[[outputs]]
+name = "Mask Layer"
+id = "44444444-4444-4444-4444-444444444444"
+ty = "layer_a8"
