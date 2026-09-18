@@ -23,6 +23,7 @@ path = [
     "README.md",
     "rust-toolchain.toml",
     "rustfmt.toml",
+    "tombi.toml",
 ]
 SPDX-FileCopyrightText = "Contributors to Lapiz"
 SPDX-License-Identifier = "GPL-3.0-or-later"
