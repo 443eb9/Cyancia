@@ -7,6 +7,7 @@ use iced_core::Point;
 use indexmap::IndexMap;
 use parking_lot::RwLock;
 use uuid::Uuid;
+use wesl::syntax::Expression;
 
 use crate::graph::{
     function::SharedGraphFunctionStorage,
@@ -528,9 +529,16 @@ impl Graph {
 
     pub fn compile(
         &self,
-        graph_input_idents: Vec<String>,
+        graph_input_idents: Vec<Expression>,
         mut ident_generator: GraphVarIdentGenerator,
-    ) -> Result<(Vec<String>, HashMap<GraphOutputSlotId, String>, String), GraphCompileError> {
+    ) -> Result<
+        (
+            Vec<Expression>,
+            HashMap<GraphOutputSlotId, Expression>,
+            String,
+        ),
+        GraphCompileError,
+    > {
         if self.cached_run_order.read().is_none() {
             self.update_run_order_cache();
         }

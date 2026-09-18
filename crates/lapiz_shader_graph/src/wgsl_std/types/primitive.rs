@@ -20,7 +20,7 @@ use lapiz_utils::random_oklch_hue_chroma;
 use lapiz_widgets::{checkbox::Checkbox, spin_slider::SpinSlider};
 use serde::{Deserialize, Serialize};
 use wesl::syntax::*;
-use wesl_quote::{quote_declaration, quote_expression};
+use wesl_quote::quote_expression;
 use wgpu::{
     Buffer, BufferDescriptor, BufferUsages, Device, Extent3d, Queue, TextureDescriptor,
     TextureDimension, TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension,
@@ -107,8 +107,8 @@ impl GraphValueType for F32Type {
         *data = message;
     }
 
-    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String> {
-        Some(format!("{:.5}", data))
+    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<Expression> {
+        Some((*data).into())
     }
 }
 
@@ -166,8 +166,8 @@ impl GraphValueType for I32Type {
         prepare_uniform_storage(data, device, "graph i32 literal")
     }
 
-    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String> {
-        Some(format!("{data}i"))
+    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<Expression> {
+        Some((*data).into())
     }
 
     fn view_literal(
@@ -235,8 +235,8 @@ impl GraphValueType for U32Type {
         prepare_uniform_storage(data, device, "graph u32 literal")
     }
 
-    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String> {
-        Some(format!("{data}u"))
+    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<Expression> {
+        Some((*data).into())
     }
 
     fn view_literal(
@@ -301,8 +301,9 @@ impl GraphValueType for BoolType {
         ctx: &mut GraphNodeCodeGenContext,
     ) -> Result<String> {
         ctx.get_output(base_index)?;
+        let name = Ident::new(input_name.to_string());
         ctx.output_slot_idents
-            .insert(ctx.outputs[base_index], format!("{input_name} != 0u"));
+            .insert(ctx.outputs[base_index], quote_expression! { #name != 0u });
         Ok(String::new())
     }
 
@@ -332,8 +333,8 @@ impl GraphValueType for BoolType {
         prepare_uniform_storage(&u32::from(*data), device, "graph bool literal")
     }
 
-    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String> {
-        Some(data.to_string())
+    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<Expression> {
+        Some((*data).into())
     }
 
     fn view_literal(

@@ -644,7 +644,7 @@ impl GraphNode for DispatchIndexNode {
         _: &Self::State,
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
-        let output = Ident::new(ctx.get_output(0)?);
+        let output = ctx.get_output(0)?;
 
         Ok(format!(
             "{}\n",

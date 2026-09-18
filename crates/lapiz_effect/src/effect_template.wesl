@@ -1,6 +1,3 @@
-import image::image_tiling::{TileInfo, TILE_SIZE};
-import render::math::{Rect, IRect};
-
 //CODEGEN_FLAG_BINDINGS
 //CODEGEN_FLAG_RESOURCE_HELPERS
 

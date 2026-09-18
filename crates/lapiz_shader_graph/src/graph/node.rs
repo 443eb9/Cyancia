@@ -19,6 +19,7 @@ pub use lapiz_shader_graph_derive::stateless;
 use lapiz_utils::{cloneable_any::ClonableAnySync, wrapper};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use wesl::syntax::{Expression, Ident, TypeExpression};
 
 use crate::{
     GraphElement,
@@ -603,13 +604,18 @@ pub struct GraphNodeCodeGenContext<'a> {
     pub inputs: &'a [GraphInputSlotId],
     pub outputs: &'a [GraphOutputSlotId],
     pub graph_slots: &'a GraphSlots,
-    pub output_slot_idents: &'a mut HashMap<GraphOutputSlotId, String>,
+    pub output_slot_idents: &'a mut HashMap<GraphOutputSlotId, Expression>,
     pub ident_generator: &'a mut GraphVarIdentGenerator,
     pub resources: &'a GraphResources,
 }
 
+/// A plain identifier expression, as registered for freshly named outputs.
+pub fn ident_expression(ident: Ident) -> Expression {
+    Expression::TypeOrIdentifier(TypeExpression::from(ident))
+}
+
 impl GraphNodeCodeGenContext<'_> {
-    pub fn get_input(&self, index: usize) -> Result<String, GraphNodeCodeGenError> {
+    pub fn get_input(&self, index: usize) -> Result<Expression, GraphNodeCodeGenError> {
         let slot_id = self
             .inputs
             .get(index)
@@ -636,7 +642,7 @@ impl GraphNodeCodeGenContext<'_> {
         if output_slot.data_ty.id() != slot.data.ty().id() {
             self.resources
                 .type_registry
-                .try_wgsl_cast(&*output_slot.data_ty, slot.data.ty().as_ref(), ident)
+                .try_wgsl_cast(&*output_slot.data_ty, slot.data.ty().as_ref(), ident.clone())
                 .ok_or(GraphNodeCodeGenError::FailedToCastVariable)
         } else {
             Ok(ident.clone())
@@ -658,14 +664,25 @@ impl GraphNodeCodeGenContext<'_> {
         Ok(slot.data.as_ref::<T>())
     }
 
-    pub fn get_output(&mut self, index: usize) -> Result<String, GraphNodeCodeGenError> {
+    pub fn get_output(&mut self, index: usize) -> Result<Ident, GraphNodeCodeGenError> {
         let slot_id = self
             .outputs
             .get(index)
             .ok_or(GraphNodeCodeGenError::SlotIndexOutOfBounds)?;
         Ok(match self.output_slot_idents.entry(*slot_id) {
-            Entry::Occupied(entry) => entry.get().clone(),
-            Entry::Vacant(entry) => entry.insert(self.ident_generator.next_output()).clone(),
+            Entry::Occupied(entry) => match entry.get() {
+                Expression::TypeOrIdentifier(ty)
+                    if ty.path.is_none() && ty.template_args.is_none() =>
+                {
+                    ty.ident.clone()
+                }
+                _ => return Err(GraphNodeCodeGenError::OutputSlotHoldsExpression),
+            },
+            Entry::Vacant(entry) => {
+                let ident = Ident::new(self.ident_generator.next_output());
+                entry.insert(ident_expression(ident.clone()));
+                ident
+            }
         })
     }
 }
@@ -678,6 +695,8 @@ pub enum GraphNodeCodeGenError {
     MissingInputSlot,
     #[error("Missing output slot")]
     MissingOutputSlot,
+    #[error("Output slot already holds a derived expression")]
+    OutputSlotHoldsExpression,
     #[error("Failed to cast variable")]
     FailedToCastVariable,
     #[error("Failed to convert literal to code")]

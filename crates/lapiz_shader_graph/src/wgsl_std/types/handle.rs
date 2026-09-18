@@ -20,7 +20,7 @@ use lapiz_utils::random_oklch_hue_chroma;
 use lapiz_widgets::{checkbox::Checkbox, spin_slider::SpinSlider};
 use serde::{Deserialize, Serialize};
 use wesl::syntax::*;
-use wesl_quote::{quote_declaration, quote_expression};
+use wesl_quote::{quote_declaration, quote_expression, quote_statement};
 use wgpu::{
     Buffer, BufferDescriptor, BufferUsages, Device, Extent3d, Queue, TextureDescriptor,
     TextureDimension, TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension,
@@ -33,7 +33,7 @@ use super::{
 use crate::{
     GraphRenderer, GraphTheme,
     graph::{
-        node::GraphNodeCodeGenContext,
+        node::{GraphNodeCodeGenContext, ident_expression},
         slot::{
             ErasedGraphValueType, GraphDefaultInputSlot, GraphDefaultOutputSlot, GraphShaderStage,
             GraphValueType,
@@ -173,7 +173,7 @@ impl GraphValueType for TextureType {
 
     fn update_literal(&self, _data: &mut Self::AssociatedLiteralType, _message: Self::Message) {}
 
-    fn literal_to_code(&self, _data: &Self::AssociatedLiteralType) -> Option<String> {
+    fn literal_to_code(&self, _data: &Self::AssociatedLiteralType) -> Option<Expression> {
         None
     }
 }
@@ -242,15 +242,18 @@ impl GraphValueType for LayerType {
         let color = ctx.get_output(base_index)?;
         let bounds = ctx.get_output(base_index + 1)?;
         ctx.output_slot_idents
-            .insert(ctx.outputs[base_index], color.clone());
+            .insert(ctx.outputs[base_index], ident_expression(color.clone()));
         ctx.output_slot_idents
-            .insert(ctx.outputs[base_index + 1], bounds.clone());
-        let load = layer_load_ident(input_name);
-        let input_bounds = layer_bounds_ident(input_name);
-        Ok(format!(
-            "let {color} = {load}(dispatch_index);\n\
-             let {bounds} = Rect(vec2f({input_bounds}.xy), vec2f({input_bounds}.zw));\n"
-        ))
+            .insert(ctx.outputs[base_index + 1], ident_expression(bounds.clone()));
+        let load = Ident::new(layer_load_ident(input_name));
+        let input_bounds = Ident::new(layer_bounds_ident(input_name));
+        let color_stmt = quote_statement! {
+            let #color = #load(dispatch_index);
+        };
+        let bounds_stmt = quote_statement! {
+            let #bounds = render::math::Rect(vec2f(#input_bounds.xy), vec2f(#input_bounds.zw));
+        };
+        Ok(format!("{}\n{}", color_stmt, bounds_stmt))
     }
 
     fn handle_output_values(
@@ -261,15 +264,19 @@ impl GraphValueType for LayerType {
     ) -> Result<String> {
         let color = ctx.get_input(base_index)?;
         let bounds = ctx.get_input(base_index + 1)?;
-        let output_bounds = layer_bounds_ident(output_name);
-        Ok(format!(
-            "@if(EVAL) {{ {output_bounds} = vec4i(vec2i(floor(({bounds}).min)), vec2i(ceil(({bounds}).max))); }}\n\
-             @if(!EVAL) {{\n\
-                 if all(dispatch_index >= vec2i(floor(({bounds}).min))) && all(dispatch_index < vec2i(ceil(({bounds}).max))) {{\n\
-                     {output_name}_store(dispatch_index, {color});\n\
-                 }}\n\
-             }}\n"
-        ))
+        let output_bounds = Ident::new(layer_bounds_ident(output_name));
+        let store = Ident::new(layer_store_ident(output_name));
+        let eval_stmt = quote_statement! {
+            @if(EVAL) { #output_bounds = vec4i(vec2i(floor((#bounds).min)), vec2i(ceil((#bounds).max))); }
+        };
+        let main_stmt = quote_statement! {
+            @if(!EVAL) {
+                if all(dispatch_index >= vec2i(floor((#bounds).min))) && all(dispatch_index < vec2i(ceil((#bounds).max))) {
+                    #store(dispatch_index, #color);
+                }
+            }
+        };
+        Ok(format!("{}\n{}", eval_stmt, main_stmt))
     }
 
     fn push_shader_layout(
@@ -456,7 +463,7 @@ impl GraphValueType for LayerType {
         Ok(())
     }
 
-    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String> {
+    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<Expression> {
         None
     }
 
@@ -503,8 +510,8 @@ impl GraphValueType for LayerType {
                                         var texel = #default_value;
                                         for (var tile = 0u; tile < arrayLength(&#tile_info); tile += 1u) {
                                             let info = #tile_info[tile];
-                                            if (pixel.x >= info.origin.x) && (pixel.x < info.origin.x + i32(TILE_SIZE))
-                                                && (pixel.y >= info.origin.y) && (pixel.y < info.origin.y + i32(TILE_SIZE)) {
+                                            if (pixel.x >= info.origin.x) && (pixel.x < info.origin.x + i32(image::image_tiling::TILE_SIZE))
+                                                && (pixel.y >= info.origin.y) && (pixel.y < info.origin.y + i32(image::image_tiling::TILE_SIZE)) {
                                                 texel = textureLoad(#texture, pixel - info.origin, tile);
                                                 break;
                                             }
@@ -524,8 +531,8 @@ impl GraphValueType for LayerType {
                         @if(!EVAL) fn #store(pixel: vec2i, color: #color_ty) {
                             for (var tile = 0u; tile < arrayLength(&#tile_info); tile += 1u) {
                                 let info = #tile_info[tile];
-                                if (pixel.x >= info.origin.x) && (pixel.x < info.origin.x + i32(TILE_SIZE))
-                                    && (pixel.y >= info.origin.y) && (pixel.y < info.origin.y + i32(TILE_SIZE)) {
+                                if (pixel.x >= info.origin.x) && (pixel.x < info.origin.x + i32(image::image_tiling::TILE_SIZE))
+                                    && (pixel.y >= info.origin.y) && (pixel.y < info.origin.y + i32(image::image_tiling::TILE_SIZE)) {
                                     textureStore(#texture, pixel - info.origin, tile, #pack);
                                     return;
                                 }
@@ -607,9 +614,10 @@ impl GraphValueType for ArrayType {
         ctx: &mut GraphNodeCodeGenContext,
     ) -> Result<String> {
         ctx.get_output(base_index)?;
+        let name = Ident::new(input_name.to_string());
         ctx.output_slot_idents.insert(
             ctx.outputs[base_index],
-            format!("{input_name}[dispatch_index]"),
+            quote_expression! { #name[dispatch_index] },
         );
         Ok(String::new())
     }
@@ -704,7 +712,7 @@ impl GraphValueType for ArrayType {
 
     fn update_literal(&self, _data: &mut Self::AssociatedLiteralType, _message: Self::Message) {}
 
-    fn literal_to_code(&self, _data: &Self::AssociatedLiteralType) -> Option<String> {
+    fn literal_to_code(&self, _data: &Self::AssociatedLiteralType) -> Option<Expression> {
         None
     }
 }

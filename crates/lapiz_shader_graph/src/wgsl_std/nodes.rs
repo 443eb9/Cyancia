@@ -29,6 +29,8 @@ use parking_lot::Mutex;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use wesl::syntax::*;
+use wesl_quote::{quote_expression, quote_statement};
 
 use crate::{
     GraphElement, GraphRenderer, GraphTheme,
@@ -39,6 +41,7 @@ use crate::{
             GraphNode, GraphNodeCodeGenContext, GraphNodeCodeGenError, GraphNodeCreateSlotsContext,
             GraphNodeDefaultStateContext, GraphNodeRegistry, GraphNodeUpdateContext,
             GraphNodeUpdateSignatureContext, GraphNodeViewContext, StatelessCommonGraphNode,
+            ident_expression,
         },
         slot::{
             ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphDefaultInputSlot,
@@ -267,50 +270,78 @@ impl GraphNode for ScalarMathNode {
         state: &Self::State,
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
-        let a = ctx.get_input(0);
+        let a = ctx.get_input(0)?;
+        // Modes with fewer input slots than these must not force their Results.
         let b = ctx.get_input(1);
         let c = ctx.get_input(2);
 
         let expression = match state {
-            ScalarMathNodeMode::Add => format!("{} + {}", a?, b?),
-            ScalarMathNodeMode::Subtract => format!("{} - {}", a?, b?),
-            ScalarMathNodeMode::Multiply => format!("{} * {}", a?, b?),
-            ScalarMathNodeMode::Divide => format!("{} / {}", a?, b?),
-            ScalarMathNodeMode::Acos => format!("acos({})", a?),
-            ScalarMathNodeMode::Acosh => format!("acosh({})", a?),
-            ScalarMathNodeMode::Asin => format!("asin({})", a?),
-            ScalarMathNodeMode::Asinh => format!("asinh({})", a?),
-            ScalarMathNodeMode::Atan => format!("atan({})", a?),
-            ScalarMathNodeMode::Atanh => format!("atanh({})", a?),
-            ScalarMathNodeMode::Ceil => format!("ceil({})", a?),
-            ScalarMathNodeMode::Cos => format!("cos({})", a?),
-            ScalarMathNodeMode::Cosh => format!("cosh({})", a?),
-            ScalarMathNodeMode::Degrees => format!("degrees({})", a?),
-            ScalarMathNodeMode::Exp => format!("exp({})", a?),
-            ScalarMathNodeMode::Exp2 => format!("exp2({})", a?),
-            ScalarMathNodeMode::Floor => format!("floor({})", a?),
-            ScalarMathNodeMode::Fract => format!("fract({})", a?),
-            ScalarMathNodeMode::InverseSqrt => format!("inverseSqrt({})", a?),
-            ScalarMathNodeMode::Ln => format!("log({})", a?),
-            ScalarMathNodeMode::Log2 => format!("log2({})", a?),
-            ScalarMathNodeMode::Max => format!("max({}, {})", a?, b?),
-            ScalarMathNodeMode::Min => format!("min({}, {})", a?, b?),
-            ScalarMathNodeMode::Mix => format!("mix({}, {}, {})", a?, b?, c?),
-            ScalarMathNodeMode::Pow => format!("pow({}, {})", a?, b?),
-            ScalarMathNodeMode::Radians => format!("radians({})", a?),
-            ScalarMathNodeMode::Round => format!("round({})", a?),
-            ScalarMathNodeMode::Saturate => format!("saturate({})", a?),
-            ScalarMathNodeMode::Sign => format!("sign({})", a?),
-            ScalarMathNodeMode::Sin => format!("sin({})", a?),
-            ScalarMathNodeMode::Sinh => format!("sinh({})", a?),
-            ScalarMathNodeMode::Sqrt => format!("sqrt({})", a?),
-            ScalarMathNodeMode::Tan => format!("tan({})", a?),
-            ScalarMathNodeMode::Tanh => format!("tanh({})", a?),
-            ScalarMathNodeMode::Trunc => format!("trunc({})", a?),
+            ScalarMathNodeMode::Add => {
+                let b = b?;
+                quote_expression! { #a + #b }
+            }
+            ScalarMathNodeMode::Subtract => {
+                let b = b?;
+                quote_expression! { #a - #b }
+            }
+            ScalarMathNodeMode::Multiply => {
+                let b = b?;
+                quote_expression! { #a * #b }
+            }
+            ScalarMathNodeMode::Divide => {
+                let b = b?;
+                quote_expression! { #a / #b }
+            }
+            ScalarMathNodeMode::Acos => quote_expression! { acos(#a) },
+            ScalarMathNodeMode::Acosh => quote_expression! { acosh(#a) },
+            ScalarMathNodeMode::Asin => quote_expression! { asin(#a) },
+            ScalarMathNodeMode::Asinh => quote_expression! { asinh(#a) },
+            ScalarMathNodeMode::Atan => quote_expression! { atan(#a) },
+            ScalarMathNodeMode::Atanh => quote_expression! { atanh(#a) },
+            ScalarMathNodeMode::Ceil => quote_expression! { ceil(#a) },
+            ScalarMathNodeMode::Cos => quote_expression! { cos(#a) },
+            ScalarMathNodeMode::Cosh => quote_expression! { cosh(#a) },
+            ScalarMathNodeMode::Degrees => quote_expression! { degrees(#a) },
+            ScalarMathNodeMode::Exp => quote_expression! { exp(#a) },
+            ScalarMathNodeMode::Exp2 => quote_expression! { exp2(#a) },
+            ScalarMathNodeMode::Floor => quote_expression! { floor(#a) },
+            ScalarMathNodeMode::Fract => quote_expression! { fract(#a) },
+            ScalarMathNodeMode::InverseSqrt => quote_expression! { inverseSqrt(#a) },
+            ScalarMathNodeMode::Ln => quote_expression! { log(#a) },
+            ScalarMathNodeMode::Log2 => quote_expression! { log2(#a) },
+            ScalarMathNodeMode::Max => {
+                let b = b?;
+                quote_expression! { max(#a, #b) }
+            }
+            ScalarMathNodeMode::Min => {
+                let b = b?;
+                quote_expression! { min(#a, #b) }
+            }
+            ScalarMathNodeMode::Mix => {
+                let (b, c) = (b?, c?);
+                quote_expression! { mix(#a, #b, #c) }
+            }
+            ScalarMathNodeMode::Pow => {
+                let b = b?;
+                quote_expression! { pow(#a, #b) }
+            }
+            ScalarMathNodeMode::Radians => quote_expression! { radians(#a) },
+            ScalarMathNodeMode::Round => quote_expression! { round(#a) },
+            ScalarMathNodeMode::Saturate => quote_expression! { saturate(#a) },
+            ScalarMathNodeMode::Sign => quote_expression! { sign(#a) },
+            ScalarMathNodeMode::Sin => quote_expression! { sin(#a) },
+            ScalarMathNodeMode::Sinh => quote_expression! { sinh(#a) },
+            ScalarMathNodeMode::Sqrt => quote_expression! { sqrt(#a) },
+            ScalarMathNodeMode::Tan => quote_expression! { tan(#a) },
+            ScalarMathNodeMode::Tanh => quote_expression! { tanh(#a) },
+            ScalarMathNodeMode::Trunc => quote_expression! { trunc(#a) },
         };
         let output = ctx.get_output(0)?;
 
-        Ok(format!("let {} = {};\n", output, expression))
+        Ok(format!(
+            "{}\n",
+            quote_statement! { let #output = #expression; }
+        ))
     }
 }
 
@@ -593,55 +624,90 @@ impl GraphNode for VectorMathNode {
         state: &Self::State,
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
-        let a = ctx.get_input(0);
+        let a = ctx.get_input(0)?;
+        // Modes with fewer input slots than these must not force their Results.
         let b = ctx.get_input(1);
         let c = ctx.get_input(2);
         let output = ctx.get_output(0)?;
 
-        Ok(format!(
-            "let {} = {};\n",
-            output,
-            match state {
-                VectorMathNodeMode::Add => format!("{} + {}", a?, b?),
-                VectorMathNodeMode::Subtract => format!("{} - {}", a?, b?),
-                VectorMathNodeMode::Multiply => format!("{} * {}", a?, b?),
-                VectorMathNodeMode::Divide => format!("{} / {}", a?, b?),
-                VectorMathNodeMode::Acos => format!("acos({})", a?),
-                VectorMathNodeMode::Acosh => format!("acosh({})", a?),
-                VectorMathNodeMode::Asin => format!("asin({})", a?),
-                VectorMathNodeMode::Asinh => format!("asinh({})", a?),
-                VectorMathNodeMode::Atan => format!("atan({})", a?),
-                VectorMathNodeMode::Atanh => format!("atanh({})", a?),
-                VectorMathNodeMode::Ceil => format!("ceil({})", a?),
-                VectorMathNodeMode::Cos => format!("cos({})", a?),
-                VectorMathNodeMode::Cosh => format!("cosh({})", a?),
-                VectorMathNodeMode::Degrees => format!("degrees({})", a?),
-                VectorMathNodeMode::Distance => format!("distance({}, {})", a?, b?),
-                VectorMathNodeMode::Dot => format!("dot({}, {})", a?, b?),
-                VectorMathNodeMode::Exp => format!("exp({})", a?),
-                VectorMathNodeMode::Exp2 => format!("exp2({})", a?),
-                VectorMathNodeMode::Floor => format!("floor({})", a?),
-                VectorMathNodeMode::Fract => format!("fract({})", a?),
-                VectorMathNodeMode::InverseSqrt => format!("inverseSqrt({})", a?),
-                VectorMathNodeMode::Ln => format!("log({})", a?),
-                VectorMathNodeMode::Length => format!("length({})", a?),
-                VectorMathNodeMode::Log2 => format!("log2({})", a?),
-                VectorMathNodeMode::Max => format!("max({}, {})", a?, b?),
-                VectorMathNodeMode::Min => format!("min({}, {})", a?, b?),
-                VectorMathNodeMode::Mix => format!("mix({}, {}, {})", a?, b?, c?),
-                VectorMathNodeMode::Pow => format!("pow({}, {})", a?, b?),
-                VectorMathNodeMode::Radians => format!("radians({})", a?),
-                VectorMathNodeMode::Reflect => format!("reflect({}, {})", a?, b?),
-                VectorMathNodeMode::Round => format!("round({})", a?),
-                VectorMathNodeMode::Saturate => format!("saturate({})", a?),
-                VectorMathNodeMode::Sign => format!("sign({})", a?),
-                VectorMathNodeMode::Sin => format!("sin({})", a?),
-                VectorMathNodeMode::Sinh => format!("sinh({})", a?),
-                VectorMathNodeMode::Sqrt => format!("sqrt({})", a?),
-                VectorMathNodeMode::Tan => format!("tan({})", a?),
-                VectorMathNodeMode::Tanh => format!("tanh({})", a?),
-                VectorMathNodeMode::Trunc => format!("trunc({})", a?),
+        let expression = match state {
+            VectorMathNodeMode::Add => {
+                let b = b?;
+                quote_expression! { #a + #b }
             }
+            VectorMathNodeMode::Subtract => {
+                let b = b?;
+                quote_expression! { #a - #b }
+            }
+            VectorMathNodeMode::Multiply => {
+                let b = b?;
+                quote_expression! { #a * #b }
+            }
+            VectorMathNodeMode::Divide => {
+                let b = b?;
+                quote_expression! { #a / #b }
+            }
+            VectorMathNodeMode::Acos => quote_expression! { acos(#a) },
+            VectorMathNodeMode::Acosh => quote_expression! { acosh(#a) },
+            VectorMathNodeMode::Asin => quote_expression! { asin(#a) },
+            VectorMathNodeMode::Asinh => quote_expression! { asinh(#a) },
+            VectorMathNodeMode::Atan => quote_expression! { atan(#a) },
+            VectorMathNodeMode::Atanh => quote_expression! { atanh(#a) },
+            VectorMathNodeMode::Ceil => quote_expression! { ceil(#a) },
+            VectorMathNodeMode::Cos => quote_expression! { cos(#a) },
+            VectorMathNodeMode::Cosh => quote_expression! { cosh(#a) },
+            VectorMathNodeMode::Degrees => quote_expression! { degrees(#a) },
+            VectorMathNodeMode::Distance => {
+                let b = b?;
+                quote_expression! { distance(#a, #b) }
+            }
+            VectorMathNodeMode::Dot => {
+                let b = b?;
+                quote_expression! { dot(#a, #b) }
+            }
+            VectorMathNodeMode::Exp => quote_expression! { exp(#a) },
+            VectorMathNodeMode::Exp2 => quote_expression! { exp2(#a) },
+            VectorMathNodeMode::Floor => quote_expression! { floor(#a) },
+            VectorMathNodeMode::Fract => quote_expression! { fract(#a) },
+            VectorMathNodeMode::InverseSqrt => quote_expression! { inverseSqrt(#a) },
+            VectorMathNodeMode::Ln => quote_expression! { log(#a) },
+            VectorMathNodeMode::Length => quote_expression! { length(#a) },
+            VectorMathNodeMode::Log2 => quote_expression! { log2(#a) },
+            VectorMathNodeMode::Max => {
+                let b = b?;
+                quote_expression! { max(#a, #b) }
+            }
+            VectorMathNodeMode::Min => {
+                let b = b?;
+                quote_expression! { min(#a, #b) }
+            }
+            VectorMathNodeMode::Mix => {
+                let (b, c) = (b?, c?);
+                quote_expression! { mix(#a, #b, #c) }
+            }
+            VectorMathNodeMode::Pow => {
+                let b = b?;
+                quote_expression! { pow(#a, #b) }
+            }
+            VectorMathNodeMode::Radians => quote_expression! { radians(#a) },
+            VectorMathNodeMode::Reflect => {
+                let b = b?;
+                quote_expression! { reflect(#a, #b) }
+            }
+            VectorMathNodeMode::Round => quote_expression! { round(#a) },
+            VectorMathNodeMode::Saturate => quote_expression! { saturate(#a) },
+            VectorMathNodeMode::Sign => quote_expression! { sign(#a) },
+            VectorMathNodeMode::Sin => quote_expression! { sin(#a) },
+            VectorMathNodeMode::Sinh => quote_expression! { sinh(#a) },
+            VectorMathNodeMode::Sqrt => quote_expression! { sqrt(#a) },
+            VectorMathNodeMode::Tan => quote_expression! { tan(#a) },
+            VectorMathNodeMode::Tanh => quote_expression! { tanh(#a) },
+            VectorMathNodeMode::Trunc => quote_expression! { trunc(#a) },
+        };
+
+        Ok(format!(
+            "{}\n",
+            quote_statement! { let #output = #expression; }
         ))
     }
 }
@@ -757,46 +823,50 @@ impl GraphNode for RectMathNode {
         let b = ctx.get_input(1)?;
         let output = ctx.get_output(0)?;
 
-        Ok(format!(
-            "let {} = {};\n",
-            output,
-            match state {
-                RectMathNodeMode::Union => {
-                    format!("Rect(min({}.min, {}.min), max({}.max, {}.max))", a, b, a, b)
-                }
-                RectMathNodeMode::Intersection => {
-                    format!("Rect(max({}.min, {}.min), min({}.max, {}.max))", a, b, a, b)
-                }
-                RectMathNodeMode::Inflate => {
-                    let min = ctx.ident_generator.next_output();
-                    let max = ctx.ident_generator.next_output();
-                    format!(
-                        "
-                        let {min} = {a}.min - {b};
-                        let {max} = {a}.max + {b};
-                        var {output} = Rect({min} , {max});
-                        if any({min} > {max}) {{
-                            {output} = Rect(vec2f(1.0, -1.0));
-                        }}
-                    ",
-                    )
-                }
-                RectMathNodeMode::Shrink => {
-                    let min = ctx.ident_generator.next_output();
-                    let max = ctx.ident_generator.next_output();
-                    format!(
-                        "
-                        let {min} = {a}.min + {b};
-                        let {max} = {a}.max - {b};
-                        var {output} = Rect({min} , {max});
-                        if any({min} > {max}) {{
-                            {output} = Rect(vec2f(1.0, -1.0));
-                        }}
-                    ",
-                    )
-                }
+        let code = match state {
+            RectMathNodeMode::Union => quote_statement! {
+                let #output = render::math::Rect(min(#a.min, #b.min), max(#a.max, #b.max));
             }
-        ))
+            .to_string(),
+            RectMathNodeMode::Intersection => quote_statement! {
+                let #output = render::math::Rect(max(#a.min, #b.min), min(#a.max, #b.max));
+            }
+            .to_string(),
+            RectMathNodeMode::Inflate => {
+                let min = Ident::new(ctx.ident_generator.next_output());
+                let max = Ident::new(ctx.ident_generator.next_output());
+                vec![
+                    quote_statement! { let #min = #a.min - #b; }.to_string(),
+                    quote_statement! { let #max = #a.max + #b; }.to_string(),
+                    quote_statement! { var #output = render::math::Rect(#min, #max); }.to_string(),
+                    quote_statement! {
+                        if any(#min > #max) {
+                            #output = render::math::Rect(vec2f(1.0, -1.0));
+                        }
+                    }
+                    .to_string(),
+                ]
+                .join("\n")
+            }
+            RectMathNodeMode::Shrink => {
+                let min = Ident::new(ctx.ident_generator.next_output());
+                let max = Ident::new(ctx.ident_generator.next_output());
+                vec![
+                    quote_statement! { let #min = #a.min + #b; }.to_string(),
+                    quote_statement! { let #max = #a.max - #b; }.to_string(),
+                    quote_statement! { var #output = render::math::Rect(#min, #max); }.to_string(),
+                    quote_statement! {
+                        if any(#min > #max) {
+                            #output = render::math::Rect(vec2f(1.0, -1.0));
+                        }
+                    }
+                    .to_string(),
+                ]
+                .join("\n")
+            }
+        };
+
+        Ok(format!("{code}\n"))
     }
 }
 
@@ -908,15 +978,16 @@ impl GraphNode for CompareNode {
         let lhs = ctx.get_input(0)?;
         let rhs = ctx.get_input(1)?;
         let output = ctx.get_output(0)?;
-        let operator = match state {
-            CompareNodeMode::LessThan => "<",
-            CompareNodeMode::LessEqual => "<=",
-            CompareNodeMode::GreaterThan => ">",
-            CompareNodeMode::GreaterEqual => ">=",
-            CompareNodeMode::Equal => "==",
+
+        let statement = match state {
+            CompareNodeMode::LessThan => quote_statement! { let #output = #lhs < #rhs; },
+            CompareNodeMode::LessEqual => quote_statement! { let #output = #lhs <= #rhs; },
+            CompareNodeMode::GreaterThan => quote_statement! { let #output = #lhs > #rhs; },
+            CompareNodeMode::GreaterEqual => quote_statement! { let #output = #lhs >= #rhs; },
+            CompareNodeMode::Equal => quote_statement! { let #output = #lhs == #rhs; },
         };
 
-        Ok(format!("let {} = {} {} {};\n", output, lhs, operator, rhs))
+        Ok(format!("{statement}\n"))
     }
 }
 
@@ -955,8 +1026,8 @@ impl StatelessCommonGraphNode for ScalarSelectNode {
         let output = ctx.get_output(0)?;
 
         Ok(format!(
-            "let {} = select({}, {}, {});\n",
-            output, false_value, true_value, condition
+            "{}\n",
+            quote_statement! { let #output = select(#false_value, #true_value, #condition); }
         ))
     }
 }
@@ -996,8 +1067,8 @@ impl StatelessCommonGraphNode for VectorSelectNode {
         let output = ctx.get_output(0)?;
 
         Ok(format!(
-            "let {} = select({}, {}, {});\n",
-            output, false_value, true_value, condition
+            "{}\n",
+            quote_statement! { let #output = select(#false_value, #true_value, #condition); }
         ))
     }
 }
@@ -1084,8 +1155,8 @@ impl StatelessCommonGraphNode for ClampNode {
         let output = ctx.get_output(0)?;
 
         Ok(format!(
-            "let {} = clamp({}, {}, {});\n",
-            output, input_value, input_min, input_max
+            "{}\n",
+            quote_statement! { let #output = clamp(#input_value, #input_min, #input_max); }
         ))
     }
 }
@@ -1123,8 +1194,8 @@ impl StatelessCommonGraphNode for StepNode {
         let output = ctx.get_output(0)?;
 
         Ok(format!(
-            "let {} = step({}, {});\n",
-            output, input_edge, input_x
+            "{}\n",
+            quote_statement! { let #output = step(#input_edge, #input_x); }
         ))
     }
 }
@@ -1164,8 +1235,8 @@ impl StatelessCommonGraphNode for SmoothStepNode {
         let output = ctx.get_output(0)?;
 
         Ok(format!(
-            "let {} = smoothstep({}, {}, {});\n",
-            output, input_edge0, input_edge1, input_x
+            "{}\n",
+            quote_statement! { let #output = smoothstep(#input_edge0, #input_edge1, #input_x); }
         ))
     }
 }
@@ -1203,8 +1274,9 @@ impl StatelessCommonGraphNode for SplitComponentsNode {
         let output_y = ctx.get_output(1)?;
 
         Ok(format!(
-            "let {} = {}.x;\nlet {} = {}.y;\n",
-            output_x, input_vector, output_y, input_vector
+            "{}\n{}\n",
+            quote_statement! { let #output_x = #input_vector.x; },
+            quote_statement! { let #output_y = #input_vector.y; }
         ))
     }
 }
@@ -1242,8 +1314,8 @@ impl StatelessCommonGraphNode for CombineComponentsNode {
         let output_vector = ctx.get_output(0)?;
 
         Ok(format!(
-            "let {} = vec2f({}, {});\n",
-            output_vector, input_x, input_y
+            "{}\n",
+            quote_statement! { let #output_vector = vec2f(#input_x, #input_y); }
         ))
     }
 }
@@ -1285,8 +1357,8 @@ impl StatelessCommonGraphNode for CombineColorComponentsNode {
         let output_color = ctx.get_output(0)?;
 
         Ok(format!(
-            "let {} = vec4f({}, {}, {}, {});\n",
-            output_color, input_r, input_g, input_b, input_a
+            "{}\n",
+            quote_statement! { let #output_color = vec4f(#input_r, #input_g, #input_b, #input_a); }
         ))
     }
 }
@@ -1328,15 +1400,11 @@ impl StatelessCommonGraphNode for SplitColorComponentsNode {
         let output_a = ctx.get_output(3)?;
 
         Ok(format!(
-            "let {} = {}.r;\nlet {} = {}.g;\nlet {} = {}.b;\nlet {} = {}.a;\n",
-            output_r,
-            input_color,
-            output_g,
-            input_color,
-            output_b,
-            input_color,
-            output_a,
-            input_color
+            "{}\n{}\n{}\n{}\n",
+            quote_statement! { let #output_r = #input_color.r; },
+            quote_statement! { let #output_g = #input_color.g; },
+            quote_statement! { let #output_b = #input_color.b; },
+            quote_statement! { let #output_a = #input_color.a; }
         ))
     }
 }
@@ -1373,10 +1441,12 @@ impl StatelessCommonGraphNode for GetPixelColorNode {
         let input_position = ctx.get_input(1)?;
         let output_color = ctx.get_output(0)?;
 
+        // TODO: sample_local_texture is only defined in `brush_template.wesl`
         Ok(format!(
-            // TODO: sample_local_texture is only defined in `brush_template.wesl`
-            "let {} = sample_local_texture({}, vec2u({}));\n",
-            output_color, input_texture, input_position
+            "{}\n",
+            quote_statement! {
+                let #output_color = sample_local_texture(#input_texture, vec2u(#input_position));
+            }
         ))
     }
 }
@@ -1503,8 +1573,8 @@ impl StatelessCommonGraphNode for ColorMixNode {
         let output = ctx.get_output(0)?;
 
         Ok(format!(
-            "let {} = mix({}, {}, {});\n",
-            output, input_color_a, input_color_b, input_factor
+            "{}\n",
+            quote_statement! { let #output = mix(#input_color_a, #input_color_b, #input_factor); }
         ))
     }
 }
@@ -1538,8 +1608,11 @@ impl StatelessCommonGraphNode for TextureSizeNode {
         let output_size = ctx.get_output(0)?;
 
         Ok(format!(
-            "let {} = vec2f(texture_bounds[{}].max - texture_bounds[{}].min);\n",
-            output_size, input_texture, input_texture
+            "{}\n",
+            quote_statement! {
+                let #output_size =
+                    vec2f(texture_bounds[#input_texture].max - texture_bounds[#input_texture].min);
+            }
         ))
     }
 }
@@ -2028,38 +2101,45 @@ impl GraphNode for CurveNode {
         state: &Self::State,
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
-        let num_control_points = state.control_points.len();
+        let num_control_points = state.control_points.len() as i64;
         let mut control_points = state.control_points.clone();
         control_points.resize(CUBIC_CURVE_MAX_CONTROL_POINTS, Vec2::ZERO);
         let mut derivatives = CubicCurve::calculate_derivatives(&state.control_points);
         derivatives.resize(CUBIC_CURVE_MAX_CONTROL_POINTS + 1, 0.0);
 
-        Ok(format!(
-            "
-let {} = render::math::sample_cubic_curve(
-    render::math::CubicCurve(
-        array<vec2f, {}>({}),
-        array<f32, {}>({}),
-        {}
-    ),
-    {}
-);
-            ",
-            ctx.get_output(0)?,
-            CUBIC_CURVE_MAX_CONTROL_POINTS,
+        let output = ctx.get_output(0)?;
+        let input_x = ctx.get_input(0)?;
+        let capacity = CUBIC_CURVE_MAX_CONTROL_POINTS as i64;
+        let derivative_capacity = (CUBIC_CURVE_MAX_CONTROL_POINTS + 1) as i64;
+        // The quote macros cannot splat a dynamic argument list, so the sample lists are
+        // pre-rendered as raw text and spliced (the final shader re-parses them).
+        let control_points_code = ident_expression(Ident::new(
             control_points
                 .iter()
                 .map(|p| format!("vec2({:.5}, {:.5})", p.x, p.y))
                 .collect::<Vec<_>>()
                 .join(", "),
-            CUBIC_CURVE_MAX_CONTROL_POINTS + 1,
+        ));
+        let derivatives_code = ident_expression(Ident::new(
             derivatives
                 .iter()
                 .map(|d| format!("{:.5}", d))
                 .collect::<Vec<_>>()
                 .join(", "),
-            num_control_points,
-            ctx.get_input(0)?
+        ));
+
+        Ok(format!(
+            "{}\n",
+            quote_statement! {
+                let #output = render::math::sample_cubic_curve(
+                    render::math::CubicCurve(
+                        array<vec2f, #capacity>(#control_points_code),
+                        array<f32, #derivative_capacity>(#derivatives_code),
+                        #num_control_points
+                    ),
+                    #input_x
+                );
+            }
         ))
     }
 }
@@ -2092,12 +2172,14 @@ impl StatelessCommonGraphNode for RandomNode {
         &self,
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
+        let input_seed = ctx.get_input(0)?;
+        let output_scalar = ctx.get_output(0)?;
+        let output_vec2 = ctx.get_output(1)?;
+
         Ok(format!(
-            "let {} = render::hash::hash11({});\nlet {} = render::hash::hash21({});\n",
-            ctx.get_output(0)?,
-            ctx.get_input(0)?,
-            ctx.get_output(1)?,
-            ctx.get_input(0)?
+            "{}\n{}\n",
+            quote_statement! { let #output_scalar = render::hash::hash11(#input_seed); },
+            quote_statement! { let #output_vec2 = render::hash::hash21(#input_seed); }
         ))
     }
 }
@@ -2916,16 +2998,14 @@ impl GraphNode for RepeatNode {
         let mut current = HashMap::with_capacity(locals.len());
         let mut code = String::new();
         for (index, local) in locals.values().enumerate() {
-            let value = ctx.ident_generator.next_output();
-            code.push_str(&format!(
-                "var {value} = {};
-",
-                ctx.get_input(index + 1)?
-            ));
+            let value = Ident::new(ctx.ident_generator.next_output());
+            let input = ctx.get_input(index + 1)?;
+            code.push_str(&quote_statement! { var #value = #input; }.to_string());
+            code.push('\n');
             current.insert(local.id, value);
         }
 
-        let iteration = ctx.ident_generator.next_output();
+        let iteration = Ident::new(ctx.ident_generator.next_output());
         let mut body_inputs = Vec::with_capacity(signature.inputs.len());
         for slot_id in signature.inputs.keys() {
             let slot = body
@@ -2936,7 +3016,7 @@ impl GraphNode for RepeatNode {
                 GraphNodeCodeGenError::Custom(anyhow!("Repeat body node is missing"))
             })?;
             if node.data.is::<RepeatIterationNode>() {
-                body_inputs.push(iteration.clone());
+                body_inputs.push(ident_expression(iteration.clone()));
                 continue;
             }
             let variable = node
@@ -2944,12 +3024,12 @@ impl GraphNode for RepeatNode {
                 .state::<RepeatInputNode>()
                 .and_then(|state| state.variable)
                 .ok_or_else(|| anyhow!("Repeat Input has an invalid variable"))?;
-            body_inputs.push(
+            body_inputs.push(ident_expression(
                 current
                     .get(&variable)
                     .cloned()
                     .ok_or_else(|| anyhow!("Repeat variable {variable} is not a local"))?,
-            );
+            ));
         }
 
         let mut next_slots = HashMap::with_capacity(locals.len());
@@ -2980,6 +3060,8 @@ impl GraphNode for RepeatNode {
             }
         }
 
+        // The loop body is a compiled-text seam; `quote_statement!` has no way to splice a
+        // statement *list*, so the loop shell wrapping it stays textual.
         code.push_str(&format!(
             "for (var {iteration} = 0i; {iteration} < {iterations}; {iteration}++) {{\n"
         ));
@@ -3017,7 +3099,11 @@ impl GraphNode for RepeatNode {
                 if output_slot.data_ty.id() != input_slot.data.ty().id() {
                     ctx.resources
                         .type_registry
-                        .try_wgsl_cast(&*output_slot.data_ty, input_slot.data.ty().as_ref(), next)
+                        .try_wgsl_cast(
+                            &*output_slot.data_ty,
+                            input_slot.data.ty().as_ref(),
+                            next.clone(),
+                        )
                         .ok_or(GraphNodeCodeGenError::FailedToCastVariable)?
                 } else {
                     next.clone()
@@ -3025,18 +3111,16 @@ impl GraphNode for RepeatNode {
             } else {
                 next.clone()
             };
-            code.push_str(&format!(
-                "{} = {next};
-",
-                current[&local.id]
-            ));
+            let value = current[&local.id].clone();
+            code.push_str(&quote_statement! { #value = #next; }.to_string());
+            code.push('\n');
         }
 
         code.push_str("}\n");
 
         for (slot_id, local) in ctx.outputs.iter().zip(locals.values()) {
             ctx.output_slot_idents
-                .insert(*slot_id, current[&local.id].clone());
+                .insert(*slot_id, ident_expression(current[&local.id].clone()));
         }
 
         Ok(code)
@@ -3746,48 +3830,52 @@ impl GraphNode for CustomExpressionNode {
             .inputs
             .values()
             .chain(state.outputs.values())
-            .map(|variable| variable.name.as_str())
+            .map(|variable| variable.name.clone())
             .collect::<Vec<_>>();
 
         let mut outputs = Vec::with_capacity(state.outputs.len());
         let mut code = String::new();
         for (index, variable) in state.outputs.values().enumerate() {
             let mut output = ctx.get_output(index)?;
-            while names.contains(&output.as_str()) {
-                output = ctx.ident_generator.next_output();
+            while names.contains(&output.to_string()) {
+                output = Ident::new(ctx.ident_generator.next_output());
                 ctx.output_slot_idents
-                    .insert(ctx.outputs[index], output.clone());
+                    .insert(ctx.outputs[index], ident_expression(output.clone()));
             }
             let ty = variable
                 .ty
                 .wgsl_type_name()
                 .ok_or_else(|| GraphNodeCodeGenError::Custom(anyhow!("Invalid type")))?;
-            code.push_str(&format!("var {output}: {ty};\n"));
+            code.push_str(&quote_statement! { var #output: #ty; }.to_string());
+            code.push('\n');
             outputs.push(output);
         }
 
         code.push_str("{\n");
 
         for (index, variable) in state.inputs.values().enumerate() {
-            code.push_str(&format!(
-                "let {} = {};\n",
-                variable.name,
-                ctx.get_input(index)?
-            ));
+            let name = variable.name.clone();
+            let input = ctx.get_input(index)?;
+            code.push_str(&quote_statement! { let #name = #input; }.to_string());
+            code.push('\n');
         }
         for variable in state.outputs.values() {
+            let name = variable.name.clone();
             let ty = variable
                 .ty
                 .wgsl_type_name()
                 .ok_or_else(|| GraphNodeCodeGenError::Custom(anyhow!("Invalid type")))?;
-            code.push_str(&format!("var {}: {ty};\n", variable.name));
+            code.push_str(&quote_statement! { var #name: #ty; }.to_string());
+            code.push('\n');
         }
         code.push_str(&state.code);
         if !state.code.is_empty() && !state.code.ends_with('\n') {
             code.push('\n');
         }
         for ((_, variable), output) in state.outputs.iter().zip(outputs) {
-            code.push_str(&format!("{output} = {};\n", variable.name));
+            let name = ident_expression(Ident::new(variable.name.clone()));
+            code.push_str(&quote_statement! { #output = #name; }.to_string());
+            code.push('\n');
         }
 
         code.push_str("}\n");

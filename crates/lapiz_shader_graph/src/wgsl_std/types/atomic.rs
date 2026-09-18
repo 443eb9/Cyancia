@@ -8,7 +8,7 @@ use lapiz_render::{
 };
 use lapiz_utils::random_oklch_hue_chroma;
 use wesl::syntax::*;
-use wesl_quote::quote_declaration;
+use wesl_quote::{quote_declaration, quote_expression, quote_statement};
 use wgpu::{Buffer, Device, Queue};
 
 use super::{
@@ -99,9 +99,10 @@ macro_rules! atomic_type {
                 ctx: &mut GraphNodeCodeGenContext,
             ) -> Result<String> {
                 ctx.get_output(base_index)?;
+                let name = Ident::new(input_name.to_string());
                 ctx.output_slot_idents.insert(
                     ctx.outputs[base_index],
-                    format!("atomicLoad(&{input_name})"),
+                    quote_expression! { atomicLoad(&#name) },
                 );
                 Ok(String::new())
             }
@@ -113,7 +114,8 @@ macro_rules! atomic_type {
                 ctx: &GraphNodeCodeGenContext,
             ) -> Result<String> {
                 let value = ctx.get_input(base_index)?;
-                Ok(format!("@if(!EVAL) {{ atomicAdd(&{output_name}, {value}); }}\n"))
+                let output = Ident::new(output_name.to_string());
+                Ok(quote_statement! { @if(!EVAL) { atomicAdd(&#output, #value); } }.to_string())
             }
 
             fn default_literal(&self) -> Self::AssociatedLiteralType {
@@ -134,7 +136,7 @@ macro_rules! atomic_type {
 
             fn update_literal(&self, _data: &mut Self::AssociatedLiteralType, _message: Self::Message) {}
 
-            fn literal_to_code(&self, _data: &Self::AssociatedLiteralType) -> Option<String> {
+            fn literal_to_code(&self, _data: &Self::AssociatedLiteralType) -> Option<Expression> {
                 None
             }
         }
@@ -221,9 +223,10 @@ macro_rules! atomic_array_type {
                 ctx: &mut GraphNodeCodeGenContext,
             ) -> Result<String> {
                 ctx.get_output(base_index)?;
+                let name = Ident::new(input_name.to_string());
                 ctx.output_slot_idents.insert(
                     ctx.outputs[base_index],
-                    format!("atomicLoad(&{input_name}[dispatch_index])"),
+                    quote_expression! { atomicLoad(&#name[dispatch_index]) },
                 );
                 Ok(String::new())
             }
@@ -236,7 +239,11 @@ macro_rules! atomic_array_type {
             ) -> Result<String> {
                 let index = ctx.get_input(base_index)?;
                 let value = ctx.get_input(base_index + 1)?;
-                Ok(format!("@if(!EVAL) {{ atomicAdd(&{output_name}[{index}], {value}); }}\n"))
+                let output = Ident::new(output_name.to_string());
+                Ok(
+                    quote_statement! { @if(!EVAL) { atomicAdd(&#output[#index], #value); } }
+                        .to_string(),
+                )
             }
 
             fn default_literal(&self) -> Self::AssociatedLiteralType {
@@ -257,7 +264,7 @@ macro_rules! atomic_array_type {
 
             fn update_literal(&self, _data: &mut Self::AssociatedLiteralType, _message: Self::Message) {}
 
-            fn literal_to_code(&self, _data: &Self::AssociatedLiteralType) -> Option<String> {
+            fn literal_to_code(&self, _data: &Self::AssociatedLiteralType) -> Option<Expression> {
                 None
             }
         }

@@ -20,7 +20,7 @@ use lapiz_utils::random_oklch_hue_chroma;
 use lapiz_widgets::{checkbox::Checkbox, spin_slider::SpinSlider};
 use serde::{Deserialize, Serialize};
 use wesl::syntax::*;
-use wesl_quote::{quote_declaration, quote_expression};
+use wesl_quote::quote_expression;
 use wgpu::{
     Buffer, BufferDescriptor, BufferUsages, Device, Extent3d, Queue, TextureDescriptor,
     TextureDimension, TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension,
@@ -133,11 +133,10 @@ impl GraphValueType for ColorType {
         }
     }
 
-    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String> {
-        Some(format!(
-            "vec4f({:.5}, {:.5}, {:.5}, {:.5})",
-            data.x, data.y, data.z, data.w
-        ))
+    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<Expression> {
+        let (x, y, z, w): (Expression, Expression, Expression, Expression) =
+            (data.x.into(), data.y.into(), data.z.into(), data.w.into());
+        Some(quote_expression! { vec4f(#x, #y, #z, #w) })
     }
 }
 
@@ -175,7 +174,7 @@ impl GraphValueType for RectType {
     }
 
     fn wgsl_type_name(&self) -> Option<&'static str> {
-        Some("Rect")
+        Some("render::math::Rect")
     }
 
     fn push_shader_layout(
@@ -187,7 +186,7 @@ impl GraphValueType for RectType {
         bindings: DynamicBindGroupLayoutEntries,
         shader: String,
     ) -> Result<(u32, DynamicBindGroupLayoutEntries, String)> {
-        push_storage_layout(stage, "Rect", name, group, binding, bindings, shader)
+        push_storage_layout(stage, "render::math::Rect", name, group, binding, bindings, shader)
     }
 
     fn push_shader_binding<'a>(
@@ -227,10 +226,15 @@ impl GraphValueType for RectType {
         }
     }
 
-    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String> {
-        Some(format!(
-            "Rect(vec2f({}, {}), vec2f({}, {}))",
-            data.min.x, data.min.y, data.max.x, data.max.y
-        ))
+    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<Expression> {
+        let (min_x, min_y, max_x, max_y): (Expression, Expression, Expression, Expression) = (
+            data.min.x.into(),
+            data.min.y.into(),
+            data.max.x.into(),
+            data.max.y.into(),
+        );
+        Some(quote_expression! {
+            render::math::Rect(vec2f(#min_x, #min_y), vec2f(#max_x, #max_y))
+        })
     }
 }

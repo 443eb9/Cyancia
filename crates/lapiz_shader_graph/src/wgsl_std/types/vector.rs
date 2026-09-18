@@ -2,6 +2,8 @@ use std::convert::identity;
 
 use anyhow::Result;
 use glam::{IVec2, IVec3, IVec4, UVec2, UVec3, UVec4, Vec2, Vec3, Vec4};
+use wesl::syntax::*;
+use wesl_quote::quote_expression;
 use iced_core::Element;
 use iced_widget::Column;
 use lapiz_render::{
@@ -30,7 +32,7 @@ macro_rules! vector_type {
         $name:ident,
         $literal:ty,
         $scalar:ty,
-        $len:expr,
+        $len:tt,
         $id:literal,
         $wgsl:literal,
         $zero:expr,
@@ -117,28 +119,22 @@ macro_rules! vector_type {
                 data[message.index] = message.value;
             }
 
-            fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String> {
-                let components = (0..$len)
-                    .map(|index| scalar_code!($component, data[index]))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                Some(format!("{}({components})", $wgsl))
+            fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<Expression> {
+                let constructor = FunctionCall {
+                    ty: TypeExpression::from(Ident::new($wgsl.to_string())),
+                    arguments: (0..$len)
+                        .map(|index| {
+                            let component: Expression = data[index].into();
+                            ExpressionNode::from(component)
+                        })
+                        .collect(),
+                };
+                Some(Expression::FunctionCall(constructor))
             }
         }
     };
 }
 
-macro_rules! scalar_code {
-    (f, $value:expr) => {
-        format!("{:.5}", $value)
-    };
-    (i, $value:expr) => {
-        format!("{}i", $value)
-    };
-    (u, $value:expr) => {
-        format!("{}u", $value)
-    };
-}
 
 vector_type!(
     Vec2FType,

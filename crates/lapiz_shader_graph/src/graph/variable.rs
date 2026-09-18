@@ -6,6 +6,7 @@ use std::{
 use anyhow::Result;
 use downcast_rs::Downcast;
 use dyn_clone::DynClone;
+use wesl::syntax::Expression;
 
 use crate::{
     graph::slot::{ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphValueType},
@@ -89,13 +90,13 @@ impl GraphTypeRegistry {
         &self,
         from_type: &dyn ErasedGraphValueType,
         to_type: &dyn ErasedGraphValueType,
-        identifier: &str,
-    ) -> Option<String> {
+        value: Expression,
+    ) -> Option<Expression> {
         Some(
             self.casters
                 .get(&from_type.id())?
                 .get(&to_type.id())?
-                .wgsl_cast(identifier),
+                .wgsl_cast(value),
         )
     }
 
@@ -130,17 +131,17 @@ impl GraphTypeRegistry {
 pub trait GraphVariableCaster: Send + Sync + 'static + Clone {
     type FromType: GraphValueType + Default;
     type ToType: GraphValueType + Default;
-    fn wgsl_cast(&self, variable: &str) -> String;
+    fn wgsl_cast(&self, variable: Expression) -> Expression;
 }
 
 pub trait ErasedGraphVariableCaster: Send + Sync + 'static + DynClone {
-    fn wgsl_cast(&self, variable: &str) -> String;
+    fn wgsl_cast(&self, variable: Expression) -> Expression;
 }
 
 dyn_clone::clone_trait_object!(ErasedGraphVariableCaster);
 
 impl<T: GraphVariableCaster> ErasedGraphVariableCaster for T {
-    fn wgsl_cast(&self, variable: &str) -> String {
+    fn wgsl_cast(&self, variable: Expression) -> Expression {
         self.wgsl_cast(variable)
     }
 }
@@ -248,7 +249,7 @@ impl GraphLiteral {
         self.ty.update_literal(self.value.as_mut(), message);
     }
 
-    pub fn to_code(&self) -> Option<String> {
+    pub fn to_code(&self) -> Option<Expression> {
         self.ty.literal_to_code(self.value.as_ref())
     }
 }

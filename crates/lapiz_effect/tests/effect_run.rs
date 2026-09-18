@@ -53,6 +53,8 @@ use lapiz_shader_graph::{
 use lapiz_utils::random_oklch_hue_chroma;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use wesl::syntax::*;
+use wesl_quote::{quote_declaration, quote_statement};
 use wgpu::{
     Buffer, BufferDescriptor, BufferUsages, Device, Queue, TextureDescriptor, TextureDimension,
     TextureFormat, TextureUsages, TextureViewDescriptor, util::DeviceExt,
@@ -87,12 +89,20 @@ impl GraphValueType for EffectParamType {
         bindings: DynamicBindGroupLayoutEntries,
         mut shader: String,
     ) -> Result<(u32, DynamicBindGroupLayoutEntries, String)> {
-        let access = if stage == GraphShaderStage::Input {
-            "read"
-        } else {
-            "read_write"
+        let struct_decl = quote_declaration! {
+            struct EffectParam { ca_intensity: f32, texture_intensity: f32 }
         };
-        shader.push_str(&format!("struct EffectParam {{ ca_intensity: f32, texture_intensity: f32 }};\n@group({group}) @binding({binding}) var<storage, {access}> {name}: EffectParam;\n"));
+        let name_ident = Ident::new(name.to_string());
+        let var_decl = if stage == GraphShaderStage::Input {
+            quote_declaration! {
+                @group(#group) @binding(#binding) var<storage, read> #name_ident: EffectParam;
+            }
+        } else {
+            quote_declaration! {
+                @group(#group) @binding(#binding) var<storage, read_write> #name_ident: EffectParam;
+            }
+        };
+        shader.push_str(&format!("{struct_decl}\n{var_decl}\n"));
         let entry = if stage == GraphShaderStage::Input {
             binding_types::storage_buffer_read_only_sized(false, None)
         } else {
@@ -151,13 +161,13 @@ impl GraphValueType for EffectParamType {
         Void.into()
     }
     fn update_literal(&self, _data: &mut EffectParam, _message: ()) {}
-    fn literal_to_code(&self, _data: &EffectParam) -> Option<String> {
+    fn literal_to_code(&self, _data: &EffectParam) -> Option<Expression> {
         None
     }
 }
 
 macro_rules! parameter_node {
-    ($name:ident, $id:literal, $field:literal) => {
+    ($name:ident, $id:literal, $field:ident) => {
         #[derive(Default, Clone)]
         struct $name;
         #[stateless]
@@ -188,7 +198,7 @@ macro_rules! parameter_node {
             ) -> Result<String, GraphNodeCodeGenError> {
                 let input = ctx.get_input(0)?;
                 let output = ctx.get_output(0)?;
-                Ok(format!("let {output} = {input}.{};\n", $field))
+                Ok(quote_statement! { let #output = #input.$field; }.to_string())
             }
         }
     };
@@ -197,12 +207,12 @@ macro_rules! parameter_node {
 parameter_node!(
     ChromaticAbberrationIntensityNode,
     "Chromatic Abberration Intensity",
-    "ca_intensity"
+    ca_intensity
 );
 parameter_node!(
     TextureIntensityNode,
     "Texture Intensity",
-    "texture_intensity"
+    texture_intensity
 );
 
 #[derive(Default, Clone)]
@@ -240,9 +250,22 @@ impl StatelessCommonGraphNode for HistogramNode {
         let increment = ctx.get_output(1)?;
         let sum = ctx.get_output(2)?;
         let count = ctx.get_output(3)?;
-        Ok(format!(
-            "let example_inside = all(vec2f(dispatch_index) >= ({bounds}).min) && all(vec2f(dispatch_index) < ({bounds}).max);\nlet example_luminance = clamp(dot(({color}).rgb, vec3f(0.2126, 0.7152, 0.0722)), 0.0, 1.0);\nlet {bin} = i32(round(example_luminance * 255.0));\nlet {increment} = select(0u, 1u, example_inside);\nlet {sum} = select(0u, u32(round(example_luminance * 65535.0)), example_inside);\nlet {count} = {increment};\n"
-        ))
+        Ok([
+            quote_statement! {
+                let example_inside = all(vec2f(dispatch_index) >= (#bounds).min) && all(vec2f(dispatch_index) < (#bounds).max);
+            },
+            quote_statement! {
+                let example_luminance = clamp(dot((#color).rgb, vec3f(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+            },
+            quote_statement! { let #bin = i32(round(example_luminance * 255.0)); },
+            quote_statement! { let #increment = select(0u, 1u, example_inside); },
+            quote_statement! { let #sum = select(0u, u32(round(example_luminance * 65535.0)), example_inside); },
+            quote_statement! { let #count = #increment; },
+        ]
+        .iter()
+        .map(|statement| statement.to_string())
+        .collect::<Vec<_>>()
+        .join("\n"))
     }
 }
 
@@ -273,9 +296,18 @@ impl StatelessCommonGraphNode for AutoExposureNode {
         let sum = ctx.get_input(0)?;
         let count = ctx.get_input(1)?;
         let exposure = ctx.get_output(0)?;
-        Ok(format!(
-            "let example_average_luminance = f32({sum}) / max(f32({count}) * 65535.0, 1.0);\nlet {exposure} = clamp(0.18 / max(example_average_luminance, 0.001), 0.25, 4.0);\n"
-        ))
+        Ok([
+            quote_statement! {
+                let example_average_luminance = f32(#sum) / max(f32(#count) * 65535.0, 1.0);
+            },
+            quote_statement! {
+                let #exposure = clamp(0.18 / max(example_average_luminance, 0.001), 0.25, 4.0);
+            },
+        ]
+        .iter()
+        .map(|statement| statement.to_string())
+        .collect::<Vec<_>>()
+        .join("\n"))
     }
 }
 
@@ -348,10 +380,24 @@ impl GraphNode for ApplyEffectNode {
         let exposure = ctx.get_input(4)?;
         let texture = ctx.get_input(5)?;
         let output = ctx.get_output(0)?;
-        let target = layer_load_ident(&lapiz_effect::render::pass_input_ident(state.target));
-        Ok(format!(
-            "let example_shift = max(i32(round(abs({ca}) * 3.0)), 0);\nlet example_center = {target}({pixel});\nlet example_r = {target}({pixel} + vec2i(example_shift, 0)).r;\nlet example_b = {target}({pixel} - vec2i(example_shift, 0)).b;\nlet example_tex_size = vec2i(textureDimensions({texture}));\nlet example_tex_coord = vec2u((({pixel} % example_tex_size) + example_tex_size) % example_tex_size);\nlet example_gray = textureLoad({texture}, example_tex_coord, 0).r;\nlet example_modulation = mix(1.0, example_gray, clamp({texture_intensity}, 0.0, 1.0));\nlet {output} = vec4f(vec3f(example_r, example_center.g, example_b) * {exposure} * example_modulation, example_center.a);\n"
-        ))
+        let target = Ident::new(layer_load_ident(&lapiz_effect::render::pass_input_ident(state.target)));
+        Ok([
+            quote_statement! { let example_shift = max(i32(round(abs(#ca) * 3.0)), 0); },
+            quote_statement! { let example_center = #target(#pixel); },
+            quote_statement! { let example_r = #target(#pixel + vec2i(example_shift, 0)).r; },
+            quote_statement! { let example_b = #target(#pixel - vec2i(example_shift, 0)).b; },
+            quote_statement! { let example_tex_size = vec2i(textureDimensions(#texture)); },
+            quote_statement! { let example_tex_coord = vec2u(((#pixel % example_tex_size) + example_tex_size) % example_tex_size); },
+            quote_statement! { let example_gray = textureLoad(#texture, example_tex_coord, 0).r; },
+            quote_statement! { let example_modulation = mix(1.0, example_gray, clamp(#texture_intensity, 0.0, 1.0)); },
+            quote_statement! {
+                let #output = vec4f(vec3f(example_r, example_center.g, example_b) * #exposure * example_modulation, example_center.a);
+            },
+        ]
+        .iter()
+        .map(|statement| statement.to_string())
+        .collect::<Vec<_>>()
+        .join("\n"))
     }
 }
 

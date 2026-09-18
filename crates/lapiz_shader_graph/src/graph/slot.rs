@@ -14,6 +14,8 @@ use lapiz_utils::wrapper;
 use parse_display::Display;
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use uuid::Uuid;
+use wesl::syntax::*;
+use wesl_quote::quote_statement;
 use wgpu::{Device, Queue};
 
 use crate::{
@@ -177,8 +179,10 @@ pub trait GraphValueType: Send + Sync + 'static + DynClone {
         ctx: &mut GraphNodeCodeGenContext,
     ) -> Result<String> {
         ctx.get_output(base_index)?;
-        ctx.output_slot_idents
-            .insert(ctx.outputs[base_index], input_name.to_string());
+        ctx.output_slot_idents.insert(
+            ctx.outputs[base_index],
+            crate::graph::node::ident_expression(Ident::new(input_name.to_string())),
+        );
         Ok(String::new())
     }
     fn handle_output_values(
@@ -188,7 +192,8 @@ pub trait GraphValueType: Send + Sync + 'static + DynClone {
         ctx: &GraphNodeCodeGenContext,
     ) -> Result<String> {
         let value = ctx.get_input(base_index)?;
-        Ok(format!("@if(!EVAL) {{ {output_name} = {value}; }}\n"))
+        let output = Ident::new(output_name.to_string());
+        Ok(quote_statement! { @if(!EVAL) { #output = #value; } }.to_string())
     }
 
     // Runs on every pass output after bounds evaluation; resource types may
@@ -216,7 +221,7 @@ pub trait GraphValueType: Send + Sync + 'static + DynClone {
         data: &Self::AssociatedLiteralType,
     ) -> GraphElement<'static, Self::Message>;
     fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message);
-    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String>;
+    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<Expression>;
 
     fn generate_extra_shader_body(&self, _stage: GraphShaderStage, _name: &str) -> Option<String> {
         None
@@ -340,7 +345,7 @@ pub trait ErasedGraphValueType: Send + Sync + 'static + DynClone + Downcast {
         data: &mut dyn GraphLiteralValue,
         message: ErasedGraphLiteralUpdateMessage,
     );
-    fn literal_to_code(&self, data: &dyn GraphLiteralValue) -> Option<String>;
+    fn literal_to_code(&self, data: &dyn GraphLiteralValue) -> Option<Expression>;
     fn serialize_literal(
         &self,
         data: &dyn GraphLiteralValue,
@@ -500,7 +505,7 @@ impl<T: GraphValueType> ErasedGraphValueType for T {
         self.update_literal(data, *message);
     }
 
-    fn literal_to_code(&self, data: &dyn GraphLiteralValue) -> Option<String> {
+    fn literal_to_code(&self, data: &dyn GraphLiteralValue) -> Option<Expression> {
         self.literal_to_code(
             data.downcast_ref::<T::AssociatedLiteralType>()
                 .expect("failed to downcast graph literal"),
