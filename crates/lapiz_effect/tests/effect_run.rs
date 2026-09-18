@@ -348,7 +348,7 @@ impl GraphNode for ApplyEffectNode {
         let exposure = ctx.get_input(4)?;
         let texture = ctx.get_input(5)?;
         let output = ctx.get_output(0)?;
-        let target = format!("pass_input_{}_load", state.target.0.simple());
+        let target = layer_load_ident(&lapiz_effect::render::pass_input_ident(state.target));
         Ok(format!(
             "let example_shift = max(i32(round(abs({ca}) * 3.0)), 0);\nlet example_center = {target}({pixel});\nlet example_r = {target}({pixel} + vec2i(example_shift, 0)).r;\nlet example_b = {target}({pixel} - vec2i(example_shift, 0)).b;\nlet example_tex_size = vec2i(textureDimensions({texture}));\nlet example_tex_coord = vec2u((({pixel} % example_tex_size) + example_tex_size) % example_tex_size);\nlet example_gray = textureLoad({texture}, example_tex_coord, 0).r;\nlet example_modulation = mix(1.0, example_gray, clamp({texture_intensity}, 0.0, 1.0));\nlet {output} = vec4f(vec3f(example_r, example_center.g, example_b) * {exposure} * example_modulation, example_center.a);\n"
         ))
@@ -777,10 +777,8 @@ const TEX_H: u32 = 160;
 
 // Deterministic integer hash so every channel value is reproducible without fixtures.
 fn channel_hash(x: u32, y: u32, salt: u32) -> u8 {
-    let mut v = x
-        .wrapping_mul(0x9E3779B1)
-        ^ y.wrapping_mul(0x85EBCA77)
-        ^ salt.wrapping_mul(0xC2B2AE3D);
+    let mut v =
+        x.wrapping_mul(0x9E3779B1) ^ y.wrapping_mul(0x85EBCA77) ^ salt.wrapping_mul(0xC2B2AE3D);
     v ^= v >> 15;
     v = v.wrapping_mul(0x2545F491);
     v ^= v >> 13;
@@ -796,9 +794,7 @@ fn test_images() -> (image::DynamicImage, GrayImage) {
             255,
         ])
     });
-    let texture = GrayImage::from_fn(TEX_W, TEX_H, |x, y| {
-        image::Luma([channel_hash(x, y, 4)])
-    });
+    let texture = GrayImage::from_fn(TEX_W, TEX_H, |x, y| image::Luma([channel_hash(x, y, 4)]));
     (image::DynamicImage::ImageRgba8(image), texture)
 }
 
@@ -840,7 +836,10 @@ fn array_buffers_use_wgsl_strides() {
         ("vec4f", Arc::new(Vec4FType), 16),
     ] {
         let len = 10;
-        let array = ArrayType { element_type: element, len };
+        let array = ArrayType {
+            element_type: element,
+            len,
+        };
         let prepared = array
             .prepare_to_shader(&ArrayLiteral, &context.device, &context.queue)
             .unwrap();
@@ -912,9 +911,14 @@ fn effect_matches_cpu_reference() {
         &context.queue,
     ))
     .unwrap();
-    let result =
-        block_on(readback_layer(&outputs[&layer_output], W, H, &context.device, &context.queue))
-            .unwrap();
+    let result = block_on(readback_layer(
+        &outputs[&layer_output],
+        W,
+        H,
+        &context.device,
+        &context.queue,
+    ))
+    .unwrap();
 
     // Pass 1: every pixel lands in exactly one histogram bin inside the bounds.
     let mut expected_histogram = [0u32; HISTOGRAM_SIZE as usize];
@@ -963,9 +967,7 @@ fn effect_matches_cpu_reference() {
             f32::from(center.0[1]) / 255.0 * exposure * modulation,
             load(-shift, 2) * exposure * modulation,
         ];
-        for (expected_channel, result_channel) in
-            expected.iter().zip(pixel.0.iter().take(3))
-        {
+        for (expected_channel, result_channel) in expected.iter().zip(pixel.0.iter().take(3)) {
             let expected_byte = ((expected_channel * 255.0).clamp(0.0, 255.0) as u32) as u8;
             let delta = (i32::from(expected_byte) - i32::from(*result_channel)).abs();
             max_delta = max_delta.max(delta);

@@ -29,6 +29,7 @@ use wesl::syntax::*;
 use wesl_quote::quote_statement;
 
 use crate::asset::*;
+use crate::render::{pass_input_ident, pass_output_ident};
 
 #[derive(Default, Clone)]
 pub struct PassInputNode;
@@ -147,7 +148,7 @@ impl GraphNode for PassInputNode {
         let Some(ty) = &state.cached_ty else {
             return Ok(String::new());
         };
-        let name = format!("pass_input_{}", state.id.0.simple());
+        let name = pass_input_ident(state.id);
 
         Ok(ty.handle_input_values(&name, 0, &mut ctx)?)
     }
@@ -340,7 +341,7 @@ impl GraphNode for PassOutputNode {
                 .clone()
                 .context("Effect output type has not been synchronized")?,
         };
-        let name = format!("pass_output_{}", state.id.0.simple());
+        let name = pass_output_ident(state.id);
 
         Ok(ty.handle_output_values(&name, 0, &mut ctx)?)
     }

@@ -18,7 +18,7 @@ use lapiz_shader_graph::{
     },
     wgsl_std::types::{
         ArrayAtomicI32Type, ArrayAtomicU32Type, ArrayType, LayerType, PreparedArray,
-        PreparedAtomicArray, PreparedLayer,
+        PreparedAtomicArray, PreparedLayer, layer_tile_info_ident,
     },
 };
 use wesl::syntax::*;
@@ -26,6 +26,14 @@ use wesl_quote::quote_statement;
 use wgpu::*;
 
 use crate::{asset::*, instance::*, nodes::*};
+
+pub fn pass_input_ident(slot: EffectPassInputSlotId) -> String {
+    format!("pass_input_{}", slot.to_string().replace('-', "_"))
+}
+
+pub fn pass_output_ident(slot: EffectPassOutputSlotId) -> String {
+    format!("pass_output_{}", slot.to_string().replace('-', "_"))
+}
 
 pub enum EffectPassInputSlotSource {
     PassOutput(EffectPassOutputSlotId),
@@ -376,7 +384,7 @@ impl EffectRenderPassStage {
                     }
                 };
                 let (next, extended, shader) = ty.push_shader_layout(
-                    &format!("pass_input_{}", id.0.simple()),
+                    &pass_input_ident(*id),
                     GraphShaderStage::Input,
                     0,
                     binding,
@@ -400,7 +408,7 @@ impl EffectRenderPassStage {
             let mut bindings = DynamicBindGroupLayoutEntries::new(ShaderStages::COMPUTE);
             for (id, target) in pass_outputs_decl {
                 let (next, extended, shader) = target.ty.push_shader_layout(
-                    &format!("pass_output_{}", id.0.simple()),
+                    &pass_output_ident(*id),
                     stage,
                     1,
                     binding,
@@ -747,10 +755,9 @@ fn compile_shader(
                 .with_context(|| format!("Unknown effect input {id:?}"))?,
         };
 
-        if let Some(body) = ty.generate_extra_shader_body(
-            GraphShaderStage::Input,
-            &format!("pass_input_{}", id.0.simple()),
-        ) {
+        if let Some(body) =
+            ty.generate_extra_shader_body(GraphShaderStage::Input, &pass_input_ident(*id))
+        {
             resource_helpers.push_str(&body);
         }
     }
@@ -761,7 +768,7 @@ fn compile_shader(
             } else {
                 GraphShaderStage::Main
             },
-            &format!("pass_output_{}", id.0.simple()),
+            &pass_output_ident(*id),
         ) {
             resource_helpers.push_str(&body);
         }
@@ -804,7 +811,7 @@ fn dispatch_setup(dispatch: EffectPassDispatchStrategy) -> Result<String> {
         }
         .to_string(),
         EffectPassDispatchStrategy::EveryBufferElement(id) => {
-            let name = Ident::new(format!("pass_input_{}", id.0.simple()));
+            let name = Ident::new(pass_input_ident(id));
             format!(
                 "{}\n{}\n",
                 quote_statement! {
@@ -816,8 +823,8 @@ fn dispatch_setup(dispatch: EffectPassDispatchStrategy) -> Result<String> {
             )
         }
         EffectPassDispatchStrategy::EveryOutputLayerPixel(id) => {
-            let name = format!("pass_output_{}", id.0.simple());
-            let tile_info = Ident::new(format!("{name}_tile_info"));
+            let name = pass_output_ident(id);
+            let tile_info = Ident::new(layer_tile_info_ident(&name));
             format!(
                 "{}\n{}\n",
                 quote_statement! {
@@ -829,8 +836,8 @@ fn dispatch_setup(dispatch: EffectPassDispatchStrategy) -> Result<String> {
             )
         }
         EffectPassDispatchStrategy::EveryInputLayerPixel(id) => {
-            let name = format!("pass_input_{}", id.0.simple());
-            let tile_info = Ident::new(format!("{name}_tile_info"));
+            let name = pass_input_ident(id);
+            let tile_info = Ident::new(layer_tile_info_ident(&name));
             format!(
                 "{}\n{}\n",
                 quote_statement! {

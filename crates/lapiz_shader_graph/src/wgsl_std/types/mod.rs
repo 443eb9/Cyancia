@@ -24,6 +24,22 @@ pub use handle::*;
 pub use primitive::*;
 pub use vector::*;
 
+pub fn layer_load_ident(name: &str) -> String {
+    format!("{name}_load")
+}
+
+pub fn layer_store_ident(name: &str) -> String {
+    format!("{name}_store")
+}
+
+pub fn layer_tile_info_ident(name: &str) -> String {
+    format!("{name}_tile_info")
+}
+
+pub fn layer_bounds_ident(name: &str) -> String {
+    format!("{name}_bounds")
+}
+
 fn write_storage_buffer(device: &Device, bytes: &[u8], label: &str) -> Result<Buffer> {
     let buffer = device.create_buffer(&BufferDescriptor {
         label: Some(label),

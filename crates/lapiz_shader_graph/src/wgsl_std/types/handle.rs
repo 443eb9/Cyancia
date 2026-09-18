@@ -26,7 +26,10 @@ use wgpu::{
     TextureDimension, TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension,
 };
 
-use super::{ColorType, F32Type, I32Type, RectType, push_buffer_binding, push_storage_layout};
+use super::{
+    ColorType, F32Type, I32Type, RectType, layer_bounds_ident, layer_load_ident, layer_store_ident,
+    layer_tile_info_ident, push_buffer_binding, push_storage_layout,
+};
 use crate::{
     GraphRenderer, GraphTheme,
     graph::{
@@ -242,9 +245,11 @@ impl GraphValueType for LayerType {
             .insert(ctx.outputs[base_index], color.clone());
         ctx.output_slot_idents
             .insert(ctx.outputs[base_index + 1], bounds.clone());
+        let load = layer_load_ident(input_name);
+        let input_bounds = layer_bounds_ident(input_name);
         Ok(format!(
-            "let {color} = {input_name}_load(dispatch_index);\n\
-             let {bounds} = Rect(vec2f({input_name}_bounds.xy), vec2f({input_name}_bounds.zw));\n"
+            "let {color} = {load}(dispatch_index);\n\
+             let {bounds} = Rect(vec2f({input_bounds}.xy), vec2f({input_bounds}.zw));\n"
         ))
     }
 
@@ -256,8 +261,9 @@ impl GraphValueType for LayerType {
     ) -> Result<String> {
         let color = ctx.get_input(base_index)?;
         let bounds = ctx.get_input(base_index + 1)?;
+        let output_bounds = layer_bounds_ident(output_name);
         Ok(format!(
-            "@if(EVAL) {{ {output_name}_bounds = vec4i(vec2i(floor(({bounds}).min)), vec2i(ceil(({bounds}).max))); }}\n\
+            "@if(EVAL) {{ {output_bounds} = vec4i(vec2i(floor(({bounds}).min)), vec2i(ceil(({bounds}).max))); }}\n\
              @if(!EVAL) {{\n\
                  if all(dispatch_index >= vec2i(floor(({bounds}).min))) && all(dispatch_index < vec2i(ceil(({bounds}).max))) {{\n\
                      {output_name}_store(dispatch_index, {color});\n\
@@ -301,7 +307,7 @@ impl GraphValueType for LayerType {
                     binding_types::texture_storage_2d_array(self.texel_type.wgpu_format(), access),
                 ),));
                 let tile_info_binding = binding + 1;
-                let tile_info = Ident::new(format!("{name}_tile_info"));
+                let tile_info = Ident::new(layer_tile_info_ident(name));
                 shader.push_str(
                     &quote_declaration! {
                         @group(#group) @binding(#tile_info_binding) var<storage, read> #tile_info: array<image::image_tiling::TileInfo>;
@@ -315,7 +321,7 @@ impl GraphValueType for LayerType {
                 ),));
                 if stage == GraphShaderStage::Input {
                     let bounds_binding = binding + 2;
-                    let bounds = Ident::new(format!("{name}_bounds"));
+                    let bounds = Ident::new(layer_bounds_ident(name));
                     shader.push_str(
                         &quote_declaration! {
                             @group(#group) @binding(#bounds_binding) var<storage, read> #bounds: vec4i;
@@ -333,7 +339,7 @@ impl GraphValueType for LayerType {
                 }
             }
             GraphShaderStage::Eval => {
-                let bounds = Ident::new(format!("{name}_bounds"));
+                let bounds = Ident::new(layer_bounds_ident(name));
                 shader.push_str(
                     &quote_declaration! {
                         @group(#group) @binding(#binding) var<storage, read_write> #bounds: vec4i;
@@ -455,10 +461,10 @@ impl GraphValueType for LayerType {
     }
 
     fn generate_extra_shader_body(&self, stage: GraphShaderStage, name: &str) -> Option<String> {
-        let load = Ident::new(format!("{name}_load"));
-        let store = Ident::new(format!("{name}_store"));
+        let load = Ident::new(layer_load_ident(name));
+        let store = Ident::new(layer_store_ident(name));
         let texture = Ident::new(name.to_string());
-        let tile_info = Ident::new(format!("{name}_tile_info"));
+        let tile_info = Ident::new(layer_tile_info_ident(name));
 
         let (pack, unpack, default_value, color_ty) = match self.texel_type {
             TexelType::RGBA8 => (
