@@ -5,11 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-
-[[example]]
-name = "editor_demo"
-path = "examples/editor_demo.rs"
-
 [dependencies]
 anyhow.workspace = true
 arc-swap.workspace = true

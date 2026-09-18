@@ -2,8 +2,9 @@
 use std::sync::{Arc, LazyLock};
 
 use anyhow::{Context, Result};
-use iced_core::widget::Void;
-use lapiz_image::texel::TexelType;
+use iced_core::{Length, widget::Void};
+use iced_widget::{Column, column, row};
+use lapiz_i18n::t;
 use lapiz_shader_graph::{
     GraphElement,
     graph::{
@@ -13,16 +14,20 @@ use lapiz_shader_graph::{
             GraphNodeDefaultStateContext, GraphNodeRegistry, GraphNodeUpdateContext,
             GraphNodeViewContext,
         },
-        slot::{ErasedGraphValueType, GraphDefaultInputSlot, GraphDefaultOutputSlot},
+        slot::{
+            ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphDefaultInputSlot,
+            GraphDefaultOutputSlot,
+        },
         variable::GraphTypeRegistry,
     },
     save::GraphSerializable,
     wgsl_std::{
         builtin_nodes, builtin_types,
-        types::{ArrayType, BoolType, LayerType, TextureType, U32Type, Vec2IType},
+        types::{U32Type, Vec2IType},
     },
 };
 use lapiz_utils::random_oklch_hue_chroma;
+use lapiz_widgets::{combo_box::ComboBox, label::Label, text_input::TextInput};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use wesl::syntax::*;
@@ -40,11 +45,87 @@ pub enum PassInput {
     Effect(EffectInputSlotId),
 }
 
+#[derive(Clone, PartialEq)]
+pub struct PassInputChoice {
+    pub label: String,
+    pub input: Option<PassInput>,
+}
+
+impl std::fmt::Debug for PassInputChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PassInputChoice")
+            .field("label", &self.label)
+            .finish()
+    }
+}
+
+impl std::fmt::Display for PassInputChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.label)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PassOutputChoiceTarget {
+    Unbound,
+    Effect(EffectOutputSlotId),
+    LocalBuffer,
+}
+
+#[derive(Clone, PartialEq)]
+pub struct PassOutputChoice {
+    pub label: String,
+    pub target: PassOutputChoiceTarget,
+}
+
+impl std::fmt::Debug for PassOutputChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PassOutputChoice")
+            .field("label", &self.label)
+            .field("target", &self.target)
+            .finish()
+    }
+}
+
+impl std::fmt::Display for PassOutputChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.label)
+    }
+}
+
+#[derive(Clone)]
+pub struct TypeChoice {
+    pub label: String,
+    pub ty: Arc<dyn ErasedGraphValueType>,
+}
+
+impl std::fmt::Debug for TypeChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TypeChoice")
+            .field("label", &self.label)
+            .finish()
+    }
+}
+
+impl PartialEq for TypeChoice {
+    fn eq(&self, other: &Self) -> bool {
+        self.ty.id() == other.ty.id()
+    }
+}
+
+impl std::fmt::Display for TypeChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.label)
+    }
+}
+
 #[derive(Clone)]
 pub struct PassInputNodeState {
     pub id: EffectPassInputSlotId,
     pub input: Option<PassInput>,
     pub cached_ty: Option<Arc<dyn ErasedGraphValueType>>,
+    // Refreshed by EffectInstance::sync_pass_graph_effect_properties, not serialized.
+    pub available_sources: Arc<[PassInputChoice]>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -79,14 +160,15 @@ impl GraphSerializable for PassInputNodeState {
             id: serializable.id,
             input: serializable.input,
             cached_ty,
+            available_sources: Vec::new().into(),
         })
     }
 }
 
-// UI source/target selectors arrive with the editor adapter; nothing can move
-// these states through the graph until then.
-#[derive(Clone)]
-pub enum PassInputNodeMessage {}
+#[derive(Debug, Clone)]
+pub enum PassInputNodeMessage {
+    SourceSelected(PassInputChoice),
+}
 
 impl GraphNode for PassInputNode {
     type State = PassInputNodeState;
@@ -101,6 +183,7 @@ impl GraphNode for PassInputNode {
             id: EffectPassInputSlotId::new(Uuid::new_v4()),
             input: None,
             cached_ty: None,
+            available_sources: Vec::new().into(),
         }
     }
 
@@ -129,15 +212,40 @@ impl GraphNode for PassInputNode {
 
     fn view<'a>(
         &self,
-        _: &'a Self::State,
-        _: GraphNodeViewContext<'_>,
+        state: &'a Self::State,
+        ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'a, Self::Message> {
-        // TODO editor
-        todo!()
+        let selected = state
+            .available_sources
+            .iter()
+            .find(|choice| choice.input == state.input)
+            .cloned();
+        let selector = ComboBox::new(
+            state.available_sources.iter().cloned().collect::<Vec<_>>(),
+            selected,
+            PassInputNodeMessage::SourceSelected,
+        )
+        .placeholder(t!("unbound"))
+        .width(Length::Fill);
+
+        column![
+            selector,
+            Column::with_children(ctx.view_all_outputs()).spacing(2),
+        ]
+        .spacing(4)
+        .width(Length::Fill)
+        .into()
     }
 
-    fn update(&self, _: &mut Self::State, message: Self::Message, _: GraphNodeUpdateContext<'_>) {
-        match message {}
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        _: GraphNodeUpdateContext<'_>,
+    ) {
+        match message {
+            PassInputNodeMessage::SourceSelected(choice) => state.input = choice.input,
+        }
     }
 
     fn generate_code(
@@ -201,6 +309,9 @@ pub struct PassOutputNodeState {
     pub id: EffectPassOutputSlotId,
     pub output: Option<PassOutput>,
     pub cached_ty: Option<Arc<dyn ErasedGraphValueType>>,
+    // Refreshed by EffectInstance::sync_pass_graph_effect_properties, not serialized.
+    pub available_targets: Arc<[PassOutputChoice]>,
+    pub available_types: Arc<[TypeChoice]>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -263,12 +374,19 @@ impl GraphSerializable for PassOutputNodeState {
             id: serializable.id,
             output,
             cached_ty,
+            available_targets: Vec::new().into(),
+            available_types: Vec::new().into(),
         })
     }
 }
 
-#[derive(Clone)]
-pub enum PassOutputNodeMessage {}
+#[derive(Debug, Clone)]
+pub enum PassOutputNodeMessage {
+    TargetSelected(PassOutputChoice),
+    LocalNameChanged(String),
+    LocalTypeSelected(TypeChoice),
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
+}
 
 impl GraphNode for PassOutputNode {
     type State = PassOutputNodeState;
@@ -283,6 +401,8 @@ impl GraphNode for PassOutputNode {
             id: EffectPassOutputSlotId::new(Uuid::new_v4()),
             output: None,
             cached_ty: None,
+            available_targets: Vec::new().into(),
+            available_types: Vec::new().into(),
         }
     }
 
@@ -315,15 +435,105 @@ impl GraphNode for PassOutputNode {
 
     fn view<'a>(
         &self,
-        _: &'a Self::State,
-        _: GraphNodeViewContext<'_>,
+        state: &'a Self::State,
+        ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'a, Self::Message> {
-        // TODO editor
-        todo!()
+        let selected = state
+            .available_targets
+            .iter()
+            .find(|choice| match (&state.output, choice.target) {
+                (None, PassOutputChoiceTarget::Unbound) => true,
+                (Some(PassOutput::Effect(id)), PassOutputChoiceTarget::Effect(other)) => {
+                    *id == other
+                }
+                (Some(PassOutput::Pass(_)), PassOutputChoiceTarget::LocalBuffer) => true,
+                _ => false,
+            })
+            .cloned();
+        let selector = ComboBox::new(
+            state.available_targets.iter().cloned().collect::<Vec<_>>(),
+            selected,
+            PassOutputNodeMessage::TargetSelected,
+        )
+        .placeholder(t!("unbound"))
+        .width(Length::Fill);
+
+        let local_editor = match &state.output {
+            Some(PassOutput::Pass(def)) => {
+                let selected_type = state
+                    .available_types
+                    .iter()
+                    .find(|choice| choice.ty.id() == def.ty.id())
+                    .cloned();
+                Some(
+                    column![
+                        row![
+                            Label::new(t!("name")),
+                            TextInput::new("", &def.name)
+                                .on_input(PassOutputNodeMessage::LocalNameChanged)
+                                .width(Length::Fill),
+                        ]
+                        .spacing(4),
+                        ComboBox::new(
+                            state.available_types.iter().cloned().collect::<Vec<_>>(),
+                            selected_type,
+                            PassOutputNodeMessage::LocalTypeSelected,
+                        )
+                        .placeholder(t!("type"))
+                        .width(Length::Fill),
+                    ]
+                    .spacing(2),
+                )
+            }
+            _ => None,
+        };
+
+        let content = column![selector].spacing(4).width(Length::Fill);
+        let content = match local_editor {
+            Some(editor) => content.push(editor),
+            None => content,
+        };
+        content
+            .push(Column::with_children(
+                ctx.view_all_inputs(PassOutputNodeMessage::LiteralUpdate),
+            ))
+            .into()
     }
 
-    fn update(&self, _: &mut Self::State, message: Self::Message, _: GraphNodeUpdateContext<'_>) {
-        match message {}
+    fn update(
+        &self,
+        state: &mut Self::State,
+        message: Self::Message,
+        mut ctx: GraphNodeUpdateContext<'_>,
+    ) {
+        match message {
+            PassOutputNodeMessage::TargetSelected(choice) => {
+                state.output = match choice.target {
+                    PassOutputChoiceTarget::Unbound => None,
+                    PassOutputChoiceTarget::Effect(id) => Some(PassOutput::Effect(id)),
+                    PassOutputChoiceTarget::LocalBuffer => match state.output.take() {
+                        Some(PassOutput::Pass(def)) => Some(PassOutput::Pass(def)),
+                        _ => state.available_types.first().map(|choice| {
+                            PassOutput::Pass(PassOutputDef {
+                                name: "buffer".into(),
+                                ty: choice.ty.clone(),
+                            })
+                        }),
+                    },
+                }
+            }
+            PassOutputNodeMessage::LocalNameChanged(name) => {
+                if let Some(PassOutput::Pass(def)) = &mut state.output {
+                    def.name = name;
+                }
+            }
+            PassOutputNodeMessage::LocalTypeSelected(choice) => {
+                if let Some(PassOutput::Pass(def)) = &mut state.output {
+                    def.ty = choice.ty.clone();
+                }
+            }
+            PassOutputNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+        }
     }
 
     fn generate_code(
@@ -353,6 +563,8 @@ impl PassOutputNodeState {
             id: EffectPassOutputSlotId::new(Uuid::new_v4()),
             output: Some(output),
             cached_ty: None,
+            available_targets: Vec::new().into(),
+            available_types: Vec::new().into(),
         }
     }
 }
@@ -441,7 +653,6 @@ impl GraphNode for DispatchIndexNode {
             quote_statement! {
                 let #output = dispatch_index;
             }
-            .to_string()
         ))
     }
 }

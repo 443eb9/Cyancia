@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
+use lapiz_i18n::t;
 use lapiz_shader_graph::graph::{
     Graph, GraphResources, function::ASSET_GRAPH_FUNCTION_STORAGE, slot::ErasedGraphValueType,
     variable::GraphShaderLiteral,
@@ -9,7 +10,10 @@ use lapiz_shader_graph::graph::{
 
 use crate::{
     asset::*,
-    nodes::{DispatchIndexNode, PassInput, PassInputNode, PassOutput, PassOutputNode},
+    nodes::{
+        DispatchIndexNode, PassInput, PassInputChoice, PassInputNode, PassOutput, PassOutputChoice,
+        PassOutputChoiceTarget, PassOutputNode, TypeChoice,
+    },
     render::{EffectPassInputSlotSource, EffectPassOutputSlotTarget},
 };
 
@@ -153,34 +157,73 @@ impl EffectInstance {
             .iter()
             .map(|(id, output)| (*id, output.ty.clone()))
             .collect::<HashMap<_, _>>();
+        let pass_outputs = self.collect_pass_outputs()?;
 
-        let mut all_pass_outputs = EffectPassOutputTypes::new();
-        for pass in self.passes.values() {
-            for node in pass.graph.iter_nodes() {
-                let Some(state) = node.data.state::<PassOutputNode>() else {
-                    continue;
-                };
-                let Some(output) = &state.output else {
-                    continue;
-                };
-                let ty = match output {
-                    PassOutput::Pass(def) => def.ty.clone(),
-                    PassOutput::Effect(id) => effect_output_types
-                        .get(id)
-                        .with_context(|| format!("Unknown effect output {id:?}"))?
-                        .clone(),
-                };
-                if all_pass_outputs.insert(state.id, ty).is_some() {
-                    bail!("Duplicate pass output ID {:?}", state.id);
-                }
+        let available_types = self
+            .passes
+            .values()
+            .next()
+            .map(|pass| {
+                pass.graph
+                    .resources()
+                    .type_registry
+                    .all_types()
+                    .values()
+                    .map(|ty| TypeChoice {
+                        label: ty.id().id,
+                        ty: ty.clone(),
+                    })
+                    .collect::<Arc<[TypeChoice]>>()
+            })
+            .unwrap_or_default();
+
+        let mut available_sources = HashMap::with_capacity(self.passes.len());
+        for pass_id in self.passes.keys() {
+            let mut choices = vec![PassInputChoice {
+                label: t!("unbound"),
+                input: None,
+            }];
+            for id in self.inputs.keys() {
+                choices.push(PassInputChoice {
+                    label: self.input_label(PassInput::Effect(*id), &pass_outputs)?,
+                    input: Some(PassInput::Effect(*id)),
+                });
             }
+            for (output_id, info) in &pass_outputs {
+                if &info.producer == pass_id {
+                    continue;
+                }
+                choices.push(PassInputChoice {
+                    label: self.input_label(PassInput::Pass(*output_id), &pass_outputs)?,
+                    input: Some(PassInput::Pass(*output_id)),
+                });
+            }
+            available_sources.insert(*pass_id, Arc::<[_]>::from(choices));
         }
 
-        for pass in self.passes.values_mut() {
+        let mut target_choices = vec![PassOutputChoice {
+            label: t!("unbound"),
+            target: PassOutputChoiceTarget::Unbound,
+        }];
+        for id in self.outputs.keys() {
+            target_choices.push(PassOutputChoice {
+                label: self.output_label(&PassOutput::Effect(*id))?,
+                target: PassOutputChoiceTarget::Effect(*id),
+            });
+        }
+        target_choices.push(PassOutputChoice {
+            label: t!("local_buffer"),
+            target: PassOutputChoiceTarget::LocalBuffer,
+        });
+        let available_targets: Arc<[PassOutputChoice]> = target_choices.into();
+
+        for (pass_id, pass) in &mut self.passes {
+            let sources = available_sources[pass_id].clone();
             for node in pass.graph.iter_nodes_mut() {
                 if let Some(state) = node.data.state_mut::<DispatchIndexNode>() {
                     state.cached_dispatch_strategy = pass.dispatch_strategy;
                 } else if let Some(state) = node.data.state_mut::<PassInputNode>() {
+                    state.available_sources = sources.clone();
                     state.cached_ty = match state.input {
                         Some(PassInput::Effect(id)) => Some(
                             effect_input_types
@@ -189,14 +232,17 @@ impl EffectInstance {
                                 .clone(),
                         ),
                         Some(PassInput::Pass(id)) => Some(
-                            all_pass_outputs
+                            pass_outputs
                                 .get(&id)
                                 .with_context(|| format!("Unknown pass output {id:?}"))?
+                                .ty
                                 .clone(),
                         ),
                         None => None,
                     };
                 } else if let Some(state) = node.data.state_mut::<PassOutputNode>() {
+                    state.available_targets = available_targets.clone();
+                    state.available_types = available_types.clone();
                     state.cached_ty = match &state.output {
                         Some(PassOutput::Pass(def)) => Some(def.ty.clone()),
                         Some(PassOutput::Effect(id)) => Some(
@@ -213,6 +259,123 @@ impl EffectInstance {
         }
         Ok(())
     }
+
+    fn collect_pass_outputs(&self) -> Result<HashMap<EffectPassOutputSlotId, PassOutputInfo>> {
+        let mut outputs = HashMap::new();
+        for (pass_id, pass) in &self.passes {
+            for node in pass.graph.iter_nodes() {
+                let Some(state) = node.data.state::<PassOutputNode>() else {
+                    continue;
+                };
+                let Some(output) = &state.output else {
+                    continue;
+                };
+                let (ty, name) = match output {
+                    PassOutput::Pass(def) => (def.ty.clone(), def.name.clone()),
+                    PassOutput::Effect(id) => {
+                        let slot = self
+                            .outputs
+                            .get(id)
+                            .with_context(|| format!("Unknown effect output {id:?}"))?;
+                        (slot.ty.clone(), slot.name.clone())
+                    }
+                };
+                let info = PassOutputInfo {
+                    producer: *pass_id,
+                    ty,
+                    name,
+                };
+                if outputs.insert(state.id, info).is_some() {
+                    bail!("Duplicate pass output ID {:?}", state.id);
+                }
+            }
+        }
+        Ok(outputs)
+    }
+
+    fn input_label(
+        &self,
+        input: PassInput,
+        pass_outputs: &HashMap<EffectPassOutputSlotId, PassOutputInfo>,
+    ) -> Result<String> {
+        Ok(match input {
+            PassInput::Effect(id) => {
+                let slot = self
+                    .inputs
+                    .get(&id)
+                    .with_context(|| format!("Unknown effect input {id:?}"))?;
+                format!("{} ({})", slot.name, slot.ty.id().id)
+            }
+            PassInput::Pass(id) => {
+                let info = pass_outputs
+                    .get(&id)
+                    .with_context(|| format!("Unknown pass output {id:?}"))?;
+                format!(
+                    "{} / {} ({})",
+                    self.passes[&info.producer].name,
+                    info.name,
+                    info.ty.id().id
+                )
+            }
+        })
+    }
+
+    fn output_label(&self, output: &PassOutput) -> Result<String> {
+        Ok(match output {
+            PassOutput::Pass(def) => format!("{} ({})", def.name, def.ty.id().id),
+            PassOutput::Effect(id) => {
+                let slot = self
+                    .outputs
+                    .get(id)
+                    .with_context(|| format!("Unknown effect output {id:?}"))?;
+                format!("{} ({})", slot.name, slot.ty.id().id)
+            }
+        })
+    }
+
+    pub fn pass_io_labels(&self, pass_id: &EffectPassId) -> EffectPassIoLabels {
+        let pass = self.passes.get(pass_id).expect("pass exists");
+        let mut io = EffectPassIoLabels::default();
+        for node in pass.graph.iter_nodes() {
+            if let Some(state) = node.data.state::<PassInputNode>() {
+                let label = match state.input {
+                    None => t!("unbound"),
+                    Some(input) => state
+                        .available_sources
+                        .iter()
+                        .find(|choice| choice.input == Some(input))
+                        .map(|choice| choice.label.clone())
+                        .expect("synced options contain the current binding"),
+                };
+                io.inputs.push(label);
+            } else if let Some(state) = node.data.state::<PassOutputNode>() {
+                let label = match &state.output {
+                    None => t!("unbound"),
+                    Some(PassOutput::Effect(id)) => state
+                        .available_targets
+                        .iter()
+                        .find(|choice| choice.target == PassOutputChoiceTarget::Effect(*id))
+                        .map(|choice| choice.label.clone())
+                        .expect("synced options contain the current binding"),
+                    Some(PassOutput::Pass(def)) => format!("{} ({})", def.name, def.ty.id().id),
+                };
+                io.outputs.push(label);
+            }
+        }
+        io
+    }
+}
+
+#[derive(Default)]
+pub struct EffectPassIoLabels {
+    pub inputs: Vec<String>,
+    pub outputs: Vec<String>,
+}
+
+struct PassOutputInfo {
+    producer: EffectPassId,
+    ty: Arc<dyn ErasedGraphValueType>,
+    name: String,
 }
 
 pub struct EffectPass {

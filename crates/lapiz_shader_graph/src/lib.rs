@@ -24,6 +24,10 @@ pub type GraphElement<'a, Message> = Element<'a, Message, GraphTheme, GraphRende
 
 lapiz_i18n::define_i18n!("shader_graph");
 
+pub fn init_i18n() {
+    crate::i18n::init();
+}
+
 pub struct ShaderGraphPlugin;
 
 impl Plugin for ShaderGraphPlugin {

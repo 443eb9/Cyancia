@@ -1,0 +1,14 @@
+passes = Pass
+inputs = 输入
+outputs = 输出
+unbound = 未绑定
+type = 类型
+name = 名称
+local_buffer = 局部缓冲
+add_input = 添加输入
+add_output = 添加输出
+add_pass = 添加 Pass
+rename = 重命名
+back_to_passes = 全部 Pass
+pass_input_node = Pass 输入
+pass_output_node = Pass 输出
