@@ -949,7 +949,7 @@ fn effect_matches_cpu_reference() {
             prepare_texture(texture.clone(), &context.device, &context.queue),
         ),
     ]);
-    let outputs = renderer.run(inputs).unwrap();
+    let outputs = renderer.run(&inputs).unwrap();
 
     let histogram = block_on(read_histogram(
         &outputs[&histogram_output],

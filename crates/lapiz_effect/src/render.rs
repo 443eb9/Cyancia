@@ -314,7 +314,7 @@ impl EffectRenderer {
         })
     }
 
-    pub fn run(&self, inputs: EffectInputs) -> Result<EffectOutputs> {
+    pub fn run(&self, inputs: &EffectInputs) -> Result<EffectOutputs> {
         for def in &self.inputs {
             let literal = inputs
                 .get(&def.id)
@@ -329,7 +329,7 @@ impl EffectRenderer {
         let mut produced = EffectPassOutputs::new();
         for pass in &self.passes {
             pass.init_output_values(&mut produced, &self.device, &self.queue)?;
-            pass.run(&inputs, &mut produced, &self.device, &self.queue)?;
+            pass.run(inputs, &mut produced, &self.device, &self.queue)?;
         }
 
         self.outputs

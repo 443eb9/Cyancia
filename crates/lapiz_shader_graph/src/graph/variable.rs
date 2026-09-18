@@ -7,6 +7,7 @@ use anyhow::Result;
 use downcast_rs::Downcast;
 use dyn_clone::DynClone;
 use wesl::syntax::Expression;
+use wgpu::{Device, Queue};
 
 use crate::{
     graph::slot::{ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphValueType},
@@ -153,11 +154,11 @@ dyn_clone::clone_trait_object!(GraphLiteralValue);
 
 impl<T: Send + Sync + DynClone + 'static> GraphLiteralValue for T {}
 
-pub trait GraphShaderLiteralValue: Send + 'static + Downcast {}
+pub trait GraphShaderLiteralValue: Send + Sync + 'static + Downcast {}
 
 downcast_rs::impl_downcast!(GraphShaderLiteralValue);
 
-impl<T: Send + 'static> GraphShaderLiteralValue for T {}
+impl<T: Send + Sync + 'static> GraphShaderLiteralValue for T {}
 
 #[derive(Clone)]
 pub struct GraphLiteral {
@@ -251,6 +252,16 @@ impl GraphLiteral {
 
     pub fn to_code(&self) -> Option<Expression> {
         self.ty.literal_to_code(self.value.as_ref())
+    }
+
+    pub fn prepare_to_shader(&self, device: &Device, queue: &Queue) -> Result<GraphShaderLiteral> {
+        let value = self
+            .ty
+            .prepare_to_shader(self.value.as_ref(), device, queue)?;
+        Ok(GraphShaderLiteral {
+            value,
+            ty: self.ty.clone(),
+        })
     }
 }
 

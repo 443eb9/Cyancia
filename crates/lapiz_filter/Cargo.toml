@@ -8,36 +8,27 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+bytemuck.workspace = true
 bevy_math.workspace = true
-chrono.workspace = true
-dyn-clone.workspace = true
-encase.workspace = true
 futures.workspace = true
-glam.workspace = true
 iced_core.workspace = true
 iced_futures.workspace = true
 iced_runtime.workspace = true
-iced_wgpu.workspace = true
 iced_widget.workspace = true
-lapiz_actions.workspace = true
+indexmap.workspace = true
 lapiz_assets.workspace = true
 lapiz_canvas.workspace = true
-lapiz_color.workspace = true
+lapiz_effect.workspace = true
 lapiz_i18n.workspace = true
 lapiz_image.workspace = true
-lapiz_input.workspace = true
-lapiz_math.workspace = true
 lapiz_render.workspace = true
 lapiz_runtime.workspace = true
 lapiz_shader_graph.workspace = true
-lapiz_tools.workspace = true
 lapiz_undo.workspace = true
 lapiz_utils.workspace = true
 lapiz_widgets.workspace = true
 log.workspace = true
 parking_lot.workspace = true
-parse-display.workspace = true
-ringbuffer.workspace = true
 rust-embed.workspace = true
 serde.workspace = true
 thiserror.workspace = true
@@ -45,8 +36,14 @@ toml.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 wesl.workspace = true
+wesl-quote.workspace = true
 wgpu.workspace = true
 zip.workspace = true
+
+[dev-dependencies]
+futures.workspace = true
+image.workspace = true
+indexmap.workspace = true
 
 [lints]
 workspace = true

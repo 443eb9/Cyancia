@@ -5,9 +5,9 @@ use iced_core::{Alignment, Length, Size, Theme, keyboard, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
 use iced_widget::{Space, column, row};
-use lapiz_assets::{AssetAppExt as _, asset::AssetHandle};
+use lapiz_assets::{AssetAppExt, asset::AssetHandle};
 use lapiz_canvas::{
-    CCanvas, CanvasAppExt as _, CanvasId, CanvasUndoStackAppExt as _, command::TileReplaceCommand,
+    CCanvas, CanvasAppExt, CanvasId, CanvasUndoStackAppExt, command::TileReplaceCommand,
     event::CanvasUpdated,
 };
 use lapiz_i18n::t;
@@ -15,20 +15,19 @@ use lapiz_image::{
     composite::{LayerPreviewOverriders, PixelPreviewOverrider},
     layer::{
         LayerId,
-        properties::builtin::{LayerTexelTypePropertyExt as _, LockedPropertyExt as _},
+        properties::{LayerTexelTypePropertyExt, LockedPropertyExt},
     },
     texel::TexelType,
-    tile::{DynamicLayerStorage, GpuTileStorage, TileStorageAppExt as _},
+    tile::{DynamicLayerStorage, GpuTileStorage, TileStorageAppExt},
 };
-use lapiz_render::render_context::RenderContextAppExt as _;
+use lapiz_effect::asset::EffectInputSlotId;
+use lapiz_render::render_context::RenderContextAppExt;
 use lapiz_runtime::{
     Services,
-    event::Event as _,
+    event::Event,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowView, WindowViewId},
 };
-use lapiz_shader_graph::graph::{
-    external::ExternalVariableId, slot::ErasedGraphLiteralUpdateMessage,
-};
+use lapiz_shader_graph::graph::slot::ErasedGraphLiteralUpdateMessage;
 use lapiz_undo::BatchedUndoCommand;
 use lapiz_widgets::{button::Button, label::Label, panel::Panel, scrollable::Scrollable};
 
@@ -50,7 +49,7 @@ pub struct FilterPanel {
 
 pub enum FilterPanelMessage {
     FilterSelected(usize),
-    ExternalVarUpdated(ErasedGraphLiteralUpdateMessage),
+    ParameterUpdated(EffectInputSlotId, ErasedGraphLiteralUpdateMessage),
     NewFilter,
     EditFilter,
     Confirm,
@@ -63,8 +62,8 @@ impl Clone for FilterPanelMessage {
     fn clone(&self) -> Self {
         match self {
             FilterPanelMessage::FilterSelected(i) => FilterPanelMessage::FilterSelected(*i),
-            FilterPanelMessage::ExternalVarUpdated(m) => {
-                FilterPanelMessage::ExternalVarUpdated(m.clone())
+            FilterPanelMessage::ParameterUpdated(id, m) => {
+                FilterPanelMessage::ParameterUpdated(*id, m.clone())
             }
             FilterPanelMessage::NewFilter => FilterPanelMessage::NewFilter,
             FilterPanelMessage::EditFilter => FilterPanelMessage::EditFilter,
@@ -165,27 +164,33 @@ impl WindowView for FilterPanel {
         .width(220);
 
         let params = if let Some(selected) = self.selected.as_ref() {
-            let variable_rows = selected
-                .iter_external_vars()
-                .map(|(id, variable)| {
+            let parameter_rows = selected
+                .parameters()
+                .iter()
+                .map(|(id, parameter)| {
                     row![
-                        Label::new(variable.name.clone()).width(Length::Fill),
-                        variable
+                        Label::new(parameter.name.clone()).width(Length::Fill),
+                        parameter
                             .value
                             .ty()
-                            .view_literal((*id).into(), variable.value.value())
-                            .map(FilterPanelMessage::ExternalVarUpdated),
+                            .view_literal(
+                                lapiz_shader_graph::graph::slot::GraphInputSlotId::new(id.0),
+                                parameter.value.value(),
+                            )
+                            .map(move |message| {
+                                FilterPanelMessage::ParameterUpdated(*id, message)
+                            }),
                     ]
                     .spacing(6)
                     .into()
                 })
                 .collect::<Vec<_>>();
-            if variable_rows.is_empty() {
+            if parameter_rows.is_empty() {
                 column![Label::new(t!("no_external_variables")).muted()].spacing(6)
             } else {
                 column![
                     Label::new(t!("parameters")).strong(),
-                    Scrollable::new(column(variable_rows).spacing(6))
+                    Scrollable::new(column(parameter_rows).spacing(6))
                         .width(Length::Fill)
                         .height(Length::Fill),
                 ]
@@ -224,8 +229,8 @@ impl WindowView for FilterPanel {
     ) -> impl Into<Task<Self::Message>> {
         match message {
             FilterPanelMessage::FilterSelected(index) => self.filter_selected(index, services),
-            FilterPanelMessage::ExternalVarUpdated(message) => {
-                self.external_var_updated(message, services)
+            FilterPanelMessage::ParameterUpdated(id, message) => {
+                self.parameter_updated(id, message, services)
             }
             FilterPanelMessage::NewFilter | FilterPanelMessage::EditFilter => {
                 services
@@ -344,28 +349,17 @@ impl FilterPanel {
         self.target_layers = target_layers.clone();
         self.canvas_id = Some(canvas_id);
 
-        let (instance, errors) = FilterInstance::from_asset(&handle, services);
-        for error in errors {
-            log::error!("Failed to load filter preset: {error}");
-        }
-        let Some(instance) = instance else {
-            log::error!("Failed to load filter preset");
-            self.rendering = false;
-            self.selected = None;
-            self.renderer = None;
-            return Task::none();
-        };
-        let compiled = match instance.compile() {
-            Ok(compiled) => compiled,
+        let instance = match FilterInstance::from_asset(&handle) {
+            Ok(instance) => instance,
             Err(e) => {
-                log::error!("Failed to compile filter preset: {e}");
+                log::error!("Failed to load filter preset: {e}");
                 self.rendering = false;
                 self.selected = None;
                 self.renderer = None;
                 return Task::none();
             }
         };
-        let renderer = match FilterRenderer::new(services, compiled) {
+        let renderer = match FilterRenderer::new(services, &instance) {
             Ok(renderer) => renderer,
             Err(e) => {
                 log::error!("Failed to create filter renderer: {e}");
@@ -376,38 +370,49 @@ impl FilterPanel {
             }
         };
         let generation = self.generation;
+        let parameters = instance.parameters().clone();
         self.selected = Some(instance);
         self.renderer = Some(renderer);
-        let renderer = self.renderer.as_ref().unwrap();
-        renderer
-            .run(services, canvas_id, target_layers)
-            .map(move |result| FilterPanelMessage::RenderFinished(generation, result))
+        self.rerender(generation, target_layers, parameters, services)
     }
 
-    fn external_var_updated(
+    fn parameter_updated(
         &mut self,
+        id: EffectInputSlotId,
         message: ErasedGraphLiteralUpdateMessage,
         services: &mut Services,
     ) -> Task<FilterPanelMessage> {
         if let Some(instance) = self.selected.as_mut() {
-            let id = ExternalVariableId::new(*message.id);
-            instance.update_external_var(&id, message);
+            instance.update_parameter(&id, message);
         }
-        let Some(canvas_id) = self.canvas_id else {
-            return Task::none();
-        };
-        if self.target_layers.is_empty() {
+        if self.target_layers.is_empty() || self.renderer.is_none() {
             return Task::none();
         }
-        let Some(renderer) = self.renderer.as_ref() else {
+        let Some(instance) = self.selected.as_ref() else {
             return Task::none();
         };
         self.generation += 1;
-        self.rendering = true;
         let generation = self.generation;
         let target_layers = self.target_layers.clone();
+        let parameters = instance.parameters().clone();
+        self.rerender(generation, target_layers, parameters, services)
+    }
+
+    fn rerender(
+        &self,
+        generation: u64,
+        target_layers: Vec<LayerId>,
+        parameters: indexmap::IndexMap<EffectInputSlotId, crate::instance::FilterParameter>,
+        services: &mut Services,
+    ) -> Task<FilterPanelMessage> {
+        let Some(renderer) = self.renderer.as_ref() else {
+            return Task::none();
+        };
+        let device = services.render_device().clone();
+        let queue = services.render_queue().clone();
+        let tile_storage = services.tile_storage().clone();
         renderer
-            .run(services, canvas_id, target_layers)
+            .run(target_layers, parameters, &tile_storage, &device, &queue)
             .map(move |result| FilterPanelMessage::RenderFinished(generation, result))
     }
 
@@ -467,7 +472,7 @@ impl FilterPanel {
         self.preview_installed = false;
         let target_layers = std::mem::take(&mut self.target_layers);
 
-        let mut commands = Vec::<TileReplaceCommand>::new();
+        let mut commands: Vec<TileReplaceCommand> = Vec::new();
         {
             let tiles = services.tile_storage();
             for layer_id in &target_layers {
