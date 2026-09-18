@@ -17,6 +17,7 @@ use lapiz_tools::ToolsAppExt;
 
 use crate::{
     asset::{BrushPreset, BrushPresetSerializer},
+    editor::BrushEditor,
     render::stroke_preview::load_cached_stroke_preview_or_generate,
     tool::BrushTool,
 };
@@ -37,6 +38,8 @@ impl Plugin for BrushPlugin {
     fn build(&self, app: &mut Application) {
         crate::i18n::init();
         let mut runtime = app.runtime_mut();
+        runtime.window_manager_mut().register_view::<BrushEditor>();
+
         let services = runtime.services_mut();
         services.add_asset_serializer::<BrushPresetSerializer>();
         services.add_tool_function::<BrushTool>();

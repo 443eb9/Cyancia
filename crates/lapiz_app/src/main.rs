@@ -11,7 +11,7 @@ use lapiz_assets::{
     AssetsPlugin,
     bundle::{ErasedAssetBundle, directory::AssetDirectory, standard::StandardAssetBundle},
 };
-use lapiz_brush::{BrushPlugin, editor::BrushEditor};
+use lapiz_brush::BrushPlugin;
 use lapiz_bucket_tool::BucketPlugin;
 use lapiz_builtin_docks::BuiltinDocksPlugin;
 use lapiz_canvas::CanvasPlugin;
@@ -19,10 +19,10 @@ use lapiz_color::ColorPlugin;
 use lapiz_color_selector::ColorSelectorPlugin;
 use lapiz_dirs::assets_dir;
 use lapiz_eye_dropper::EyeDropperPlugin;
-use lapiz_filter::{FilterPlugin, editor::FilterEditor, panel::FilterPanel};
+use lapiz_filter::FilterPlugin;
 use lapiz_image::ImagePlugin;
-use lapiz_image_exporter::{ImageExporterPlugin, export_dialog::ExportDialogView};
-use lapiz_image_importer::{ImageImporterPlugin, import_dialog::ImportDialogView};
+use lapiz_image_exporter::ImageExporterPlugin;
+use lapiz_image_importer::ImageImporterPlugin;
 use lapiz_input::InputPlugin;
 use lapiz_render::RenderPlugin;
 use lapiz_runtime::{Application, windows::WindowCommandBuffer};
@@ -121,11 +121,6 @@ fn main() {
 
         rt.window_manager_mut().set_root_view::<MainView>();
         rt.window_manager_mut().register_view::<MainView>();
-        rt.window_manager_mut().register_view::<BrushEditor>();
-        rt.window_manager_mut().register_view::<FilterPanel>();
-        rt.window_manager_mut().register_view::<FilterEditor>();
-        rt.window_manager_mut().register_view::<ExportDialogView>();
-        rt.window_manager_mut().register_view::<ImportDialogView>();
     }
 
     lapiz_i18n::init();
