@@ -1,6 +1,13 @@
-use std::{collections::HashMap, env, fs::File, path::Path, sync::Arc};
+//! End-to-end effect execution test.
+//!
+//! Builds a three-pass effect (histogram, auto exposure, apply), round trips it
+//! through the `.lef` asset format, runs it on the GPU, and compares the
+//! histogram and output layer against a CPU reference implementation of the
+//! same shader semantics.
 
-use anyhow::{Context, Result, ensure};
+use std::{collections::HashMap, io::Cursor, sync::Arc};
+
+use anyhow::{Context, Result};
 use encase::{ShaderType, StorageBuffer};
 use futures::executor::block_on;
 use iced_core::{Element, Point, widget::Void};
@@ -725,14 +732,13 @@ async fn read_histogram(
     Ok(values)
 }
 
-async fn save_layer(
+async fn readback_layer(
     value: &GraphShaderLiteral,
     width: u32,
     height: u32,
-    path: &str,
     device: &Device,
     queue: &Queue,
-) -> Result<()> {
+) -> Result<RgbaImage> {
     let layer = value
         .try_as_ref::<PreparedLayer>()
         .context("layer output type")?;
@@ -752,52 +758,75 @@ async fn save_layer(
             }
         }
     }
-    output.save(path)?;
-    Ok(())
+    Ok(output)
 }
 
-async fn execute(
-    context: &RenderContext,
-    outputs: HashMap<EffectOutputSlotId, GraphShaderLiteral>,
-    layer_output: EffectOutputSlotId,
-    histogram_output: EffectOutputSlotId,
-    width: u32,
-    height: u32,
-    output_path: &str,
-) -> Result<()> {
-    let histogram =
-        read_histogram(&outputs[&histogram_output], &context.device, &context.queue).await?;
-    println!("histogram: {histogram:?}");
-    save_layer(
-        &outputs[&layer_output],
-        width,
-        height,
-        output_path,
-        &context.device,
-        &context.queue,
-    )
-    .await
+fn gpu_available() -> bool {
+    let backends = wgpu::Backends::from_env().unwrap_or(wgpu::Backends::PRIMARY);
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    !block_on(instance.enumerate_adapters(backends)).is_empty()
 }
 
-fn main() -> Result<()> {
-    env_logger::init();
-    let args = env::args().collect::<Vec<_>>();
-    ensure!(
-        args.len() == 5,
-        "usage: example_effect_run <effect.lef> <input-image> <a8-texture> <output-image>"
-    );
-    let effect_path = Path::new(&args[1]);
-    ensure!(
-        effect_path.extension().and_then(|ext| ext.to_str())
-            == Some(EffectAssetSerializer::file_extension()),
-        "effect path must use the .{} extension",
-        EffectAssetSerializer::file_extension()
-    );
+const W: u32 = 320;
+const H: u32 = 208;
+const TEX_W: u32 = 96;
+const TEX_H: u32 = 160;
 
-    let input_image = image::open(&args[2])?;
-    let width = input_image.width();
-    let height = input_image.height();
-    let texture_image = image::open(&args[3])?.to_luma8();
+// Deterministic integer hash so every channel value is reproducible without fixtures.
+fn channel_hash(x: u32, y: u32, salt: u32) -> u8 {
+    let mut v = x
+        .wrapping_mul(0x9E3779B1)
+        ^ y.wrapping_mul(0x85EBCA77)
+        ^ salt.wrapping_mul(0xC2B2AE3D);
+    v ^= v >> 15;
+    v = v.wrapping_mul(0x2545F491);
+    v ^= v >> 13;
+    (v >> 24) as u8
+}
+
+fn test_images() -> (image::DynamicImage, GrayImage) {
+    let image = image::RgbaImage::from_fn(W, H, |x, y| {
+        image::Rgba([
+            channel_hash(x, y, 1),
+            channel_hash(x, y, 2),
+            channel_hash(x, y, 3),
+            255,
+        ])
+    });
+    let texture = GrayImage::from_fn(TEX_W, TEX_H, |x, y| {
+        image::Luma([channel_hash(x, y, 4)])
+    });
+    (image::DynamicImage::ImageRgba8(image), texture)
+}
+
+fn reference_luminance(r: u8, g: u8, b: u8) -> f32 {
+    (f32::from(r) / 255.0 * 0.2126 + f32::from(g) / 255.0 * 0.7152 + f32::from(b) / 255.0 * 0.0722)
+        .clamp(0.0, 1.0)
+}
+
+fn reference_exposure(input: &image::DynamicImage) -> f32 {
+    let mut sum: u64 = 0;
+    let pixels = input.as_rgba8().unwrap();
+    for (_, _, pixel) in pixels.enumerate_pixels() {
+        let luminance = reference_luminance(pixel[0], pixel[1], pixel[2]);
+        sum += u64::from((luminance * 65535.0).round() as u32);
+    }
+    let count = u64::from(W * H);
+    let average = sum as f32 / (count as f32 * 65535.0).max(1.0);
+    (0.18 / average.max(0.001)).clamp(0.25, 4.0)
+}
+
+#[test]
+fn effect_matches_cpu_reference() {
+    if !gpu_available() {
+        eprintln!("skipping: no wgpu adapter available");
+        return;
+    }
+
+    let (input, texture) = test_images();
     let context = RenderContext::default();
     let graph_resources = resources(ArrayAtomicU32Type {
         len: HISTOGRAM_SIZE,
@@ -805,29 +834,33 @@ fn main() -> Result<()> {
     let (generated, target_id, params_id, texture_id, layer_output, histogram_output) =
         generate_effect(graph_resources.clone());
 
+    // Regression guard for asset round trips: the graph must survive serialization.
     let serializer = EffectAssetSerializer;
+    let mut encoded = Vec::new();
     serializer
-        .write(&generated.as_asset()?, &mut File::create(effect_path)?)
-        .context("failed to save generated effect")?;
-    let asset = serializer
-        .read(&mut File::open(effect_path)?)
-        .context("failed to load generated effect")?;
-    let effect = EffectInstance::from_asset(&asset, graph_resources)?;
+        .write(&generated.as_asset().unwrap(), &mut encoded)
+        .unwrap();
+    let asset = serializer.read(&mut Cursor::new(encoded)).unwrap();
+    let effect = EffectInstance::from_asset(&asset, graph_resources).unwrap();
+
     let renderer =
-        EffectRenderer::from_instance(&effect, context.device.clone(), context.queue.clone())?;
+        EffectRenderer::from_instance(&effect, context.device.clone(), context.queue.clone())
+            .unwrap();
     let params_type = EffectParamType;
-    let params = params_type.prepare_to_shader(
-        &EffectParam {
-            ca_intensity: 1.0,
-            texture_intensity: 0.35,
-        },
-        &context.device,
-        &context.queue,
-    )?;
+    let params = params_type
+        .prepare_to_shader(
+            &EffectParam {
+                ca_intensity: 1.0,
+                texture_intensity: 0.35,
+            },
+            &context.device,
+            &context.queue,
+        )
+        .unwrap();
     let inputs = HashMap::from([
         (
             target_id,
-            prepare_layer(input_image, &context.device, &context.queue)?,
+            prepare_layer(input.clone(), &context.device, &context.queue).unwrap(),
         ),
         (
             params_id,
@@ -835,17 +868,85 @@ fn main() -> Result<()> {
         ),
         (
             texture_id,
-            prepare_texture(texture_image, &context.device, &context.queue),
+            prepare_texture(texture.clone(), &context.device, &context.queue),
         ),
     ]);
-    let outputs = renderer.run(inputs)?;
-    block_on(execute(
-        &context,
-        outputs,
-        layer_output,
-        histogram_output,
-        width,
-        height,
-        &args[4],
+    let outputs = renderer.run(inputs).unwrap();
+
+    let histogram = block_on(read_histogram(
+        &outputs[&histogram_output],
+        &context.device,
+        &context.queue,
     ))
+    .unwrap();
+    let result =
+        block_on(readback_layer(&outputs[&layer_output], W, H, &context.device, &context.queue))
+            .unwrap();
+
+    // Pass 1: every pixel lands in exactly one histogram bin inside the bounds.
+    let mut expected_histogram = [0u32; HISTOGRAM_SIZE as usize];
+    for (_, _, pixel) in input.as_rgba8().unwrap().enumerate_pixels() {
+        let luminance = reference_luminance(pixel[0], pixel[1], pixel[2]);
+        let bin = (luminance * 255.0 + 0.5).floor() as usize;
+        expected_histogram[bin.min(HISTOGRAM_SIZE as usize - 1)] += 1;
+    }
+    assert_eq!(
+        histogram.iter().sum::<u32>(),
+        W * H,
+        "histogram must count every pixel exactly once"
+    );
+    let displacement: u32 = histogram
+        .iter()
+        .zip(expected_histogram.iter())
+        .map(|(gpu, expected)| gpu.abs_diff(*expected))
+        .sum();
+    assert!(
+        displacement <= 32,
+        "histogram diverged from CPU reference (displacement {displacement}): {histogram:?}"
+    );
+
+    // Passes 2 + 3: exposure driven chromatic aberration with texture modulation.
+    let exposure = reference_exposure(&input);
+    eprintln!("reference exposure: {exposure}");
+    let input = input.as_rgba8().unwrap();
+    let shift = 3_i32;
+    let mut max_delta = 0_i32;
+    let mut mismatched_channels = 0_u32;
+    let mut alpha_delta = 0_i32;
+    for (x, y, pixel) in result.enumerate_pixels() {
+        let load = |dx: i32, channel: usize| -> f32 {
+            let px = x as i32 + dx;
+            if px < 0 || px >= W as i32 {
+                0.0
+            } else {
+                f32::from(input.get_pixel(px as u32, y).0[channel]) / 255.0
+            }
+        };
+        let gray = f32::from(texture.get_pixel(x % TEX_W, y % TEX_H).0[0]) / 255.0;
+        let modulation = 1.0 + (gray - 1.0) * 0.35;
+        let center = input.get_pixel(x, y);
+        let expected = [
+            load(shift, 0) * exposure * modulation,
+            f32::from(center.0[1]) / 255.0 * exposure * modulation,
+            load(-shift, 2) * exposure * modulation,
+        ];
+        for (expected_channel, result_channel) in
+            expected.iter().zip(pixel.0.iter().take(3))
+        {
+            let expected_byte = ((expected_channel * 255.0).clamp(0.0, 255.0) as u32) as u8;
+            let delta = (i32::from(expected_byte) - i32::from(*result_channel)).abs();
+            max_delta = max_delta.max(delta);
+            mismatched_channels += u32::from(delta > 0);
+        }
+        alpha_delta = alpha_delta.max((i32::from(center.0[3]) - i32::from(pixel.0[3])).abs());
+    }
+    assert_eq!(alpha_delta, 0, "alpha must pass through untouched");
+    assert!(
+        max_delta <= 1,
+        "color channels diverged from CPU reference by {max_delta}"
+    );
+    assert!(
+        mismatched_channels <= W * H * 3 / 100,
+        "{mismatched_channels} channels differ from the CPU reference"
+    );
 }

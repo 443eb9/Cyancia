@@ -8,7 +8,6 @@ license.workspace = true
 
 [dev-dependencies]
 bytemuck.workspace = true
-env_logger.workspace = true
 glam.workspace = true
 futures.workspace = true
 image.workspace = true

@@ -62,6 +62,7 @@ pub fn builtin_types() -> GraphTypeRegistry {
     types.register_type::<Vec3UType>();
     types.register_type::<Vec4UType>();
     types.register_type::<ColorType>();
+    types.register_type::<RectType>();
 
     for texel_type in TexelType::ALL_POSSIBLE_FORMATS {
         types.register_type_value(TextureType { texel_type });

@@ -3581,7 +3581,6 @@ dependencies = [
  "bytemuck",
  "dyn-clone",
  "encase",
- "env_logger",
  "futures",
  "glam 0.30.10",
  "iced_core",
