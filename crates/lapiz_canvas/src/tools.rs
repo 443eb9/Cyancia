@@ -140,7 +140,9 @@ impl ToolFunction for ZoomTool {
             return Task::none();
         };
 
-        self.start_pos = Vec2::new(mouse.position.x, mouse.position.y);
+        self.start_pos = canvas
+            .transform
+            .window_to_widget(Vec2::new(mouse.position.x, mouse.position.y));
         self.original_transform = canvas.transform.clone();
         Task::none()
     }
@@ -155,7 +157,9 @@ impl ToolFunction for ZoomTool {
             return Task::none();
         };
 
-        let position = Vec2::new(mouse.position.x, mouse.position.y);
+        let position = canvas
+            .transform
+            .window_to_widget(Vec2::new(mouse.position.x, mouse.position.y));
         let delta = position.y - self.start_pos.y;
         let factor = -delta / self.original_transform.widget_bounds.size().y + 1.0;
         canvas.transform = self
