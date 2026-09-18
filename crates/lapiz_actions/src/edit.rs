@@ -26,7 +26,8 @@ impl ActionFunction for UndoAction {
     }
 
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        if services.update_current_tool_proxy(|proxy, services| proxy.undo(services)) == Some(true) {
+        if services.update_current_tool_proxy(|proxy, services| proxy.undo(services)) == Some(true)
+        {
             return Task::none();
         }
 
@@ -53,7 +54,8 @@ impl ActionFunction for RedoAction {
     }
 
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        if services.update_current_tool_proxy(|proxy, services| proxy.redo(services)) == Some(true) {
+        if services.update_current_tool_proxy(|proxy, services| proxy.redo(services)) == Some(true)
+        {
             return Task::none();
         }
 

@@ -143,7 +143,7 @@ impl TransformSession {
             })
             .collect();
 
-        let mut session = Self {
+        Self {
             canvas_id: init.canvas_id,
             target_layers,
             selection_layer_id: init.selection_layer_id,
@@ -163,8 +163,7 @@ impl TransformSession {
             ongoing_transform: None,
             tracker: ChangesTracker::default(),
             gesture_base: None,
-        };
-        session
+        }
     }
 
     fn params(&self) -> TransformParams {
@@ -749,7 +748,10 @@ impl ToolFunction for FreeTransformTool {
             && session.params() != base
         {
             let after = session.params();
-            session.tracker.push(TransformStep { before: base, after });
+            session.tracker.push(TransformStep {
+                before: base,
+                after,
+            });
         }
         Task::none()
     }

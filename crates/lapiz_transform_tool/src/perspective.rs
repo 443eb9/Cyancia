@@ -157,7 +157,7 @@ impl PerspectiveSession {
 
         let src_quad = rect_to_quad(init.pixel_bounds.as_rect());
 
-        let mut session = Self {
+        Self {
             canvas_id: init.canvas_id,
             target_layers,
             selection_layer_id: init.selection_layer_id,
@@ -172,8 +172,7 @@ impl PerspectiveSession {
             ongoing_transform: None,
             tracker: ChangesTracker::default(),
             gesture_base: None,
-        };
-        session
+        }
     }
 
     fn quad_state(&self) -> QuadState {
@@ -329,7 +328,10 @@ impl ToolFunction for PerspectiveTransformTool {
                 && session.dst_quad != base.quad
             {
                 let after = session.quad_state();
-                session.tracker.push(QuadStep { before: base, after });
+                session.tracker.push(QuadStep {
+                    before: base,
+                    after,
+                });
             }
         }
         Task::none()
