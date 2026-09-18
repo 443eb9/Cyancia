@@ -1,4 +1,4 @@
-use std::{collections::HashMap, f32::consts::TAU};
+use std::{collections::HashMap, f32::consts::TAU, mem};
 
 use bevy_math::IRect;
 use encase::ShaderType;
@@ -41,7 +41,7 @@ use lapiz_render::{
     wesl_jit,
 };
 use lapiz_runtime::{Renderer, Services, event::Event};
-use lapiz_tools::{ToolFunction, ToolId};
+use lapiz_tools::{ChangesTracker, ToolFunction, ToolId};
 use lapiz_undo::BatchedUndoCommand;
 use lapiz_utils::log_err::LogErr;
 use lapiz_widgets::{
@@ -109,6 +109,14 @@ pub struct LiquifyDabParams {
     pub magnitude: f32,
 }
 
+pub struct LiquifyStrokeStep {
+    pub before: DynamicLayerStorage,
+    // equivalent to empty tiles in `before`,
+    // memory indices to save some precious vram
+    pub empty_before: Vec<IVec2>,
+    pub after: DynamicLayerStorage,
+}
+
 pub struct LiquifySession {
     pub canvas_id: CanvasId,
     pub target_layers: Vec<LayerId>,
@@ -121,6 +129,10 @@ pub struct LiquifySession {
     pub dab_pipeline: LiquifyPipeline,
     pub last_dab: Vec2,
     pub stroking: bool,
+
+    pub tracker: ChangesTracker<LiquifyStrokeStep>,
+    pub stroke_before: DynamicLayerStorage,
+    pub empty_before: Vec<IVec2>,
 }
 
 impl LiquifySession {
@@ -209,6 +221,26 @@ impl LiquifySession {
             .flat_map(|y| (tile_rect.min.x..tile_rect.max.x).map(move |x| IVec2::new(x, y)))
             .collect::<Vec<_>>();
 
+        // snapshot tiles before the first dab touching them
+        let mut snapshot_tiles = Vec::new();
+        for tile in &dirty {
+            if self.stroke_before.get_tile_layer(*tile).is_some()
+                || self.empty_before.contains(tile)
+            {
+                continue;
+            }
+
+            if self.disp.get_tile_layer(*tile).is_some() {
+                snapshot_tiles.push(*tile);
+            } else {
+                self.empty_before.push(*tile);
+            }
+        }
+        if !snapshot_tiles.is_empty() {
+            self.stroke_before
+                .copy_tiles_from(&self.disp, snapshot_tiles);
+        }
+
         self.disp.allocate_tiles_batch(dirty.iter().copied());
         self.disp_back
             .allocate_tiles_batch(self.disp.iter_tile_indices());
@@ -236,8 +268,41 @@ impl LiquifySession {
                 &dst,
                 self.disp_back.len() as u32,
             );
-            std::mem::swap(&mut self.disp, &mut self.disp_back);
+            mem::swap(&mut self.disp, &mut self.disp_back);
         }
+    }
+
+    fn finish_stroke(&mut self, services: &mut Services) {
+        if self.stroke_before.is_empty() && self.empty_before.is_empty() {
+            return;
+        }
+
+        let mut after = DynamicLayerStorage::new(
+            services.render_device().clone(),
+            services.render_queue().clone(),
+            GpuLayerInfo {
+                texel_type: TexelType::RGBA8,
+            },
+        );
+        let touched = self
+            .stroke_before
+            .iter_tile_indices()
+            .chain(self.empty_before.iter().copied());
+        after.copy_tiles_from(&self.disp, touched);
+
+        let fresh_stroke_before = DynamicLayerStorage::new(
+            services.render_device().clone(),
+            services.render_queue().clone(),
+            GpuLayerInfo {
+                texel_type: TexelType::RGBA8,
+            },
+        );
+
+        self.tracker.push(LiquifyStrokeStep {
+            before: mem::replace(&mut self.stroke_before, fresh_stroke_before),
+            empty_before: mem::take(&mut self.empty_before),
+            after,
+        });
     }
 
     fn render_preview(&mut self, services: &mut Services) {
@@ -294,7 +359,6 @@ pub enum LiquifyToolMessage {
     Cancel,
 }
 
-// TODO Undoing stroke
 #[derive(Default)]
 pub struct LiquifyTransformTool {
     props: LiquifyProperties,
@@ -379,12 +443,48 @@ impl ToolFunction for LiquifyTransformTool {
         &mut self,
         _: &KeyboardState,
         _: &PressedMouseState,
-        _: &mut Services,
+        services: &mut Services,
     ) -> Task<Self::Message> {
         if let Some(session) = self.session.as_mut() {
             session.stroking = false;
+            session.finish_stroke(services);
         }
         Task::none()
+    }
+
+    fn undo(&mut self, services: &mut Services) -> bool {
+        let Some(session) = self.session.as_mut() else {
+            return false;
+        };
+        if session.stroking {
+            return true;
+        }
+
+        if let Some(step) = session.tracker.undo() {
+            session
+                .disp
+                .copy_tiles_from(&step.before, step.before.iter_tile_indices());
+            session.disp.clear_tiles(step.empty_before.iter().copied());
+            session.render_preview(services);
+        }
+        true
+    }
+
+    fn redo(&mut self, services: &mut Services) -> bool {
+        let Some(session) = self.session.as_mut() else {
+            return false;
+        };
+        if session.stroking {
+            return true;
+        }
+
+        if let Some(step) = session.tracker.redo() {
+            session
+                .disp
+                .copy_tiles_from(&step.after, step.after.iter_tile_indices());
+            session.render_preview(services);
+        }
+        true
     }
 
     fn deactivate(&mut self, services: &mut Services) -> Task<Self::Message> {
@@ -574,6 +674,7 @@ fn init_liquify_session(
     };
     let disp = DynamicLayerStorage::new(device.clone(), queue.clone(), disp_info);
     let disp_back = DynamicLayerStorage::new(device.clone(), queue.clone(), disp_info);
+    let stroke_before = DynamicLayerStorage::new(device.clone(), queue.clone(), disp_info);
 
     Some(LiquifySession {
         canvas_id,
@@ -587,6 +688,9 @@ fn init_liquify_session(
         dab_pipeline,
         last_dab: Vec2::ZERO,
         stroking: false,
+        tracker: ChangesTracker::default(),
+        stroke_before,
+        empty_before: Vec::new(),
     })
 }
 

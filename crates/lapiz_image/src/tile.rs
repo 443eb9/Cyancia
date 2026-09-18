@@ -761,6 +761,76 @@ impl DynamicLayerStorage {
         sibling
     }
 
+    pub fn copy_tiles_from(&mut self, src: &Self, tiles: impl IntoIterator<Item = IVec2>) {
+        let tiles = tiles
+            .into_iter()
+            .filter(|tile| src.get_tile_layer(*tile).is_some())
+            .collect::<Vec<_>>();
+        if tiles.is_empty() {
+            return;
+        }
+
+        self.allocate_tiles_batch(tiles.iter().copied());
+
+        let mut ec = self.device.create_command_encoder(&Default::default());
+        for tile in &tiles {
+            ec.copy_texture_to_texture(
+                TexelCopyTextureInfo {
+                    texture: src.texture().unwrap(),
+                    mip_level: 0,
+                    origin: Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: src.get_tile_layer(*tile).unwrap(),
+                    },
+                    aspect: TextureAspect::All,
+                },
+                TexelCopyTextureInfo {
+                    texture: self.texture().unwrap(),
+                    mip_level: 0,
+                    origin: Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: self.get_tile_layer(*tile).unwrap(),
+                    },
+                    aspect: TextureAspect::All,
+                },
+                Extent3d {
+                    width: Self::TILE_SIZE,
+                    height: Self::TILE_SIZE,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        self.queue.submit([ec.finish()]);
+    }
+
+    pub fn clear_tiles(&mut self, tiles: impl IntoIterator<Item = IVec2>) {
+        let layers = tiles
+            .into_iter()
+            .filter_map(|tile| self.get_tile_layer(tile))
+            .collect::<Vec<_>>();
+        if layers.is_empty() {
+            return;
+        }
+        let Some(texture) = self.texture() else {
+            return;
+        };
+
+        let mut ec = self.device.create_command_encoder(&Default::default());
+        for layer in layers {
+            ec.clear_texture(
+                texture,
+                &ImageSubresourceRange {
+                    base_array_layer: layer,
+                    array_layer_count: Some(1),
+                    ..Default::default()
+                },
+            );
+        }
+        self.queue.submit([ec.finish()]);
+    }
+
     pub fn convert_color_space(
         &self,
         src_pr: &ColorProfile,

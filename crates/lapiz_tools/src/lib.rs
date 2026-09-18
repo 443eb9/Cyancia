@@ -62,6 +62,39 @@ wrapper! {
     pub ToolId : Arc<str>
 }
 
+pub struct ChangesTracker<S> {
+    cursor: usize,
+    history: Vec<S>,
+}
+
+impl<S> Default for ChangesTracker<S> {
+    fn default() -> Self {
+        Self {
+            cursor: 0,
+            history: Vec::new(),
+        }
+    }
+}
+
+impl<S> ChangesTracker<S> {
+    pub fn push(&mut self, state: S) {
+        self.history.truncate(self.cursor);
+        self.history.push(state);
+        self.cursor = self.history.len();
+    }
+
+    pub fn undo(&mut self) -> Option<&S> {
+        self.cursor = self.cursor.checked_sub(1)?;
+        self.history.get(self.cursor)
+    }
+
+    pub fn redo(&mut self) -> Option<&S> {
+        let state = self.history.get(self.cursor)?;
+        self.cursor += 1;
+        Some(state)
+    }
+}
+
 pub trait ToolFunction: 'static {
     type Message: Send + Sync + 'static;
 
@@ -101,6 +134,12 @@ pub trait ToolFunction: 'static {
         _: &mut Services,
     ) -> Task<Self::Message> {
         Task::none()
+    }
+    fn undo(&mut self, _: &mut Services) -> bool {
+        false
+    }
+    fn redo(&mut self, _: &mut Services) -> bool {
+        false
     }
     fn deactivate(&mut self, _: &mut Services) -> Task<Self::Message> {
         Task::none()
@@ -153,6 +192,8 @@ pub trait ErasedToolFunction: 'static {
         mouse: &PressedMouseState,
         services: &mut Services,
     ) -> Task<ErasedToolFunctionMessage>;
+    fn undo(&mut self, services: &mut Services) -> bool;
+    fn redo(&mut self, services: &mut Services) -> bool;
     fn deactivate(&mut self, services: &mut Services) -> Task<ErasedToolFunctionMessage>;
     fn handle_message(
         &mut self,
@@ -237,6 +278,14 @@ impl<T: ToolFunction> ErasedToolFunction for T {
                 tool_id: T::id(),
                 message: Box::new(message),
             })
+    }
+
+    fn undo(&mut self, services: &mut Services) -> bool {
+        ToolFunction::undo(self, services)
+    }
+
+    fn redo(&mut self, services: &mut Services) -> bool {
+        ToolFunction::redo(self, services)
     }
 
     fn deactivate(&mut self, services: &mut Services) -> Task<ErasedToolFunctionMessage> {
@@ -496,6 +545,26 @@ impl ToolProxy {
             .get_mut(&state.function)
             .unwrap()
             .end(keyboard, mouse, services)
+    }
+
+    pub fn undo(&mut self, services: &mut Services) -> bool {
+        let Some(state) = self.override_state.as_mut().or(self.current_state.as_mut()) else {
+            return false;
+        };
+        self.tool_functions
+            .get_mut(&state.function)
+            .unwrap()
+            .undo(services)
+    }
+
+    pub fn redo(&mut self, services: &mut Services) -> bool {
+        let Some(state) = self.override_state.as_mut().or(self.current_state.as_mut()) else {
+            return false;
+        };
+        self.tool_functions
+            .get_mut(&state.function)
+            .unwrap()
+            .redo(services)
     }
 
     pub fn handle_message(
