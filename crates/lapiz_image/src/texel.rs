@@ -70,6 +70,13 @@ impl TexelType {
         }
     }
 
+    pub fn wgpu_texel(&self) -> String {
+        match (self.format, self.depth) {
+            (TexelFormat::Rgba, TexelDepth::Bit8) => "r32uint".to_string(),
+            (TexelFormat::Alpha, TexelDepth::Bit8) => "r8unorm".to_string(),
+        }
+    }
+
     pub fn moxcms_layout(&self) -> Layout {
         self.format.moxcms_layout()
     }

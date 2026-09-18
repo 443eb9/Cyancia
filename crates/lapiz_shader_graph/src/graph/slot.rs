@@ -1,20 +1,28 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use anyhow::Result;
 use downcast_rs::Downcast;
 use dyn_clone::DynClone;
+use lapiz_render::{
+    bind_group_entries::DynamicBindGroupEntries,
+    bind_group_layout_entries::DynamicBindGroupLayoutEntries,
+};
 use lapiz_utils::wrapper;
 use parse_display::Display;
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use uuid::Uuid;
-use wgpu::QueueWriteBufferView;
+use wgpu::{Device, Queue};
 
 use crate::{
     GraphElement,
     graph::{
-        node::GraphNodeId,
-        variable::{GraphLiteral, GraphLiteralValue},
+        node::{GraphNodeCodeGenContext, GraphNodeId},
+        variable::{GraphLiteral, GraphLiteralValue, GraphShaderLiteralValue},
     },
+    save::GraphValueTypeId,
 };
 
 wrapper! {
@@ -52,18 +60,18 @@ impl GraphSlots {
 
 pub struct GraphDefaultInputSlot {
     pub name: String,
-    pub ty: Box<dyn ErasedGraphValueType>,
+    pub ty: Arc<dyn ErasedGraphValueType>,
 }
 
 impl GraphDefaultInputSlot {
     pub fn new<T: GraphValueType + Default>(name: String) -> Self {
         Self {
             name,
-            ty: Box::new(T::default()),
+            ty: Arc::new(T::default()),
         }
     }
 
-    pub fn new_boxed(name: String, ty: Box<dyn ErasedGraphValueType>) -> Self {
+    pub fn new_boxed(name: String, ty: Arc<dyn ErasedGraphValueType>) -> Self {
         Self { name, ty }
     }
 }
@@ -77,25 +85,25 @@ pub struct GraphInputSlotData {
 
 pub struct GraphDefaultOutputSlot {
     pub name: String,
-    pub ty: Box<dyn ErasedGraphValueType>,
+    pub ty: Arc<dyn ErasedGraphValueType>,
 }
 
 impl GraphDefaultOutputSlot {
     pub fn new<T: GraphValueType + Default>(name: String) -> Self {
         Self {
             name,
-            ty: Box::new(T::default()),
+            ty: Arc::new(T::default()),
         }
     }
 
     pub fn new_non_default<T: GraphValueType>(name: String, ty: T) -> Self {
         Self {
             name,
-            ty: Box::new(ty),
+            ty: Arc::new(ty),
         }
     }
 
-    pub fn new_boxed(name: String, ty: Box<dyn ErasedGraphValueType>) -> Self {
+    pub fn new_boxed(name: String, ty: Arc<dyn ErasedGraphValueType>) -> Self {
         Self { name, ty }
     }
 }
@@ -103,23 +111,103 @@ impl GraphDefaultOutputSlot {
 pub struct GraphOutputSlotData {
     pub node_id: GraphNodeId,
     pub name: String,
-    pub data_ty: Box<dyn ErasedGraphValueType>,
+    pub data_ty: Arc<dyn ErasedGraphValueType>,
     pub connected: HashSet<GraphInputSlotId>,
+}
+
+/// How a value participates in a shader: read as a pass input, or written as
+/// an output during bounds evaluation or the main run.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum GraphShaderStage {
+    Input,
+    Eval,
+    Main,
 }
 
 pub trait GraphValueType: Send + Sync + 'static + DynClone {
     type AssociatedLiteralType: GraphLiteralValue + Serialize + DeserializeOwned;
+    // TODO Better naming
+    // This means the resources that is uploaded to gpu and can be binded in pipelines.
+    type PreparedShaderType: GraphShaderLiteralValue;
     type Message: GraphLiteralUpdateMessage;
 
-    fn hue_chroma(&self) -> (f32, f32);
-    fn name(&self) -> &'static str;
+    fn id(&self) -> GraphValueTypeId;
+
+    fn push_shader_layout(
+        &self,
+        name: &str,
+        stage: GraphShaderStage,
+        group: u32,
+        binding: u32,
+        bindings: DynamicBindGroupLayoutEntries,
+        shader: String,
+    ) -> Result<(u32, DynamicBindGroupLayoutEntries, String)>;
+    fn push_shader_binding<'a>(
+        &self,
+        stage: GraphShaderStage,
+        value: &'a Self::PreparedShaderType,
+        binding: u32,
+        bindings: DynamicBindGroupEntries<'a>,
+    ) -> Result<(u32, DynamicBindGroupEntries<'a>)>;
+    fn prepare_to_shader(
+        &self,
+        data: &Self::AssociatedLiteralType,
+        device: &Device,
+        queue: &Queue,
+    ) -> Result<Self::PreparedShaderType>;
+
+    fn push_input_slots(&self) -> Vec<GraphDefaultInputSlot>
+    where
+        Self: Sized,
+    {
+        let ty: Arc<Self> = Arc::from(dyn_clone::clone_box(self));
+        vec![GraphDefaultInputSlot::new_boxed("value".into(), ty)]
+    }
+    fn push_output_slots(&self) -> Vec<GraphDefaultOutputSlot>
+    where
+        Self: Sized,
+    {
+        let ty: Arc<Self> = Arc::from(dyn_clone::clone_box(self));
+        vec![GraphDefaultOutputSlot::new_boxed("value".into(), ty)]
+    }
+    fn handle_input_values(
+        &self,
+        input_name: &str,
+        base_index: usize,
+        ctx: &mut GraphNodeCodeGenContext,
+    ) -> Result<String> {
+        ctx.get_output(base_index)?;
+        ctx.output_slot_idents
+            .insert(ctx.outputs[base_index], input_name.to_string());
+        Ok(String::new())
+    }
+    fn handle_output_values(
+        &self,
+        output_name: &str,
+        base_index: usize,
+        ctx: &GraphNodeCodeGenContext,
+    ) -> Result<String> {
+        let value = ctx.get_input(base_index)?;
+        Ok(format!("@if(!EVAL) {{ {output_name} = {value}; }}\n"))
+    }
+
+    // Runs on every pass output after bounds evaluation; resource types may
+    // read back and reallocate here. The async readback is TODO.
+    fn requires_eval(&self) -> bool {
+        false
+    }
+    fn post_eval(
+        &self,
+        _value: &mut Self::PreparedShaderType,
+        _device: &Device,
+        _queue: &Queue,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     fn default_literal(&self) -> Self::AssociatedLiteralType;
     fn wgsl_type(&self) -> Option<(&'static str, u64)>;
-    fn try_write_into_shader_buffer(
-        &self,
-        literal: &Self::AssociatedLiteralType,
-        writer: &mut QueueWriteBufferView,
-    ) -> Result<()>;
+    fn hue_chroma(&self) -> (f32, f32);
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
@@ -127,13 +215,16 @@ pub trait GraphValueType: Send + Sync + 'static + DynClone {
     fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message);
     fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<String>;
 
+    fn generate_extra_shader_body(&self, _stage: GraphShaderStage, _name: &str) -> Option<String> {
+        None
+    }
+
     fn serialize_literal(
         &self,
         data: &Self::AssociatedLiteralType,
     ) -> Result<toml::Value, toml::ser::Error> {
         toml::Value::try_from(data)
     }
-
     fn deserialize_literal<'a>(
         &self,
         deserializer: toml::Value,
@@ -169,16 +260,70 @@ impl Clone for ErasedGraphLiteralUpdateMessage {
     }
 }
 
-pub trait ErasedGraphValueType: Send + Sync + 'static + DynClone {
+pub trait ErasedGraphValueType: Send + Sync + 'static + DynClone + Downcast {
     fn hue_chroma(&self) -> (f32, f32);
-    fn name(&self) -> &'static str;
+    fn id(&self) -> GraphValueTypeId;
+
+    fn push_shader_layout(
+        &self,
+        name: &str,
+        stage: GraphShaderStage,
+        group: u32,
+        binding: u32,
+        bindings: DynamicBindGroupLayoutEntries,
+        shader: String,
+    ) -> Result<(u32, DynamicBindGroupLayoutEntries, String)>;
+    fn push_shader_binding<'a>(
+        &self,
+        stage: GraphShaderStage,
+        value: &'a dyn GraphShaderLiteralValue,
+        binding: u32,
+        bindings: DynamicBindGroupEntries<'a>,
+    ) -> Result<(u32, DynamicBindGroupEntries<'a>)>;
+    fn prepare_to_shader(
+        &self,
+        data: &dyn GraphLiteralValue,
+        device: &Device,
+        queue: &Queue,
+    ) -> Result<Box<dyn GraphShaderLiteralValue>>;
+
+    // These three values are used in effect passes to allow types to be able to
+    // customize its own behavior
+    // TODO better naming
+    fn push_input_slots(&self) -> Vec<GraphDefaultInputSlot>;
+    // TODO better naming
+    fn push_output_slots(&self) -> Vec<GraphDefaultOutputSlot>;
+    fn handle_input_values(
+        &self,
+        input_name: &str,
+        base_index: usize,
+        ctx: &mut GraphNodeCodeGenContext,
+    ) -> Result<String>;
+    // TODO better naming
+    fn handle_output_values(
+        &self,
+        output_name: &str,
+        base_index: usize,
+        ctx: &mut GraphNodeCodeGenContext,
+    ) -> Result<String>;
+
+    // Eval means eval stage in effect
+    fn requires_eval(&self) -> bool;
+    fn post_eval(
+        &self,
+        value: &mut dyn GraphShaderLiteralValue,
+        device: &Device,
+        queue: &Queue,
+    ) -> Result<()>;
+
+    // Inject extra shader body into built shader
+    // Used in LayerType to generate helpers like xxx_load and xxx_store
+    fn generate_extra_shader_body(&self, _stage: GraphShaderStage, _name: &str) -> Option<String> {
+        None
+    }
+
     fn default_literal(&self) -> Box<dyn GraphLiteralValue>;
     fn wgsl_type(&self) -> Option<(&'static str, u64)>;
-    fn try_write_into_shader_buffer(
-        &self,
-        literal: &dyn GraphLiteralValue,
-        writer: &mut QueueWriteBufferView,
-    ) -> Result<()>;
     fn view_literal(
         &self,
         slot_id: GraphInputSlotId,
@@ -200,6 +345,7 @@ pub trait ErasedGraphValueType: Send + Sync + 'static + DynClone {
     ) -> Result<Box<dyn GraphLiteralValue>, <toml::Value as Deserializer<'a>>::Error>;
 }
 
+downcast_rs::impl_downcast!(ErasedGraphValueType);
 dyn_clone::clone_trait_object!(ErasedGraphValueType);
 
 impl<T: GraphValueType> ErasedGraphValueType for T {
@@ -207,8 +353,103 @@ impl<T: GraphValueType> ErasedGraphValueType for T {
         self.hue_chroma()
     }
 
-    fn name(&self) -> &'static str {
-        self.name()
+    fn id(&self) -> GraphValueTypeId {
+        GraphValueType::id(self)
+    }
+
+    fn push_shader_layout(
+        &self,
+        name: &str,
+        stage: GraphShaderStage,
+        group: u32,
+        binding: u32,
+        bindings: DynamicBindGroupLayoutEntries,
+        shader: String,
+    ) -> Result<(u32, DynamicBindGroupLayoutEntries, String)> {
+        GraphValueType::push_shader_layout(self, name, stage, group, binding, bindings, shader)
+    }
+
+    fn push_shader_binding<'a>(
+        &self,
+        stage: GraphShaderStage,
+        value: &'a dyn GraphShaderLiteralValue,
+        binding: u32,
+        bindings: DynamicBindGroupEntries<'a>,
+    ) -> Result<(u32, DynamicBindGroupEntries<'a>)> {
+        GraphValueType::push_shader_binding(
+            self,
+            stage,
+            value
+                .downcast_ref::<T::PreparedShaderType>()
+                .expect("failed to downcast prepared shader literal"),
+            binding,
+            bindings,
+        )
+    }
+
+    fn prepare_to_shader(
+        &self,
+        data: &dyn GraphLiteralValue,
+        device: &Device,
+        queue: &Queue,
+    ) -> Result<Box<dyn GraphShaderLiteralValue>> {
+        Ok(Box::new(GraphValueType::prepare_to_shader(
+            self,
+            data.downcast_ref::<T::AssociatedLiteralType>()
+                .expect("failed to downcast graph literal"),
+            device,
+            queue,
+        )?))
+    }
+
+    fn push_input_slots(&self) -> Vec<GraphDefaultInputSlot> {
+        GraphValueType::push_input_slots(self)
+    }
+
+    fn push_output_slots(&self) -> Vec<GraphDefaultOutputSlot> {
+        GraphValueType::push_output_slots(self)
+    }
+
+    fn handle_input_values(
+        &self,
+        input_name: &str,
+        base_index: usize,
+        ctx: &mut GraphNodeCodeGenContext,
+    ) -> Result<String> {
+        GraphValueType::handle_input_values(self, input_name, base_index, ctx)
+    }
+
+    fn handle_output_values(
+        &self,
+        output_name: &str,
+        base_index: usize,
+        ctx: &mut GraphNodeCodeGenContext,
+    ) -> Result<String> {
+        GraphValueType::handle_output_values(self, output_name, base_index, ctx)
+    }
+
+    fn requires_eval(&self) -> bool {
+        GraphValueType::requires_eval(self)
+    }
+
+    fn post_eval(
+        &self,
+        value: &mut dyn GraphShaderLiteralValue,
+        device: &Device,
+        queue: &Queue,
+    ) -> Result<()> {
+        GraphValueType::post_eval(
+            self,
+            value
+                .downcast_mut::<T::PreparedShaderType>()
+                .expect("failed to downcast prepared shader literal"),
+            device,
+            queue,
+        )
+    }
+
+    fn generate_extra_shader_body(&self, stage: GraphShaderStage, name: &str) -> Option<String> {
+        GraphValueType::generate_extra_shader_body(self, stage, name)
     }
 
     fn default_literal(&self) -> Box<dyn GraphLiteralValue> {
@@ -216,20 +457,7 @@ impl<T: GraphValueType> ErasedGraphValueType for T {
     }
 
     fn wgsl_type(&self) -> Option<(&'static str, u64)> {
-        self.wgsl_type()
-    }
-
-    fn try_write_into_shader_buffer(
-        &self,
-        literal: &dyn GraphLiteralValue,
-        writer: &mut QueueWriteBufferView,
-    ) -> Result<()> {
-        self.try_write_into_shader_buffer(
-            literal
-                .downcast_ref::<T::AssociatedLiteralType>()
-                .expect("failed to downcast graph literal"),
-            writer,
-        )
+        GraphValueType::wgsl_type(self)
     }
 
     fn view_literal(

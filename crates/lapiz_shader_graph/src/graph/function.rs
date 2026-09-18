@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::{
     graph::{
-        Graph, GraphData, node::GraphNodeRegistry, texture::SharedGraphTextureStorage,
+        Graph, node::GraphNodeRegistry, texture::SharedGraphTextureStorage,
         variable::GraphTypeRegistry,
     },
     save::SerializableGraphFunction,
@@ -23,19 +23,14 @@ use crate::{
     },
 };
 
-pub struct GraphFunctionData;
-
 pub static GRAPH_FUNCTION_TYPE_REGISTRY: LazyLock<Arc<GraphTypeRegistry>> =
     LazyLock::new(|| Arc::new(builtin_types()));
-pub static GRAPH_FUNCTION_NODE_REGISTRY: LazyLock<Arc<GraphNodeRegistry<GraphFunctionData>>> =
-    LazyLock::new(|| {
-        let mut nodes = builtin_nodes();
-        nodes.register::<GraphInputNode>();
-        nodes.register::<GraphOutputNode>();
-        Arc::new(nodes)
-    });
-
-impl GraphData for GraphFunctionData {}
+pub static GRAPH_FUNCTION_NODE_REGISTRY: LazyLock<Arc<GraphNodeRegistry>> = LazyLock::new(|| {
+    let mut nodes = builtin_nodes();
+    nodes.register::<GraphInputNode>();
+    nodes.register::<GraphOutputNode>();
+    Arc::new(nodes)
+});
 
 wrapper! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Display)]
@@ -43,7 +38,7 @@ wrapper! {
     pub GraphFunctionId : Uuid
 }
 
-pub type FunctionGraph = Graph<GraphFunctionData>;
+pub type FunctionGraph = Graph;
 
 pub struct GraphFunction {
     // FIXME This should always exist

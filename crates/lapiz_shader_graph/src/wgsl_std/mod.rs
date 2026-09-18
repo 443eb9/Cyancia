@@ -1,17 +1,11 @@
-use crate::graph::{GraphData, node::GraphNodeRegistry, variable::GraphTypeRegistry};
+use crate::graph::{node::GraphNodeRegistry, variable::GraphTypeRegistry};
 
 pub mod casters;
 pub mod nodes;
 pub mod types;
 
-pub fn builtin_nodes<Data: GraphData>() -> GraphNodeRegistry<Data> {
-    use nodes::{
-        ClampNode, ColorMixNode, CombineColorComponentsNode, CombineComponentsNode, CompareNode,
-        CurveNode, CustomExpressionNode, ExternalVariableNode, GetPixelColorNode,
-        GraphFunctionNode, RandomNode, RectMathNode, RepeatNode, ScalarMathNode, ScalarSelectNode,
-        SmoothStepNode, SplitColorComponentsNode, SplitComponentsNode, StepNode, TextureNode,
-        TextureSizeNode, VectorMathNode, VectorSelectNode,
-    };
+pub fn builtin_nodes() -> GraphNodeRegistry {
+    use nodes::*;
 
     let mut nodes = GraphNodeRegistry::with_capacity();
 
@@ -31,10 +25,9 @@ pub fn builtin_nodes<Data: GraphData>() -> GraphNodeRegistry<Data> {
     nodes.register::<CombineColorComponentsNode>();
     nodes.register::<GetPixelColorNode>();
     nodes.register::<ColorMixNode>();
-    nodes.register::<TextureNode>();
+    // nodes.register::<TextureNode>();
     nodes.register::<TextureSizeNode>();
     nodes.register::<GraphFunctionNode>();
-    nodes.register::<ExternalVariableNode>();
     nodes.register::<CurveNode>();
     nodes.register::<RepeatNode>();
     nodes.register::<CustomExpressionNode>();
@@ -53,8 +46,19 @@ pub fn builtin_types() -> GraphTypeRegistry {
 
     types.register_type::<F32Type>();
     types.register_type::<I32Type>();
+    types.register_type::<U32Type>();
     types.register_type::<BoolType>();
+    types.register_type::<AtomicI32Type>();
+    types.register_type::<AtomicU32Type>();
     types.register_type::<Vec2FType>();
+    types.register_type::<Vec3FType>();
+    types.register_type::<Vec4FType>();
+    types.register_type::<Vec2IType>();
+    types.register_type::<Vec3IType>();
+    types.register_type::<Vec4IType>();
+    types.register_type::<Vec2UType>();
+    types.register_type::<Vec3UType>();
+    types.register_type::<Vec4UType>();
     types.register_type::<ColorType>();
     types.register_type::<TextureType>();
     types.register_type::<RectType>();

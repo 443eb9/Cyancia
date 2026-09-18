@@ -3575,6 +3575,33 @@ dependencies = [
 [[package]]
 name = "lapiz_effect"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bevy_math 0.18.1 (git+https://github.com/443eb9/bevy.git?branch=release-0.18.1)",
+ "bytemuck",
+ "dyn-clone",
+ "encase",
+ "env_logger",
+ "futures",
+ "glam 0.30.10",
+ "iced_core",
+ "iced_runtime",
+ "image",
+ "indexmap",
+ "lapiz_assets",
+ "lapiz_image",
+ "lapiz_render",
+ "lapiz_runtime",
+ "lapiz_shader_graph",
+ "lapiz_utils",
+ "lapiz_widgets",
+ "serde",
+ "toml 1.1.5+spec-1.1.0",
+ "uuid",
+ "wesl",
+ "wesl-quote",
+ "wgpu",
+]
 
 [[package]]
 name = "lapiz_eye_dropper"
@@ -3683,7 +3710,6 @@ dependencies = [
  "lapiz_lazuli",
  "lapiz_render",
  "lapiz_runtime",
- "lapiz_shader_graph",
  "lapiz_utils",
  "lapiz_widgets",
  "log",
@@ -3921,6 +3947,7 @@ dependencies = [
  "downcast-rs 2.0.2",
  "dyn-clone",
  "encase",
+ "futures",
  "glam 0.30.10",
  "iced",
  "iced_core",
@@ -3931,6 +3958,7 @@ dependencies = [
  "indexmap",
  "lapiz_assets",
  "lapiz_i18n",
+ "lapiz_image",
  "lapiz_math",
  "lapiz_render",
  "lapiz_runtime",
@@ -3945,6 +3973,8 @@ dependencies = [
  "thiserror 2.0.20",
  "toml 1.1.6+spec-1.1.0",
  "uuid",
+ "wesl",
+ "wesl-quote",
  "wgpu",
 ]
 

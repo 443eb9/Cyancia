@@ -40,7 +40,7 @@ use crate::{
     GraphRenderer, GraphTheme,
     editor::slot::{GraphSlotId, GraphSlotPinPositionCollection},
     graph::{
-        Graph, GraphData, GraphResources,
+        Graph, GraphResources,
         node::{ErasedGraphNodeMessage, GraphNodeData, GraphNodeId},
         slot::{GraphInputSlotId, GraphOutputSlotId, GraphSlots},
     },
@@ -56,11 +56,7 @@ pub struct GraphEditorState {
 }
 
 impl GraphEditorState {
-    pub fn update<Data: GraphData>(
-        &mut self,
-        graph: &mut Graph<Data>,
-        message: GraphEditorMessage,
-    ) {
+    pub fn update(&mut self, graph: &mut Graph, message: GraphEditorMessage) {
         match message {
             GraphEditorMessage::Graph(message) => {
                 let target = self.resolve_subgraph_mut(graph);
@@ -84,7 +80,7 @@ impl GraphEditorState {
         }
     }
 
-    pub fn resolve_subgraph<'a, Data: GraphData>(&self, main: &'a Graph<Data>) -> &'a Graph<Data> {
+    pub fn resolve_subgraph<'a>(&self, main: &'a Graph) -> &'a Graph {
         let mut current = main;
         for comp in &self.path {
             let node = current.get_node(&comp.node_id).unwrap();
@@ -98,10 +94,7 @@ impl GraphEditorState {
         current
     }
 
-    pub fn resolve_subgraph_mut<'a, Data: GraphData>(
-        &self,
-        main: &'a mut Graph<Data>,
-    ) -> &'a mut Graph<Data> {
+    pub fn resolve_subgraph_mut<'a>(&self, main: &'a mut Graph) -> &'a mut Graph {
         let mut current = main;
         for comp in &self.path {
             let node = current.get_node_mut(&comp.node_id).unwrap();
@@ -117,13 +110,13 @@ impl GraphEditorState {
     }
 }
 
-pub struct GraphEditor<'a, Data: GraphData> {
-    graph: &'a Graph<Data>,
+pub struct GraphEditor<'a> {
+    graph: &'a Graph,
     editor_state: &'a GraphEditorState,
 }
 
-impl<'a, Data: GraphData> GraphEditor<'a, Data> {
-    pub fn new(graph: &'a Graph<Data>, editor_state: &'a GraphEditorState) -> Self {
+impl<'a> GraphEditor<'a> {
+    pub fn new(graph: &'a Graph, editor_state: &'a GraphEditorState) -> Self {
         Self {
             graph,
             editor_state,
@@ -131,10 +124,8 @@ impl<'a, Data: GraphData> GraphEditor<'a, Data> {
     }
 }
 
-impl<'a, Data: GraphData> From<GraphEditor<'a, Data>>
-    for Element<'a, GraphEditorMessage, GraphTheme, GraphRenderer>
-{
-    fn from(value: GraphEditor<'a, Data>) -> Self {
+impl<'a> From<GraphEditor<'a>> for Element<'a, GraphEditorMessage, GraphTheme, GraphRenderer> {
+    fn from(value: GraphEditor<'a>) -> Self {
         let GraphEditor {
             graph,
             editor_state,
@@ -193,7 +184,7 @@ pub enum GraphEditorEditorMessage {
     BackToSubgraphOrMain(Option<usize>),
 }
 
-impl<Data: GraphData> Graph<Data> {
+impl Graph {
     pub fn update(&mut self, message: GraphEditorGraphMessage) {
         match message {
             GraphEditorGraphMessage::NodeCreateRequest(position, name, node_id) => {
@@ -214,17 +205,17 @@ impl<Data: GraphData> Graph<Data> {
     }
 }
 
-pub struct GraphEditorView<'a, Data: GraphData> {
+pub struct GraphEditorView<'a> {
     graph: DrawableGraph<'a>,
     node_creation_menu_items: Vec<NodeCreationMenuItem>,
     node_creation_menu_class: <GraphTheme as menu::Catalog>::Class<'a>,
     snapshot: Option<GraphEditorSnapshot>,
-    subgraphs: HashMap<GraphNodeId, Vec<&'a Graph<Data>>>,
+    subgraphs: HashMap<GraphNodeId, Vec<&'a Graph>>,
     _state: &'a GraphEditorState,
 }
 
-impl<'a, Data: GraphData> GraphEditorView<'a, Data> {
-    pub fn new(graph: &'a Graph<Data>, state: &'a GraphEditorState) -> Self {
+impl<'a> GraphEditorView<'a> {
+    pub fn new(graph: &'a Graph, state: &'a GraphEditorState) -> Self {
         Self {
             graph: DrawableGraph::new(graph),
             node_creation_menu_items: graph
@@ -290,7 +281,7 @@ pub struct DrawableGraph<'a> {
 }
 
 impl<'a> DrawableGraph<'a> {
-    pub fn new<Data: GraphData>(graph: &'a Graph<Data>) -> Self {
+    pub fn new(graph: &'a Graph) -> Self {
         let mut nodes = IndexMap::with_capacity(graph.nodes.len());
         let mut node_indices = HashMap::with_capacity(graph.nodes.len());
         for (index, (id, node)) in graph.nodes.iter().enumerate() {
@@ -370,11 +361,11 @@ pub struct DrawableNode<'a> {
 }
 
 impl<'a> DrawableNode<'a> {
-    pub fn new<Data: GraphData>(
+    pub fn new(
         node_id: GraphNodeId,
-        node: &'a GraphNodeData<Data>,
+        node: &'a GraphNodeData,
         slots: &GraphSlots,
-        resources: &GraphResources<Data>,
+        resources: &GraphResources,
     ) -> Self {
         let (header_hue, header_chroma) = node.data.header_hue_chroma();
         let header = container(
@@ -427,9 +418,7 @@ impl<'a> DrawableNode<'a> {
     }
 }
 
-impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
-    for GraphEditorView<'a, Data>
-{
+impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditorView<'a> {
     fn diff(&mut self, tree: &mut Tree) {
         tree.diff_children(
             &mut self
@@ -1260,10 +1249,8 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
     }
 }
 
-impl<'a, Data: GraphData> From<GraphEditorView<'a, Data>>
-    for Element<'a, GraphEditorMessage, GraphTheme, GraphRenderer>
-{
-    fn from(value: GraphEditorView<'a, Data>) -> Self {
+impl<'a> From<GraphEditorView<'a>> for Element<'a, GraphEditorMessage, GraphTheme, GraphRenderer> {
+    fn from(value: GraphEditorView<'a>) -> Self {
         Element::new(value)
     }
 }

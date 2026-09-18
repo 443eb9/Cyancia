@@ -1,6 +1,6 @@
 use std::{
+    borrow::Borrow,
     collections::{HashMap, HashSet, hash_map::Entry},
-    marker::PhantomData,
     sync::Arc,
 };
 
@@ -13,8 +13,7 @@ use lapiz_assets::{
 use serde::{Deserialize, Serialize};
 
 use crate::graph::{
-    Graph, GraphData, GraphResources,
-    external::{ExternalVariable, ExternalVariableId},
+    Graph, GraphResources,
     function::{
         GRAPH_FUNCTION_NODE_REGISTRY, GRAPH_FUNCTION_TYPE_REGISTRY, GraphFunction, GraphFunctionId,
         SharedGraphFunctionStorage,
@@ -30,17 +29,17 @@ use crate::graph::{
     variable::{GraphLiteral, GraphTypeRegistry},
 };
 
-pub trait GraphSerializable<Data: GraphData>: Sized {
+pub trait GraphSerializable: Sized {
     fn to_toml(&self) -> Result<toml::Value>;
-    fn from_toml(value: toml::Value, resources: &GraphResources<Data>) -> Result<Self>;
+    fn from_toml(value: toml::Value, resources: &GraphResources) -> Result<Self>;
 }
 
-impl<'de, T: Serialize + Deserialize<'de>, Data: GraphData> GraphSerializable<Data> for T {
+impl<'de, T: Serialize + Deserialize<'de>> GraphSerializable for T {
     fn to_toml(&self) -> Result<toml::Value> {
         Ok(toml::Value::try_from(self)?)
     }
 
-    fn from_toml(value: toml::Value, _resources: &GraphResources<Data>) -> Result<Self> {
+    fn from_toml(value: toml::Value, _resources: &GraphResources) -> Result<Self> {
         Ok(Self::deserialize(value)?)
     }
 }
@@ -80,7 +79,7 @@ pub enum GraphDeserializeError {
     DeserializerError(toml::de::Error),
 }
 
-impl<Data: GraphData> Graph<Data> {
+impl Graph {
     pub fn to_toml(&self) -> Result<String, anyhow::Error> {
         let graph = self.as_serialized()?;
         Ok(toml::to_string(&graph)?)
@@ -88,7 +87,7 @@ impl<Data: GraphData> Graph<Data> {
 
     pub fn from_toml(
         s: &str,
-        resources: GraphResources<Data>,
+        resources: GraphResources,
     ) -> (Option<Self>, Vec<GraphDeserializeError>) {
         let graph = match toml::from_str::<SerializableGraph>(s) {
             Ok(g) => g,
@@ -101,7 +100,7 @@ impl<Data: GraphData> Graph<Data> {
 
     pub fn from_serialized(
         serialized: &SerializableGraph,
-        resources: GraphResources<Data>,
+        resources: GraphResources,
     ) -> (Option<Self>, Vec<GraphDeserializeError>) {
         let SerializableGraph {
             nodes,
@@ -128,7 +127,6 @@ impl<Data: GraphData> Graph<Data> {
                 node_inst,
                 GraphNodeDefaultStateContext {
                     resources: &resources,
-                    _marker: PhantomData,
                 },
             );
             match node.deserialize_and_set_state(ser_node.state.clone(), &resources) {
@@ -141,7 +139,6 @@ impl<Data: GraphData> Graph<Data> {
 
             let raw_inputs = node.create_inputs(GraphNodeCreateSlotsContext {
                 resources: &resources,
-                _marker: PhantomData,
             });
             if raw_inputs.len() != ser_node.inputs.len() {
                 errs.push(GraphDeserializeError::UnmatchedInputSlotCount {
@@ -160,11 +157,11 @@ impl<Data: GraphData> Graph<Data> {
                     continue 'node_loop;
                 };
 
-                let type_name = default.ty.name();
-                let value_type_obj = match resources.type_registry.get_type(type_name) {
+                let type_id = default.ty.id();
+                let value_type_obj = match resources.type_registry.resolve_type(&type_id.id) {
                     Some(t) => t,
                     None => {
-                        errs.push(GraphDeserializeError::TypeNotFound(type_name.to_string()));
+                        errs.push(GraphDeserializeError::TypeNotFound(type_id.id));
                         continue 'node_loop;
                     }
                 };
@@ -182,10 +179,7 @@ impl<Data: GraphData> Graph<Data> {
                     GraphInputSlotData {
                         node_id: ser_node.id,
                         name: default.name,
-                        data: GraphLiteral::new_boxed(
-                            literal_value,
-                            dyn_clone::clone_box(value_type_obj),
-                        ),
+                        data: GraphLiteral::new_boxed(literal_value, value_type_obj.clone()),
                         connected: slot.connected,
                     },
                 );
@@ -193,7 +187,6 @@ impl<Data: GraphData> Graph<Data> {
 
             let raw_outputs = node.create_outputs(GraphNodeCreateSlotsContext {
                 resources: &resources,
-                _marker: PhantomData,
             });
             if raw_outputs.len() != ser_node.outputs.len() {
                 errs.push(GraphDeserializeError::UnmatchedOutputSlotCount {
@@ -326,9 +319,21 @@ pub struct SerializableGraph {
     pub outputs: HashMap<GraphOutputSlotId, SerializableOutputSlotData>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GraphValueTypeId {
-    pub name: String,
+    pub id: String,
+}
+
+impl GraphValueTypeId {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self { id: id.into() }
+    }
+}
+
+impl Borrow<str> for GraphValueTypeId {
+    fn borrow(&self) -> &str {
+        &self.id
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
@@ -385,7 +390,7 @@ pub struct SerializableGraphLiteral {
 impl SerializableGraphLiteral {
     pub fn serialize(literal: &GraphLiteral) -> Result<SerializableGraphLiteral, toml::ser::Error> {
         Ok(SerializableGraphLiteral {
-            ty: literal.ty().name().to_string(),
+            ty: literal.ty().id().id,
             value: literal.ty().serialize_literal(literal.value())?,
         })
     }
@@ -395,48 +400,12 @@ impl SerializableGraphLiteral {
         type_registry: &GraphTypeRegistry,
     ) -> Result<GraphLiteral, SerializableGraphLiteralError> {
         let ty = type_registry
-            .get_type(&self.ty)
+            .resolve_type(&self.ty)
             .ok_or_else(|| SerializableGraphLiteralError::TypeNotFound(self.ty.clone()))?;
 
         let literal_value = ty.deserialize_literal(self.value.clone())?;
 
-        Ok(GraphLiteral::new_boxed(
-            literal_value,
-            dyn_clone::clone_box(ty),
-        ))
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct SerializableExternalVariable {
-    pub id: ExternalVariableId,
-    pub name: String,
-    pub value: SerializableGraphLiteral,
-}
-
-impl SerializableExternalVariable {
-    pub fn deserialize(
-        &self,
-        type_registry: &GraphTypeRegistry,
-    ) -> Result<ExternalVariable, SerializableGraphLiteralError> {
-        Ok(ExternalVariable {
-            id: self.id,
-            name: self.name.clone(),
-            value: self.value.deserialize(type_registry)?,
-        })
-    }
-
-    pub fn serialize(
-        var: &ExternalVariable,
-    ) -> Result<SerializableExternalVariable, toml::ser::Error> {
-        Ok(SerializableExternalVariable {
-            id: var.id,
-            name: var.name.clone(),
-            value: SerializableGraphLiteral {
-                ty: var.value.ty().name().to_string(),
-                value: var.value.ty().serialize_literal(var.value.value())?,
-            },
-        })
+        Ok(GraphLiteral::new_boxed(literal_value, ty.clone()))
     }
 }
 
@@ -465,9 +434,7 @@ impl SerializableGraphFunction {
         let resources = GraphResources {
             type_registry: GRAPH_FUNCTION_TYPE_REGISTRY.clone(),
             node_registry: GRAPH_FUNCTION_NODE_REGISTRY.clone(),
-            textures,
             functions,
-            external_vars: Arc::new(Default::default()),
         };
 
         let (maybe_graph, err) = Graph::from_serialized(&self.graph, resources);

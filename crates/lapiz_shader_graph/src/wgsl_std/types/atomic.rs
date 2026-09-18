@@ -1,0 +1,276 @@
+use anyhow::Result;
+use iced_core::Element;
+use iced_widget::space;
+use lapiz_render::{
+    bind_group_entries::DynamicBindGroupEntries,
+    bind_group_layout_entries::{DynamicBindGroupLayoutEntries, binding_types},
+};
+use lapiz_utils::random_oklch_hue_chroma;
+use wesl::syntax::*;
+use wesl_quote::quote_declaration;
+use wgpu::{Buffer, BufferDescriptor, BufferUsages, Device, Queue};
+
+use super::{I32Type, U32Type, prepare_uniform_storage, push_buffer_binding};
+use crate::{
+    GraphRenderer, GraphTheme,
+    graph::{
+        node::GraphNodeCodeGenContext,
+        slot::{GraphDefaultInputSlot, GraphDefaultOutputSlot, GraphShaderStage, GraphValueType},
+    },
+    save::GraphValueTypeId,
+};
+
+#[derive(Clone)]
+pub struct PreparedAtomicArray {
+    pub buffer: Buffer,
+    pub len: u32,
+}
+
+macro_rules! atomic_type {
+    ($name:ident, $value:ty, $plain:ty, $id:literal, $wgsl:literal) => {
+        #[derive(Default, Clone)]
+        pub struct $name;
+
+        impl GraphValueType for $name {
+            type AssociatedLiteralType = $value;
+            type PreparedShaderType = Buffer;
+            type Message = ();
+
+            fn id(&self) -> GraphValueTypeId {
+                GraphValueTypeId::new($id)
+            }
+
+            fn push_shader_layout(
+                &self,
+                name: &str,
+                stage: GraphShaderStage,
+                group: u32,
+                binding: u32,
+                bindings: DynamicBindGroupLayoutEntries,
+                mut shader: String,
+            ) -> Result<(u32, DynamicBindGroupLayoutEntries, String)> {
+                let value_type = Ident::new($wgsl.into());
+                let declaration = match stage {
+                    GraphShaderStage::Input => quote_declaration! {
+                        @group(#group) @binding(#binding) var<storage, read> #name: atomic<#value_type>;
+                    },
+                    GraphShaderStage::Eval | GraphShaderStage::Main => quote_declaration! {
+                        @group(#group) @binding(#binding) var<storage, read_write> #name: atomic<#value_type>;
+                    },
+                };
+                shader.push_str(&declaration.to_string());
+                shader.push('\n');
+                let entry = match stage {
+                    GraphShaderStage::Input => binding_types::storage_buffer_read_only_sized(false, None),
+                    GraphShaderStage::Eval | GraphShaderStage::Main => binding_types::storage_buffer_sized(false, None),
+                };
+                Ok((binding + 1, bindings.extend_with_indices(((binding, entry),)), shader))
+            }
+
+            fn push_shader_binding<'a>(
+                &self,
+                _stage: GraphShaderStage,
+                value: &'a Buffer,
+                binding: u32,
+                bindings: DynamicBindGroupEntries<'a>,
+            ) -> Result<(u32, DynamicBindGroupEntries<'a>)> {
+                push_buffer_binding(value, binding, bindings)
+            }
+
+            fn prepare_to_shader(&self, data: &$value, device: &Device, _queue: &Queue) -> Result<Buffer> {
+                prepare_uniform_storage(data, device, concat!("graph ", $id, " literal"))
+            }
+
+            fn push_input_slots(&self) -> Vec<GraphDefaultInputSlot> {
+                vec![GraphDefaultInputSlot::new::<$plain>("value".into())]
+            }
+
+            fn push_output_slots(&self) -> Vec<GraphDefaultOutputSlot> {
+                vec![GraphDefaultOutputSlot::new::<$plain>("value".into())]
+            }
+
+            fn handle_input_values(
+                &self,
+                input_name: &str,
+                base_index: usize,
+                ctx: &mut GraphNodeCodeGenContext,
+            ) -> Result<String> {
+                ctx.get_output(base_index)?;
+                ctx.output_slot_idents.insert(
+                    ctx.outputs[base_index],
+                    format!("atomicLoad(&{input_name})"),
+                );
+                Ok(String::new())
+            }
+
+            fn handle_output_values(
+                &self,
+                output_name: &str,
+                base_index: usize,
+                ctx: &GraphNodeCodeGenContext,
+            ) -> Result<String> {
+                let value = ctx.get_input(base_index)?;
+                Ok(format!("@if(!EVAL) {{ atomicAdd(&{output_name}, {value}); }}\n"))
+            }
+
+            fn default_literal(&self) -> Self::AssociatedLiteralType {
+                0
+            }
+
+            fn wgsl_type(&self) -> Option<(&'static str, u64)> {
+                None
+            }
+
+            fn hue_chroma(&self) -> (f32, f32) {
+                random_oklch_hue_chroma!($name)
+            }
+
+            fn view_literal(&self, _data: &Self::AssociatedLiteralType) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
+                Element::new(space())
+            }
+
+            fn update_literal(&self, _data: &mut Self::AssociatedLiteralType, _message: Self::Message) {}
+
+            fn literal_to_code(&self, _data: &Self::AssociatedLiteralType) -> Option<String> {
+                None
+            }
+        }
+    };
+}
+
+macro_rules! atomic_array_type {
+    ($name:ident, $value:ty, $plain:ty, $prefix:literal, $wgsl:literal) => {
+        #[derive(Clone)]
+        pub struct $name {
+            pub len: u32,
+        }
+
+        impl GraphValueType for $name {
+            type AssociatedLiteralType = Vec<$value>;
+            type PreparedShaderType = PreparedAtomicArray;
+            type Message = ();
+
+            fn id(&self) -> GraphValueTypeId {
+                GraphValueTypeId::new(format!("{}_{}", $prefix, self.len))
+            }
+
+            fn push_shader_layout(
+                &self,
+                name: &str,
+                stage: GraphShaderStage,
+                group: u32,
+                binding: u32,
+                bindings: DynamicBindGroupLayoutEntries,
+                mut shader: String,
+            ) -> Result<(u32, DynamicBindGroupLayoutEntries, String)> {
+                let value_type = Ident::new($wgsl.into());
+                let declaration = match stage {
+                    GraphShaderStage::Input => quote_declaration! {
+                        @group(#group) @binding(#binding) var<storage, read> #name: array<atomic<#value_type>>;
+                    },
+                    GraphShaderStage::Eval | GraphShaderStage::Main => quote_declaration! {
+                        @group(#group) @binding(#binding) var<storage, read_write> #name: array<atomic<#value_type>>;
+                    },
+                };
+                shader.push_str(&declaration.to_string());
+                shader.push('\n');
+                let entry = match stage {
+                    GraphShaderStage::Input => binding_types::storage_buffer_read_only_sized(false, None),
+                    GraphShaderStage::Eval | GraphShaderStage::Main => binding_types::storage_buffer_sized(false, None),
+                };
+                Ok((binding + 1, bindings.extend_with_indices(((binding, entry),)), shader))
+            }
+
+            fn push_shader_binding<'a>(
+                &self,
+                _stage: GraphShaderStage,
+                value: &'a PreparedAtomicArray,
+                binding: u32,
+                bindings: DynamicBindGroupEntries<'a>,
+            ) -> Result<(u32, DynamicBindGroupEntries<'a>)> {
+                push_buffer_binding(&value.buffer, binding, bindings)
+            }
+
+            fn prepare_to_shader(&self, data: &Vec<$value>, device: &Device, _queue: &Queue) -> Result<PreparedAtomicArray> {
+                let mut bytes = Vec::with_capacity(self.len as usize * std::mem::size_of::<$value>());
+                for value in data.iter().copied().chain(std::iter::repeat(0)).take(self.len as usize) {
+                    bytes.extend_from_slice(&value.to_ne_bytes());
+                }
+                let buffer = device.create_buffer(&BufferDescriptor {
+                    label: Some(concat!("graph ", $prefix, " literal")),
+                    size: (bytes.len() as u64).max(4),
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+                    mapped_at_creation: true,
+                });
+                if !bytes.is_empty() {
+                    buffer.slice(..bytes.len() as u64).get_mapped_range_mut().copy_from_slice(&bytes);
+                }
+                buffer.unmap();
+                Ok(PreparedAtomicArray { buffer, len: self.len })
+            }
+
+            fn push_input_slots(&self) -> Vec<GraphDefaultInputSlot> {
+                vec![
+                    GraphDefaultInputSlot::new::<I32Type>("index".into()),
+                    GraphDefaultInputSlot::new::<$plain>("value".into()),
+                ]
+            }
+
+            fn push_output_slots(&self) -> Vec<GraphDefaultOutputSlot> {
+                vec![GraphDefaultOutputSlot::new::<$plain>("value".into())]
+            }
+
+            fn handle_input_values(
+                &self,
+                input_name: &str,
+                base_index: usize,
+                ctx: &mut GraphNodeCodeGenContext,
+            ) -> Result<String> {
+                ctx.get_output(base_index)?;
+                ctx.output_slot_idents.insert(
+                    ctx.outputs[base_index],
+                    format!("atomicLoad(&{input_name}[dispatch_index])"),
+                );
+                Ok(String::new())
+            }
+
+            fn handle_output_values(
+                &self,
+                output_name: &str,
+                base_index: usize,
+                ctx: &GraphNodeCodeGenContext,
+            ) -> Result<String> {
+                let index = ctx.get_input(base_index)?;
+                let value = ctx.get_input(base_index + 1)?;
+                Ok(format!("@if(!EVAL) {{ atomicAdd(&{output_name}[{index}], {value}); }}\n"))
+            }
+
+            fn default_literal(&self) -> Self::AssociatedLiteralType {
+                vec![0; self.len as usize]
+            }
+
+            fn wgsl_type(&self) -> Option<(&'static str, u64)> {
+                None
+            }
+
+            fn hue_chroma(&self) -> (f32, f32) {
+                random_oklch_hue_chroma!($name)
+            }
+
+            fn view_literal(&self, _data: &Self::AssociatedLiteralType) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
+                Element::new(space())
+            }
+
+            fn update_literal(&self, _data: &mut Self::AssociatedLiteralType, _message: Self::Message) {}
+
+            fn literal_to_code(&self, _data: &Self::AssociatedLiteralType) -> Option<String> {
+                None
+            }
+        }
+    };
+}
+
+atomic_type!(AtomicI32Type, i32, I32Type, "atomic_i32", "i32");
+atomic_type!(AtomicU32Type, u32, U32Type, "atomic_u32", "u32");
+atomic_array_type!(ArrayAtomicI32Type, i32, I32Type, "array_atomic_i32", "i32");
+atomic_array_type!(ArrayAtomicU32Type, u32, U32Type, "array_atomic_u32", "u32");

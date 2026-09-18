@@ -5,7 +5,7 @@ use std::{
 
 use iced_core::{Point, Rectangle, Size};
 
-use crate::graph::{Graph, GraphData, node::GraphNodeId};
+use crate::graph::{Graph, node::GraphNodeId};
 
 const RANK_GAP: f32 = 120.0;
 const NODE_GAP: f32 = 40.0;
@@ -14,7 +14,7 @@ const CROSSING_REDUCTION_PASSES: usize = 4;
 const MAX_CENTER_ALIGNMENT_PASSES: usize = 16;
 const CENTER_ALIGNMENT_EPSILON: f32 = 0.01;
 
-impl<Data: GraphData> Graph<Data> {
+impl Graph {
     pub fn format(
         &mut self,
         node_sizes: &HashMap<GraphNodeId, Rectangle>,

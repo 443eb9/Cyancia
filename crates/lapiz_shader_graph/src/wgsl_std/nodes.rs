@@ -33,8 +33,7 @@ use uuid::Uuid;
 use crate::{
     GraphElement, GraphRenderer, GraphTheme,
     graph::{
-        Graph, GraphData, GraphResources, GraphVarIdentGenerator,
-        external::{ExternalVariableId, generate_external_variable_name},
+        Graph, GraphResources, GraphVarIdentGenerator,
         function::GraphFunctionId,
         node::{
             GraphNode, GraphNodeCodeGenContext, GraphNodeCodeGenError, GraphNodeCreateSlotsContext,
@@ -140,7 +139,7 @@ pub enum ScalarMathNodeMessage {
     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
-impl<Data: GraphData> GraphNode<Data> for ScalarMathNode {
+impl GraphNode for ScalarMathNode {
     type State = ScalarMathNodeMode;
     type Message = ScalarMathNodeMessage;
 
@@ -148,7 +147,7 @@ impl<Data: GraphData> GraphNode<Data> for ScalarMathNode {
         "scalar_math_node"
     }
 
-    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_>) -> Self::State {
         ScalarMathNodeMode::Add
     }
 
@@ -159,7 +158,7 @@ impl<Data: GraphData> GraphNode<Data> for ScalarMathNode {
     fn create_inputs(
         &self,
         state: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultInputSlot> {
         match state {
             ScalarMathNodeMode::Add | ScalarMathNodeMode::Max | ScalarMathNodeMode::Min => vec![
@@ -226,7 +225,7 @@ impl<Data: GraphData> GraphNode<Data> for ScalarMathNode {
     fn create_outputs(
         &self,
         _: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultOutputSlot> {
         vec![GraphDefaultOutputSlot::new::<F32Type>("result".into())]
     }
@@ -234,7 +233,7 @@ impl<Data: GraphData> GraphNode<Data> for ScalarMathNode {
     fn view(
         &self,
         state: &Self::State,
-        ctx: GraphNodeViewContext<'_, Data>,
+        ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
             ComboBox::new(
@@ -255,7 +254,7 @@ impl<Data: GraphData> GraphNode<Data> for ScalarMathNode {
         &self,
         state: &mut Self::State,
         message: Self::Message,
-        mut ctx: GraphNodeUpdateContext<'_, Data>,
+        mut ctx: GraphNodeUpdateContext<'_>,
     ) {
         match message {
             ScalarMathNodeMessage::ModeChanged(mode) => *state = mode,
@@ -266,7 +265,7 @@ impl<Data: GraphData> GraphNode<Data> for ScalarMathNode {
     fn generate_code(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let a = ctx.get_input(0);
         let b = ctx.get_input(1);
@@ -412,7 +411,7 @@ pub enum VectorMathNodeMessage {
     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
-impl<Data: GraphData> GraphNode<Data> for VectorMathNode {
+impl GraphNode for VectorMathNode {
     type State = VectorMathNodeMode;
     type Message = VectorMathNodeMessage;
 
@@ -420,7 +419,7 @@ impl<Data: GraphData> GraphNode<Data> for VectorMathNode {
         "vector_math_node"
     }
 
-    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_>) -> Self::State {
         VectorMathNodeMode::Add
     }
 
@@ -431,7 +430,7 @@ impl<Data: GraphData> GraphNode<Data> for VectorMathNode {
     fn create_inputs(
         &self,
         state: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultInputSlot> {
         match state {
             VectorMathNodeMode::Add | VectorMathNodeMode::Max | VectorMathNodeMode::Min => vec![
@@ -509,7 +508,7 @@ impl<Data: GraphData> GraphNode<Data> for VectorMathNode {
     fn create_outputs(
         &self,
         state: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultOutputSlot> {
         match state {
             VectorMathNodeMode::Add
@@ -560,7 +559,7 @@ impl<Data: GraphData> GraphNode<Data> for VectorMathNode {
     fn view(
         &self,
         state: &Self::State,
-        ctx: GraphNodeViewContext<'_, Data>,
+        ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
             ComboBox::new(
@@ -581,7 +580,7 @@ impl<Data: GraphData> GraphNode<Data> for VectorMathNode {
         &self,
         state: &mut Self::State,
         message: Self::Message,
-        mut ctx: GraphNodeUpdateContext<'_, Data>,
+        mut ctx: GraphNodeUpdateContext<'_>,
     ) {
         match message {
             VectorMathNodeMessage::ModeChanged(mode) => *state = mode,
@@ -592,7 +591,7 @@ impl<Data: GraphData> GraphNode<Data> for VectorMathNode {
     fn generate_code(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let a = ctx.get_input(0);
         let b = ctx.get_input(1);
@@ -674,7 +673,7 @@ pub enum RectMathNodeMessage {
     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
-impl<Data: GraphData> GraphNode<Data> for RectMathNode {
+impl GraphNode for RectMathNode {
     type State = RectMathNodeMode;
     type Message = RectMathNodeMessage;
 
@@ -682,7 +681,7 @@ impl<Data: GraphData> GraphNode<Data> for RectMathNode {
         "rect_math_node"
     }
 
-    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_>) -> Self::State {
         RectMathNodeMode::Union
     }
 
@@ -693,7 +692,7 @@ impl<Data: GraphData> GraphNode<Data> for RectMathNode {
     fn create_inputs(
         &self,
         state: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultInputSlot> {
         match state {
             RectMathNodeMode::Union | RectMathNodeMode::Intersection => vec![
@@ -712,7 +711,7 @@ impl<Data: GraphData> GraphNode<Data> for RectMathNode {
     fn create_outputs(
         &self,
         _: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultOutputSlot> {
         vec![GraphDefaultOutputSlot::new::<RectType>("result".into())]
     }
@@ -720,7 +719,7 @@ impl<Data: GraphData> GraphNode<Data> for RectMathNode {
     fn view(
         &self,
         state: &Self::State,
-        ctx: GraphNodeViewContext<'_, Data>,
+        ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
             ComboBox::new(
@@ -741,7 +740,7 @@ impl<Data: GraphData> GraphNode<Data> for RectMathNode {
         &self,
         state: &mut Self::State,
         message: Self::Message,
-        mut ctx: GraphNodeUpdateContext<'_, Data>,
+        mut ctx: GraphNodeUpdateContext<'_>,
     ) {
         match message {
             RectMathNodeMessage::ModeChanged(mode) => *state = mode,
@@ -752,7 +751,7 @@ impl<Data: GraphData> GraphNode<Data> for RectMathNode {
     fn generate_code(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let a = ctx.get_input(0)?;
         let b = ctx.get_input(1)?;
@@ -834,7 +833,7 @@ pub enum CompareNodeMessage {
     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
-impl<Data: GraphData> GraphNode<Data> for CompareNode {
+impl GraphNode for CompareNode {
     type State = CompareNodeMode;
     type Message = CompareNodeMessage;
 
@@ -842,7 +841,7 @@ impl<Data: GraphData> GraphNode<Data> for CompareNode {
         "compare_node"
     }
 
-    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_>) -> Self::State {
         CompareNodeMode::LessThan
     }
 
@@ -853,7 +852,7 @@ impl<Data: GraphData> GraphNode<Data> for CompareNode {
     fn create_inputs(
         &self,
         _: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultInputSlot> {
         vec![
             GraphDefaultInputSlot::new::<F32Type>("lhs".into()),
@@ -864,7 +863,7 @@ impl<Data: GraphData> GraphNode<Data> for CompareNode {
     fn create_outputs(
         &self,
         _: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultOutputSlot> {
         vec![GraphDefaultOutputSlot::new::<BoolType>("result".into())]
     }
@@ -872,7 +871,7 @@ impl<Data: GraphData> GraphNode<Data> for CompareNode {
     fn view(
         &self,
         state: &Self::State,
-        ctx: GraphNodeViewContext<'_, Data>,
+        ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
             ComboBox::new(
@@ -893,7 +892,7 @@ impl<Data: GraphData> GraphNode<Data> for CompareNode {
         &self,
         state: &mut Self::State,
         message: Self::Message,
-        mut ctx: GraphNodeUpdateContext<'_, Data>,
+        mut ctx: GraphNodeUpdateContext<'_>,
     ) {
         match message {
             CompareNodeMessage::ModeChanged(mode) => *state = mode,
@@ -904,7 +903,7 @@ impl<Data: GraphData> GraphNode<Data> for CompareNode {
     fn generate_code(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let lhs = ctx.get_input(0)?;
         let rhs = ctx.get_input(1)?;
@@ -925,7 +924,7 @@ impl<Data: GraphData> GraphNode<Data> for CompareNode {
 pub struct ScalarSelectNode;
 
 #[stateless]
-impl<Data: GraphData> StatelessCommonGraphNode<Data> for ScalarSelectNode {
+impl StatelessCommonGraphNode for ScalarSelectNode {
     fn id(&self) -> &'static str {
         "scalar_select_node"
     }
@@ -934,10 +933,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for ScalarSelectNode {
         random_oklch_hue_chroma!(ScalarSelectNode)
     }
 
-    fn create_inputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
+    fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
         vec![
             GraphDefaultInputSlot::new::<BoolType>("condition".into()),
             GraphDefaultInputSlot::new::<F32Type>("false".into()),
@@ -945,16 +941,13 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for ScalarSelectNode {
         ]
     }
 
-    fn create_outputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
+    fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
         vec![GraphDefaultOutputSlot::new::<F32Type>("result".into())]
     }
 
     fn generate_code(
         &self,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let condition = ctx.get_input(0)?;
         let false_value = ctx.get_input(1)?;
@@ -972,7 +965,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for ScalarSelectNode {
 pub struct VectorSelectNode;
 
 #[stateless]
-impl<Data: GraphData> StatelessCommonGraphNode<Data> for VectorSelectNode {
+impl StatelessCommonGraphNode for VectorSelectNode {
     fn id(&self) -> &'static str {
         "vector_select_node"
     }
@@ -981,10 +974,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for VectorSelectNode {
         random_oklch_hue_chroma!(VectorSelectNode)
     }
 
-    fn create_inputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
+    fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
         vec![
             GraphDefaultInputSlot::new::<BoolType>("condition".into()),
             GraphDefaultInputSlot::new::<Vec2FType>("false".into()),
@@ -992,16 +982,13 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for VectorSelectNode {
         ]
     }
 
-    fn create_outputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
+    fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
         vec![GraphDefaultOutputSlot::new::<Vec2FType>("result".into())]
     }
 
     fn generate_code(
         &self,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let condition = ctx.get_input(0)?;
         let false_value = ctx.get_input(1)?;
@@ -1015,69 +1002,58 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for VectorSelectNode {
     }
 }
 
-#[derive(Default, Clone)]
-pub struct TimeNode;
+// #[derive(Default, Clone)]
+// pub struct TimeNode;
 
-pub struct GraphTimes {
-    pub now: f32,
-    pub stroke_begin: f32,
-}
+// pub struct GraphTimes {
+//     pub now: f32,
+//     pub stroke_begin: f32,
+// }
 
-pub trait GraphDataWithTime: GraphData {
-    fn time(&self) -> GraphTimes;
-    fn wgsl_variable() -> String;
-}
+// #[stateless]
+// impl StatelessCommonGraphNode for TimeNode {
+//     fn id(&self) -> &'static str {
+//         "time_node"
+//     }
 
-#[stateless]
-impl<Data: GraphDataWithTime> StatelessCommonGraphNode<Data> for TimeNode {
-    fn id(&self) -> &'static str {
-        "time_node"
-    }
+//     fn header_hue_chroma(&self) -> (f32, f32) {
+//         random_oklch_hue_chroma!(TimeNode)
+//     }
 
-    fn header_hue_chroma(&self) -> (f32, f32) {
-        random_oklch_hue_chroma!(TimeNode)
-    }
+//     fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
+//         vec![]
+//     }
 
-    fn create_inputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
-        vec![]
-    }
+//     fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
+//         vec![
+//             GraphDefaultOutputSlot::new::<F32Type>("now".into()),
+//             GraphDefaultOutputSlot::new::<F32Type>("stroke_begin".into()),
+//         ]
+//     }
 
-    fn create_outputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
-        vec![
-            GraphDefaultOutputSlot::new::<F32Type>("now".into()),
-            GraphDefaultOutputSlot::new::<F32Type>("stroke_begin".into()),
-        ]
-    }
+//     fn generate_code(
+//         &self,
+//         mut ctx: GraphNodeCodeGenContext<'_>,
+//     ) -> Result<String, GraphNodeCodeGenError> {
+//         let now = ctx.get_output(0)?;
+//         let stroke_begin = ctx.get_output(1)?;
+//         let accessor = Data::wgsl_variable();
 
-    fn generate_code(
-        &self,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
-    ) -> Result<String, GraphNodeCodeGenError> {
-        let now = ctx.get_output(0)?;
-        let stroke_begin = ctx.get_output(1)?;
-        let accessor = Data::wgsl_variable();
-
-        Ok(format!(
-            "
-let {} = {}.now;
-let {} = {}.stroke_begin;
-                ",
-            now, accessor, stroke_begin, accessor
-        ))
-    }
-}
+//         Ok(format!(
+//             "
+// let {} = {}.now;
+// let {} = {}.stroke_begin;
+//                 ",
+//             now, accessor, stroke_begin, accessor
+//         ))
+//     }
+// }
 
 #[derive(Default, Clone)]
 pub struct ClampNode;
 
 #[stateless]
-impl<Data: GraphData> StatelessCommonGraphNode<Data> for ClampNode {
+impl StatelessCommonGraphNode for ClampNode {
     fn id(&self) -> &'static str {
         "clamp_node"
     }
@@ -1086,10 +1062,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for ClampNode {
         random_oklch_hue_chroma!(ClampNode)
     }
 
-    fn create_inputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
+    fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
         vec![
             GraphDefaultInputSlot::new::<F32Type>("value".into()),
             GraphDefaultInputSlot::new::<F32Type>("min".into()),
@@ -1097,16 +1070,13 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for ClampNode {
         ]
     }
 
-    fn create_outputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
+    fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
         vec![GraphDefaultOutputSlot::new::<F32Type>("result".into())]
     }
 
     fn generate_code(
         &self,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let input_value = ctx.get_input(0)?;
         let input_min = ctx.get_input(1)?;
@@ -1124,7 +1094,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for ClampNode {
 pub struct StepNode;
 
 #[stateless]
-impl<Data: GraphData> StatelessCommonGraphNode<Data> for StepNode {
+impl StatelessCommonGraphNode for StepNode {
     fn id(&self) -> &'static str {
         "step_node"
     }
@@ -1133,26 +1103,20 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for StepNode {
         random_oklch_hue_chroma!(StepNode)
     }
 
-    fn create_inputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
+    fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
         vec![
             GraphDefaultInputSlot::new::<F32Type>("edge".into()),
             GraphDefaultInputSlot::new::<F32Type>("x".into()),
         ]
     }
 
-    fn create_outputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
+    fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
         vec![GraphDefaultOutputSlot::new::<F32Type>("result".into())]
     }
 
     fn generate_code(
         &self,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let input_edge = ctx.get_input(0)?;
         let input_x = ctx.get_input(1)?;
@@ -1169,7 +1133,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for StepNode {
 pub struct SmoothStepNode;
 
 #[stateless]
-impl<Data: GraphData> StatelessCommonGraphNode<Data> for SmoothStepNode {
+impl StatelessCommonGraphNode for SmoothStepNode {
     fn id(&self) -> &'static str {
         "smooth_step_node"
     }
@@ -1178,10 +1142,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SmoothStepNode {
         random_oklch_hue_chroma!(SmoothStepNode)
     }
 
-    fn create_inputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
+    fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
         vec![
             GraphDefaultInputSlot::new::<F32Type>("edge0".into()),
             GraphDefaultInputSlot::new::<F32Type>("edge1".into()),
@@ -1189,16 +1150,13 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SmoothStepNode {
         ]
     }
 
-    fn create_outputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
+    fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
         vec![GraphDefaultOutputSlot::new::<F32Type>("result".into())]
     }
 
     fn generate_code(
         &self,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let input_edge0 = ctx.get_input(0)?;
         let input_edge1 = ctx.get_input(1)?;
@@ -1216,7 +1174,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SmoothStepNode {
 pub struct SplitComponentsNode;
 
 #[stateless]
-impl<Data: GraphData> StatelessCommonGraphNode<Data> for SplitComponentsNode {
+impl StatelessCommonGraphNode for SplitComponentsNode {
     fn id(&self) -> &'static str {
         "split_components_node"
     }
@@ -1225,17 +1183,11 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SplitComponentsNode {
         random_oklch_hue_chroma!(SplitComponentsNode)
     }
 
-    fn create_inputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
+    fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
         vec![GraphDefaultInputSlot::new::<Vec2FType>("vector".into())]
     }
 
-    fn create_outputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
+    fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
         vec![
             GraphDefaultOutputSlot::new::<F32Type>("x".into()),
             GraphDefaultOutputSlot::new::<F32Type>("y".into()),
@@ -1244,7 +1196,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SplitComponentsNode {
 
     fn generate_code(
         &self,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let input_vector = ctx.get_input(0)?;
         let output_x = ctx.get_output(0)?;
@@ -1261,7 +1213,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SplitComponentsNode {
 pub struct CombineComponentsNode;
 
 #[stateless]
-impl<Data: GraphData> StatelessCommonGraphNode<Data> for CombineComponentsNode {
+impl StatelessCommonGraphNode for CombineComponentsNode {
     fn id(&self) -> &'static str {
         "combine_components_node"
     }
@@ -1270,26 +1222,20 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for CombineComponentsNode {
         random_oklch_hue_chroma!(CombineComponentsNode)
     }
 
-    fn create_inputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
+    fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
         vec![
             GraphDefaultInputSlot::new::<F32Type>("x".into()),
             GraphDefaultInputSlot::new::<F32Type>("y".into()),
         ]
     }
 
-    fn create_outputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
+    fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
         vec![GraphDefaultOutputSlot::new::<Vec2FType>("vector".into())]
     }
 
     fn generate_code(
         &self,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let input_x = ctx.get_input(0)?;
         let input_y = ctx.get_input(1)?;
@@ -1306,7 +1252,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for CombineComponentsNode {
 pub struct CombineColorComponentsNode;
 
 #[stateless]
-impl<Data: GraphData> StatelessCommonGraphNode<Data> for CombineColorComponentsNode {
+impl StatelessCommonGraphNode for CombineColorComponentsNode {
     fn id(&self) -> &'static str {
         "combine_color_components_node"
     }
@@ -1315,10 +1261,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for CombineColorComponentsN
         random_oklch_hue_chroma!(CombineColorComponentsNode)
     }
 
-    fn create_inputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
+    fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
         vec![
             GraphDefaultInputSlot::new::<F32Type>("r".into()),
             GraphDefaultInputSlot::new::<F32Type>("g".into()),
@@ -1327,16 +1270,13 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for CombineColorComponentsN
         ]
     }
 
-    fn create_outputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
+    fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
         vec![GraphDefaultOutputSlot::new::<ColorType>("color".into())]
     }
 
     fn generate_code(
         &self,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let input_r = ctx.get_input(0)?;
         let input_g = ctx.get_input(1)?;
@@ -1355,7 +1295,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for CombineColorComponentsN
 pub struct SplitColorComponentsNode;
 
 #[stateless]
-impl<Data: GraphData> StatelessCommonGraphNode<Data> for SplitColorComponentsNode {
+impl StatelessCommonGraphNode for SplitColorComponentsNode {
     fn id(&self) -> &'static str {
         "split_color_components_node"
     }
@@ -1364,17 +1304,11 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SplitColorComponentsNod
         random_oklch_hue_chroma!(SplitColorComponentsNode)
     }
 
-    fn create_inputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
+    fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
         vec![GraphDefaultInputSlot::new::<ColorType>("color".into())]
     }
 
-    fn create_outputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
+    fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
         vec![
             GraphDefaultOutputSlot::new::<F32Type>("r".into()),
             GraphDefaultOutputSlot::new::<F32Type>("g".into()),
@@ -1385,7 +1319,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SplitColorComponentsNod
 
     fn generate_code(
         &self,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let input_color = ctx.get_input(0)?;
         let output_r = ctx.get_output(0)?;
@@ -1411,7 +1345,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for SplitColorComponentsNod
 pub struct GetPixelColorNode;
 
 #[stateless]
-impl<Data: GraphData> StatelessCommonGraphNode<Data> for GetPixelColorNode {
+impl StatelessCommonGraphNode for GetPixelColorNode {
     fn id(&self) -> &'static str {
         "get_pixel_color_node"
     }
@@ -1420,26 +1354,20 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for GetPixelColorNode {
         random_oklch_hue_chroma!(GetPixelColorNode)
     }
 
-    fn create_inputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
+    fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
         vec![
             GraphDefaultInputSlot::new::<TextureType>("texture".into()),
             GraphDefaultInputSlot::new::<Vec2FType>("position".into()),
         ]
     }
 
-    fn create_outputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
+    fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
         vec![GraphDefaultOutputSlot::new::<ColorType>("color".into())]
     }
 
     fn generate_code(
         &self,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let input_texture = ctx.get_input(0)?;
         let input_position = ctx.get_input(1)?;
@@ -1453,98 +1381,98 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for GetPixelColorNode {
     }
 }
 
-#[derive(Default, Clone)]
-pub struct TextureNode;
+// #[derive(Default, Clone)]
+// pub struct TextureNode;
 
-#[derive(Clone)]
-pub enum TextureNodeMessage {
-    TextureChanged(TextureId),
-    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
-}
+// #[derive(Clone)]
+// pub enum TextureNodeMessage {
+//     TextureChanged(TextureId),
+//     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
+// }
 
-impl<Data: GraphData> GraphNode<Data> for TextureNode {
-    type State = TextureId;
-    type Message = TextureNodeMessage;
+// impl GraphNode for TextureNode {
+//     type State = TextureId;
+//     type Message = TextureNodeMessage;
 
-    fn id(&self) -> &'static str {
-        "texture_node"
-    }
+//     fn id(&self) -> &'static str {
+//         "texture_node"
+//     }
 
-    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
-        TextureId::NULL
-    }
+//     fn default_state(&self, _: GraphNodeDefaultStateContext<'_>) -> Self::State {
+//         TextureId::NULL
+//     }
 
-    fn header_hue_chroma(&self) -> (f32, f32) {
-        random_oklch_hue_chroma!(TextureNode)
-    }
+//     fn header_hue_chroma(&self) -> (f32, f32) {
+//         random_oklch_hue_chroma!(TextureNode)
+//     }
 
-    fn create_inputs(
-        &self,
-        _: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
-        vec![]
-    }
+//     fn create_inputs(
+//         &self,
+//         _: &Self::State,
+//         _: GraphNodeCreateSlotsContext<'_>,
+//     ) -> Vec<GraphDefaultInputSlot> {
+//         vec![]
+//     }
 
-    fn create_outputs(
-        &self,
-        _: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
-        vec![GraphDefaultOutputSlot::new::<TextureType>("texture".into())]
-    }
+//     fn create_outputs(
+//         &self,
+//         _: &Self::State,
+//         _: GraphNodeCreateSlotsContext<'_>,
+//     ) -> Vec<GraphDefaultOutputSlot> {
+//         vec![GraphDefaultOutputSlot::new::<TextureType>("texture".into())]
+//     }
 
-    fn view(
-        &self,
-        state: &Self::State,
-        ctx: GraphNodeViewContext<'_, Data>,
-    ) -> GraphElement<'static, Self::Message> {
-        let texture_storage = ctx.resources.textures.load();
-        let textures = texture_storage.all().values().cloned().collect::<Vec<_>>();
-        let selected = textures
-            .iter()
-            .find(|texture| Some(texture.external_id) == **state)
-            .cloned();
-        ctx.view_all_slots_with_header(
-            ComboBox::new(textures, selected, |texture| {
-                TextureNodeMessage::TextureChanged(TextureId(Some(texture.external_id)))
-            })
-            .width(Length::Fill),
-            TextureNodeMessage::LiteralUpdate,
-        )
-    }
+//     fn view(
+//         &self,
+//         state: &Self::State,
+//         ctx: GraphNodeViewContext<'_>,
+//     ) -> GraphElement<'static, Self::Message> {
+//         let texture_storage = ctx.resources.textures.load();
+//         let textures = texture_storage.all().values().cloned().collect::<Vec<_>>();
+//         let selected = textures
+//             .iter()
+//             .find(|texture| Some(texture.external_id) == **state)
+//             .cloned();
+//         ctx.view_all_slots_with_header(
+//             ComboBox::new(textures, selected, |texture| {
+//                 TextureNodeMessage::TextureChanged(TextureId(Some(texture.external_id)))
+//             })
+//             .width(Length::Fill),
+//             TextureNodeMessage::LiteralUpdate,
+//         )
+//     }
 
-    fn update(
-        &self,
-        state: &mut Self::State,
-        message: Self::Message,
-        mut ctx: GraphNodeUpdateContext<'_, Data>,
-    ) {
-        match message {
-            TextureNodeMessage::TextureChanged(id) => *state = id,
-            TextureNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
-        }
-    }
+//     fn update(
+//         &self,
+//         state: &mut Self::State,
+//         message: Self::Message,
+//         mut ctx: GraphNodeUpdateContext<'_>,
+//     ) {
+//         match message {
+//             TextureNodeMessage::TextureChanged(id) => *state = id,
+//             TextureNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
+//         }
+//     }
 
-    fn generate_code(
-        &self,
-        state: &Self::State,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
-    ) -> Result<String, GraphNodeCodeGenError> {
-        // It's the external user's responsibility to generate the correct texture binding.
-        // The binding should be a texture binding_array. The index of each used texture in graph
-        // is corresponding to array index returned by TextureStorage::used_textures()
-        let index = ctx.texture_usage.use_texture(*state);
-        Ok(format!("let {} = {}u;\n", ctx.get_output(0)?, index))
-    }
-}
+//     fn generate_code(
+//         &self,
+//         state: &Self::State,
+//         mut ctx: GraphNodeCodeGenContext<'_>,
+//     ) -> Result<String, GraphNodeCodeGenError> {
+//         // It's the external user's responsibility to generate the correct texture binding.
+//         // The binding should be a texture binding_array. The index of each used texture in graph
+//         // is corresponding to array index returned by TextureStorage::used_textures()
+//         let index = ctx.texture_usage.use_texture(*state);
+//         Ok(format!("let {} = {}u;\n", ctx.get_output(0)?, index))
+//     }
+// }
 
 // TODO: Mixing in different color spaces.
 #[derive(Default, Clone)]
 pub struct ColorMixNode;
 
 #[stateless]
-impl<Data: GraphData> StatelessCommonGraphNode<Data> for ColorMixNode {
+impl StatelessCommonGraphNode for ColorMixNode {
     fn id(&self) -> &'static str {
         "color_mix_node"
     }
@@ -1553,10 +1481,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for ColorMixNode {
         random_oklch_hue_chroma!(ColorMixNode)
     }
 
-    fn create_inputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
+    fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
         vec![
             GraphDefaultInputSlot::new::<ColorType>("color_a".into()),
             GraphDefaultInputSlot::new::<ColorType>("color_b".into()),
@@ -1564,16 +1489,13 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for ColorMixNode {
         ]
     }
 
-    fn create_outputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
+    fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
         vec![GraphDefaultOutputSlot::new::<ColorType>("result".into())]
     }
 
     fn generate_code(
         &self,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let input_color_a = ctx.get_input(0)?;
         let input_color_b = ctx.get_input(1)?;
@@ -1591,7 +1513,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for ColorMixNode {
 pub struct TextureSizeNode;
 
 #[stateless]
-impl<Data: GraphData> StatelessCommonGraphNode<Data> for TextureSizeNode {
+impl StatelessCommonGraphNode for TextureSizeNode {
     fn id(&self) -> &'static str {
         "texture_size_node"
     }
@@ -1600,23 +1522,17 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for TextureSizeNode {
         random_oklch_hue_chroma!(TextureSizeNode)
     }
 
-    fn create_inputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
+    fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
         vec![GraphDefaultInputSlot::new::<TextureType>("texture".into())]
     }
 
-    fn create_outputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
+    fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
         vec![GraphDefaultOutputSlot::new::<Vec2FType>("size".into())]
     }
 
     fn generate_code(
         &self,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let input_texture = ctx.get_input(0)?;
         let output_size = ctx.get_output(0)?;
@@ -1662,7 +1578,7 @@ pub enum GraphFunctionNodeMessage {
     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
-impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
+impl GraphNode for GraphFunctionNode {
     type State = GraphFunctionNodeState;
     type Message = GraphFunctionNodeMessage;
 
@@ -1670,7 +1586,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
         "function_node"
     }
 
-    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_>) -> Self::State {
         GraphFunctionNodeState { id: None }
     }
 
@@ -1681,7 +1597,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
     fn create_inputs(
         &self,
         state: &Self::State,
-        ctx: GraphNodeCreateSlotsContext<'_, Data>,
+        ctx: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultInputSlot> {
         let functions = ctx.resources.functions.load();
         let Some(func) = state.id.as_ref().and_then(|id| functions.get(id)) else {
@@ -1693,10 +1609,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
             .inputs
             .iter()
             .map(|(_, var)| {
-                GraphDefaultInputSlot::new_boxed(
-                    var.identifier().to_string(),
-                    dyn_clone::clone_box(var.ty()),
-                )
+                GraphDefaultInputSlot::new_boxed(var.identifier().to_string(), var.ty().clone())
             })
             .collect()
     }
@@ -1704,7 +1617,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
     fn create_outputs(
         &self,
         state: &Self::State,
-        ctx: GraphNodeCreateSlotsContext<'_, Data>,
+        ctx: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultOutputSlot> {
         let functions = ctx.resources.functions.load();
         let Some(func) = state.id.as_ref().and_then(|id| functions.get(id)) else {
@@ -1716,10 +1629,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
             .outputs
             .iter()
             .map(|(_, var)| {
-                GraphDefaultOutputSlot::new_boxed(
-                    var.identifier().to_string(),
-                    dyn_clone::clone_box(var.ty()),
-                )
+                GraphDefaultOutputSlot::new_boxed(var.identifier().to_string(), var.ty().clone())
             })
             .collect()
     }
@@ -1727,7 +1637,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
     fn view(
         &self,
         state: &Self::State,
-        ctx: GraphNodeViewContext<'_, Data>,
+        ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         let function_storage = ctx.resources.functions.load();
         let functions = function_storage
@@ -1755,7 +1665,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
         &self,
         state: &mut Self::State,
         message: Self::Message,
-        mut ctx: GraphNodeUpdateContext<'_, Data>,
+        mut ctx: GraphNodeUpdateContext<'_>,
     ) {
         match message {
             GraphFunctionNodeMessage::FunctionChanged(id) => state.id = Some(id),
@@ -1766,7 +1676,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
     fn generate_code(
         &self,
         state: &Self::State,
-        ctx: GraphNodeCodeGenContext<'_, Data>,
+        ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let Some(id) = state.id.as_ref() else {
             return Ok(Default::default());
@@ -1793,7 +1703,6 @@ impl<Data: GraphData> GraphNode<Data> for GraphFunctionNode {
                     id.to_string().replace('-', "_"),
                     UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed)
                 )),
-                ctx.texture_usage,
             )
             .map_err(|e| GraphNodeCodeGenError::Custom(e.into()))?;
 
@@ -1811,17 +1720,17 @@ pub struct GraphInputNode;
 #[derive(Default, Serialize, Deserialize)]
 pub struct GraphInputNodeState {
     pub name: String,
-    pub ty: Option<&'static str>,
+    pub ty: Option<String>,
 }
 
 #[derive(Clone)]
 pub enum GraphInputNodeMessage {
     NameChanged(String),
-    TypeChanged(&'static str),
+    TypeChanged(String),
     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
-impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
+impl GraphNode for GraphInputNode {
     type State = GraphInputNodeState;
     type Message = GraphInputNodeMessage;
 
@@ -1829,7 +1738,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
         "graph_input_node"
     }
 
-    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_>) -> Self::State {
         GraphInputNodeState::default()
     }
 
@@ -1840,7 +1749,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
     fn create_inputs(
         &self,
         _: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultInputSlot> {
         vec![]
     }
@@ -1848,38 +1757,37 @@ impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
     fn create_outputs(
         &self,
         state: &Self::State,
-        ctx: GraphNodeCreateSlotsContext<'_, Data>,
+        ctx: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultOutputSlot> {
         let Some(ty) = state
             .ty
-            .and_then(|ty| ctx.resources.type_registry.get_type(ty))
-            .map(dyn_clone::clone_box)
+            .as_deref()
+            .and_then(|ty| ctx.resources.type_registry.resolve_type(ty))
         else {
             return vec![];
         };
 
-        vec![GraphDefaultOutputSlot::new_boxed(state.name.clone(), ty)]
+        vec![GraphDefaultOutputSlot::new_boxed(
+            state.name.clone(),
+            ty.clone(),
+        )]
     }
 
-    fn update_signature(
-        &self,
-        state: &Self::State,
-        mut ctx: GraphNodeUpdateSignatureContext<'_, Data>,
-    ) {
+    fn update_signature(&self, state: &Self::State, mut ctx: GraphNodeUpdateSignatureContext<'_>) {
         ctx.require_output_slot_as_graph_input(0, state.name.clone());
     }
 
     fn view(
         &self,
         state: &Self::State,
-        ctx: GraphNodeViewContext<'_, Data>,
+        ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         let types = ctx
             .resources
             .type_registry
             .all_types()
             .keys()
-            .copied()
+            .map(|id| id.id.clone())
             .collect::<Vec<_>>();
         ctx.view_all_slots_with_header(
             column![
@@ -1887,7 +1795,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
                     .size(12.0)
                     .style(lapiz_widgets::text_input::default)
                     .on_input(GraphInputNodeMessage::NameChanged),
-                ComboBox::new(types, state.ty, GraphInputNodeMessage::TypeChanged)
+                ComboBox::new(types, state.ty.clone(), GraphInputNodeMessage::TypeChanged)
                     .width(Length::Fill),
             ]
             .spacing(2),
@@ -1899,7 +1807,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
         &self,
         state: &mut Self::State,
         message: Self::Message,
-        mut ctx: GraphNodeUpdateContext<'_, Data>,
+        mut ctx: GraphNodeUpdateContext<'_>,
     ) {
         match message {
             GraphInputNodeMessage::NameChanged(name) => state.name = name,
@@ -1911,7 +1819,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphInputNode {
     fn generate_code(
         &self,
         _: &Self::State,
-        _: GraphNodeCodeGenContext<'_, Data>,
+        _: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         Ok(Default::default())
     }
@@ -1923,17 +1831,17 @@ pub struct GraphOutputNode;
 #[derive(Default, Serialize, Deserialize)]
 pub struct GraphOutputNodeState {
     pub name: String,
-    pub ty: Option<&'static str>,
+    pub ty: Option<String>,
 }
 
 #[derive(Clone)]
 pub enum GraphOutputNodeMessage {
     NameChanged(String),
-    TypeChanged(&'static str),
+    TypeChanged(String),
     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
-impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
+impl GraphNode for GraphOutputNode {
     type State = GraphOutputNodeState;
     type Message = GraphOutputNodeMessage;
 
@@ -1941,7 +1849,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
         "graph_output_node"
     }
 
-    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_>) -> Self::State {
         GraphOutputNodeState::default()
     }
 
@@ -1952,12 +1860,12 @@ impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
     fn create_inputs(
         &self,
         state: &Self::State,
-        ctx: GraphNodeCreateSlotsContext<'_, Data>,
+        ctx: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultInputSlot> {
         let Some(ty) = state
             .ty
-            .and_then(|ty| ctx.resources.type_registry.get_type(ty))
-            .map(dyn_clone::clone_box)
+            .as_deref()
+            .and_then(|ty| ctx.resources.type_registry.resolve_type(ty))
         else {
             return vec![];
         };
@@ -1968,30 +1876,26 @@ impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
     fn create_outputs(
         &self,
         _: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultOutputSlot> {
         vec![]
     }
 
-    fn update_signature(
-        &self,
-        state: &Self::State,
-        mut ctx: GraphNodeUpdateSignatureContext<'_, Data>,
-    ) {
+    fn update_signature(&self, state: &Self::State, mut ctx: GraphNodeUpdateSignatureContext<'_>) {
         ctx.require_input_slot_as_graph_output(0, state.name.clone());
     }
 
     fn view(
         &self,
         state: &Self::State,
-        ctx: GraphNodeViewContext<'_, Data>,
+        ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         let types = ctx
             .resources
             .type_registry
             .all_types()
             .keys()
-            .copied()
+            .map(|id| id.id.clone())
             .collect::<Vec<_>>();
         ctx.view_all_slots_with_header(
             column![
@@ -1999,7 +1903,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
                     .size(12.0)
                     .style(lapiz_widgets::text_input::default)
                     .on_input(GraphOutputNodeMessage::NameChanged),
-                ComboBox::new(types, state.ty, GraphOutputNodeMessage::TypeChanged)
+                ComboBox::new(types, state.ty.clone(), GraphOutputNodeMessage::TypeChanged)
                     .width(Length::Fill),
             ]
             .spacing(2),
@@ -2011,7 +1915,7 @@ impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
         &self,
         state: &mut Self::State,
         message: Self::Message,
-        mut ctx: GraphNodeUpdateContext<'_, Data>,
+        mut ctx: GraphNodeUpdateContext<'_>,
     ) {
         match message {
             GraphOutputNodeMessage::NameChanged(name) => state.name = name,
@@ -2023,157 +1927,9 @@ impl<Data: GraphData> GraphNode<Data> for GraphOutputNode {
     fn generate_code(
         &self,
         _: &Self::State,
-        _: GraphNodeCodeGenContext<'_, Data>,
+        _: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         Ok(Default::default())
-    }
-}
-
-#[derive(Clone)]
-pub struct ExternalVariableReference {
-    pub id: ExternalVariableId,
-    pub name: String,
-}
-
-impl PartialEq for ExternalVariableReference {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl std::fmt::Display for ExternalVariableReference {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.name)
-    }
-}
-
-#[derive(Default, Clone)]
-pub struct ExternalVariableNode;
-
-#[derive(Clone)]
-pub enum ExternalVariableNodeMessage {
-    VariableChanged(ExternalVariableId),
-    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
-}
-
-impl<Data: GraphData> GraphNode<Data> for ExternalVariableNode {
-    type State = Option<ExternalVariableId>;
-    type Message = ExternalVariableNodeMessage;
-
-    fn id(&self) -> &'static str {
-        "external_variable_node"
-    }
-
-    fn header_hue_chroma(&self) -> (f32, f32) {
-        random_oklch_hue_chroma!(ExternalVariableNode)
-    }
-
-    fn create_inputs(
-        &self,
-        _: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
-        vec![]
-    }
-
-    fn create_outputs(
-        &self,
-        state: &Self::State,
-        ctx: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
-        if let Some(id) = state.as_ref() {
-            match ctx.resources.external_vars.get(id) {
-                Some(var) => vec![GraphDefaultOutputSlot::new_boxed(
-                    var.name.clone(),
-                    dyn_clone::clone_box(var.value.ty()),
-                )],
-                None => {
-                    let all = ctx
-                        .resources
-                        .external_vars
-                        .all()
-                        .iter()
-                        .map(|entry| {
-                            let v = entry.value();
-                            format!("{}({})", v.name, v.id)
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ");
-
-                    log::error!(
-                        "Selected external variable {} not found in storage: {}",
-                        id,
-                        all
-                    );
-                    vec![]
-                }
-            }
-        } else {
-            vec![]
-        }
-    }
-
-    fn generate_code(
-        &self,
-        state: &Self::State,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
-    ) -> Result<String, GraphNodeCodeGenError> {
-        let id = state
-            .as_ref()
-            .ok_or(anyhow::anyhow!("No external literal selected"))?;
-        let var = ctx.resources.external_vars.get(id).ok_or(anyhow::anyhow!(
-            "Selected external literal not found in storage"
-        ))?;
-        let output = ctx.get_output(0)?;
-        Ok(format!(
-            "let {} = {};\n",
-            output,
-            generate_external_variable_name(&var)
-        ))
-    }
-
-    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
-        None
-    }
-
-    fn view(
-        &self,
-        state: &Self::State,
-        ctx: GraphNodeViewContext<'_, Data>,
-    ) -> GraphElement<'static, Self::Message> {
-        let variables = ctx
-            .resources
-            .external_vars
-            .all()
-            .iter()
-            .map(|entry| ExternalVariableReference {
-                id: entry.id,
-                name: entry.name.clone(),
-            })
-            .collect::<Vec<_>>();
-        let selected = variables
-            .iter()
-            .find(|reference| Some(reference.id) == *state)
-            .cloned();
-        ctx.view_all_slots_with_header(
-            ComboBox::new(variables, selected, |reference| {
-                ExternalVariableNodeMessage::VariableChanged(reference.id)
-            })
-            .width(Length::Fill),
-            ExternalVariableNodeMessage::LiteralUpdate,
-        )
-    }
-
-    fn update(
-        &self,
-        state: &mut Self::State,
-        message: Self::Message,
-        mut ctx: GraphNodeUpdateContext<'_, Data>,
-    ) {
-        match message {
-            ExternalVariableNodeMessage::VariableChanged(id) => *state = Some(id),
-            ExternalVariableNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
-        }
     }
 }
 
@@ -2207,7 +1963,7 @@ pub enum CurveNodeMessage {
     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
-impl<Data: GraphData> GraphNode<Data> for CurveNode {
+impl GraphNode for CurveNode {
     type State = CurveNodeState;
     type Message = CurveNodeMessage;
 
@@ -2215,7 +1971,7 @@ impl<Data: GraphData> GraphNode<Data> for CurveNode {
         "curve_node"
     }
 
-    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_>) -> Self::State {
         Default::default()
     }
 
@@ -2226,7 +1982,7 @@ impl<Data: GraphData> GraphNode<Data> for CurveNode {
     fn create_inputs(
         &self,
         _: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultInputSlot> {
         vec![GraphDefaultInputSlot::new::<F32Type>("x".into())]
     }
@@ -2234,7 +1990,7 @@ impl<Data: GraphData> GraphNode<Data> for CurveNode {
     fn create_outputs(
         &self,
         _: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultOutputSlot> {
         vec![GraphDefaultOutputSlot::new::<F32Type>("y".into())]
     }
@@ -2242,7 +1998,7 @@ impl<Data: GraphData> GraphNode<Data> for CurveNode {
     fn view(
         &self,
         state: &Self::State,
-        ctx: GraphNodeViewContext<'_, Data>,
+        ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
             CurveEdit::new(CubicCurve::new(state.control_points.clone()))
@@ -2257,7 +2013,7 @@ impl<Data: GraphData> GraphNode<Data> for CurveNode {
         &self,
         state: &mut Self::State,
         message: Self::Message,
-        mut ctx: GraphNodeUpdateContext<'_, Data>,
+        mut ctx: GraphNodeUpdateContext<'_>,
     ) {
         match message {
             CurveNodeMessage::CurveChanged(curve) => {
@@ -2270,7 +2026,7 @@ impl<Data: GraphData> GraphNode<Data> for CurveNode {
     fn generate_code(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let num_control_points = state.control_points.len();
         let mut control_points = state.control_points.clone();
@@ -2312,7 +2068,7 @@ let {} = render::math::sample_cubic_curve(
 pub struct RandomNode;
 
 #[stateless]
-impl<Data: GraphData> StatelessCommonGraphNode<Data> for RandomNode {
+impl StatelessCommonGraphNode for RandomNode {
     fn id(&self) -> &'static str {
         "random_number_node"
     }
@@ -2321,17 +2077,11 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for RandomNode {
         random_oklch_hue_chroma!(RandomNode)
     }
 
-    fn create_inputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
+    fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
         vec![GraphDefaultInputSlot::new::<F32Type>("seed".into())]
     }
 
-    fn create_outputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
+    fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
         vec![
             GraphDefaultOutputSlot::new::<F32Type>("scalar".into()),
             GraphDefaultOutputSlot::new::<Vec2FType>("vec2".into()),
@@ -2340,7 +2090,7 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for RandomNode {
 
     fn generate_code(
         &self,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         Ok(format!(
             "let {} = render::hash::hash11({});\nlet {} = render::hash::hash21({});\n",
@@ -2371,7 +2121,7 @@ impl RandomNode {
 pub struct RepeatIterationNode;
 
 #[stateless]
-impl<Data: GraphData> StatelessCommonGraphNode<Data> for RepeatIterationNode {
+impl StatelessCommonGraphNode for RepeatIterationNode {
     fn id(&self) -> &'static str {
         "repeat_iteration_node"
     }
@@ -2380,27 +2130,21 @@ impl<Data: GraphData> StatelessCommonGraphNode<Data> for RepeatIterationNode {
         random_oklch_hue_chroma!(RepeatIterationNode)
     }
 
-    fn create_inputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultInputSlot> {
+    fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
         Vec::new()
     }
 
-    fn create_outputs(
-        &self,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
-    ) -> Vec<GraphDefaultOutputSlot> {
+    fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
         vec![GraphDefaultOutputSlot::new::<I32Type>("iteration".into())]
     }
 
-    fn update_signature(&self, mut ctx: GraphNodeUpdateSignatureContext<'_, Data>) {
+    fn update_signature(&self, mut ctx: GraphNodeUpdateSignatureContext<'_>) {
         ctx.require_output_slot_as_graph_input(0, "Iteration".into());
     }
 
     fn generate_code(
         &self,
-        _: GraphNodeCodeGenContext<'_, Data>,
+        _: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         Ok(String::new())
     }
@@ -2415,7 +2159,7 @@ wrapper! {
 pub struct RepeatLocalSchema {
     pub id: RepeatVariableId,
     pub name: String,
-    pub ty: Box<dyn ErasedGraphValueType>,
+    pub ty: Arc<dyn ErasedGraphValueType>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -2425,26 +2169,26 @@ pub struct SerializableRepeatLocalSchema {
     pub ty: String,
 }
 
-impl<Data: GraphData> GraphSerializable<Data> for RepeatLocalSchema {
+impl GraphSerializable for RepeatLocalSchema {
     fn to_toml(&self) -> anyhow::Result<toml::Value> {
         let serializable = SerializableRepeatLocalSchema {
             id: self.id,
             name: self.name.clone(),
-            ty: self.ty.name().to_string(),
+            ty: self.ty.id().id,
         };
         Ok(toml::Value::try_from(serializable)?)
     }
 
-    fn from_toml(value: toml::Value, resources: &GraphResources<Data>) -> anyhow::Result<Self> {
+    fn from_toml(value: toml::Value, resources: &GraphResources) -> anyhow::Result<Self> {
         let serializable = SerializableRepeatLocalSchema::deserialize(value)?;
         let ty = resources
             .type_registry
-            .get_type(&serializable.ty)
+            .resolve_type(&serializable.ty)
             .ok_or_else(|| anyhow::anyhow!("Unknown type: {}", serializable.ty))?;
         Ok(RepeatLocalSchema {
             id: serializable.id,
             name: serializable.name,
-            ty: dyn_clone::clone_box(ty),
+            ty: ty.clone(),
         })
     }
 }
@@ -2453,7 +2197,7 @@ impl<Data: GraphData> GraphSerializable<Data> for RepeatLocalSchema {
 struct RepeatLocalSchemaDraft {
     pub id: RepeatVariableId,
     pub name: String,
-    pub ty: Option<Box<dyn ErasedGraphValueType>>,
+    pub ty: Option<Arc<dyn ErasedGraphValueType>>,
 }
 
 #[derive(Clone, Default)]
@@ -2497,19 +2241,19 @@ impl RepeatSchemaDraft {
     }
 }
 
-pub struct RepeatNodeState<Data: GraphData> {
+pub struct RepeatNodeState {
     locals: Arc<Mutex<IndexMap<RepeatVariableId, RepeatLocalSchema>>>,
     revision: u64,
-    body: Graph<Data>,
+    body: Graph,
     schema_draft: Option<RepeatSchemaDraft>,
 }
 
-impl<Data: GraphData> RepeatNodeState<Data> {
-    pub fn body(&self) -> &Graph<Data> {
+impl RepeatNodeState {
+    pub fn body(&self) -> &Graph {
         &self.body
     }
 
-    pub fn body_mut(&mut self) -> &mut Graph<Data> {
+    pub fn body_mut(&mut self) -> &mut Graph {
         &mut self.body
     }
 
@@ -2520,7 +2264,7 @@ impl<Data: GraphData> RepeatNodeState<Data> {
             RepeatLocalSchema {
                 id,
                 name,
-                ty: Box::new(T::default()),
+                ty: Arc::new(T::default()),
             },
         );
         self.revision += 1;
@@ -2572,7 +2316,7 @@ struct SerializableRepeatNodeState {
     body: SerializableGraph,
 }
 
-impl<Data: GraphData> GraphSerializable<Data> for RepeatNodeState<Data> {
+impl GraphSerializable for RepeatNodeState {
     fn to_toml(&self) -> anyhow::Result<toml::Value> {
         let locals = self
             .locals
@@ -2581,7 +2325,7 @@ impl<Data: GraphData> GraphSerializable<Data> for RepeatNodeState<Data> {
             .map(|local| SerializableRepeatLocalSchema {
                 id: local.id,
                 name: local.name.clone(),
-                ty: local.ty.clone().name().to_string(),
+                ty: local.ty.id().id,
             })
             .collect();
         let body = self.body.as_serialized()?;
@@ -2591,7 +2335,7 @@ impl<Data: GraphData> GraphSerializable<Data> for RepeatNodeState<Data> {
         })?)
     }
 
-    fn from_toml(value: toml::Value, resources: &GraphResources<Data>) -> anyhow::Result<Self> {
+    fn from_toml(value: toml::Value, resources: &GraphResources) -> anyhow::Result<Self> {
         let serialized = SerializableRepeatNodeState::deserialize(value)?;
         let locals =
             serialized
@@ -2603,11 +2347,11 @@ impl<Data: GraphData> GraphSerializable<Data> for RepeatNodeState<Data> {
                         RepeatLocalSchema {
                             id: local.id,
                             name: local.name,
-                            ty: dyn_clone::clone_box(
-                                resources.type_registry.get_type(&local.ty).ok_or_else(|| {
-                                    anyhow!("Type {} not found in registry", local.ty)
-                                })?,
-                            ),
+                            ty: resources
+                                .type_registry
+                                .resolve_type(&local.ty)
+                                .ok_or_else(|| anyhow!("Type {} not found in registry", local.ty))?
+                                .clone(),
                         },
                     );
 
@@ -2633,9 +2377,7 @@ impl<Data: GraphData> GraphSerializable<Data> for RepeatNodeState<Data> {
         let body_resources = GraphResources {
             type_registry: resources.type_registry.clone(),
             node_registry: Arc::new(node_registry),
-            textures: resources.textures.clone(),
             functions: resources.functions.clone(),
-            external_vars: resources.external_vars.clone(),
         };
         let (body, errors) = Graph::from_serialized(&serialized.body, body_resources);
         if !errors.is_empty() {
@@ -2670,7 +2412,7 @@ pub enum RepeatInputNodeMessage {
     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
-impl<Data: GraphData> GraphNode<Data> for RepeatInputNode {
+impl GraphNode for RepeatInputNode {
     type State = RepeatInputNodeState;
     type Message = RepeatInputNodeMessage;
 
@@ -2678,7 +2420,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatInputNode {
         "repeat_input_node"
     }
 
-    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_>) -> Self::State {
         RepeatInputNodeState::default()
     }
 
@@ -2689,7 +2431,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatInputNode {
     fn create_inputs(
         &self,
         _: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultInputSlot> {
         Vec::new()
     }
@@ -2697,7 +2439,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatInputNode {
     fn create_outputs(
         &self,
         state: &Self::State,
-        _ctx: GraphNodeCreateSlotsContext<'_, Data>,
+        _ctx: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultOutputSlot> {
         let locals = self.locals.lock();
         let Some(local) = state.variable.as_ref().and_then(|id| locals.get(id)) else {
@@ -2709,11 +2451,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatInputNode {
         )]
     }
 
-    fn update_signature(
-        &self,
-        state: &Self::State,
-        mut ctx: GraphNodeUpdateSignatureContext<'_, Data>,
-    ) {
+    fn update_signature(&self, state: &Self::State, mut ctx: GraphNodeUpdateSignatureContext<'_>) {
         let locals = self.locals.lock();
         let Some(local) = state.variable.as_ref().and_then(|id| locals.get(id)) else {
             return;
@@ -2724,7 +2462,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatInputNode {
     fn view(
         &self,
         state: &Self::State,
-        ctx: GraphNodeViewContext<'_, Data>,
+        ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         let locals = repeat_variable_references(&self.locals.lock());
         let selected = state
@@ -2743,7 +2481,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatInputNode {
         &self,
         state: &mut Self::State,
         message: Self::Message,
-        mut ctx: GraphNodeUpdateContext<'_, Data>,
+        mut ctx: GraphNodeUpdateContext<'_>,
     ) {
         match message {
             RepeatInputNodeMessage::VariableChanged(variable) => state.variable = Some(variable),
@@ -2754,7 +2492,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatInputNode {
     fn generate_code(
         &self,
         _: &Self::State,
-        _: GraphNodeCodeGenContext<'_, Data>,
+        _: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         Ok(String::new())
     }
@@ -2776,7 +2514,7 @@ pub enum RepeatOutputNodeMessage {
     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
-impl<Data: GraphData> GraphNode<Data> for RepeatOutputNode {
+impl GraphNode for RepeatOutputNode {
     type State = RepeatOutputNodeState;
     type Message = RepeatOutputNodeMessage;
 
@@ -2784,7 +2522,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatOutputNode {
         "repeat_output_node"
     }
 
-    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_>) -> Self::State {
         RepeatOutputNodeState::default()
     }
 
@@ -2795,7 +2533,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatOutputNode {
     fn create_inputs(
         &self,
         state: &Self::State,
-        _ctx: GraphNodeCreateSlotsContext<'_, Data>,
+        _ctx: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultInputSlot> {
         let locals = self.locals.lock();
         let Some(local) = state.variable.as_ref().and_then(|id| locals.get(id)) else {
@@ -2810,16 +2548,12 @@ impl<Data: GraphData> GraphNode<Data> for RepeatOutputNode {
     fn create_outputs(
         &self,
         _: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultOutputSlot> {
         Vec::new()
     }
 
-    fn update_signature(
-        &self,
-        state: &Self::State,
-        mut ctx: GraphNodeUpdateSignatureContext<'_, Data>,
-    ) {
+    fn update_signature(&self, state: &Self::State, mut ctx: GraphNodeUpdateSignatureContext<'_>) {
         let locals = self.locals.lock();
         let Some(local) = state.variable.as_ref().and_then(|id| locals.get(id)) else {
             return;
@@ -2830,7 +2564,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatOutputNode {
     fn view(
         &self,
         state: &Self::State,
-        ctx: GraphNodeViewContext<'_, Data>,
+        ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         let locals = repeat_variable_references(&self.locals.lock());
         let selected = state
@@ -2849,7 +2583,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatOutputNode {
         &self,
         state: &mut Self::State,
         message: Self::Message,
-        mut ctx: GraphNodeUpdateContext<'_, Data>,
+        mut ctx: GraphNodeUpdateContext<'_>,
     ) {
         match message {
             RepeatOutputNodeMessage::VariableChanged(variable) => state.variable = Some(variable),
@@ -2860,7 +2594,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatOutputNode {
     fn generate_code(
         &self,
         _: &Self::State,
-        _: GraphNodeCodeGenContext<'_, Data>,
+        _: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         Ok(String::new())
     }
@@ -2913,16 +2647,16 @@ pub enum RepeatNodeMessage {
     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
-fn repeat_schema_editor_view<Data: GraphData>(
-    state: &RepeatNodeState<Data>,
-    resources: &GraphResources<Data>,
+fn repeat_schema_editor_view(
+    state: &RepeatNodeState,
+    resources: &GraphResources,
 ) -> GraphElement<'static, RepeatNodeMessage> {
     let type_names = resources
         .type_registry
         .all_types()
         .keys()
-        .copied()
-        .collect::<Vec<&'static str>>();
+        .map(|id| id.id.clone())
+        .collect::<Vec<_>>();
     let draft = state.schema_draft.as_ref().expect("editor must be open");
 
     let rows = draft
@@ -2938,7 +2672,7 @@ fn repeat_schema_editor_view<Data: GraphData>(
                 row![
                     ComboBox::new(
                         type_names.clone(),
-                        local.ty.as_ref().map(|t| t.name()),
+                        local.ty.as_ref().map(|ty| ty.id().id),
                         move |ty| { RepeatNodeMessage::EditorChangeLocalType(id, ty.to_string()) },
                     )
                     .width(Length::Fill),
@@ -2996,8 +2730,8 @@ fn repeat_schema_editor_view<Data: GraphData>(
         .into()
 }
 
-impl<Data: GraphData> GraphNode<Data> for RepeatNode {
-    type State = RepeatNodeState<Data>;
+impl GraphNode for RepeatNode {
+    type State = RepeatNodeState;
 
     type Message = RepeatNodeMessage;
 
@@ -3005,7 +2739,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatNode {
         "repeat_node"
     }
 
-    fn default_state(&self, ctx: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+    fn default_state(&self, ctx: GraphNodeDefaultStateContext<'_>) -> Self::State {
         let locals = Arc::new(Mutex::new(IndexMap::new()));
         let repeat_node_extra = {
             let mut r = GraphNodeRegistry::default();
@@ -3025,9 +2759,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatNode {
         let body_resources = GraphResources {
             type_registry: ctx.resources.type_registry.clone(),
             node_registry: Arc::new(node_registry),
-            textures: ctx.resources.textures.clone(),
             functions: ctx.resources.functions.clone(),
-            external_vars: ctx.resources.external_vars.clone(),
         };
 
         RepeatNodeState {
@@ -3045,7 +2777,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatNode {
     fn create_inputs(
         &self,
         state: &Self::State,
-        _ctx: GraphNodeCreateSlotsContext<'_, Data>,
+        _ctx: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultInputSlot> {
         std::iter::once(GraphDefaultInputSlot::new::<I32Type>("iterations".into()))
             .chain(state.locals.lock().values().map(|local| {
@@ -3057,7 +2789,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatNode {
     fn create_outputs(
         &self,
         state: &Self::State,
-        _ctx: GraphNodeCreateSlotsContext<'_, Data>,
+        _ctx: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultOutputSlot> {
         state
             .locals
@@ -3072,7 +2804,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatNode {
     fn view(
         &self,
         state: &Self::State,
-        ctx: GraphNodeViewContext<'_, Data>,
+        ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         let trigger = Button::new(Label::new("Edit")).on_press(RepeatNodeMessage::ToggleEditor);
         let content = state
@@ -3087,7 +2819,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatNode {
         &self,
         state: &mut Self::State,
         message: Self::Message,
-        mut ctx: GraphNodeUpdateContext<'_, Data>,
+        mut ctx: GraphNodeUpdateContext<'_>,
     ) {
         match message {
             RepeatNodeMessage::ToggleEditor => {
@@ -3142,9 +2874,13 @@ impl<Data: GraphData> GraphNode<Data> for RepeatNode {
                 if let Some(draft) = &mut state.schema_draft
                     && let Some(local) = draft.locals.get_mut(&id)
                 {
-                    local.ty = Some(dyn_clone::clone_box(
-                        ctx.resources.type_registry.get_type(&ty).unwrap(),
-                    ));
+                    local.ty = Some(
+                        ctx.resources
+                            .type_registry
+                            .resolve_type(&ty)
+                            .unwrap()
+                            .clone(),
+                    );
                 }
             }
             RepeatNodeMessage::EditorConfirm => {
@@ -3166,7 +2902,7 @@ impl<Data: GraphData> GraphNode<Data> for RepeatNode {
     fn generate_code(
         &self,
         state: &Self::State,
-        ctx: GraphNodeCodeGenContext<'_, Data>,
+        ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let locals = state.locals.lock().clone();
         if locals.len() + 1 != ctx.inputs.len() || locals.len() != ctx.outputs.len() {
@@ -3254,7 +2990,6 @@ impl<Data: GraphData> GraphNode<Data> for RepeatNode {
                     "repeat_{}",
                     UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed)
                 )),
-                ctx.texture_usage,
             )
             .map_err(|error| GraphNodeCodeGenError::Custom(error.into()))?;
         code.push_str(&body_code);
@@ -3279,10 +3014,10 @@ impl<Data: GraphData> GraphNode<Data> for RepeatNode {
                     .slots
                     .get_output(&connected)
                     .ok_or(GraphNodeCodeGenError::MissingOutputSlot)?;
-                if output_slot.data_ty.name() != input_slot.data.ty().name() {
+                if output_slot.data_ty.id() != input_slot.data.ty().id() {
                     ctx.resources
                         .type_registry
-                        .try_wgsl_cast(&*output_slot.data_ty, input_slot.data.ty(), next)
+                        .try_wgsl_cast(&*output_slot.data_ty, input_slot.data.ty().as_ref(), next)
                         .ok_or(GraphNodeCodeGenError::FailedToCastVariable)?
                 } else {
                     next.clone()
@@ -3307,11 +3042,11 @@ impl<Data: GraphData> GraphNode<Data> for RepeatNode {
         Ok(code)
     }
 
-    fn subgraphs<'a>(&self, state: &'a Self::State) -> Vec<&'a Graph<Data>> {
+    fn subgraphs<'a>(&self, state: &'a Self::State) -> Vec<&'a Graph> {
         vec![&state.body]
     }
 
-    fn subgraphs_mut<'a>(&mut self, state: &'a mut Self::State) -> Vec<&'a mut Graph<Data>> {
+    fn subgraphs_mut<'a>(&mut self, state: &'a mut Self::State) -> Vec<&'a mut Graph> {
         vec![&mut state.body]
     }
 }
@@ -3326,7 +3061,7 @@ pub struct CustomExpressionVariable {
     pub id: CustomExpressionVariableId,
     pub display_name: String,
     pub name: String,
-    pub ty: Box<dyn ErasedGraphValueType>,
+    pub ty: Arc<dyn ErasedGraphValueType>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -3376,7 +3111,7 @@ impl CustomExpressionNodeState {
                 id,
                 display_name: name.clone(),
                 name,
-                ty: Box::new(T::default()),
+                ty: Arc::new(T::default()),
             },
         );
         id
@@ -3388,7 +3123,7 @@ struct CustomExpressionVariableDraft {
     id: CustomExpressionVariableId,
     display_name: String,
     name: String,
-    ty: Option<Box<dyn ErasedGraphValueType>>,
+    ty: Option<Arc<dyn ErasedGraphValueType>>,
 }
 
 #[derive(Clone, Copy)]
@@ -3463,7 +3198,7 @@ struct SerializableCustomExpressionNodeState {
     code: String,
 }
 
-impl<Data: GraphData> GraphSerializable<Data> for CustomExpressionNodeState {
+impl GraphSerializable for CustomExpressionNodeState {
     fn to_toml(&self) -> anyhow::Result<toml::Value> {
         let serialize = |variables: &IndexMap<_, CustomExpressionVariable>| {
             variables
@@ -3472,7 +3207,7 @@ impl<Data: GraphData> GraphSerializable<Data> for CustomExpressionNodeState {
                     id: variable.id,
                     display_name: variable.display_name.clone(),
                     name: variable.name.clone(),
-                    ty: variable.ty.name().to_string(),
+                    ty: variable.ty.id().id,
                 })
                 .collect()
         };
@@ -3485,7 +3220,7 @@ impl<Data: GraphData> GraphSerializable<Data> for CustomExpressionNodeState {
         )?)
     }
 
-    fn from_toml(value: toml::Value, resources: &GraphResources<Data>) -> anyhow::Result<Self> {
+    fn from_toml(value: toml::Value, resources: &GraphResources) -> anyhow::Result<Self> {
         let serialized = SerializableCustomExpressionNodeState::deserialize(value)?;
         let deserialize = |variables: Vec<SerializableCustomExpressionVariable>| {
             variables
@@ -3493,7 +3228,7 @@ impl<Data: GraphData> GraphSerializable<Data> for CustomExpressionNodeState {
                 .map(|variable| {
                     let ty = resources
                         .type_registry
-                        .get_type(&variable.ty)
+                        .resolve_type(&variable.ty)
                         .ok_or_else(|| anyhow!("Unknown type"))?;
                     Ok((
                         variable.id,
@@ -3501,7 +3236,7 @@ impl<Data: GraphData> GraphSerializable<Data> for CustomExpressionNodeState {
                             id: variable.id,
                             display_name: variable.display_name,
                             name: variable.name,
-                            ty: dyn_clone::clone_box(ty),
+                            ty: ty.clone(),
                         },
                     ))
                 })
@@ -3706,16 +3441,16 @@ pub enum CustomExpressionNodeMessage {
     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
-fn custom_expression_variable_rows<Data: GraphData>(
+fn custom_expression_variable_rows(
     variables: &IndexMap<CustomExpressionVariableId, CustomExpressionVariableDraft>,
     kind: CustomExpressionVariableKind,
-    resources: &GraphResources<Data>,
+    resources: &GraphResources,
 ) -> Vec<GraphElement<'static, CustomExpressionNodeMessage>> {
     let type_names = resources
         .type_registry
         .all_types()
         .keys()
-        .copied()
+        .map(|id| id.id.clone())
         .collect::<Vec<_>>();
     variables
         .values()
@@ -3740,7 +3475,7 @@ fn custom_expression_variable_rows<Data: GraphData>(
                 row![
                     ComboBox::new(
                         type_names.clone(),
-                        variable.ty.as_ref().map(|ty| ty.name()),
+                        variable.ty.as_ref().map(|ty| ty.id().id),
                         move |ty| {
                             CustomExpressionNodeMessage::ChangeType(kind, id, ty.to_string())
                         }
@@ -3769,9 +3504,9 @@ fn is_custom_expression_identifier(name: &str) -> bool {
         && chars.all(|c| c == '_' || c.is_ascii_alphanumeric())
 }
 
-fn custom_expression_editor_view<Data: GraphData>(
+fn custom_expression_editor_view(
     state: &CustomExpressionNodeState,
-    resources: &GraphResources<Data>,
+    resources: &GraphResources,
 ) -> GraphElement<'static, CustomExpressionNodeMessage> {
     let draft = state.draft.as_ref().expect("editor must be open");
     let input_rows = custom_expression_variable_rows(
@@ -3831,7 +3566,7 @@ fn custom_expression_editor_view<Data: GraphData>(
         .into()
 }
 
-impl<Data: GraphData> GraphNode<Data> for CustomExpressionNode {
+impl GraphNode for CustomExpressionNode {
     type State = CustomExpressionNodeState;
 
     type Message = CustomExpressionNodeMessage;
@@ -3840,7 +3575,7 @@ impl<Data: GraphData> GraphNode<Data> for CustomExpressionNode {
         "custom_expression_node"
     }
 
-    fn default_state(&self, _: GraphNodeDefaultStateContext<'_, Data>) -> Self::State {
+    fn default_state(&self, _: GraphNodeDefaultStateContext<'_>) -> Self::State {
         CustomExpressionNodeState {
             inputs: IndexMap::new(),
             outputs: IndexMap::new(),
@@ -3856,7 +3591,7 @@ impl<Data: GraphData> GraphNode<Data> for CustomExpressionNode {
     fn create_inputs(
         &self,
         state: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultInputSlot> {
         state
             .inputs
@@ -3870,7 +3605,7 @@ impl<Data: GraphData> GraphNode<Data> for CustomExpressionNode {
     fn create_outputs(
         &self,
         state: &Self::State,
-        _: GraphNodeCreateSlotsContext<'_, Data>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultOutputSlot> {
         state
             .outputs
@@ -3887,7 +3622,7 @@ impl<Data: GraphData> GraphNode<Data> for CustomExpressionNode {
     fn view<'a>(
         &self,
         state: &'a Self::State,
-        ctx: GraphNodeViewContext<'_, Data>,
+        ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'a, Self::Message> {
         let trigger =
             Button::new(Label::new("Edit")).on_press(CustomExpressionNodeMessage::ToggleEditor);
@@ -3909,7 +3644,7 @@ impl<Data: GraphData> GraphNode<Data> for CustomExpressionNode {
         &self,
         state: &mut Self::State,
         message: Self::Message,
-        mut ctx: GraphNodeUpdateContext<'_, Data>,
+        mut ctx: GraphNodeUpdateContext<'_>,
     ) {
         match message {
             CustomExpressionNodeMessage::ToggleEditor => {
@@ -3982,11 +3717,7 @@ impl<Data: GraphData> GraphNode<Data> for CustomExpressionNode {
                     .as_mut()
                     .and_then(|draft| draft.variables_mut(kind).get_mut(&id))
                 {
-                    variable.ty = ctx
-                        .resources
-                        .type_registry
-                        .get_type(&ty)
-                        .map(dyn_clone::clone_box);
+                    variable.ty = ctx.resources.type_registry.resolve_type(&ty);
                 }
             }
             CustomExpressionNodeMessage::CodeChanged(code) => state.code = code,
@@ -4005,7 +3736,7 @@ impl<Data: GraphData> GraphNode<Data> for CustomExpressionNode {
     fn generate_code(
         &self,
         state: &Self::State,
-        mut ctx: GraphNodeCodeGenContext<'_, Data>,
+        mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         if state.inputs.len() != ctx.inputs.len() || state.outputs.len() != ctx.outputs.len() {
             return Err(anyhow!("Invalid slots").into());
