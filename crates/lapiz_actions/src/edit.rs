@@ -2,7 +2,9 @@ use std::{any::TypeId, sync::Arc};
 
 use iced_core::clipboard::Content;
 use iced_runtime::{Task, clipboard};
-use lapiz_canvas::{CanvasAppExt, CanvasUndoStackAppExt, command::InsertLayerCommand};
+use lapiz_canvas::{
+    CanvasAppExt, CanvasToolProxyAppExt, CanvasUndoStackAppExt, command::InsertLayerCommand,
+};
 use lapiz_image::{
     layer::{LayerPosition, pixel_layer::PixelLayer},
     tile::TileStorageAppExt,
@@ -24,6 +26,10 @@ impl ActionFunction for UndoAction {
     }
 
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
+        if services.update_current_tool_proxy(|proxy, services| proxy.undo(services)) == Some(true) {
+            return Task::none();
+        }
+
         let Some(canvas_id) = services.current_canvas_id() else {
             return Task::none();
         };
@@ -47,6 +53,10 @@ impl ActionFunction for RedoAction {
     }
 
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
+        if services.update_current_tool_proxy(|proxy, services| proxy.redo(services)) == Some(true) {
+            return Task::none();
+        }
+
         let Some(canvas_id) = services.current_canvas_id() else {
             return Task::none();
         };

@@ -41,7 +41,7 @@ use lapiz_render::{
     wesl_jit,
 };
 use lapiz_runtime::{Renderer, Services, event::Event};
-use lapiz_tools::{ToolFunction, ToolId};
+use lapiz_tools::{ChangesTracker, ToolFunction, ToolId};
 use lapiz_undo::BatchedUndoCommand;
 use lapiz_utils::log_err::LogErr;
 use lapiz_widgets::{button::Button, icon, label::Label, panel::Panel};
@@ -82,6 +82,18 @@ pub struct InitPerspectiveTransform {
     pub pixel_bounds: IRect,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct QuadState {
+    quad: [Vec2; 4],
+    matrix: Mat3,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct QuadStep {
+    before: QuadState,
+    after: QuadState,
+}
+
 pub struct PerspectiveSession {
     pub canvas_id: CanvasId,
     pub target_layers: Vec<(LayerId, TexelType)>,
@@ -95,6 +107,8 @@ pub struct PerspectiveSession {
     pub result_buffers: HashMap<LayerId, DynamicLayerStorage>,
     pub transform_pipelines: HashMap<TexelType, PerspectiveTransformPipeline>,
     pub ongoing_transform: Option<OngoingPerspectiveTransform>,
+    tracker: ChangesTracker<QuadStep>,
+    gesture_base: Option<QuadState>,
 }
 
 impl PerspectiveSession {
@@ -143,7 +157,7 @@ impl PerspectiveSession {
 
         let src_quad = rect_to_quad(init.pixel_bounds.as_rect());
 
-        Self {
+        let mut session = Self {
             canvas_id: init.canvas_id,
             target_layers,
             selection_layer_id: init.selection_layer_id,
@@ -156,7 +170,22 @@ impl PerspectiveSession {
             result_buffers,
             transform_pipelines,
             ongoing_transform: None,
+            tracker: ChangesTracker::default(),
+            gesture_base: None,
+        };
+        session
+    }
+
+    fn quad_state(&self) -> QuadState {
+        QuadState {
+            quad: self.dst_quad,
+            matrix: self.matrix,
         }
+    }
+
+    fn apply_quad_state(&mut self, state: QuadState) {
+        self.dst_quad = state.quad;
+        self.matrix = state.matrix;
     }
 
     pub fn quad_ps(&self) -> [Vec2; 4] {
@@ -257,6 +286,7 @@ impl ToolFunction for PerspectiveTransformTool {
             handle,
             base_quad: session.dst_quad,
         });
+        session.gesture_base = Some(session.quad_state());
 
         Task::none()
     }
@@ -295,8 +325,44 @@ impl ToolFunction for PerspectiveTransformTool {
     ) -> Task<Self::Message> {
         if let Some(session) = &mut self.session {
             session.ongoing_transform = None;
+            if let Some(base) = session.gesture_base.take()
+                && session.dst_quad != base.quad
+            {
+                let after = session.quad_state();
+                session.tracker.push(QuadStep { before: base, after });
+            }
         }
         Task::none()
+    }
+
+    fn undo(&mut self, services: &mut Services) -> bool {
+        let Some(session) = self.session.as_mut() else {
+            return false;
+        };
+        if session.ongoing_transform.is_some() {
+            return true;
+        }
+
+        if let Some(step) = session.tracker.undo().copied() {
+            session.apply_quad_state(step.before);
+            render_transform_preview(session, services);
+        }
+        true
+    }
+
+    fn redo(&mut self, services: &mut Services) -> bool {
+        let Some(session) = self.session.as_mut() else {
+            return false;
+        };
+        if session.ongoing_transform.is_some() {
+            return true;
+        }
+
+        if let Some(step) = session.tracker.redo().copied() {
+            session.apply_quad_state(step.after);
+            render_transform_preview(session, services);
+        }
+        true
     }
 
     fn handle_message(

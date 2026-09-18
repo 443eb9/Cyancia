@@ -45,7 +45,7 @@ use lapiz_render::{
     wesl_jit,
 };
 use lapiz_runtime::{Renderer, Services, event::Event};
-use lapiz_tools::{ToolFunction, ToolId};
+use lapiz_tools::{ChangesTracker, ToolFunction, ToolId};
 use lapiz_undo::BatchedUndoCommand;
 use lapiz_utils::log_err::LogErr;
 use lapiz_widgets::{
@@ -59,6 +59,23 @@ use wgpu::{
     PipelineLayoutDescriptor, Queue, ShaderModuleDescriptor, ShaderSource, ShaderStages,
     StorageTextureAccess,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TransformParams {
+    pub translate: Vec2,
+    pub rotate: f32,
+    pub scale: Vec2,
+    pub shear: f32,
+    pub last_shear: Option<ShearType>,
+    pub pivot: Vec2,
+    pub anchor: Vec2,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TransformStep {
+    pub before: TransformParams,
+    pub after: TransformParams,
+}
 
 pub struct TransformSession {
     pub canvas_id: CanvasId,
@@ -78,6 +95,8 @@ pub struct TransformSession {
     pub result_buffers: HashMap<LayerId, DynamicLayerStorage>,
     pub transform_pipelines: HashMap<TexelType, FreeTransformPipeline>,
     pub ongoing_transform: Option<OngoingTransform>,
+    pub tracker: ChangesTracker<TransformStep>,
+    pub gesture_base: Option<TransformParams>,
 }
 
 impl TransformSession {
@@ -124,7 +143,7 @@ impl TransformSession {
             })
             .collect();
 
-        Self {
+        let mut session = Self {
             canvas_id: init.canvas_id,
             target_layers,
             selection_layer_id: init.selection_layer_id,
@@ -142,7 +161,33 @@ impl TransformSession {
             result_buffers,
             transform_pipelines,
             ongoing_transform: None,
+            tracker: ChangesTracker::default(),
+            gesture_base: None,
+        };
+        session
+    }
+
+    fn params(&self) -> TransformParams {
+        TransformParams {
+            translate: self.translate,
+            rotate: self.rotate,
+            scale: self.scale,
+            shear: self.shear,
+            last_shear: self.last_shear,
+            pivot: self.pivot,
+            anchor: self.anchor,
         }
+    }
+
+    fn apply_params(&mut self, params: TransformParams) {
+        self.translate = params.translate;
+        self.rotate = params.rotate;
+        self.scale = params.scale;
+        self.shear = params.shear;
+        self.last_shear = params.last_shear;
+        self.pivot = params.pivot;
+        self.anchor = params.anchor;
+        self.update_matrix();
     }
 
     pub fn update(&mut self, cursor_ps: Vec2, modifiers: Modifiers) {
@@ -544,7 +589,7 @@ pub enum ScaleType {
     BottomRight,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ShearType {
     Left,
     Right,
@@ -658,6 +703,7 @@ impl ToolFunction for FreeTransformTool {
             base_last_shear: session.last_shear,
             base_anchor: session.anchor,
         });
+        session.gesture_base = Some(session.params());
 
         Task::none()
     }
@@ -699,7 +745,43 @@ impl ToolFunction for FreeTransformTool {
         };
 
         session.ongoing_transform = None;
+        if let Some(base) = session.gesture_base.take()
+            && session.params() != base
+        {
+            let after = session.params();
+            session.tracker.push(TransformStep { before: base, after });
+        }
         Task::none()
+    }
+
+    fn undo(&mut self, services: &mut Services) -> bool {
+        let Some(session) = self.session.as_mut() else {
+            return false;
+        };
+        if session.ongoing_transform.is_some() {
+            return true;
+        }
+
+        if let Some(step) = session.tracker.undo().copied() {
+            session.apply_params(step.before);
+            render_transform_preview(session, services);
+        }
+        true
+    }
+
+    fn redo(&mut self, services: &mut Services) -> bool {
+        let Some(session) = self.session.as_mut() else {
+            return false;
+        };
+        if session.ongoing_transform.is_some() {
+            return true;
+        }
+
+        if let Some(step) = session.tracker.redo().copied() {
+            session.apply_params(step.after);
+            render_transform_preview(session, services);
+        }
+        true
     }
 
     fn handle_message(
@@ -873,6 +955,8 @@ impl ToolFunction for FreeTransformTool {
                     return Task::none();
                 };
                 session.ongoing_transform = None;
+                session.gesture_base = None;
+                let before = session.params();
 
                 if matches!(
                     &message,
@@ -941,6 +1025,10 @@ impl ToolFunction for FreeTransformTool {
 
                 session.update_matrix();
                 render_transform_preview(session, services);
+                if session.params() != before {
+                    let after = session.params();
+                    session.tracker.push(TransformStep { before, after });
+                }
                 Task::none()
             }
         }
