@@ -43,7 +43,7 @@ impl FilterInstance {
         let mut parameters = IndexMap::new();
         for (id, slot) in &effect.inputs {
             if let Some(persisted) = preset.parameters.get(id) {
-                match persisted.value.deserialize(&resources.type_registry) {
+                match persisted.value.deserialize(&resources.type_registry, &resources.assets) {
                     Ok(value) => {
                         parameters.insert(
                             *id,
@@ -85,7 +85,7 @@ impl FilterInstance {
         })
     }
 
-    pub fn as_asset(&self) -> anyhow::Result<FilterPreset> {
+    pub fn as_asset(&self, assets: &lapiz_assets::store::AssetRegistry) -> anyhow::Result<FilterPreset> {
         let mut parameters = IndexMap::new();
         for (id, parameter) in &self.parameters {
             parameters.insert(
@@ -94,6 +94,7 @@ impl FilterInstance {
                     name: parameter.name.clone(),
                     value: lapiz_shader_graph::save::SerializableGraphLiteral::serialize(
                         &parameter.value,
+                        assets,
                     )?,
                 },
             );

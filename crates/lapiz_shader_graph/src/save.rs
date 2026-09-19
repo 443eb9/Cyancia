@@ -164,7 +164,8 @@ impl Graph {
                     }
                 };
 
-                let literal_value = match value_type_obj.deserialize_literal(slot.data.clone()) {
+                let literal_value =
+                    match value_type_obj.deserialize_literal(slot.data.clone(), &resources.assets) {
                     Ok(val) => val,
                     Err(e) => {
                         errs.push(GraphDeserializeError::LiteralDeserializeError(e));
@@ -288,7 +289,10 @@ impl Graph {
                         *id,
                         SerializableInputSlotData {
                             connected: slot.connected,
-                            data: slot.data.ty().serialize_literal(slot.data.value())?,
+                            data: slot
+                                .data
+                                .ty()
+                                .serialize_literal(slot.data.value(), &self.resources.assets)?,
                         },
                     );
 
@@ -386,22 +390,26 @@ pub struct SerializableGraphLiteral {
 }
 
 impl SerializableGraphLiteral {
-    pub fn serialize(literal: &GraphLiteral) -> Result<SerializableGraphLiteral, toml::ser::Error> {
+    pub fn serialize(
+        literal: &GraphLiteral,
+        assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<SerializableGraphLiteral, toml::ser::Error> {
         Ok(SerializableGraphLiteral {
             ty: literal.ty().id().id,
-            value: literal.ty().serialize_literal(literal.value())?,
+            value: literal.ty().serialize_literal(literal.value(), assets)?,
         })
     }
 
     pub fn deserialize(
         &self,
         type_registry: &GraphTypeRegistry,
+        assets: &lapiz_assets::store::AssetRegistry,
     ) -> Result<GraphLiteral, SerializableGraphLiteralError> {
         let ty = type_registry
             .resolve_type(&self.ty)
             .ok_or_else(|| SerializableGraphLiteralError::TypeNotFound(self.ty.clone()))?;
 
-        let literal_value = ty.deserialize_literal(self.value.clone())?;
+        let literal_value = ty.deserialize_literal(self.value.clone(), assets)?;
 
         Ok(GraphLiteral::new_boxed(literal_value, ty.clone()))
     }

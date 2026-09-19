@@ -128,7 +128,11 @@ macro_rules! atomic_type {
                 random_oklch_hue_chroma!($name)
             }
 
-            fn view_literal(&self, _data: &Self::AssociatedLiteralType) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
+            fn view_literal(
+                &self,
+                _data: &Self::AssociatedLiteralType,
+                _assets: &lapiz_assets::store::AssetRegistry,
+            ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
                 Element::new(space())
             }
 
@@ -256,7 +260,11 @@ macro_rules! atomic_array_type {
                 random_oklch_hue_chroma!($name)
             }
 
-            fn view_literal(&self, _data: &Self::AssociatedLiteralType) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
+            fn view_literal(
+                &self,
+                _data: &Self::AssociatedLiteralType,
+                _assets: &lapiz_assets::store::AssetRegistry,
+            ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
                 Element::new(space())
             }
 

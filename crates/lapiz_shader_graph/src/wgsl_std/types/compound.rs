@@ -105,6 +105,7 @@ impl GraphValueType for ColorType {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
+        _assets: &lapiz_assets::store::AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         column![
             SpinSlider::new(0.0..=1.0, data.x)
@@ -214,6 +215,7 @@ impl GraphValueType for RectType {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
+        _assets: &lapiz_assets::store::AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         column![
             SpinSlider::new(0.0..=1.0, data.min.x).on_change(RectMessage::MinX),

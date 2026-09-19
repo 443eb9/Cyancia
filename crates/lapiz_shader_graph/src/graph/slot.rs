@@ -6,6 +6,7 @@ use std::{
 use anyhow::Result;
 use downcast_rs::Downcast;
 use dyn_clone::DynClone;
+use lapiz_assets::store::AssetRegistry;
 use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
     bind_group_layout_entries::DynamicBindGroupLayoutEntries,
@@ -219,6 +220,8 @@ pub trait GraphValueType: Send + Sync + 'static + DynClone {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
+        // TODO should this change to GraphResources?
+        assets: &lapiz_assets::store::AssetRegistry,
     ) -> GraphElement<'static, Self::Message>;
     fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message);
     fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<Expression>;
@@ -230,12 +233,14 @@ pub trait GraphValueType: Send + Sync + 'static + DynClone {
     fn serialize_literal(
         &self,
         data: &Self::AssociatedLiteralType,
+        _assets: &lapiz_assets::store::AssetRegistry,
     ) -> Result<toml::Value, toml::ser::Error> {
         toml::Value::try_from(data)
     }
     fn deserialize_literal<'a>(
         &self,
         deserializer: toml::Value,
+        _assets: &lapiz_assets::store::AssetRegistry,
     ) -> Result<Self::AssociatedLiteralType, <toml::Value as Deserializer<'a>>::Error> {
         Self::AssociatedLiteralType::deserialize(deserializer)
     }
@@ -339,6 +344,7 @@ pub trait ErasedGraphValueType: Send + Sync + 'static + DynClone + Downcast {
         &self,
         slot_id: GraphInputSlotId,
         data: &dyn GraphLiteralValue,
+        assets: &lapiz_assets::store::AssetRegistry,
     ) -> GraphElement<'static, ErasedGraphLiteralUpdateMessage>;
     fn update_literal(
         &self,
@@ -349,10 +355,12 @@ pub trait ErasedGraphValueType: Send + Sync + 'static + DynClone + Downcast {
     fn serialize_literal(
         &self,
         data: &dyn GraphLiteralValue,
+        assets: &lapiz_assets::store::AssetRegistry,
     ) -> Result<toml::Value, toml::ser::Error>;
     fn deserialize_literal<'a>(
         &self,
         deserializer: toml::Value,
+        assets: &lapiz_assets::store::AssetRegistry,
     ) -> Result<Box<dyn GraphLiteralValue>, <toml::Value as Deserializer<'a>>::Error>;
 }
 
@@ -479,10 +487,12 @@ impl<T: GraphValueType> ErasedGraphValueType for T {
         &self,
         slot_id: GraphInputSlotId,
         data: &dyn GraphLiteralValue,
+        assets: &lapiz_assets::store::AssetRegistry,
     ) -> GraphElement<'static, ErasedGraphLiteralUpdateMessage> {
         self.view_literal(
             data.downcast_ref::<T::AssociatedLiteralType>()
                 .expect("failed to downcast graph literal"),
+            assets,
         )
         .map(move |message| ErasedGraphLiteralUpdateMessage {
             inner: Box::new(message),
@@ -515,17 +525,20 @@ impl<T: GraphValueType> ErasedGraphValueType for T {
     fn serialize_literal(
         &self,
         data: &dyn GraphLiteralValue,
+        assets: &lapiz_assets::store::AssetRegistry,
     ) -> Result<toml::Value, toml::ser::Error> {
         self.serialize_literal(
             data.downcast_ref::<T::AssociatedLiteralType>()
                 .expect("failed to downcast graph literal"),
+            assets,
         )
     }
 
     fn deserialize_literal<'a>(
         &self,
         deserializer: toml::Value,
+        assets: &lapiz_assets::store::AssetRegistry,
     ) -> Result<Box<dyn GraphLiteralValue>, <toml::Value as Deserializer<'a>>::Error> {
-        Ok(Box::new(self.deserialize_literal(deserializer)?))
+        Ok(Box::new(self.deserialize_literal(deserializer, assets)?))
     }
 }

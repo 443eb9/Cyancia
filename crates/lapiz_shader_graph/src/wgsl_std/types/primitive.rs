@@ -96,6 +96,7 @@ impl GraphValueType for F32Type {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
+           _assets: &lapiz_assets::store::AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         SpinSlider::new(0.0..=1.0, *data)
             .on_change(identity)
@@ -173,6 +174,7 @@ impl GraphValueType for I32Type {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
+           _assets: &lapiz_assets::store::AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         SpinSlider::new(-10..=10, *data).on_change(identity).into()
     }
@@ -242,6 +244,7 @@ impl GraphValueType for U32Type {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
+           _assets: &lapiz_assets::store::AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         SpinSlider::new(0..=10, *data).on_change(identity).into()
     }
@@ -340,6 +343,7 @@ impl GraphValueType for BoolType {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
+           _assets: &lapiz_assets::store::AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         Checkbox::new(*data)
             .on_toggle(std::convert::identity)

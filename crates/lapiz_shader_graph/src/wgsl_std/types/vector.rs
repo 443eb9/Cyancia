@@ -100,6 +100,7 @@ macro_rules! vector_type {
             fn view_literal(
                 &self,
                 data: &Self::AssociatedLiteralType,
+                   _assets: &lapiz_assets::store::AssetRegistry,
             ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
                 let controls = (0..$len)
                     .map(|index| {

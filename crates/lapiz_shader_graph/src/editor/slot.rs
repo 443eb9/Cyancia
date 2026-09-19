@@ -162,6 +162,7 @@ pub fn input_slot<'a>(
     slot_id: GraphInputSlotId,
     slot_name: impl IntoFragment<'a>,
     slot: &GraphInputSlotData,
+    assets: &lapiz_assets::store::AssetRegistry,
 ) -> Element<'a, ErasedGraphLiteralUpdateMessage, GraphTheme, GraphRenderer> {
     let (hue, chroma) = slot.data.ty().hue_chroma();
     match slot.connected {
@@ -172,7 +173,7 @@ pub fn input_slot<'a>(
             chroma,
             slot_name,
             SlotSide::Left,
-            slot.data.ty().view_literal(slot_id, slot.data.value()),
+            slot.data.ty().view_literal(slot_id, slot.data.value(), assets),
         ),
     }
 }

@@ -262,9 +262,10 @@ fn filter_round_trips_and_runs_on_layers() -> Result<()> {
 
     // Serialize -> deserialize round trip through the .lfp zip container;
     // the parameter value must survive it.
+    let assets = lapiz_assets::store::AssetRegistry::default();
     let serializer = FilterPresetSerializer;
     let mut encoded = Vec::new();
-    serializer.write(&generated.as_asset()?, &mut encoded)?;
+    serializer.write(&generated.as_asset(&assets)?, &mut encoded)?;
     let preset = serializer.read(&mut std::io::Cursor::new(&encoded))?;
     assert_eq!(preset.metadata.name, "Invert Test");
     let instance = FilterInstance::new(&preset, graph_resources())?;

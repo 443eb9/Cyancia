@@ -127,7 +127,7 @@ impl WindowView for FilterPanel {
         ))
     }
 
-    fn view<'a>(&'a self, _: window::Id, _: &'a Services) -> impl Into<Element<'a>> {
+    fn view<'a>(&'a self, _: window::Id, services: &'a Services) -> impl Into<Element<'a>> {
         let filter_list = self
             .filters
             .iter()
@@ -176,6 +176,7 @@ impl WindowView for FilterPanel {
                             .view_literal(
                                 lapiz_shader_graph::graph::slot::GraphInputSlotId::new(id.0),
                                 parameter.value.value(),
+                                services.assets(),
                             )
                             .map(move |message| {
                                 FilterPanelMessage::ParameterUpdated(*id, message)

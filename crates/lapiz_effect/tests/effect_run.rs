@@ -156,7 +156,11 @@ impl GraphValueType for EffectParamType {
     fn hue_chroma(&self) -> (f32, f32) {
         random_oklch_hue_chroma!(EffectParamType)
     }
-    fn view_literal(&self, _data: &EffectParam) -> Element<'static, (), GraphTheme, GraphRenderer> {
+    fn view_literal(
+        &self,
+        _data: &EffectParam,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Element<'static, (), GraphTheme, GraphRenderer> {
         Void.into()
     }
     fn update_literal(&self, _data: &mut EffectParam, _message: ()) {}

@@ -294,7 +294,11 @@ impl FilterEditor {
                     parameter
                         .value
                         .ty()
-                        .view_literal(GraphInputSlotId::new(id.0), parameter.value.value())
+                        .view_literal(
+                            GraphInputSlotId::new(id.0),
+                            parameter.value.value(),
+                            &self.effect_editor_state.resources.assets,
+                        )
                         .map(move |message| FilterEditorMessage::UpdateParameter(*id, message)),
                 ]
                 .spacing(6)
@@ -400,14 +404,14 @@ impl FilterEditor {
         task
     }
 
-    fn save(&mut self, _services: &mut Services) -> Task<FilterEditorMessage> {
+    fn save(&mut self, services: &mut Services) -> Task<FilterEditorMessage> {
         let Some(selected) = self.selected.as_mut() else {
             return Task::none();
         };
         if self.validation_error.is_some() {
             return Task::none();
         }
-        let preset = match selected.instance.as_asset() {
+        let preset = match selected.instance.as_asset(services.assets()) {
             Ok(preset) => preset,
             Err(err) => {
                 self.validation_error = Some(format!("Failed to serialize filter: {err}"));

@@ -457,7 +457,7 @@ impl GraphNodeViewContext<'_> {
     ) -> Option<GraphElement<'a, Message>> {
         let slot_id = *self.inputs.get(index)?;
         let slot = self.slots.get_input(&slot_id)?;
-        Some(input_slot(slot_id, t!(&slot.name), slot).map(map_literal))
+        Some(input_slot(slot_id, t!(&slot.name), slot, &self.resources.assets).map(map_literal))
     }
 
     pub fn view_output_slot<'a, Message: 'static>(
@@ -477,7 +477,7 @@ impl GraphNodeViewContext<'_> {
             .iter()
             .filter_map(|id| {
                 let slot = self.slots.get_input(id)?;
-                Some(input_slot(*id, t!(&slot.name), slot).map(map_literal))
+                Some(input_slot(*id, t!(&slot.name), slot, &self.resources.assets).map(map_literal))
             })
             .collect()
     }
