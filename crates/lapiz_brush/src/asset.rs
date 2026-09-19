@@ -1,17 +1,24 @@
 use std::io::{Cursor, Read, Write as _};
 
+use indexmap::IndexMap;
 use lapiz_assets::{asset::Asset, loader::AssetSerializer};
-use lapiz_render::texture::ImageSerializerError;
-use lapiz_shader_graph::save::{SerializableExternalVariable, SerializableGraph};
+use lapiz_effect::asset::{EffectAsset, EffectAssetSerializer, EffectInputSlotId};
+use lapiz_shader_graph::save::SerializableGraphLiteral;
 use serde::{Deserialize, Serialize};
 use zip::{ZipArchive, ZipWriter, write::FileOptions};
 
 pub struct BrushPreset {
     pub metadata: BrushPresetMetadata,
-    pub required_spacing_graph: SerializableGraph,
-    pub main_graph: SerializableGraph,
-    pub stroke_postprocess_graphs: Vec<SerializableGraph>,
-    pub external_vars: Vec<SerializableExternalVariable>,
+    pub spacing_effect: EffectAsset,
+    pub main_effect: EffectAsset,
+    pub postprocess_effect: EffectAsset,
+    pub parameters: IndexMap<EffectInputSlotId, SerializableBrushParameter>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SerializableBrushParameter {
+    pub name: String,
+    pub value: SerializableGraphLiteral,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -21,6 +28,11 @@ pub struct BrushPresetMetadata {
 
 impl Asset for BrushPreset {
     const TYPE_NAME: &'static str = "brush_preset";
+}
+
+#[derive(Serialize, Deserialize)]
+struct BrushToml {
+    name: String,
 }
 
 #[derive(Default)]
@@ -37,7 +49,9 @@ pub enum BrushPresetSerializerError {
     #[error(transparent)]
     TomlSer(#[from] toml::ser::Error),
     #[error(transparent)]
-    Image(#[from] ImageSerializerError),
+    Effect(#[from] lapiz_effect::asset::EffectAssetSerializerError),
+    #[error("Invalid brush preset: {0}")]
+    Invalid(String),
 }
 
 impl AssetSerializer for BrushPresetSerializer {
@@ -49,62 +63,48 @@ impl AssetSerializer for BrushPresetSerializer {
         "lapiz"
     }
 
-    // TODO: Final .lapiz file definition.
-    // TODO: Support embedded textures and shader graph functions.
     fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset, Self::Error> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf)?;
-        let mut archive = ZipArchive::new(std::io::Cursor::new(buf))?;
+        let mut archive = ZipArchive::new(Cursor::new(buf.as_slice()))?;
 
-        let mut main_graph_buffer = String::new();
+        let mut brush_buffer = String::new();
         archive
-            .by_name("main.csg")?
-            .read_to_string(&mut main_graph_buffer)?;
-        let main_graph = toml::from_str::<SerializableGraph>(&main_graph_buffer)?;
-        let mut metadata_buffer = String::new();
-        archive
-            .by_name("metadata.toml")?
-            .read_to_string(&mut metadata_buffer)?;
-        let metadata = toml::from_str::<BrushPresetMetadata>(&metadata_buffer)?;
+            .by_name("brush.toml")?
+            .read_to_string(&mut brush_buffer)?;
+        let brush_toml = toml::from_str::<BrushToml>(&brush_buffer)?;
 
-        let mut required_spacing_graph_buffer = String::new();
-        archive
-            .by_name("required_spacing.csg")?
-            .read_to_string(&mut required_spacing_graph_buffer)?;
-        let required_spacing_graph =
-            toml::from_str::<SerializableGraph>(&required_spacing_graph_buffer)?;
-
-        let external_vars = match archive.by_name("external_vars.toml") {
-            Ok(mut f) => {
-                let mut external_vars_buffer = String::new();
-                f.read_to_string(&mut external_vars_buffer)?;
-                external_vars_buffer
-                    .parse::<toml::Value>()?
-                    .try_into::<Vec<SerializableExternalVariable>>()?
-            }
-            Err(_) => Default::default(),
+        let mut read_effect = |name: &str| {
+            let mut buffer = String::new();
+            archive.by_name(name)?.read_to_string(&mut buffer)?;
+            Result::<_, BrushPresetSerializerError>::Ok(
+                EffectAssetSerializer.read(&mut Cursor::new(buffer))?,
+            )
         };
 
-        let mut stroke_postprocess_graphs = Vec::new();
-        let files = archive
-            .file_names()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>();
-        for file in files {
-            if file.starts_with("stroke_postprocess/") && file != "stroke_postprocess/" {
-                let mut buf = String::new();
-                archive.by_name(&file)?.read_to_string(&mut buf)?;
-                let graph = toml::from_str::<SerializableGraph>(&buf)?;
-                stroke_postprocess_graphs.push(graph);
+        let spacing_effect = read_effect("spacing.lef")?;
+        let main_effect = read_effect("main.lef")?;
+        let postprocess_effect = read_effect("postprocess.lef")?;
+
+        let parameters = match archive.by_name("parameters.toml") {
+            Ok(mut file) => {
+                let mut parameters_buffer = String::new();
+                file.read_to_string(&mut parameters_buffer)?;
+                toml::from_str::<IndexMap<EffectInputSlotId, SerializableBrushParameter>>(
+                    &parameters_buffer,
+                )?
             }
-        }
+            Err(_) => IndexMap::new(),
+        };
 
         Ok(BrushPreset {
-            metadata,
-            required_spacing_graph,
-            main_graph,
-            stroke_postprocess_graphs,
-            external_vars,
+            metadata: BrushPresetMetadata {
+                name: brush_toml.name,
+            },
+            spacing_effect,
+            main_effect,
+            postprocess_effect,
+            parameters,
         })
     }
 
@@ -114,36 +114,30 @@ impl AssetSerializer for BrushPresetSerializer {
         writer: &mut dyn std::io::Write,
     ) -> Result<(), Self::Error> {
         let mut buf = Vec::new();
-        let mut zip = ZipWriter::new(Cursor::new(&mut buf));
+        {
+            let mut zip = ZipWriter::new(Cursor::new(&mut buf));
 
-        zip.start_file("required_spacing.csg", FileOptions::<()>::default())?;
-        let required_spacing_graph_buffer = toml::to_string(&asset.required_spacing_graph)?;
-        zip.write_all(required_spacing_graph_buffer.as_bytes())?;
+            zip.start_file("brush.toml", FileOptions::<()>::default())?;
+            let toml_buffer = toml::to_string(&BrushToml {
+                name: asset.metadata.name.clone(),
+            })?;
+            zip.write_all(toml_buffer.as_bytes())?;
 
-        zip.start_file("main.csg", FileOptions::<()>::default())?;
-        let main_graph_buffer = toml::to_string(&asset.main_graph)?;
-        zip.write_all(main_graph_buffer.as_bytes())?;
+            zip.start_file("spacing.lef", FileOptions::<()>::default())?;
+            EffectAssetSerializer.write(&asset.spacing_effect, &mut zip)?;
+            zip.start_file("main.lef", FileOptions::<()>::default())?;
+            EffectAssetSerializer.write(&asset.main_effect, &mut zip)?;
+            zip.start_file("postprocess.lef", FileOptions::<()>::default())?;
+            EffectAssetSerializer.write(&asset.postprocess_effect, &mut zip)?;
 
-        zip.start_file("metadata.toml", FileOptions::<()>::default())?;
-        let metadata_buffer = toml::to_string(&asset.metadata)?;
-        zip.write_all(metadata_buffer.as_bytes())?;
+            if !asset.parameters.is_empty() {
+                zip.start_file("parameters.toml", FileOptions::<()>::default())?;
+                let parameters_buffer = toml::to_string(&asset.parameters)?;
+                zip.write_all(parameters_buffer.as_bytes())?;
+            }
 
-        if !asset.external_vars.is_empty() {
-            zip.start_file("external_vars.toml", FileOptions::<()>::default())?;
-            let external_vars_buffer = toml::Value::try_from(&asset.external_vars)?.to_string();
-            zip.write_all(external_vars_buffer.as_bytes())?;
+            zip.finish()?;
         }
-
-        for (i, graph) in asset.stroke_postprocess_graphs.iter().enumerate() {
-            zip.start_file(
-                format!("stroke_postprocess/{}.csg", i),
-                FileOptions::<()>::default(),
-            )?;
-            let graph_buffer = toml::to_string(graph)?;
-            zip.write_all(graph_buffer.as_bytes())?;
-        }
-
-        zip.finish()?;
         writer.write_all(&buf)?;
 
         Ok(())

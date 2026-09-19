@@ -25,6 +25,7 @@ lapiz_assets.workspace = true
 lapiz_canvas.workspace = true
 lapiz_color.workspace = true
 lapiz_dirs.workspace = true
+lapiz_effect.workspace = true
 lapiz_i18n.workspace = true
 lapiz_image.workspace = true
 lapiz_input.workspace = true
@@ -53,6 +54,9 @@ zip.workspace = true
 [build-dependencies]
 lapiz_image.workspace = true
 wesl.workspace = true
+
+[dev-dependencies]
+futures.workspace = true
 
 [lints]
 workspace = true

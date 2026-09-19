@@ -1,4 +1,4 @@
-use std::{num::NonZeroU64, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Result;
 use bevy_math::IRect;
@@ -7,20 +7,18 @@ use encase::ShaderType;
 use glam::{IVec2, Vec2, Vec4};
 use iced_runtime::Task;
 use indexmap::IndexSet;
-use lapiz_assets::{AssetAppExt as _, store::AssetRegistry};
-use lapiz_canvas::{CanvasAppExt as _, CanvasId};
-use lapiz_color::ForegroundBackgroundColorExt as _;
+use lapiz_assets::{AssetAppExt, store::AssetRegistry};
+use lapiz_canvas::{CanvasAppExt, CanvasId};
+use lapiz_color::ForegroundBackgroundColorExt;
 use lapiz_image::{
     composite::PixelPreviewOverrider,
     layer::{
         LayerId,
-        properties::builtin::{LayerTexelTypePropertyExt as _, TexelSource},
+        properties::{LayerTexelTypePropertyExt, TexelSource},
     },
     scan_pixels::ScanPixelsPipeline,
     texel::TexelType,
-    tile::{
-        DynamicLayerStorage, GpuLayerInfo, GpuTileStorage, LayerBinding, TileStorageAppExt as _,
-    },
+    tile::{DynamicLayerStorage, GpuLayerInfo, GpuTileStorage, LayerBinding, TileStorageAppExt},
 };
 use lapiz_input::mouse::PressedMouseState;
 use lapiz_render::{
@@ -29,16 +27,14 @@ use lapiz_render::{
         AsyncBufferReadback, create_readback_buffer_and_schedule_copy_buffer,
         readback_buffer_on_submit_async,
     },
-    render_context::RenderContextAppExt as _,
-    texture::GpuImage,
     texture_atlas::{TextureAtlas, TextureAtlasBuilder},
 };
 use lapiz_runtime::Services;
-use lapiz_shader_graph::graph::external::GraphExternalVariableStorage;
+use lapiz_shader_graph::graph::variable::GraphLiteral;
 use parking_lot::Mutex;
 use wgpu::{
-    BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
-    BufferDescriptor, BufferUsages, ComputePassDescriptor, Device, Extent3d, Queue, ShaderStages,
+    BindGroupEntry, BindGroupLayoutEntry, Buffer,
+    BufferDescriptor, BufferUsages, ComputePassDescriptor, Device, Extent3d, Queue,
     TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
 };
 
@@ -60,7 +56,7 @@ pub mod graph;
 pub mod pipeline;
 pub mod stroke_preview;
 
-const EXTERNAL_VARIABLE_BASE_BINDING: u32 = 32;
+pub const PARAMETER_BASE_BINDING: u32 = 32;
 pub const MAX_DABS_PER_STROKE: u32 = 256;
 
 pub struct CanvasBrushStrokeSessionInfo {
@@ -180,18 +176,17 @@ impl CanvasBrushPresetOperator {
             self.renderer = None;
         }
 
-        let compiled_brush = self.cached_brush.get_or_insert_with(|| {
-            self.instance
-                .compile(EXTERNAL_VARIABLE_BASE_BINDING)
-                .expect("Failed to compile brush preset")
-        });
-        println!("Compiled brush:\n{}", compiled_brush);
+        let compiled_brush = self
+            .cached_brush
+            .get_or_insert_with(|| self.instance.compile().expect("Failed to compile brush preset"));
         let renderer = self.renderer.get_or_insert_with(|| {
             BrushPresetRenderer::new(
                 compiled_brush,
                 session.target_layer_format,
                 session.selection_layer_format,
-                services,
+                &self.device,
+                &self.queue,
+                services.assets(),
                 &self.canvas_resources,
             )
         });
@@ -362,13 +357,11 @@ impl BrushPresetRenderer {
         brush: &CompiledBrushPreset,
         target_layer_format: TexelType,
         selection_layer_format: TexelType,
-        services: &Services,
+        device: &Device,
+        queue: &Queue,
+        assets: &AssetRegistry,
         canvas_resources: &DynamicBuffer<CanvasResources>,
     ) -> Self {
-        let device = services.render_device();
-        let queue = services.render_queue();
-        let assets = services.assets();
-
         let resources = StrokeResources::new(
             device,
             queue,
@@ -489,22 +482,30 @@ impl BrushPresetRenderer {
         }
         dab_infos_aligned.write_buffer(device, queue);
 
-        let intermediate_buffers = [
-            DynamicLayerStorage::new(
-                device.clone(),
-                queue.clone(),
-                GpuLayerInfo {
-                    texel_type: self.resources.target_layer_format,
-                },
-            ),
-            DynamicLayerStorage::new(
-                device.clone(),
-                queue.clone(),
-                GpuLayerInfo {
-                    texel_type: self.resources.target_layer_format,
-                },
-            ),
-        ];
+        let intermediate_buffers = {
+            let mut buffers = [
+                DynamicLayerStorage::new(
+                    device.clone(),
+                    queue.clone(),
+                    GpuLayerInfo {
+                        texel_type: self.resources.target_layer_format,
+                    },
+                ),
+                DynamicLayerStorage::new(
+                    device.clone(),
+                    queue.clone(),
+                    GpuLayerInfo {
+                        texel_type: self.resources.target_layer_format,
+                    },
+                ),
+            ];
+            // A null tile keeps binding() available without the app-global
+            // empty-layer bindings.
+            for buffer in &mut buffers {
+                buffer.get_tile_or_allocate(lapiz_image::tile::GpuTileInfo::NULL.index);
+            }
+            buffers
+        };
 
         let main_prepared = self.main.prepare(
             device,
@@ -641,8 +642,6 @@ impl BrushPresetRenderer {
         let Some(session) = &mut self.session else {
             return Task::none();
         };
-
-        self.resources.update_external_var_buffers(queue);
 
         session.pen_input.clear();
         session.pen_input.push(&pen_input);
@@ -1131,9 +1130,11 @@ pub struct DabInfo {
 #[derive(Clone)]
 // TODO This should be renamed to RendererResources
 pub struct StrokeResources {
-    pub external_var_storage: Arc<GraphExternalVariableStorage>,
-    pub external_var_layouts: Vec<BindGroupLayoutEntry>,
-    pub external_var_buffers: Vec<Buffer>,
+    pub parameter_layouts: Vec<BindGroupLayoutEntry>,
+    // Bind groups borrow the prepared values, so they are shared through Arc.
+    parameters: Arc<[GraphLiteral]>,
+    prepared_parameters:
+        Arc<Vec<Box<dyn lapiz_shader_graph::graph::variable::GraphShaderLiteralValue>>>,
     pub referenced_textures: TextureAtlas,
     pub canvas_resources: Buffer,
 
@@ -1148,39 +1149,19 @@ impl StrokeResources {
         brush: &CompiledBrushPreset,
         target_layer_format: TexelType,
         selection_layer_format: TexelType,
-        assets: &AssetRegistry,
+        _assets: &AssetRegistry,
         canvas_resources: &DynamicBuffer<CanvasResources>,
     ) -> Self {
-        let mut external_var_layouts = Vec::new();
-        for cur_binding in (EXTERNAL_VARIABLE_BASE_BINDING..).take(brush.external_vars.all().len())
-        {
-            external_var_layouts.push(BindGroupLayoutEntry {
-                binding: cur_binding,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            });
-        }
-
-        let mut external_var_buffers = Vec::new();
-        for var in brush.external_vars.all().iter() {
-            let (_, size) = var.value.ty().wgsl_type().unwrap();
-            let gpu_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("external variable buffer"),
-                size,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-            let mut writer = queue
-                .write_buffer_with(&gpu_buffer, 0, NonZeroU64::new(size).unwrap())
-                .unwrap();
-            var.value.try_write_into_shader_buffer(&mut writer).unwrap();
-            external_var_buffers.push(gpu_buffer);
-        }
+        let prepared_parameters = brush
+            .parameters
+            .iter()
+            .map(|parameter| {
+                parameter
+                    .ty()
+                    .prepare_to_shader(parameter.value(), device, queue)
+                    .expect("failed to prepare brush parameter")
+            })
+            .collect::<Vec<_>>();
 
         let empty_texture = device.create_texture(&TextureDescriptor {
             label: Some("empty texture"),
@@ -1198,37 +1179,19 @@ impl StrokeResources {
                 | TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        let mut referenced_textures_builder =
-            TextureAtlasBuilder::with_capacity(brush.texture_usage.len());
-        for id in &brush.texture_usage {
-            if let Some(asset_id) = **id {
-                let handle = assets.handle(asset_id).unwrap();
-                let gpu_image = GpuImage::from_asset(
-                    device,
-                    queue,
-                    &handle.get().unwrap(),
-                    // TODO: This is weird but, adding TEXTURE_BINDING usage to avoid vulkan validation error:
-                    // VALIDATION [VUID-VkImageViewCreateInfo-image-04441 (0xb75da543)]
-                    // vkCreateImageView(): pCreateInfo->image (VkImage 0xb550000000b55) was created with VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT but requires VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT|VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT|VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR|VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT|VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR|VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR|VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR|VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR|VK_IMAGE_USAGE_SAMPLE_WEIGHT_BIT_QCOM|VK_IMAGE_USAGE_SAMPLE_BLOCK_MATCH_BIT_QCOM|VK_IMAGE_USAGE_VIDEO_ENCODE_QUANTIZATION_DELTA_MAP_BIT_KHR|VK_IMAGE_USAGE_VIDEO_ENCODE_EMPHASIS_MAP_BIT_KHR.
-                    // The Vulkan spec states: image must have been created with a usage value containing at least one of the following: VK_IMAGE_USAGE_SAMPLED_BIT VK_IMAGE_USAGE_STORAGE_BIT VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR VK_IMAGE_USAGE_SAMPLE_WEIGHT_BIT_QCOM VK_IMAGE_USAGE_SAMPLE_BLOCK_MATCH_BIT_QCOM VK_IMAGE_USAGE_VIDEO_ENCODE_QUANTIZATION_DELTA_MAP_BIT_KHR VK_IMAGE_USAGE_VIDEO_ENCODE_EMPHASIS_MAP_BIT_KHR (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-image-04441)
-                    TextureUsages::COPY_SRC | TextureUsages::TEXTURE_BINDING,
-                );
-                referenced_textures_builder.add_texture(gpu_image.texture.clone());
-            } else {
-                referenced_textures_builder.add_texture(empty_texture.clone());
-            }
-        }
-        if referenced_textures_builder.is_empty() {
-            referenced_textures_builder.add_texture(empty_texture.clone());
-        }
+        // Brush texture-atlas references are not wired into effect inputs
+        // yet; the atlas stays empty until TextureReference carries a real
+        // asset link.
+        let mut referenced_textures_builder = TextureAtlasBuilder::with_capacity(0);
+        referenced_textures_builder.add_texture(empty_texture);
         let referenced_textures = referenced_textures_builder
             .build(Some("referenced textures"), device, queue)
             .unwrap();
 
         Self {
-            external_var_storage: brush.external_vars.clone(),
-            external_var_layouts,
-            external_var_buffers,
+            parameter_layouts: brush.parameter_layouts.clone(),
+            parameters: brush.parameters.clone(),
+            prepared_parameters: Arc::new(prepared_parameters),
             referenced_textures,
 
             target_layer_format,
@@ -1237,31 +1200,22 @@ impl StrokeResources {
         }
     }
 
-    pub fn update_external_var_buffers(&mut self, queue: &Queue) {
-        for (ext_var, var_buffer) in self
-            .external_var_storage
-            .all()
-            .iter()
-            .zip(&self.external_var_buffers)
-        {
-            let mut writer = queue
-                .write_buffer_with(var_buffer, 0, NonZeroU64::new(var_buffer.size()).unwrap())
-                .unwrap();
-            ext_var
-                .value
-                .try_write_into_shader_buffer(&mut writer)
-                .unwrap();
-        }
-    }
+    fn parameter_bindings(&self) -> Vec<BindGroupEntry<'_>> {
+        use lapiz_render::bind_group_entries::DynamicBindGroupEntries;
 
-    fn external_var_bindings(&self) -> Vec<BindGroupEntry<'_>> {
-        self.external_var_buffers
-            .iter()
-            .enumerate()
-            .map(|(i, buffer)| BindGroupEntry {
-                binding: EXTERNAL_VARIABLE_BASE_BINDING + i as u32,
-                resource: BindingResource::Buffer(buffer.as_entire_buffer_binding()),
-            })
-            .collect()
+        let mut entries = Vec::new();
+        for (index, parameter) in self.parameters.iter().enumerate() {
+            let (_, bindings) = parameter
+                .ty()
+                .push_shader_binding(
+                    lapiz_shader_graph::graph::slot::GraphShaderStage::Input,
+                    self.prepared_parameters[index].as_ref(),
+                    PARAMETER_BASE_BINDING + index as u32,
+                    DynamicBindGroupEntries::new(),
+                )
+                .expect("failed to bind brush parameter");
+            entries.extend(bindings.to_vec());
+        }
+        entries
     }
 }

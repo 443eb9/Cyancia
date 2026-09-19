@@ -51,7 +51,7 @@ impl BrushInputSamplingPipeline {
             ),
         )
         .to_vec();
-        layout_entries.extend(resources.external_var_layouts.clone());
+        layout_entries.extend(resources.parameter_layouts.clone());
         let layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("brush input sampling layout"),
             entries: &layout_entries,
@@ -102,7 +102,7 @@ impl BrushInputSamplingPipeline {
             resources.referenced_textures.atlas_bounds_buffer_binding(),
         ))
         .to_vec();
-        entries.extend(resources.external_var_bindings());
+        entries.extend(resources.parameter_bindings());
         let bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: Some("brush input sampling bind group"),
             layout: &self.layout,
@@ -729,7 +729,7 @@ fn common_bind_group_layout_entries(resources: &StrokeResources) -> Vec<BindGrou
         ),
     )
     .to_vec();
-    entries.extend_from_slice(&resources.external_var_layouts);
+    entries.extend_from_slice(&resources.parameter_layouts);
     entries
 }
 
@@ -759,6 +759,6 @@ fn common_bind_group_entries<'a>(
     ))
     .to_vec();
 
-    entries.extend(resources.external_var_bindings());
+    entries.extend(resources.parameter_bindings());
     entries
 }

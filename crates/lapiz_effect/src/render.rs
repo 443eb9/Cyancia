@@ -7,8 +7,10 @@ use anyhow::{Context, Result, bail, ensure};
 use indexmap::IndexMap;
 use lapiz_image::tile::DynamicLayerStorage;
 use lapiz_render::{
-    bind_group_entries::DynamicBindGroupEntries,
-    bind_group_layout_entries::DynamicBindGroupLayoutEntries, wesl_jit,
+    bind_group_entries::{BindGroupEntries, DynamicBindGroupEntries},
+    bind_group_layout_entries::DynamicBindGroupLayoutEntries,
+    owned_bind_group_entries::OwnedBindGroupEntry,
+    wesl_jit,
 };
 use lapiz_shader_graph::{
     graph::{
@@ -55,7 +57,12 @@ pub struct EffectRenderer {
 }
 
 impl EffectRenderer {
-    pub fn from_instance(instance: &EffectInstance, device: Device, queue: Queue) -> Result<Self> {
+    pub fn from_instance(
+        instance: &EffectInstance,
+        builtin_literals: HashMap<String, Arc<dyn ErasedGraphValueType>>,
+        device: Device,
+        queue: Queue,
+    ) -> Result<Self> {
         let inputs: HashMap<_, _> = instance
             .inputs
             .iter()
@@ -314,7 +321,11 @@ impl EffectRenderer {
         })
     }
 
-    pub fn run(&self, inputs: &EffectInputs) -> Result<EffectOutputs> {
+    pub fn run(
+        &self,
+        inputs: &EffectInputs,
+        builtin_literals: HashMap<String, GraphShaderLiteral>,
+    ) -> Result<EffectOutputs> {
         for def in &self.inputs {
             let literal = inputs
                 .get(&def.id)

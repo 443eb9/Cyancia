@@ -1,25 +1,20 @@
 use std::collections::HashMap;
 
-use iced_core::{Element, Length, Theme};
+use iced_core::{Element, Theme};
 use iced_runtime::Task;
 use iced_widget::column;
 use lapiz_assets::asset::AssetHandle;
 use lapiz_canvas::{
-    CanvasAppExt as _, CanvasUndoStackAppExt as _, command::TileReplaceCommand,
-    event::CanvasUpdated,
+    CanvasAppExt, CanvasUndoStackAppExt, command::TileReplaceCommand, event::CanvasUpdated,
 };
 use lapiz_i18n::t;
-use lapiz_image::{composite::LayerPreviewOverriders, tile::TileStorageAppExt as _};
+use lapiz_image::{composite::LayerPreviewOverriders, tile::TileStorageAppExt};
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
-use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Renderer, Services, event::Event as _, service::Service};
-use lapiz_shader_graph::graph::{
-    external::ExternalVariableId, function::ASSET_GRAPH_FUNCTION_STORAGE,
-    slot::ErasedGraphLiteralUpdateMessage, texture::ASSET_GRAPH_TEXTURE_STORAGE,
-};
+use lapiz_render::render_context::RenderContextAppExt;
+use lapiz_runtime::{Renderer, Services, event::Event, service::Service};
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_undo::QueuedUndoCommand;
-use lapiz_utils::log_err::LogErr as _;
+use lapiz_utils::log_err::LogErr;
 use lapiz_widgets::{icon, label::Label, panel::Panel};
 use log::error;
 
@@ -45,17 +40,12 @@ pub trait BrushServicesExt {
 
 impl BrushServicesExt for Services {
     fn set_current_brush_preset(&mut self, handle: AssetHandle<BrushPreset>) {
-        let (instance, errors) = BrushPresetInstance::from_asset(
-            &handle,
-            ASSET_GRAPH_TEXTURE_STORAGE.clone(),
-            ASSET_GRAPH_FUNCTION_STORAGE.clone(),
-        );
-        for error in errors {
-            error!("{error}");
-        }
-
-        let Some(instance) = instance else {
-            return;
+        let instance = match BrushPresetInstance::from_asset(&handle) {
+            Ok(instance) => instance,
+            Err(error) => {
+                error!("{error:#}");
+                return;
+            }
         };
         let operator = CanvasBrushPresetOperator::new(
             instance,
@@ -82,13 +72,14 @@ pub struct BrushTool {
     preview_ongoing: bool,
 }
 
-#[allow(clippy::large_enum_variant, reason = "TODO: Avoid this")]
+// TODO
+#[allow(clippy::large_enum_variant)]
 pub enum BrushToolMessage {
     StrokePreview(Option<BrushStrokePreview>),
     StrokeResult(BrushStrokeResult),
-    UpdateExternalVariable {
-        id: ExternalVariableId,
-        message: ErasedGraphLiteralUpdateMessage,
+    UpdateParameter {
+        id: lapiz_effect::asset::EffectInputSlotId,
+        message: lapiz_shader_graph::graph::slot::ErasedGraphLiteralUpdateMessage,
     },
 }
 
@@ -257,9 +248,9 @@ impl ToolFunction for BrushTool {
 
                 Task::none()
             }
-            BrushToolMessage::UpdateExternalVariable { id, message } => {
+            BrushToolMessage::UpdateParameter { id, message } => {
                 services.service_scope::<CurrentBrushPreset, _>(|brush, _| {
-                    brush.0.instance_mut().update_external_var(&id, message);
+                    brush.0.instance_mut().update_parameter(&id, message);
                 });
 
                 Task::none()
@@ -273,20 +264,22 @@ impl ToolFunction for BrushTool {
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
         let brush = services.get_service::<CurrentBrushPreset>()?;
 
-        let variables = brush
+        let parameters = brush
             .0
             .instance()
-            .iter_external_vars()
-            .map(|(id, variable)| {
+            .parameters()
+            .iter()
+            .map(|(id, parameter)| {
+                let slot_id = lapiz_shader_graph::graph::slot::GraphInputSlotId::new(id.into_inner());
                 column![
-                    Label::new(variable.name),
-                    variable
+                    Label::new(parameter.name.clone()),
+                    parameter
                         .value
                         .ty()
-                        .view_literal((*id).into(), variable.value.value())
-                        .map(move |message| BrushToolMessage::UpdateExternalVariable {
-                            id,
-                            message
+                        .view_literal(slot_id, parameter.value.value())
+                        .map(move |message| BrushToolMessage::UpdateParameter {
+                            id: *id,
+                            message,
                         }),
                 ]
                 .spacing(4)
@@ -296,12 +289,12 @@ impl ToolFunction for BrushTool {
 
         Some(
             Panel::new(
-                column(variables)
+                column(parameters)
                     .spacing(8)
                     .push(Label::new(t!("variables")).strong()),
             )
             .padding(8)
-            .width(Length::Fill)
+            .width(iced_core::Length::Fill)
             .into(),
         )
     }

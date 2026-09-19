@@ -3352,6 +3352,7 @@ dependencies = [
  "lapiz_canvas",
  "lapiz_color",
  "lapiz_dirs",
+ "lapiz_effect",
  "lapiz_i18n",
  "lapiz_image",
  "lapiz_input",
