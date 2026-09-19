@@ -29,3 +29,4 @@ opacity = Opacity
 position = Position
 rectangle = Rectangle
 value = Value
+effect_io = Effect IO

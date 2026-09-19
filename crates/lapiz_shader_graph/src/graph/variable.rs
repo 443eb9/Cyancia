@@ -185,6 +185,13 @@ impl GraphLiteral {
         Self { value, ty }
     }
 
+    pub fn new_boxed_default(ty: Arc<dyn ErasedGraphValueType>) -> Self {
+        Self {
+            value: ty.default_literal(),
+            ty,
+        }
+    }
+
     pub fn downcast<T: GraphLiteralValue>(self) -> T {
         match self.value.downcast::<T>() {
             Ok(ok) => *ok,

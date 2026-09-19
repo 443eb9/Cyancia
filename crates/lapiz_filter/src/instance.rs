@@ -1,13 +1,7 @@
 use indexmap::IndexMap;
 use lapiz_assets::asset::{AssetHandle, AssetId};
 use lapiz_effect::{asset::EffectInputSlotId, instance::EffectInstance};
-use lapiz_shader_graph::{
-    graph::{
-        slot::{ErasedGraphLiteralUpdateMessage, ErasedGraphValueType},
-        variable::{GraphLiteral, GraphShaderLiteral},
-    },
-    wgsl_std::types::LayerType,
-};
+use lapiz_shader_graph::graph::{slot::ErasedGraphLiteralUpdateMessage, variable::GraphLiteral};
 
 use crate::asset::{FilterPreset, FilterPresetMetadata, SerializableFilterParameter};
 
@@ -40,14 +34,8 @@ impl FilterInstance {
     ) -> anyhow::Result<Self> {
         let effect = EffectInstance::from_asset(&preset.effect, resources.clone())?;
 
-        // Every non-layer input is a parameter. Persisted values win; new or
-        // missing inputs fall back to the type's default literal. Persisted
-        // ids that no longer match an effect input are dropped.
         let mut parameters = IndexMap::new();
         for (id, slot) in &effect.inputs {
-            if slot.ty.is::<LayerType>() {
-                continue;
-            }
             if let Some(persisted) = preset.parameters.get(id) {
                 match persisted.value.deserialize(&resources.type_registry) {
                     Ok(value) => {
@@ -72,7 +60,7 @@ impl FilterInstance {
                 *id,
                 FilterParameter {
                     name: slot.name.clone(),
-                    value: default_parameter_literal(&slot.ty),
+                    value: GraphLiteral::new_boxed_default(slot.ty.clone()),
                 },
             );
         }
@@ -148,8 +136,19 @@ impl FilterInstance {
             parameter.value.update(message);
         }
     }
-}
 
-fn default_parameter_literal(ty: &std::sync::Arc<dyn ErasedGraphValueType>) -> GraphLiteral {
-    GraphLiteral::new_boxed(ty.default_literal(), ty.clone())
+    pub fn resync_parameters(&mut self) {
+        self.parameters
+            .retain(|id, _| self.effect.inputs.contains_key(id));
+        for (id, slot) in &self.effect.inputs {
+            let parameter = self
+                .parameters
+                .entry(*id)
+                .or_insert_with(|| FilterParameter {
+                    name: slot.name.clone(),
+                    value: GraphLiteral::new_boxed_default(slot.ty.clone()),
+                });
+            parameter.name = slot.name.clone();
+        }
+    }
 }

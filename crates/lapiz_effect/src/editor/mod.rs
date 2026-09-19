@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use iced_core::{Length, alignment::Vertical};
-use iced_widget::{Column, column, component::component, row};
+use iced_widget::{Column, column, row};
 use lapiz_i18n::t;
 use lapiz_shader_graph::{
     GraphElement,
@@ -176,21 +176,7 @@ fn view_pass_list<'a>(
     .padding(8)
     .width(Length::Fill);
 
-    let io_panel = Panel::new(
-        component(EffectIoEditor::new(
-            instance,
-            &state.resources.type_registry,
-        ))
-        .map(EffectEditorMessage::Io),
-    )
-    .padding(8)
-    .width(320);
-
-    row![passes_panel, io_panel]
-        .spacing(8)
-        .height(Length::Fill)
-        .padding(8)
-        .into()
+    passes_panel.height(Length::Fill).into()
 }
 
 fn pass_card<'a>(

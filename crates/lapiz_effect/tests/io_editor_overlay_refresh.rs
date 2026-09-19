@@ -9,18 +9,19 @@ use std::sync::{Arc, LazyLock};
 
 use futures::executor::block_on;
 use iced_core::{
-    Element, Event, Point, Size,
+    Element, Event, Length, Point, Size,
     keyboard,
     pointer::{self, button, mouse},
     renderer::Headless,
     shell::{Bus, Waker},
     window,
 };
+use iced_widget::{column, row};
 use iced_runtime::user_interface::{self, Cache, UserInterface};
 use indexmap::IndexMap;
 use lapiz_effect::{
     asset::{EffectPassDispatchStrategy, EffectPassId},
-    editor::{EffectEditorMessage, EffectEditorState, EffectEditorView},
+    editor::{EffectEditorMessage, EffectEditorState, EffectIoEditor},
     instance::{EffectInstance, EffectPass},
     nodes::effect_nodes,
 };
@@ -97,8 +98,24 @@ impl<'a> Loop<'a> {
         messages: &mut Bus<EffectEditorMessage>,
     ) -> (bool, bool) {
         if self.ui.is_none() {
+            // Host the standalone io editor where the old embedded panel sat
+            // (filler + 320-wide panel, padding 8, spacing 8) so the fixed
+            // coordinates below keep pointing at the add form.
+            let io_panel = lapiz_widgets::panel::Panel::new(
+                iced_widget::component::component(EffectIoEditor::new(
+                    self.instance,
+                    &self.state.resources.type_registry,
+                ))
+                .map(EffectEditorMessage::Io),
+            )
+            .padding(8)
+            .width(320);
             let element: Element<'_, EffectEditorMessage, GraphTheme, Renderer> =
-                EffectEditorView::new(self.instance, self.state).into();
+                row![lapiz_widgets::panel::Panel::new(column![]).width(Length::Fill), io_panel]
+                    .spacing(8)
+                    .height(Length::Fill)
+                    .padding(8)
+                    .into();
             self.ui = Some(UserInterface::build(
                 element,
                 self.bounds,
