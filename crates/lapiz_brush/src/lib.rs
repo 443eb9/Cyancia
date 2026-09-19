@@ -1,19 +1,9 @@
-use std::sync::Arc;
-
-use futures::StreamExt as _;
-use iced_futures::{Executor as _, backend::default};
+use futures::StreamExt;
+use iced_futures::{Executor, backend::default};
 use iced_runtime::{Action, Task, task::into_stream};
-use lapiz_assets::AssetAppExt as _;
-use lapiz_render::texture::Image;
+use lapiz_assets::AssetAppExt;
 use lapiz_runtime::{Application, plugin::Plugin};
-use lapiz_shader_graph::{
-    graph::{
-        function::{ASSET_GRAPH_FUNCTION_STORAGE, GraphFunctionStorage},
-        texture::{ASSET_GRAPH_TEXTURE_STORAGE, GraphTextureStorage},
-    },
-    save::SerializableGraphFunction,
-};
-use lapiz_tools::ToolsAppExt as _;
+use lapiz_tools::ToolsAppExt;
 
 use crate::{
     asset::{BrushPreset, BrushPresetSerializer},
@@ -48,18 +38,7 @@ impl Plugin for BrushPlugin {
     fn finish(&self, app: &mut Application) {
         let runtime = app.runtime();
         let services = runtime.services();
-        let assets = services.assets();
-
-        ASSET_GRAPH_TEXTURE_STORAGE.swap(Arc::new(GraphTextureStorage::new(
-            assets.all_handles_of::<Image>().unwrap(),
-        )));
-        ASSET_GRAPH_FUNCTION_STORAGE.swap(Arc::new(GraphFunctionStorage::new(
-            ASSET_GRAPH_TEXTURE_STORAGE.clone(),
-            ASSET_GRAPH_FUNCTION_STORAGE.clone(),
-            assets
-                .all_handles_of::<SerializableGraphFunction>()
-                .unwrap(),
-        )));
+        let assets = services.assets().clone();
 
         let brushes = assets
             .all_handles_of::<BrushPreset>()
@@ -67,7 +46,7 @@ impl Plugin for BrushPlugin {
 
         let preview_tasks = brushes.into_iter().filter_map(|brush| {
             let brush_id = brush.id();
-            match load_cached_stroke_preview_or_generate(&brush, services) {
+            match load_cached_stroke_preview_or_generate(&brush, &assets, services) {
                 Ok(task) => Some(task.map(move |result| (brush_id, result))),
                 Err(error) => {
                     log::error!("Failed to prepare preview for brush {brush_id}: {error:#}");

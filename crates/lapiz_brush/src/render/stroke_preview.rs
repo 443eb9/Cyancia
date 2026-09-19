@@ -44,6 +44,7 @@ pub const CACHED_STROKE_PREVIEW_SIZE: (u32, u32) = (512, 256);
 
 pub fn load_cached_stroke_preview_or_generate(
     brush: &AssetHandle<BrushPreset>,
+    assets: &lapiz_assets::store::AssetRegistry,
     services: &Services,
 ) -> Result<Task<Result<RgbaImage>>> {
     let cache_path = cache_dir()
@@ -59,7 +60,7 @@ pub fn load_cached_stroke_preview_or_generate(
 
     info!("Generating stroke preview for brush {}", brush.id());
 
-    let instance = BrushPresetInstance::from_asset(brush)
+    let instance = BrushPresetInstance::from_asset(brush, assets.clone())
         .map_err(|error| anyhow::anyhow!("Failed to create brush preset instance: {error:#}"))?;
 
     let texture = create_stroke_preview(

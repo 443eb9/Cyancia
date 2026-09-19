@@ -8,7 +8,6 @@ use lapiz_shader_graph::{
     GraphElement,
     graph::{
         GraphResources,
-        function::ASSET_GRAPH_FUNCTION_STORAGE,
         node::{
             GraphNode, GraphNodeCodeGenContext, GraphNodeCodeGenError, GraphNodeCreateSlotsContext,
             GraphNodeDefaultStateContext, GraphNodeRegistry, GraphNodeUpdateContext,
@@ -1155,10 +1154,13 @@ pub fn postprocess_graph_nodes() -> GraphNodeRegistry {
     nodes
 }
 
-pub fn brush_graph_resources(registry: Arc<GraphNodeRegistry>) -> GraphResources {
+pub fn brush_graph_resources(
+    registry: Arc<GraphNodeRegistry>,
+    assets: lapiz_assets::store::AssetRegistry,
+) -> GraphResources {
     GraphResources {
         type_registry: BRUSH_GRAPH_TYPES.clone(),
         node_registry: registry,
-        functions: ASSET_GRAPH_FUNCTION_STORAGE.clone(),
+        assets,
     }
 }

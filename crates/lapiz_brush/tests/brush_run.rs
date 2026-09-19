@@ -41,8 +41,8 @@ use uuid::Uuid;
 const SPACING_PARAMETER: f32 = 10.0;
 const RADIUS_PARAMETER: f32 = 14.0;
 
-fn spacing_effect() -> Result<(EffectInstance, EffectInputSlotId)> {
-    let resources = lapiz_brush::instance::spacing_effect_resources();
+fn spacing_effect(assets: lapiz_assets::store::AssetRegistry) -> Result<(EffectInstance, EffectInputSlotId)> {
+    let resources = lapiz_brush::instance::spacing_effect_resources(assets.clone());
     let spacing_parameter = EffectInputSlotId::new(Uuid::new_v4());
     let spacing_output = EffectOutputSlotId::new(Uuid::new_v4());
 
@@ -90,14 +90,14 @@ fn spacing_effect() -> Result<(EffectInstance, EffectInputSlotId)> {
     Ok((instance, spacing_parameter))
 }
 
-fn main_effect() -> Result<(EffectInstance, EffectInputSlotId)> {
+fn main_effect(assets: lapiz_assets::store::AssetRegistry) -> Result<(EffectInstance, EffectInputSlotId)> {
     use lapiz_brush::render::graph::{
         BlendWithInputNode, EllipticalMaskNode, ForegroundColorNode, PenPositionNode,
         PixelPositionNode,
     };
     use lapiz_shader_graph::wgsl_std::nodes::{CombineComponentsNode, ScalarMathNode};
 
-    let resources = lapiz_brush::instance::main_effect_resources();
+    let resources = lapiz_brush::instance::main_effect_resources(assets.clone());
     let radius_parameter = EffectInputSlotId::new(Uuid::new_v4());
     let dab_color = EffectOutputSlotId::new(Uuid::new_v4());
     let dab_bounds = EffectOutputSlotId::new(Uuid::new_v4());
@@ -192,10 +192,10 @@ fn main_effect() -> Result<(EffectInstance, EffectInputSlotId)> {
     Ok((instance, radius_parameter))
 }
 
-fn postprocess_effect() -> Result<(EffectInstance, ())> {
+fn postprocess_effect(assets: lapiz_assets::store::AssetRegistry) -> Result<(EffectInstance, ())> {
     use lapiz_brush::render::graph::{CurrentPixelColorNode, PixelPositionNode, StrokeBoundsNode};
 
-    let resources = lapiz_brush::instance::postprocess_effect_resources();
+    let resources = lapiz_brush::instance::postprocess_effect_resources(assets.clone());
     let stroke_color = EffectOutputSlotId::new(Uuid::new_v4());
     let stroke_bounds = EffectOutputSlotId::new(Uuid::new_v4());
     let color_ty: Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType> =
@@ -257,10 +257,10 @@ fn postprocess_effect() -> Result<(EffectInstance, ())> {
     Ok((instance, ()))
 }
 
-fn generate_brush_preset() -> Result<BrushPreset> {
-    let (spacing, spacing_parameter) = spacing_effect()?;
-    let (main, radius_parameter) = main_effect()?;
-    let (postprocess, ()) = postprocess_effect()?;
+fn generate_brush_preset(assets: lapiz_assets::store::AssetRegistry) -> Result<BrushPreset> {
+    let (spacing, spacing_parameter) = spacing_effect(assets.clone())?;
+    let (main, radius_parameter) = main_effect(assets.clone())?;
+    let (postprocess, ()) = postprocess_effect(assets)?;
 
     let mut parameters = IndexMap::new();
     for (id, value) in [
@@ -305,14 +305,15 @@ fn brush_round_trips_and_renders_preview() -> Result<()> {
         return Ok(());
     }
 
-    let preset = generate_brush_preset()?;
+    let assets = AssetRegistryBuilder::default().build();
+    let preset = generate_brush_preset(assets.clone())?;
 
     // Serialize.
     let mut encoded = Vec::new();
     BrushPresetSerializer.write(&preset, &mut encoded)?;
     // Deserialize.
-    let preset = BrushPresetSerializer.read(&mut std::io::Cursor::new(&encoded))?;
-    let instance = BrushPresetInstance::new(&preset)
+    let assets = AssetRegistryBuilder::default().build();
+    let instance = BrushPresetInstance::new(&preset, assets.clone())
         .with_context(|| "deserialized brush preset must build an instance")?;
 
     // The persisted parameter values survive the round trip.
@@ -329,7 +330,6 @@ fn brush_round_trips_and_renders_preview() -> Result<()> {
 
     // Render a preview through the full brush pipeline.
     let context = RenderContext::default();
-    let assets = AssetRegistryBuilder::default().build();
     let samples = predefined_curve_samples(256, 128);
     eprintln!("creating preview task");
     let task = create_stroke_preview_with(

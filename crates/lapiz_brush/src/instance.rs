@@ -63,20 +63,28 @@ pub struct BrushPresetInstance {
 impl BrushPresetInstance {
     pub fn from_asset(
         handle: &AssetHandle<BrushPreset>,
+        assets: lapiz_assets::store::AssetRegistry,
     ) -> Result<Self> {
         let preset = handle
             .get()
             .map_err(|e| anyhow::anyhow!("Brush preset asset is not loaded yet: {e}"))?;
-        let mut instance = Self::new(&preset)?;
+        let mut instance = Self::new(&preset, assets)?;
         instance.brush_id = Some(handle.id());
         Ok(instance)
     }
 
-    pub fn new(preset: &BrushPreset) -> Result<Self> {
-        let spacing_effect = EffectInstance::from_asset(&preset.spacing_effect, spacing_effect_resources())?;
-        let main_effect = EffectInstance::from_asset(&preset.main_effect, main_effect_resources())?;
-        let postprocess_effect =
-            EffectInstance::from_asset(&preset.postprocess_effect, postprocess_effect_resources())?;
+    pub fn new(
+        preset: &BrushPreset,
+        assets: lapiz_assets::store::AssetRegistry,
+    ) -> Result<Self> {
+        let spacing_effect =
+            EffectInstance::from_asset(&preset.spacing_effect, spacing_effect_resources(assets.clone()))?;
+        let main_effect =
+            EffectInstance::from_asset(&preset.main_effect, main_effect_resources(assets.clone()))?;
+        let postprocess_effect = EffectInstance::from_asset(
+            &preset.postprocess_effect,
+            postprocess_effect_resources(assets),
+        )?;
 
         // Every effect input is a brush parameter. Persisted values win; new
         // or missing inputs fall back to the type's default literal.
@@ -446,16 +454,16 @@ pub static MAIN_GRAPH_NODES: LazyLock<Arc<GraphNodeRegistry>> =
 pub static POSTPROCESS_GRAPH_NODES: LazyLock<Arc<GraphNodeRegistry>> =
     LazyLock::new(|| Arc::new(postprocess_graph_nodes()));
 
-pub fn spacing_effect_resources() -> GraphResources {
-    crate::render::graph::brush_graph_resources(SPACING_GRAPH_NODES.clone())
+pub fn spacing_effect_resources(assets: lapiz_assets::store::AssetRegistry) -> GraphResources {
+    crate::render::graph::brush_graph_resources(SPACING_GRAPH_NODES.clone(), assets)
 }
 
-pub fn main_effect_resources() -> GraphResources {
-    crate::render::graph::brush_graph_resources(MAIN_GRAPH_NODES.clone())
+pub fn main_effect_resources(assets: lapiz_assets::store::AssetRegistry) -> GraphResources {
+    crate::render::graph::brush_graph_resources(MAIN_GRAPH_NODES.clone(), assets)
 }
 
-pub fn postprocess_effect_resources() -> GraphResources {
-    crate::render::graph::brush_graph_resources(POSTPROCESS_GRAPH_NODES.clone())
+pub fn postprocess_effect_resources(assets: lapiz_assets::store::AssetRegistry) -> GraphResources {
+    crate::render::graph::brush_graph_resources(POSTPROCESS_GRAPH_NODES.clone(), assets)
 }
 
 pub struct GraphFunctionInstance {

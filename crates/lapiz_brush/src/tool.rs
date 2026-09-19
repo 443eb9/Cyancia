@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use iced_core::{Element, Theme};
 use iced_runtime::Task;
 use iced_widget::column;
-use lapiz_assets::asset::AssetHandle;
+use lapiz_assets::{AssetAppExt as _, asset::AssetHandle};
 use lapiz_canvas::{
     CanvasAppExt, CanvasUndoStackAppExt, command::TileReplaceCommand, event::CanvasUpdated,
 };
@@ -40,7 +40,7 @@ pub trait BrushServicesExt {
 
 impl BrushServicesExt for Services {
     fn set_current_brush_preset(&mut self, handle: AssetHandle<BrushPreset>) {
-        let instance = match BrushPresetInstance::from_asset(&handle) {
+        let instance = match BrushPresetInstance::from_asset(&handle, self.assets().clone()) {
             Ok(instance) => instance,
             Err(error) => {
                 error!("{error:#}");
