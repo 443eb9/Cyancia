@@ -16,7 +16,6 @@ use crate::graph::{
     Graph, GraphResources,
     function::{
         GRAPH_FUNCTION_NODE_REGISTRY, GRAPH_FUNCTION_TYPE_REGISTRY, GraphFunction, GraphFunctionId,
-        SharedGraphFunctionStorage,
     },
     node::{
         GraphNodeCreateSlotsContext, GraphNodeData, GraphNodeDefaultStateContext, GraphNodeId,
@@ -25,7 +24,6 @@ use crate::graph::{
     slot::{
         GraphInputSlotData, GraphInputSlotId, GraphOutputSlotData, GraphOutputSlotId, GraphSlots,
     },
-    texture::SharedGraphTextureStorage,
     variable::{GraphLiteral, GraphTypeRegistry},
 };
 
@@ -427,14 +425,13 @@ impl SerializableGraphFunction {
 
     pub fn deserialize_func(
         &self,
-        textures: SharedGraphTextureStorage,
-        functions: SharedGraphFunctionStorage,
         asset_id: Option<AssetId<SerializableGraphFunction>>,
+        assets: &lapiz_assets::store::AssetRegistry,
     ) -> (Option<GraphFunction>, Vec<GraphDeserializeError>) {
         let resources = GraphResources {
             type_registry: GRAPH_FUNCTION_TYPE_REGISTRY.clone(),
             node_registry: GRAPH_FUNCTION_NODE_REGISTRY.clone(),
-            functions,
+            assets: assets.clone(),
         };
 
         let (maybe_graph, err) = Graph::from_serialized(&self.graph, resources);

@@ -243,8 +243,10 @@ impl GraphValueType for LayerType {
         let bounds = ctx.get_output(base_index + 1)?;
         ctx.output_slot_idents
             .insert(ctx.outputs[base_index], ident_expression(color.clone()));
-        ctx.output_slot_idents
-            .insert(ctx.outputs[base_index + 1], ident_expression(bounds.clone()));
+        ctx.output_slot_idents.insert(
+            ctx.outputs[base_index + 1],
+            ident_expression(bounds.clone()),
+        );
         let load = Ident::new(layer_load_ident(input_name));
         let input_bounds = Ident::new(layer_bounds_ident(input_name));
         let color_stmt = quote_statement! {
@@ -465,6 +467,22 @@ impl GraphValueType for LayerType {
 
     fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<Expression> {
         None
+    }
+
+    // Layer literals are connectable placeholders; hosts always override the
+    // prepared value with a real layer, so they serialize as empty slots.
+    fn serialize_literal(
+        &self,
+        _data: &Self::AssociatedLiteralType,
+    ) -> Result<toml::Value, toml::ser::Error> {
+        Ok(toml::Value::Table(Default::default()))
+    }
+
+    fn deserialize_literal<'a>(
+        &self,
+        _deserializer: toml::Value,
+    ) -> Result<Self::AssociatedLiteralType, <toml::Value as serde::Deserializer<'a>>::Error> {
+        Ok(LayerReference)
     }
 
     fn generate_extra_shader_body(&self, stage: GraphShaderStage, name: &str) -> Option<String> {

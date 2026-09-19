@@ -1,7 +1,10 @@
 //! Editor construction and io editing smoke test. Views are built without a
 //! renderer: element construction alone exercises every node and panel builder.
 
-use std::{io::Cursor, sync::Arc, sync::LazyLock};
+use std::{
+    io::Cursor,
+    sync::{Arc, LazyLock},
+};
 
 use iced_core::{Element, Point};
 use indexmap::IndexMap;
@@ -21,8 +24,10 @@ use lapiz_effect::{
 use lapiz_shader_graph::{
     GraphRenderer, GraphTheme,
     graph::{
-        Graph, GraphResources, function::ASSET_GRAPH_FUNCTION_STORAGE, node::GraphNodeId,
-        node::GraphNodeRegistry, slot::ErasedGraphValueType, variable::GraphTypeRegistry,
+        Graph, GraphResources,
+        node::{GraphNodeId, GraphNodeRegistry},
+        slot::ErasedGraphValueType,
+        variable::GraphTypeRegistry,
     },
     wgsl_std::{builtin_types, types::F32Type},
 };
@@ -37,7 +42,7 @@ fn graph_resources() -> GraphResources {
     GraphResources {
         type_registry: TYPE_REGISTRY.clone(),
         node_registry: NODE_REGISTRY.clone(),
-        functions: ASSET_GRAPH_FUNCTION_STORAGE.clone(),
+        assets: lapiz_assets::store::AssetRegistry::default(),
     }
 }
 

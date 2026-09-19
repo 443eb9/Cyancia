@@ -17,12 +17,13 @@ use lapiz_effect::{
     instance::{EffectInputSlot, EffectInstance, EffectOutputSlot, EffectPass},
     nodes::{PassInput, PassInputNode, PassOutput, PassOutputDef, PassOutputNode, effect_nodes},
 };
-use lapiz_shader_graph::graph::node::GraphNodeRegistry;
 use lapiz_shader_graph::{
     GraphRenderer, GraphTheme,
     graph::{
-        Graph, GraphResources, function::ASSET_GRAPH_FUNCTION_STORAGE, node::GraphNodeId,
-        slot::ErasedGraphValueType, variable::GraphTypeRegistry,
+        Graph, GraphResources,
+        node::{GraphNodeId, GraphNodeRegistry},
+        slot::ErasedGraphValueType,
+        variable::GraphTypeRegistry,
     },
     wgsl_std::{
         builtin_types,
@@ -57,7 +58,7 @@ fn graph_resources() -> GraphResources {
     GraphResources {
         type_registry: TYPE_REGISTRY.clone(),
         node_registry: NODE_REGISTRY.clone(),
-        functions: ASSET_GRAPH_FUNCTION_STORAGE.clone(),
+        assets: lapiz_assets::store::AssetRegistry::default(),
     }
 }
 

@@ -5,6 +5,7 @@ use std::{
 };
 
 use chrono::Utc;
+use dashmap::DashMap;
 use lapiz_runtime::service::Service;
 use path_clean::PathClean as _;
 
@@ -20,14 +21,27 @@ use crate::{
     tag::{AssetTags, Tag, TagId},
 };
 
+/// Shared, cheaply cloneable handle to the asset store. Every clone observes
+/// the same underlying bundles and index.
+#[derive(Clone)]
 pub struct AssetRegistry {
-    root: PathBuf,
-    bundles: HashMap<BundleId, Arc<AssetBundleCache>>,
-    serializers: Arc<AssetSerializerRegistry>,
-    index_db: Arc<AssetIndexDb>,
+    inner: Arc<AssetRegistryInner>,
 }
 
 impl Service for AssetRegistry {}
+
+impl Default for AssetRegistry {
+    fn default() -> Self {
+        Self::new_in_memory(Arc::new(Default::default()))
+    }
+}
+
+pub struct AssetRegistryInner {
+    root: PathBuf,
+    bundles: DashMap<BundleId, Arc<AssetBundleCache>>,
+    serializers: Arc<AssetSerializerRegistry>,
+    index_db: Arc<AssetIndexDb>,
+}
 
 impl AssetRegistry {
     pub fn new(
@@ -35,23 +49,35 @@ impl AssetRegistry {
         serializers: Arc<AssetSerializerRegistry>,
     ) -> AssetResult<Self> {
         let root = root.as_ref();
-        let bundles = HashMap::new();
         let index_db = AssetIndexDb::connect(root.join("index.sqlite3"))?;
 
         Ok(Self {
-            root: root.to_path_buf(),
-            bundles,
-            index_db: Arc::new(index_db),
-            serializers,
+            inner: Arc::new(AssetRegistryInner {
+                root: root.to_path_buf(),
+                bundles: DashMap::new(),
+                index_db: Arc::new(index_db),
+                serializers,
+            }),
         })
     }
 
-    pub fn index_db(&self) -> &AssetIndexDb {
-        &self.index_db
+    pub fn new_in_memory(serializers: Arc<AssetSerializerRegistry>) -> Self {
+        Self {
+            inner: Arc::new(AssetRegistryInner {
+                root: PathBuf::new(),
+                bundles: DashMap::new(),
+                serializers,
+                index_db: Arc::new(AssetIndexDb::open_in_memory().expect("in-memory index db")),
+            }),
+        }
     }
 
-    pub fn bundles(&self) -> impl Iterator<Item = &Arc<AssetBundleCache>> {
-        self.bundles.values()
+    pub fn index_db(&self) -> &AssetIndexDb {
+        &self.inner.index_db
+    }
+
+    pub fn bundles(&self) -> impl Iterator<Item = Arc<AssetBundleCache>> + '_ {
+        self.inner.bundles.iter().map(|entry| entry.value().clone())
     }
 
     pub fn add_asset<T: Asset>(
@@ -61,11 +87,13 @@ impl AssetRegistry {
         asset: Arc<T>,
     ) -> AssetResult<AssetId<T>> {
         let bundle = self
+            .inner
             .bundles
             .get(&bundle_id)
-            .ok_or_else(|| AssetErrorKind::BundleNotFound(bundle_id))?;
+            .ok_or_else(|| AssetErrorKind::BundleNotFound(bundle_id))?
+            .clone();
         let asset_id = bundle.add_asset(&path, asset.clone())?;
-        self.index_db.add_asset(&AssetMetadata {
+        self.inner.index_db.add_asset(&AssetMetadata {
             asset_id,
             ty: asset.type_name().to_string(),
             bundle_id,
@@ -80,7 +108,7 @@ impl AssetRegistry {
     }
 
     pub fn add_erased_bundles(
-        &mut self,
+        &self,
         bundles: impl IntoIterator<Item = Arc<dyn ErasedAssetBundle>>,
     ) -> AssetResult<()> {
         let snapshots = bundles
@@ -91,15 +119,15 @@ impl AssetRegistry {
             return Ok(());
         }
 
-        self.index_db.sync_bundles(&snapshots)?;
+        self.inner.index_db.sync_bundles(&snapshots)?;
 
         for snapshot in snapshots {
-            self.bundles.insert(
+            self.inner.bundles.insert(
                 snapshot.metadata.bundle_id,
                 Arc::new(AssetBundleCache::new(
-                    self.root.clone(),
+                    self.inner.root.clone(),
                     snapshot,
-                    self.serializers.clone(),
+                    self.inner.serializers.clone(),
                 )),
             );
         }
@@ -109,11 +137,15 @@ impl AssetRegistry {
     fn scan_bundle(&self, bundle: Arc<dyn ErasedAssetBundle>) -> AssetResult<BundleSnapshot> {
         let metadata = bundle.metadata().map_err(AssetErrorKind::BundleError)?;
         let manifest = bundle.manifest().map_err(AssetErrorKind::BundleError)?;
-        let assets =
-            scan_bundle_assets(&self.root, metadata.clone(), &manifest, &self.serializers)?;
+        let assets = scan_bundle_assets(
+            &self.inner.root,
+            metadata.clone(),
+            &manifest,
+            &self.inner.serializers,
+        )?;
         let tags = scan_tags(bundle.as_ref(), &manifest, metadata.bundle_id)?;
         let asset_tags = scan_asset_tags(
-            self.root.as_path(),
+            self.inner.root.as_path(),
             &metadata.bundle_id,
             bundle.as_ref(),
             &manifest,
@@ -130,27 +162,33 @@ impl AssetRegistry {
         })
     }
 
-    pub fn add_bundle<B: AssetBundle>(&mut self, bundle: B) -> AssetResult<()> {
+    pub fn add_bundle<B: AssetBundle>(&self, bundle: B) -> AssetResult<()> {
         self.add_erased_bundles([Arc::new(bundle) as _])
     }
 
     pub fn handle<T: Asset>(&self, asset_id: AssetId<T>) -> AssetResult<AssetHandle<T>> {
-        let bundle_id = self.index_db.get_asset(&asset_id.into_untyped())?.bundle_id;
+        let bundle_id = self
+            .inner
+            .index_db
+            .get_asset(&asset_id.into_untyped())?
+            .bundle_id;
         let bundle = self
+            .inner
             .bundles
             .get(&bundle_id)
-            .ok_or_else(|| AssetErrorKind::BundleNotFound(bundle_id))?;
+            .ok_or_else(|| AssetErrorKind::BundleNotFound(bundle_id))?
+            .clone();
 
         Ok(AssetHandle::new(
             asset_id,
-            bundle.clone(),
-            self.index_db.clone(),
+            bundle,
+            self.inner.index_db.clone(),
         ))
     }
 
     pub fn all_handles_of<T: Asset>(&self) -> AssetResult<Vec<AssetHandle<T>>> {
         Ok(
-            self.metadata_to_handles(self.index_db.get_assets(UntypedAssetFilter {
+            self.metadata_to_handles(self.inner.index_db.get_assets(UntypedAssetFilter {
                 ty: Some(T::TYPE_NAME.to_string()),
                 ..Default::default()
             })?),
@@ -161,43 +199,45 @@ impl AssetRegistry {
         &self,
         filter: AssetFilter<T>,
     ) -> AssetResult<Vec<AssetHandle<T>>> {
-        Ok(self.metadata_to_handles(self.index_db.get_assets(filter.into_untyped())?))
+        Ok(self.metadata_to_handles(self.inner.index_db.get_assets(filter.into_untyped())?))
     }
 
     pub fn all_tags(&self) -> AssetResult<Vec<Tag>> {
-        self.index_db.get_tags(TagFilter::default())
+        self.inner.index_db.get_tags(TagFilter::default())
     }
 
     pub fn all_tags_of<T: Asset>(&self) -> AssetResult<Vec<Tag>> {
-        self.index_db.get_tags(TagFilter {
+        self.inner.index_db.get_tags(TagFilter {
             asset_ty: Some(Some(T::TYPE_NAME.to_string())),
             ..Default::default()
         })
     }
 
     pub fn all_tags_filtered(&self, filter: TagFilter) -> AssetResult<Vec<Tag>> {
-        self.index_db.get_tags(filter)
+        self.inner.index_db.get_tags(filter)
     }
 
     pub fn add_tag(&self, mut tag: Tag) -> AssetResult<()> {
         let bundle = self
+            .inner
             .bundles
             .get(&tag.bundle_id)
-            .ok_or_else(|| AssetErrorKind::BundleNotFound(tag.bundle_id))?;
+            .ok_or_else(|| AssetErrorKind::BundleNotFound(tag.bundle_id))?
+            .clone();
         tag.relative_path = PathBuf::from(&tag.relative_path)
             .clean()
             .to_string_lossy()
             .replace('\\', "/");
         bundle.add_tag(&tag)?;
-        self.index_db.add_tag(tag)
+        self.inner.index_db.add_tag(tag)
     }
 
     pub fn delete_tag(&self, tag_id: &TagId) -> AssetResult<()> {
-        self.index_db.delete_tag(tag_id)
+        self.inner.index_db.delete_tag(tag_id)
     }
 
     pub fn serializers(&self) -> &AssetSerializerRegistry {
-        &self.serializers
+        &self.inner.serializers
     }
 
     fn metadata_to_handles<T: Asset>(&self, metadata: Vec<AssetMetadata>) -> Vec<AssetHandle<T>> {
@@ -206,8 +246,8 @@ impl AssetRegistry {
             .filter_map(|meta| {
                 Some(AssetHandle::new(
                     meta.asset_id.into_typed(),
-                    self.bundles.get(&meta.bundle_id)?.clone(),
-                    self.index_db.clone(),
+                    self.inner.bundles.get(&meta.bundle_id)?.clone(),
+                    self.inner.index_db.clone(),
                 ))
             })
             .collect()
@@ -399,7 +439,7 @@ mod tests {
 
         let mut builder = registry_builder(&root);
         builder.add_bundle(Arc::new(AssetDirectory::new(&bundle_root)?));
-        let mut registry = builder.try_build()?;
+        let registry = builder.try_build()?;
         assert_eq!(
             registry.index_db().get_tag(tag.id)?.relative_path,
             "removed.tag"
@@ -474,7 +514,7 @@ mod tests {
 
         let mut builder = registry_builder(&root);
         builder.add_bundle(Arc::new(AssetDirectory::new(&bundle_root)?));
-        let mut registry = builder.try_build()?;
+        let registry = builder.try_build()?;
 
         let handle = registry.all_handles_of::<TestAsset>()?.remove(0);
         let asset_id = handle.untyped_id();
@@ -507,7 +547,7 @@ mod tests {
 
         let mut builder = registry_builder(&root);
         builder.add_bundle(Arc::new(AssetDirectory::new(&bundle_root)?));
-        let mut registry = builder.try_build()?;
+        let registry = builder.try_build()?;
         assert_eq!(registry.all_handles_of::<TestAsset>()?.len(), 2);
 
         std::fs::remove_file(bundle_root.join("removed.storetest"))?;

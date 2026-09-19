@@ -91,7 +91,9 @@ impl WindowView for FilterEditor {
                 filters,
                 selected_index: None,
                 selected: None,
-                effect_editor_state: EffectEditorState::new(filter_graph_resources()),
+                effect_editor_state: EffectEditorState::new(filter_graph_resources(
+                    services.assets().clone(),
+                )),
                 filter_name_buffer: String::new(),
                 dirty: false,
                 validation_error: None,
@@ -129,8 +131,7 @@ impl WindowView for FilterEditor {
                 Scrollable::new(Column::with_children(filter_list).spacing(2))
                     .width(Length::Fill)
                     .height(Length::Fill),
-                Button::new(Label::new(t!("new_filter")))
-                    .on_press(FilterEditorMessage::NewFilter),
+                Button::new(Label::new(t!("new_filter"))).on_press(FilterEditorMessage::NewFilter),
             ]
             .spacing(6),
         )
@@ -149,7 +150,9 @@ impl WindowView for FilterEditor {
         };
 
         // Region 2: naming on top, effect editor filling the rest.
-        let center = column![naming, effect_editor].spacing(6).height(Length::Fill);
+        let center = column![naming, effect_editor]
+            .spacing(6)
+            .height(Length::Fill);
 
         row![sidebar, center, io_panel, parameters]
             .spacing(8)
@@ -218,7 +221,12 @@ impl FilterEditor {
     fn view_selected<'a>(
         &'a self,
         selected: &'a SelectedFilter,
-    ) -> (EditorElement<'a>, EditorElement<'a>, EditorElement<'a>, EditorElement<'a>) {
+    ) -> (
+        EditorElement<'a>,
+        EditorElement<'a>,
+        EditorElement<'a>,
+        EditorElement<'a>,
+    ) {
         let status = if self.dirty {
             Label::new("*").muted()
         } else {
@@ -252,12 +260,11 @@ impl FilterEditor {
         };
 
         // Region 2 bottom: the effect editor (passes and their graphs).
-        let effect_editor: EditorElement<'a> =
-            GraphElement::from(EffectEditorView::new(
-                selected.instance.effect(),
-                &self.effect_editor_state,
-            ))
-            .map(FilterEditorMessage::Effect);
+        let effect_editor: EditorElement<'a> = GraphElement::from(EffectEditorView::new(
+            selected.instance.effect(),
+            &self.effect_editor_state,
+        ))
+        .map(FilterEditorMessage::Effect);
 
         // Region 3: effect io editor. Adding or retyping an input here also
         // grows the filter's parameter set.
@@ -306,19 +313,14 @@ impl FilterEditor {
         };
         let parameters = Panel::new(parameters_content).padding(8).width(260);
 
-        (
-            naming,
-            effect_editor,
-            io_panel.into(),
-            parameters.into(),
-        )
+        (naming, effect_editor, io_panel.into(), parameters.into())
     }
 
-    fn select_filter(&mut self, index: usize, _services: &Services) -> Task<FilterEditorMessage> {
+    fn select_filter(&mut self, index: usize, services: &Services) -> Task<FilterEditorMessage> {
         let Some(handle) = self.filters.get(index).cloned() else {
             return Task::none();
         };
-        let instance = match FilterInstance::from_asset(&handle) {
+        let instance = match FilterInstance::from_asset(&handle, services.assets()) {
             Ok(instance) => instance,
             Err(e) => {
                 log::error!("Failed to load filter preset: {e}");
@@ -328,7 +330,8 @@ impl FilterEditor {
         self.selected_index = Some(index);
         self.filter_name_buffer = instance.metadata().name.clone();
         self.selected = Some(SelectedFilter { handle, instance });
-        self.effect_editor_state = EffectEditorState::new(filter_graph_resources());
+        self.effect_editor_state =
+            EffectEditorState::new(filter_graph_resources(services.assets().clone()));
         self.dirty = false;
         self.validation_error = None;
         Task::none()
@@ -448,4 +451,3 @@ impl FilterEditor {
         };
     }
 }
-

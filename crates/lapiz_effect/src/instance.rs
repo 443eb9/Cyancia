@@ -4,8 +4,7 @@ use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
 use lapiz_i18n::t;
 use lapiz_shader_graph::graph::{
-    Graph, GraphResources, function::ASSET_GRAPH_FUNCTION_STORAGE, slot::ErasedGraphValueType,
-    variable::GraphShaderLiteral,
+    Graph, GraphResources, slot::ErasedGraphValueType, variable::GraphShaderLiteral,
 };
 
 use crate::{
@@ -83,7 +82,7 @@ impl EffectInstance {
                 GraphResources {
                     type_registry: resources.type_registry.clone(),
                     node_registry: resources.node_registry.clone(),
-                    functions: ASSET_GRAPH_FUNCTION_STORAGE.clone(),
+                    assets: resources.assets.clone(),
                 },
             );
             if let Some(error) = errors.first() {

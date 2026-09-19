@@ -33,8 +33,10 @@ use uuid::Uuid;
 use wesl::syntax::*;
 use wesl_quote::quote_statement;
 
-use crate::asset::*;
-use crate::render::{pass_input_ident, pass_output_ident};
+use crate::{
+    asset::*,
+    render::{pass_input_ident, pass_output_ident},
+};
 
 #[derive(Default, Clone)]
 pub struct PassInputNode;

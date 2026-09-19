@@ -12,10 +12,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    graph::{
-        Graph, node::GraphNodeRegistry, texture::SharedGraphTextureStorage,
-        variable::GraphTypeRegistry,
-    },
+    graph::{Graph, node::GraphNodeRegistry, variable::GraphTypeRegistry},
     save::SerializableGraphFunction,
     wgsl_std::{
         builtin_nodes, builtin_types,
@@ -38,59 +35,10 @@ wrapper! {
     pub GraphFunctionId : Uuid
 }
 
-pub type FunctionGraph = Graph;
-
 pub struct GraphFunction {
     // FIXME This should always exist
     pub asset_id: Option<AssetId<SerializableGraphFunction>>,
     pub id: GraphFunctionId,
     pub name: String,
-    pub graph: FunctionGraph,
-}
-
-pub type SharedGraphFunctionStorage = Arc<ArcSwap<GraphFunctionStorage>>;
-
-#[derive(Default)]
-pub struct GraphFunctionStorage {
-    functions: HashMap<GraphFunctionId, GraphFunction>,
-}
-
-pub static ASSET_GRAPH_FUNCTION_STORAGE: LazyLock<SharedGraphFunctionStorage> =
-    LazyLock::new(Default::default);
-
-impl GraphFunctionStorage {
-    pub fn new(
-        textures: SharedGraphTextureStorage,
-        functions: SharedGraphFunctionStorage,
-        handles: Vec<AssetHandle<SerializableGraphFunction>>,
-    ) -> Self {
-        let functions = handles
-            .into_iter()
-            .filter_map(|handle| {
-                let ser_func = handle.get().logged_err().ok()?;
-                let (maybe_func, errors) = ser_func.deserialize_func(
-                    textures.clone(),
-                    functions.clone(),
-                    Some(handle.id()),
-                );
-                if !errors.is_empty() {
-                    error!("Error deserializing graph function {}:", handle.id());
-                    for error in errors {
-                        error!("  - {}", error);
-                    }
-                }
-                let function = maybe_func?;
-                Some((function.id, function))
-            })
-            .collect();
-        Self { functions }
-    }
-
-    pub fn get(&self, id: &GraphFunctionId) -> Option<&GraphFunction> {
-        self.functions.get(id)
-    }
-
-    pub fn all(&self) -> &HashMap<GraphFunctionId, GraphFunction> {
-        &self.functions
-    }
+    pub graph: Graph,
 }

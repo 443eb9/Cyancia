@@ -11,9 +11,7 @@ use wesl::syntax::*;
 use wesl_quote::{quote_declaration, quote_expression, quote_statement};
 use wgpu::{Buffer, Device, Queue};
 
-use super::{
-    I32Type, U32Type, prepare_uniform_storage, push_buffer_binding, write_storage_buffer,
-};
+use super::{I32Type, U32Type, prepare_uniform_storage, push_buffer_binding, write_storage_buffer};
 use crate::{
     GraphRenderer, GraphTheme,
     graph::{

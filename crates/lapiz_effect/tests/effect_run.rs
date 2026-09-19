@@ -38,7 +38,6 @@ use lapiz_shader_graph::{
     GraphRenderer, GraphTheme,
     graph::{
         Graph, GraphResources,
-        function::ASSET_GRAPH_FUNCTION_STORAGE,
         node::{
             GraphNode, GraphNodeCodeGenContext, GraphNodeCodeGenError, GraphNodeCreateSlotsContext,
             GraphNodeDefaultStateContext, GraphNodeId, GraphNodeUpdateContext,
@@ -209,11 +208,7 @@ parameter_node!(
     "Chromatic Abberration Intensity",
     ca_intensity
 );
-parameter_node!(
-    TextureIntensityNode,
-    "Texture Intensity",
-    texture_intensity
-);
+parameter_node!(TextureIntensityNode, "Texture Intensity", texture_intensity);
 
 #[derive(Default, Clone)]
 struct HistogramNode;
@@ -380,7 +375,9 @@ impl GraphNode for ApplyEffectNode {
         let exposure = ctx.get_input(4)?;
         let texture = ctx.get_input(5)?;
         let output = ctx.get_output(0)?;
-        let target = Ident::new(layer_load_ident(&lapiz_effect::render::pass_input_ident(state.target)));
+        let target = Ident::new(layer_load_ident(&lapiz_effect::render::pass_input_ident(
+            state.target,
+        )));
         Ok([
             quote_statement! { let example_shift = max(i32(round(abs(#ca) * 3.0)), 0); },
             quote_statement! { let example_center = #target(#pixel); },
@@ -414,7 +411,7 @@ fn resources(histogram_type: ArrayAtomicU32Type) -> GraphResources {
     GraphResources {
         type_registry: Arc::new(types),
         node_registry: Arc::new(nodes),
-        functions: ASSET_GRAPH_FUNCTION_STORAGE.clone(),
+        assets: lapiz_assets::store::AssetRegistry::default(),
     }
 }
 

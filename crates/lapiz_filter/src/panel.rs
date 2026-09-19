@@ -10,6 +10,7 @@ use lapiz_canvas::{
     CCanvas, CanvasAppExt, CanvasId, CanvasUndoStackAppExt, command::TileReplaceCommand,
     event::CanvasUpdated,
 };
+use lapiz_effect::asset::EffectInputSlotId;
 use lapiz_i18n::t;
 use lapiz_image::{
     composite::{LayerPreviewOverriders, PixelPreviewOverrider},
@@ -20,7 +21,6 @@ use lapiz_image::{
     texel::TexelType,
     tile::{DynamicLayerStorage, GpuTileStorage, TileStorageAppExt},
 };
-use lapiz_effect::asset::EffectInputSlotId;
 use lapiz_render::render_context::RenderContextAppExt;
 use lapiz_runtime::{
     Services,
@@ -349,7 +349,7 @@ impl FilterPanel {
         self.target_layers = target_layers.clone();
         self.canvas_id = Some(canvas_id);
 
-        let instance = match FilterInstance::from_asset(&handle) {
+        let instance = match FilterInstance::from_asset(&handle, services.assets()) {
             Ok(instance) => instance,
             Err(e) => {
                 log::error!("Failed to load filter preset: {e}");

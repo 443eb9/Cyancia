@@ -19,11 +19,17 @@ pub struct FilterInstance {
 }
 
 impl FilterInstance {
-    pub fn from_asset(handle: &AssetHandle<FilterPreset>) -> anyhow::Result<Self> {
+    pub fn from_asset(
+        handle: &AssetHandle<FilterPreset>,
+        assets: &lapiz_assets::store::AssetRegistry,
+    ) -> anyhow::Result<Self> {
         let preset = handle
             .get()
             .map_err(|e| anyhow::anyhow!("Filter preset asset is not loaded yet: {e}"))?;
-        let mut instance = Self::new(&preset, crate::render::graph::filter_graph_resources())?;
+        let mut instance = Self::new(
+            &preset,
+            crate::render::graph::filter_graph_resources(assets.clone()),
+        )?;
         instance.filter_id = Some(handle.id());
         Ok(instance)
     }

@@ -10,7 +10,6 @@ use uuid::Uuid;
 use wesl::syntax::Expression;
 
 use crate::graph::{
-    function::SharedGraphFunctionStorage,
     node::{
         ContextualGraphNodeCodeGenError, ErasedGraphNode, ErasedGraphNodeMessage, GraphNode,
         GraphNodeCodeGenContext, GraphNodeCreateSlotsContext, GraphNodeData,
@@ -21,7 +20,6 @@ use crate::graph::{
         GraphDefaultInputSlot, GraphDefaultOutputSlot, GraphInputSlotData, GraphInputSlotId,
         GraphOutputSlotData, GraphOutputSlotId, GraphSlots,
     },
-    texture::{GraphTextureUsageRecorder, SharedGraphTextureStorage},
     variable::{GraphLiteral, GraphLiteralValue, GraphTypeRegistry, GraphVariable},
 };
 
@@ -688,7 +686,7 @@ fn delete_all_outputs(slots: &mut GraphSlots, output_slot_ids: &[GraphOutputSlot
 pub struct GraphResources {
     pub type_registry: Arc<GraphTypeRegistry>,
     pub node_registry: Arc<GraphNodeRegistry>,
-    pub functions: SharedGraphFunctionStorage,
+    pub assets: lapiz_assets::store::AssetRegistry,
 }
 
 impl Clone for GraphResources {
@@ -696,17 +694,7 @@ impl Clone for GraphResources {
         Self {
             type_registry: self.type_registry.clone(),
             node_registry: self.node_registry.clone(),
-            functions: self.functions.clone(),
-        }
-    }
-}
-
-impl Default for GraphResources {
-    fn default() -> Self {
-        Self {
-            type_registry: Arc::new(GraphTypeRegistry::default()),
-            node_registry: Arc::new(GraphNodeRegistry::with_capacity()),
-            functions: SharedGraphFunctionStorage::default(),
+            assets: self.assets.clone(),
         }
     }
 }

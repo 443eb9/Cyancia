@@ -9,15 +9,14 @@ use std::sync::{Arc, LazyLock};
 
 use futures::executor::block_on;
 use iced_core::{
-    Element, Event, Length, Point, Size,
-    keyboard,
+    Element, Event, Length, Point, Size, keyboard,
     pointer::{self, button, mouse},
     renderer::Headless,
     shell::{Bus, Waker},
     window,
 };
-use iced_widget::{column, row};
 use iced_runtime::user_interface::{self, Cache, UserInterface};
+use iced_widget::{column, row};
 use indexmap::IndexMap;
 use lapiz_effect::{
     asset::{EffectPassDispatchStrategy, EffectPassId},
@@ -28,11 +27,7 @@ use lapiz_effect::{
 use lapiz_runtime::Renderer;
 use lapiz_shader_graph::{
     GraphTheme,
-    graph::{
-        Graph, GraphResources,
-        function::ASSET_GRAPH_FUNCTION_STORAGE, node::GraphNodeRegistry,
-        variable::GraphTypeRegistry,
-    },
+    graph::{Graph, GraphResources, node::GraphNodeRegistry, variable::GraphTypeRegistry},
     wgsl_std::builtin_types,
 };
 use uuid::Uuid;
@@ -40,14 +35,13 @@ use uuid::Uuid;
 static TYPE_REGISTRY: LazyLock<Arc<GraphTypeRegistry>> =
     LazyLock::new(|| Arc::new(builtin_types()));
 
-static NODE_REGISTRY: LazyLock<Arc<GraphNodeRegistry>> =
-    LazyLock::new(|| Arc::new(effect_nodes()));
+static NODE_REGISTRY: LazyLock<Arc<GraphNodeRegistry>> = LazyLock::new(|| Arc::new(effect_nodes()));
 
 fn graph_resources() -> GraphResources {
     GraphResources {
         type_registry: TYPE_REGISTRY.clone(),
         node_registry: NODE_REGISTRY.clone(),
-        functions: ASSET_GRAPH_FUNCTION_STORAGE.clone(),
+        assets: lapiz_assets::store::AssetRegistry::default(),
     }
 }
 
@@ -110,12 +104,14 @@ impl<'a> Loop<'a> {
             )
             .padding(8)
             .width(320);
-            let element: Element<'_, EffectEditorMessage, GraphTheme, Renderer> =
-                row![lapiz_widgets::panel::Panel::new(column![]).width(Length::Fill), io_panel]
-                    .spacing(8)
-                    .height(Length::Fill)
-                    .padding(8)
-                    .into();
+            let element: Element<'_, EffectEditorMessage, GraphTheme, Renderer> = row![
+                lapiz_widgets::panel::Panel::new(column![]).width(Length::Fill),
+                io_panel
+            ]
+            .spacing(8)
+            .height(Length::Fill)
+            .padding(8)
+            .into();
             self.ui = Some(UserInterface::build(
                 element,
                 self.bounds,
@@ -123,18 +119,14 @@ impl<'a> Loop<'a> {
                 &mut self.renderer,
             ));
         }
-        let (ui_state, _) = self
-            .ui
-            .as_mut()
-            .unwrap()
-            .update(
-                &window::Headless,
-                &Waker::noop(),
-                events,
-                pointer::mouse::Cursor::Available(cursor),
-                &mut self.renderer,
-                messages,
-            );
+        let (ui_state, _) = self.ui.as_mut().unwrap().update(
+            &window::Headless,
+            &Waker::noop(),
+            events,
+            pointer::mouse::Cursor::Available(cursor),
+            &mut self.renderer,
+            messages,
+        );
         let rebuild = !messages.is_empty() || matches!(ui_state, user_interface::State::Outdated);
         if rebuild {
             self.cache = self.ui.take().unwrap().into_cache();
@@ -225,21 +217,19 @@ fn overlay_internal_events_refresh_without_spilling() {
 
     // The add button now carries both buffers and bubbles a single message.
     app.click(add_button, &mut messages);
-    let EffectEditorMessage::Io(lapiz_effect::editor::EffectIoEditorMessage::AddInput {
-        name,
-        ty,
-    }) = messages
-        .drain()
-        .map(|(message, _)| message)
-        .find(|message| {
-            matches!(
-                message,
-                EffectEditorMessage::Io(lapiz_effect::editor::EffectIoEditorMessage::AddInput {
-                    ..
-                })
-            )
-        })
-        .expect("add input message")
+    let EffectEditorMessage::Io(lapiz_effect::editor::EffectIoEditorMessage::AddInput { name, ty }) =
+        messages
+            .drain()
+            .map(|(message, _)| message)
+            .find(|message| {
+                matches!(
+                    message,
+                    EffectEditorMessage::Io(
+                        lapiz_effect::editor::EffectIoEditorMessage::AddInput { .. }
+                    )
+                )
+            })
+            .expect("add input message")
     else {
         unreachable!()
     };

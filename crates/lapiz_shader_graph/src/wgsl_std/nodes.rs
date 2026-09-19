@@ -17,6 +17,7 @@ use iced_core::{
 };
 use iced_widget::{column, container, row, text, text_editor, text_input};
 use indexmap::IndexMap;
+use lapiz_assets::asset::AssetHandle;
 use lapiz_i18n::{Translated, t};
 use lapiz_math::curve::CubicCurve;
 use lapiz_shader_graph_derive::stateless;
@@ -36,7 +37,7 @@ use crate::{
     GraphElement, GraphRenderer, GraphTheme,
     graph::{
         Graph, GraphResources, GraphVarIdentGenerator,
-        function::GraphFunctionId,
+        function::{GRAPH_FUNCTION_NODE_REGISTRY, GRAPH_FUNCTION_TYPE_REGISTRY},
         node::{
             GraphNode, GraphNodeCodeGenContext, GraphNodeCodeGenError, GraphNodeCreateSlotsContext,
             GraphNodeDefaultStateContext, GraphNodeRegistry, GraphNodeUpdateContext,
@@ -49,7 +50,7 @@ use crate::{
         },
         texture::TextureId,
     },
-    save::{GraphSerializable, SerializableGraph},
+    save::{GraphSerializable, SerializableGraph, SerializableGraphFunction},
     wgsl_std::types::{BoolType, ColorType, F32Type, I32Type, RectType, TextureType, Vec2FType},
 };
 
@@ -1624,7 +1625,7 @@ pub struct GraphFunctionNode;
 
 #[derive(Clone)]
 pub struct GraphFunctionReference {
-    pub id: GraphFunctionId,
+    pub handle: AssetHandle<SerializableGraphFunction>,
     pub name: String,
 }
 
@@ -1636,19 +1637,80 @@ impl std::fmt::Display for GraphFunctionReference {
 
 impl PartialEq for GraphFunctionReference {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
+        self.handle.id() == other.handle.id()
     }
 }
 
-#[derive(Serialize, Deserialize)]
 pub struct GraphFunctionNodeState {
-    pub id: Option<GraphFunctionId>,
+    pub handle: Option<AssetHandle<SerializableGraphFunction>>,
+    /// Instantiated when the handle is set (update or deserialize) and cached
+    /// for signature reads and code generation.
+    pub cached_graph: Option<Graph>,
 }
 
 #[derive(Clone)]
 pub enum GraphFunctionNodeMessage {
-    FunctionChanged(GraphFunctionId),
+    FunctionChanged(GraphFunctionReference),
     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
+}
+
+impl GraphFunctionNodeState {
+    /// Instantiates the function graph from the handle's asset; `None` when
+    /// the handle is unset or the asset is unavailable.
+    fn instantiate(
+        handle: &AssetHandle<SerializableGraphFunction>,
+        assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Option<Graph> {
+        let function = handle.get().ok()?;
+        let resources = GraphResources {
+            type_registry: GRAPH_FUNCTION_TYPE_REGISTRY.clone(),
+            node_registry: GRAPH_FUNCTION_NODE_REGISTRY.clone(),
+            assets: assets.clone(),
+        };
+        let (graph, errors) = Graph::from_serialized(&function.graph, resources);
+        if !errors.is_empty() {
+            log::error!(
+                "function '{}' failed to deserialize: {:?}",
+                function.name,
+                errors
+            );
+            return None;
+        }
+        graph
+    }
+}
+
+// The handle serializes as its asset id; deserialization resolves the id back
+// through the registry carried in the graph resources and instantiates.
+impl GraphSerializable for GraphFunctionNodeState {
+    fn to_toml(&self) -> anyhow::Result<toml::Value> {
+        #[derive(Serialize)]
+        struct Serializable {
+            asset: Option<lapiz_assets::asset::AssetId<SerializableGraphFunction>>,
+        }
+        Ok(toml::Value::try_from(Serializable {
+            asset: self.handle.as_ref().map(|handle| handle.id()),
+        })?)
+    }
+
+    fn from_toml(value: toml::Value, resources: &GraphResources) -> anyhow::Result<Self> {
+        #[derive(Deserialize)]
+        struct Serializable {
+            asset: Option<lapiz_assets::asset::AssetId<SerializableGraphFunction>>,
+        }
+        let serialized = Serializable::deserialize(value)?;
+        let handle = serialized
+            .asset
+            .map(|id| resources.assets.handle(id))
+            .transpose()?;
+        let graph = handle
+            .as_ref()
+            .and_then(|handle| Self::instantiate(handle, &resources.assets));
+        Ok(Self {
+            handle,
+            cached_graph: graph,
+        })
+    }
 }
 
 impl GraphNode for GraphFunctionNode {
@@ -1660,7 +1722,10 @@ impl GraphNode for GraphFunctionNode {
     }
 
     fn default_state(&self, _: GraphNodeDefaultStateContext<'_>) -> Self::State {
-        GraphFunctionNodeState { id: None }
+        GraphFunctionNodeState {
+            handle: None,
+            cached_graph: None,
+        }
     }
 
     fn header_hue_chroma(&self) -> (f32, f32) {
@@ -1670,14 +1735,12 @@ impl GraphNode for GraphFunctionNode {
     fn create_inputs(
         &self,
         state: &Self::State,
-        ctx: GraphNodeCreateSlotsContext<'_>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultInputSlot> {
-        let functions = ctx.resources.functions.load();
-        let Some(func) = state.id.as_ref().and_then(|id| functions.get(id)) else {
+        let Some(graph) = state.cached_graph.as_ref() else {
             return Vec::new();
         };
-
-        func.graph
+        graph
             .signature()
             .inputs
             .iter()
@@ -1690,14 +1753,12 @@ impl GraphNode for GraphFunctionNode {
     fn create_outputs(
         &self,
         state: &Self::State,
-        ctx: GraphNodeCreateSlotsContext<'_>,
+        _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultOutputSlot> {
-        let functions = ctx.resources.functions.load();
-        let Some(func) = state.id.as_ref().and_then(|id| functions.get(id)) else {
+        let Some(graph) = state.cached_graph.as_ref() else {
             return Vec::new();
         };
-
-        func.graph
+        graph
             .signature()
             .outputs
             .iter()
@@ -1712,23 +1773,30 @@ impl GraphNode for GraphFunctionNode {
         state: &Self::State,
         ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
-        let function_storage = ctx.resources.functions.load();
-        let functions = function_storage
-            .all()
-            .iter()
-            .map(|(id, graph)| GraphFunctionReference {
-                id: *id,
-                name: graph.name.clone(),
+        let functions = ctx
+            .resources
+            .assets
+            .all_handles_of::<SerializableGraphFunction>()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|handle| GraphFunctionReference {
+                name: handle
+                    .get()
+                    .map(|function| function.name.clone())
+                    .unwrap_or_default(),
+                handle,
             })
             .collect::<Vec<_>>();
         let selected = functions
             .iter()
-            .find(|reference| Some(reference.id) == state.id)
+            .find(|reference| Some(&reference.handle) == state.handle.as_ref())
             .cloned();
         ctx.view_all_slots_with_header(
-            ComboBox::new(functions, selected, |reference| {
-                GraphFunctionNodeMessage::FunctionChanged(reference.id)
-            })
+            ComboBox::new(
+                functions,
+                selected,
+                GraphFunctionNodeMessage::FunctionChanged,
+            )
             .width(Length::Fill),
             GraphFunctionNodeMessage::LiteralUpdate,
         )
@@ -1741,7 +1809,11 @@ impl GraphNode for GraphFunctionNode {
         mut ctx: GraphNodeUpdateContext<'_>,
     ) {
         match message {
-            GraphFunctionNodeMessage::FunctionChanged(id) => state.id = Some(id),
+            GraphFunctionNodeMessage::FunctionChanged(reference) => {
+                state.cached_graph =
+                    GraphFunctionNodeState::instantiate(&reference.handle, &ctx.resources.assets);
+                state.handle = Some(reference.handle);
+            }
             GraphFunctionNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
         }
     }
@@ -1751,11 +1823,7 @@ impl GraphNode for GraphFunctionNode {
         state: &Self::State,
         ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
-        let Some(id) = state.id.as_ref() else {
-            return Ok(Default::default());
-        };
-        let functions = ctx.resources.functions.load();
-        let Some(func) = functions.get(id) else {
+        let Some(graph) = state.cached_graph.as_ref() else {
             return Ok(Default::default());
         };
 
@@ -1767,16 +1835,12 @@ impl GraphNode for GraphFunctionNode {
             },
         )?;
 
-        let (output_idents, _, code) = func
-            .graph
-            .compile(
-                input_idents,
-                GraphVarIdentGenerator::new(format!(
-                    "{}_{}",
-                    id.to_string().replace('-', "_"),
-                    UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed)
-                )),
-            )
+        let suffix = format!(
+            "function_{}",
+            UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        );
+        let (output_idents, _, code) = graph
+            .compile(input_idents, GraphVarIdentGenerator::new(suffix))
             .map_err(|e| GraphNodeCodeGenError::Custom(e.into()))?;
 
         for (slot_id, output_ident) in ctx.outputs.iter().zip(output_idents) {
@@ -2459,7 +2523,7 @@ impl GraphSerializable for RepeatNodeState {
         let body_resources = GraphResources {
             type_registry: resources.type_registry.clone(),
             node_registry: Arc::new(node_registry),
-            functions: resources.functions.clone(),
+            assets: resources.assets.clone(),
         };
         let (body, errors) = Graph::from_serialized(&serialized.body, body_resources);
         if !errors.is_empty() {
@@ -2841,7 +2905,7 @@ impl GraphNode for RepeatNode {
         let body_resources = GraphResources {
             type_registry: ctx.resources.type_registry.clone(),
             node_registry: Arc::new(node_registry),
-            functions: ctx.resources.functions.clone(),
+            assets: ctx.resources.assets.clone(),
         };
 
         RepeatNodeState {

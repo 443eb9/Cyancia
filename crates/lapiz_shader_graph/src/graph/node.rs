@@ -26,7 +26,6 @@ use crate::{
     editor::slot::{input_slot, output_slot},
     graph::{
         Graph, GraphResources, GraphSignature, GraphVarIdentGenerator,
-        function::GraphFunctionStorage,
         slot::{
             ErasedGraphLiteralUpdateMessage, GraphDefaultInputSlot, GraphDefaultOutputSlot,
             GraphInputSlotData, GraphInputSlotId, GraphOutputSlotData, GraphOutputSlotId,
@@ -642,7 +641,11 @@ impl GraphNodeCodeGenContext<'_> {
         if output_slot.data_ty.id() != slot.data.ty().id() {
             self.resources
                 .type_registry
-                .try_wgsl_cast(&*output_slot.data_ty, slot.data.ty().as_ref(), ident.clone())
+                .try_wgsl_cast(
+                    &*output_slot.data_ty,
+                    slot.data.ty().as_ref(),
+                    ident.clone(),
+                )
                 .ok_or(GraphNodeCodeGenError::FailedToCastVariable)
         } else {
             Ok(ident.clone())

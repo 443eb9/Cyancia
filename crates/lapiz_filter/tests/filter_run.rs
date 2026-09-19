@@ -29,7 +29,6 @@ use lapiz_runtime::renderer::RenderContext;
 use lapiz_shader_graph::{
     graph::{
         Graph, GraphResources,
-        function::ASSET_GRAPH_FUNCTION_STORAGE,
         node::{
             GraphNodeCodeGenContext, GraphNodeCodeGenError, GraphNodeCreateSlotsContext,
             GraphNodeId, StatelessCommonGraphNode, stateless,
@@ -84,7 +83,7 @@ fn graph_resources() -> GraphResources {
     GraphResources {
         type_registry: Arc::new(builtin_types()),
         node_registry: Arc::new(nodes),
-        functions: ASSET_GRAPH_FUNCTION_STORAGE.clone(),
+        assets: lapiz_assets::store::AssetRegistry::default(),
     }
 }
 
@@ -181,10 +180,8 @@ fn generate_invert_filter() -> Result<FilterInstance> {
 
 // Deterministic integer hash so every channel value is reproducible.
 fn channel_hash(x: u32, y: u32, salt: u32) -> u8 {
-    let mut v = x
-        .wrapping_mul(0x9E3779B1)
-        ^ y.wrapping_mul(0x85EBCA77)
-        ^ salt.wrapping_mul(0xC2B2AE3D);
+    let mut v =
+        x.wrapping_mul(0x9E3779B1) ^ y.wrapping_mul(0x85EBCA77) ^ salt.wrapping_mul(0xC2B2AE3D);
     v ^= v >> 15;
     v = v.wrapping_mul(0x2545F491);
     v ^= v >> 13;
@@ -272,14 +269,14 @@ fn filter_round_trips_and_runs_on_layers() -> Result<()> {
     assert_eq!(preset.metadata.name, "Invert Test");
     let instance = FilterInstance::new(&preset, graph_resources())?;
     assert_eq!(instance.parameters()[&amount_id].name, "Amount");
-    assert_eq!(*instance.parameters()[&amount_id].value.as_ref::<f32>(), AMOUNT);
+    assert_eq!(
+        *instance.parameters()[&amount_id].value.as_ref::<f32>(),
+        AMOUNT
+    );
 
     let context = RenderContext::default();
-    let renderer = FilterRenderer::from_context(
-        &instance,
-        context.device.clone(),
-        context.queue.clone(),
-    )?;
+    let renderer =
+        FilterRenderer::from_context(&instance, context.device.clone(), context.queue.clone())?;
 
     // Multiple layers: small, multi-tile (crosses the 256 tile boundary), square.
     let sizes: [(u32, u32); 3] = [(64, 48), (300, 180), (96, 96)];

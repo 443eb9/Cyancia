@@ -4,11 +4,8 @@ use lapiz_render::texture::Image;
 use lapiz_runtime::{Application, plugin::Plugin};
 
 use crate::{
-    graph::{
-        function::{ASSET_GRAPH_FUNCTION_STORAGE, GraphFunctionStorage},
-        texture::{ASSET_GRAPH_TEXTURE_STORAGE, GraphTextureStorage},
-    },
-    save::{SerializableGraphFunction, SerializableGraphFunctionSerializer},
+    graph::texture::{ASSET_GRAPH_TEXTURE_STORAGE, GraphTextureStorage},
+    save::SerializableGraphFunctionSerializer,
 };
 
 pub mod editor;
@@ -45,15 +42,5 @@ impl Plugin for ShaderGraphPlugin {
 
         ASSET_GRAPH_TEXTURE_STORAGE
             .store(GraphTextureStorage::new(assets.all_handles_of::<Image>().unwrap()).into());
-        ASSET_GRAPH_FUNCTION_STORAGE.store(
-            GraphFunctionStorage::new(
-                ASSET_GRAPH_TEXTURE_STORAGE.clone(),
-                ASSET_GRAPH_FUNCTION_STORAGE.clone(),
-                assets
-                    .all_handles_of::<SerializableGraphFunction>()
-                    .unwrap(),
-            )
-            .into(),
-        );
     }
 }

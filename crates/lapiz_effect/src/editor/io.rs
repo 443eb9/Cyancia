@@ -9,7 +9,11 @@ use lapiz_shader_graph::{
     graph::{slot::ErasedGraphValueType, variable::GraphTypeRegistry},
 };
 use lapiz_widgets::{
-    button::{self, Button}, combo_box::ComboBox, icon, label::Label, scrollable::Scrollable,
+    button::{self, Button},
+    combo_box::ComboBox,
+    icon,
+    label::Label,
+    scrollable::Scrollable,
     text_input::TextInput,
 };
 use uuid::Uuid;
@@ -63,10 +67,8 @@ impl<'a> EffectIoEditor<'a> {
                     move |choice| EffectIoEditorMessage::RetypeInput(id, choice),
                     EffectIoEditorMessage::RemoveInput(id),
                     (index > 0).then(|| EffectIoEditorMessage::MoveInput { index, up: true }),
-                    (index + 1 < len).then(|| EffectIoEditorMessage::MoveInput {
-                        index,
-                        up: false,
-                    }),
+                    (index + 1 < len)
+                        .then(|| EffectIoEditorMessage::MoveInput { index, up: false }),
                 )
             })
             .collect::<Vec<_>>();
@@ -91,10 +93,8 @@ impl<'a> EffectIoEditor<'a> {
                     move |choice| EffectIoEditorMessage::RetypeOutput(id, choice),
                     EffectIoEditorMessage::RemoveOutput(id),
                     (index > 0).then(|| EffectIoEditorMessage::MoveOutput { index, up: true }),
-                    (index + 1 < len).then(|| EffectIoEditorMessage::MoveOutput {
-                        index,
-                        up: false,
-                    }),
+                    (index + 1 < len)
+                        .then(|| EffectIoEditorMessage::MoveOutput { index, up: false }),
                 )
             })
             .collect::<Vec<_>>();
@@ -163,8 +163,7 @@ impl<'a> EffectIoEditor<'a> {
             TextInput::new(&t!("name"), name)
                 .on_input(on_name)
                 .width(Length::Fill),
-            ComboBox::new(self.type_options.clone(), selected, on_type)
-                .placeholder(t!("type")),
+            ComboBox::new(self.type_options.clone(), selected, on_type).placeholder(t!("type")),
             Button::new(Label::new(label)).on_press_maybe(enabled.then_some(add)),
         ]
         .spacing(4)
@@ -298,9 +297,14 @@ pub(crate) fn apply(instance: &mut EffectInstance, message: EffectIoEditorMessag
         }
         EffectIoEditorMessage::AddInput { name, ty } => {
             let id = EffectInputSlotId::new(Uuid::new_v4());
-            instance
-                .inputs
-                .insert(id, EffectInputSlot { name, id, ty: ty.ty });
+            instance.inputs.insert(
+                id,
+                EffectInputSlot {
+                    name,
+                    id,
+                    ty: ty.ty,
+                },
+            );
         }
         EffectIoEditorMessage::RenameOutput(id, name) => {
             if let Some(slot) = instance.outputs.get_mut(&id) {

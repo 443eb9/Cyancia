@@ -2,8 +2,6 @@ use std::convert::identity;
 
 use anyhow::Result;
 use glam::{IVec2, IVec3, IVec4, UVec2, UVec3, UVec4, Vec2, Vec3, Vec4};
-use wesl::syntax::*;
-use wesl_quote::quote_expression;
 use iced_core::Element;
 use iced_widget::Column;
 use lapiz_render::{
@@ -12,6 +10,8 @@ use lapiz_render::{
 };
 use lapiz_utils::random_oklch_hue_chroma;
 use lapiz_widgets::spin_slider::SpinSlider;
+use wesl::syntax::*;
+use wesl_quote::quote_expression;
 use wgpu::{Buffer, Device, Queue};
 
 use super::{prepare_uniform_storage, push_buffer_binding, push_storage_layout};
@@ -134,7 +134,6 @@ macro_rules! vector_type {
         }
     };
 }
-
 
 vector_type!(
     Vec2FType,

@@ -186,7 +186,15 @@ impl GraphValueType for RectType {
         bindings: DynamicBindGroupLayoutEntries,
         shader: String,
     ) -> Result<(u32, DynamicBindGroupLayoutEntries, String)> {
-        push_storage_layout(stage, "render::math::Rect", name, group, binding, bindings, shader)
+        push_storage_layout(
+            stage,
+            "render::math::Rect",
+            name,
+            group,
+            binding,
+            bindings,
+            shader,
+        )
     }
 
     fn push_shader_binding<'a>(
