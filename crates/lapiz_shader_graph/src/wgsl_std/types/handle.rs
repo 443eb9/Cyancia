@@ -9,7 +9,7 @@ use iced_widget::{Column, column, row, space};
 use lapiz_i18n::t;
 use lapiz_image::{
     texel::TexelType,
-    tile::{DynamicLayerStorage, GpuLayerInfo},
+    tile::{DynamicLayerStorage, GpuLayerInfo, GpuTileInfo},
 };
 use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
@@ -570,7 +570,7 @@ impl GraphValueType for LayerType {
             }),
             dummy_tile_info: device.create_buffer(&BufferDescriptor {
                 label: Some("graph empty layer tile info"),
-                size: 4,
+                size: u64::from(GpuTileInfo::min_size()),
                 usage: BufferUsages::STORAGE,
                 mapped_at_creation: false,
             }),

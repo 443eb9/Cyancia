@@ -1,4 +1,7 @@
-use std::{f32::consts::TAU, fs::File};
+use std::{
+    f32::consts::TAU,
+    fs::{self, File},
+};
 
 use anyhow::{Result, anyhow, ensure};
 use glam::{IVec4, Vec2, Vec4};
@@ -84,6 +87,11 @@ pub fn load_cached_stroke_preview_or_generate(
             let img = img.logged_err().unwrap_or_else(|_| {
                 RgbaImage::new(CACHED_STROKE_PREVIEW_SIZE.0, CACHED_STROKE_PREVIEW_SIZE.1)
             });
+            fs::create_dir_all(
+                cache_path
+                    .parent()
+                    .expect("preview cache path has a parent"),
+            )?;
             let mut file = File::create(&cache_path)?;
             img.write_to(&mut file, ImageFormat::Png)?;
             info!("Stroke preview saved to {}", cache_path.display());

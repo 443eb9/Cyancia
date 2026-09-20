@@ -19,6 +19,7 @@ pub const MAIN_PIXEL_POSITION_INPUT: &str = "pixel_position";
 pub const MAIN_PEN_POSITION_INPUT: &str = "pen_position";
 pub const MAIN_FOREGROUND_COLOR_INPUT: &str = "foreground_color";
 pub const MAIN_BACKGROUND_COLOR_INPUT: &str = "background_color";
+pub const MAIN_CURRENT_COLOR_INPUT: &str = "current_color";
 pub const MAIN_TIP_TEXTURE_INPUT: &str = "tip_texture";
 pub const MAIN_PATTERN_TEXTURE_INPUT: &str = "pattern_texture";
 pub const DUAL_TIP_TEXTURE_INPUT: &str = "dual_tip_texture";
@@ -26,6 +27,7 @@ pub const MAIN_COLOR_OUTPUT: &str = "color";
 pub const MAIN_BOUNDS_OUTPUT: &str = "bounds";
 pub const POSTPROCESS_INPUT_COLOR: &str = "input_color";
 pub const POSTPROCESS_STROKE_BOUNDS_INPUT: &str = "stroke_bounds";
+pub const POSTPROCESS_TARGET_COLOR_INPUT: &str = "target_color";
 pub const REQUIRED_SPACING_OUTPUT: &str = "required_spacing";
 pub const PRESSURE_INPUT: &str = "pressure";
 pub const TILT_INPUT: &str = "tilt";
@@ -125,6 +127,8 @@ static MAIN_FOREGROUND_COLOR_IDENT: LazyLock<Ident> =
     LazyLock::new(|| Ident::new(MAIN_FOREGROUND_COLOR_INPUT.to_string()));
 static MAIN_BACKGROUND_COLOR_IDENT: LazyLock<Ident> =
     LazyLock::new(|| Ident::new(MAIN_BACKGROUND_COLOR_INPUT.to_string()));
+static MAIN_CURRENT_COLOR_IDENT: LazyLock<Ident> =
+    LazyLock::new(|| Ident::new(MAIN_CURRENT_COLOR_INPUT.to_string()));
 static MAIN_TIP_TEXTURE_IDENT: LazyLock<Ident> =
     LazyLock::new(|| Ident::new(MAIN_TIP_TEXTURE_INPUT.to_string()));
 static MAIN_PATTERN_TEXTURE_IDENT: LazyLock<Ident> =
@@ -139,6 +143,8 @@ static POSTPROCESS_INPUT_COLOR_IDENT: LazyLock<Ident> =
     LazyLock::new(|| Ident::new(POSTPROCESS_INPUT_COLOR.to_string()));
 static POSTPROCESS_STROKE_BOUNDS_IDENT: LazyLock<Ident> =
     LazyLock::new(|| Ident::new(POSTPROCESS_STROKE_BOUNDS_INPUT.to_string()));
+static POSTPROCESS_TARGET_COLOR_IDENT: LazyLock<Ident> =
+    LazyLock::new(|| Ident::new(POSTPROCESS_TARGET_COLOR_INPUT.to_string()));
 static REQUIRED_SPACING_IDENT: LazyLock<Ident> =
     LazyLock::new(|| Ident::new(REQUIRED_SPACING_OUTPUT.to_string()));
 static PRESSURE_IDENT: LazyLock<Ident> = LazyLock::new(|| Ident::new(PRESSURE_INPUT.to_string()));
@@ -650,26 +656,42 @@ fn texture_mask_statement(
     let pattern = (*MAIN_PATTERN_TEXTURE_IDENT).clone();
     let scale = texture.scale;
     let pattern_sample = if texture.each_tip {
-        quote_expression!(sample_transformed_local_texture_wrap(
-            #pattern,
-            pixel_position,
-            vec2f(
-                #scale * tip_diameter / #base_diameter,
-                #scale * tip_diameter * tip_roundness / #base_diameter,
-            ),
-            #tip_angle + roundness_angle,
-            tip_center,
-            vec2f(0.5),
-        ))
+        quote_statement! {{
+            let pattern_texture_size = vec2i(textureDimensions(#pattern));
+            let pattern_transform = render::math::scale_rotate_transform_anchored_inv(
+                vec2f(
+                    #scale * tip_diameter / #base_diameter,
+                    #scale * tip_diameter * tip_roundness / #base_diameter,
+                ),
+                #tip_angle + roundness_angle,
+                tip_center,
+                vec2f(0.5) * vec2f(pattern_texture_size),
+            );
+            let pattern_pixel = vec2i(
+                (pattern_transform * vec3f(pixel_position, 1.0)).xy
+            );
+            let wrapped_pattern_pixel = (
+                (pattern_pixel % pattern_texture_size) + pattern_texture_size
+            ) % pattern_texture_size;
+            pattern_sample = textureLoad(#pattern, wrapped_pattern_pixel, 0);
+        }}
     } else {
-        quote_expression!(sample_transformed_local_texture_wrap(
-            #pattern,
-            pixel_position,
-            vec2f(#scale),
-            0.0,
-            vec2f(0.0),
-            vec2f(0.0),
-        ))
+        quote_statement! {{
+            let pattern_texture_size = vec2i(textureDimensions(#pattern));
+            let pattern_transform = render::math::scale_rotate_transform_anchored_inv(
+                vec2f(#scale),
+                0.0,
+                vec2f(0.0),
+                vec2f(0.0),
+            );
+            let pattern_pixel = vec2i(
+                (pattern_transform * vec3f(pixel_position, 1.0)).xy
+            );
+            let wrapped_pattern_pixel = (
+                (pattern_pixel % pattern_texture_size) + pattern_texture_size
+            ) % pattern_texture_size;
+            pattern_sample = textureLoad(#pattern, wrapped_pattern_pixel, 0);
+        }}
     };
     let base_value = quote_expression!(pattern_sample.r);
     let adjusted_value = if texture.use_legacy {
@@ -709,7 +731,8 @@ fn texture_mask_statement(
     let blend = Ident::new(texture.blend_mode.shader_func().to_string());
 
     quote_statement! {{
-        let pattern_sample = #pattern_sample;
+        var pattern_sample: vec4f;
+        @#pattern_sample {}
         let pattern_color = vec4f(vec3f(#texture_value), 1.0);
         let mask_color = vec4f(vec3f(copy_mask), 1.0);
         let textured_mask = select(0.0, image::blend_modes::#blend(pattern_color, mask_color).r, copy_mask > 0.0);
@@ -741,7 +764,7 @@ fn dual_mask_statement(dual: Option<DualBrush>, pose: BrushPose, main_diameter: 
             let texture = (*DUAL_TIP_TEXTURE_IDENT).clone();
             let spacing = dual.spacing;
             quote_statement! {{
-                let dual_spacing_texture_size = vec2f(atlas_size(#texture));
+                let dual_spacing_texture_size = vec2f(textureDimensions(#texture));
                 let dual_spacing_scale = min(
                     dual_spacing_texture_size.x,
                     dual_spacing_texture_size.y,
@@ -782,8 +805,8 @@ fn dual_mask_statement(dual: Option<DualBrush>, pose: BrushPose, main_diameter: 
                 let dual_edge = max(dual_radius * (1.0 - #hardness), 1.0);
                 let dual_delta = (#pixel - dual_center)
                     * vec2f(#flip_x * #random_flip, #flip_y);
-                let dual_distance = sdf_ellipse(
-                    rotate_mat2x2(#angle) * dual_delta,
+                let dual_distance = render::math::sdf_ellipse(
+                    render::math::rotate_mat2x2(#angle) * dual_delta,
                     vec2f(0.0),
                     vec2f(dual_radius, max(dual_radius * #roundness, 0.001)),
                 );
@@ -801,20 +824,30 @@ fn dual_mask_statement(dual: Option<DualBrush>, pose: BrushPose, main_diameter: 
             let flip_x = if flip_x { -1.0f32 } else { 1.0f32 };
             let flip_y = if flip_y { -1.0f32 } else { 1.0f32 };
             quote_statement! {{
-                let dual_texture_size = vec2f(atlas_size(#texture));
+                let dual_texture_size = vec2f(textureDimensions(#texture));
                 let dual_base_size = max(dual_texture_size.x, dual_texture_size.y);
                 let dual_scale = vec2f(
                     #flip_x * #random_flip * dual_diameter / dual_base_size,
                     #flip_y * dual_diameter * #roundness / dual_base_size,
                 );
-                let dual_sample = sample_transformed_local_texture_clamp(
-                    #texture,
-                    #pixel,
+                let dual_transform = render::math::scale_rotate_transform_anchored_inv(
                     dual_scale,
                     #angle,
                     dual_center,
-                    vec2f(0.5),
+                    vec2f(0.5) * dual_texture_size,
                 );
+                let dual_texture_pixel = (
+                    dual_transform * vec3f(#pixel, 1.0)
+                ).xy;
+                var dual_sample = vec4f(0.0);
+                if all(dual_texture_pixel >= vec2f(0.0))
+                    && all(dual_texture_pixel < dual_texture_size) {
+                    dual_sample = textureLoad(
+                        #texture,
+                        vec2i(dual_texture_pixel),
+                        0,
+                    );
+                }
                 dual_copy_mask = dual_sample.a * dual_sample.r;
             }}
         }
@@ -884,6 +917,7 @@ fn tip_color_statement(
     pose: BrushPose,
 ) -> Statement {
     let color = (*MAIN_COLOR_IDENT).clone();
+    let current_color = (*MAIN_CURRENT_COLOR_IDENT).clone();
     let user_flow = (*USER_FLOW_IDENT).clone();
     let effective_flow = match flow_dynamics {
         Some(dynamics) => {
@@ -898,10 +932,7 @@ fn tip_color_statement(
                 tip_foreground.rgb,
                 tip_foreground.a * tip_mask * #effective_flow,
             );
-            #color = image::blend_modes::blend_normal(
-                tip_color,
-                current_input_color(pixel_pos),
-            );
+            #color = image::blend_modes::blend_normal(tip_color, #current_color);
         }};
     };
     let opacity_factor = dynamics_factor(dynamics, 39.346, pose);
@@ -911,7 +942,7 @@ fn tip_color_statement(
             tip_foreground.rgb,
             tip_foreground.a * tip_mask * #effective_flow,
         );
-        let previous_color = current_input_color(pixel_pos);
+        let previous_color = #current_color;
         let accumulated_color = image::blend_modes::blend_normal(
             tip_color,
             previous_color,
@@ -955,7 +986,7 @@ pub fn sampled_required_spacing(
     quote_statement! {{
         var tip_diameter: f32;
         @#size_diameter {}
-        let tip_texture_size = vec2f(atlas_size(#texture));
+        let tip_texture_size = vec2f(textureDimensions(#texture));
         let spacing_scale = min(tip_texture_size.x, tip_texture_size.y)
             / max(tip_texture_size.x, tip_texture_size.y);
         #required_spacing = max(tip_diameter * #spacing * spacing_scale, 0.001);
@@ -1028,12 +1059,15 @@ pub fn computed_main(tip: ComputedMainTip, options: MainGraphOptions) -> String 
         );
         let active_copy_count = #active_copy_count;
         var tip_mask = 0.0;
-        var combined_bounds = Rect(vec2f(1000000.0), vec2f(-1000000.0));
+        var combined_bounds = render::math::Rect(
+            vec2f(1000000.0),
+            vec2f(-1000000.0),
+        );
         for (var copy_index = 0u; copy_index < active_copy_count; copy_index++) {
             let tip_center = #pen + #scatter_offset;
             let tip_delta = (#pixel - tip_center) * vec2f(#flip_x, #flip_y) * #flip_jitter;
-            let tip_distance = sdf_ellipse(
-                rotate_mat2x2(#tip_angle + roundness_angle) * tip_delta,
+            let tip_distance = render::math::sdf_ellipse(
+                render::math::rotate_mat2x2(#tip_angle + roundness_angle) * tip_delta,
                 vec2f(0.0),
                 tip_radii,
             );
@@ -1041,11 +1075,11 @@ pub fn computed_main(tip: ComputedMainTip, options: MainGraphOptions) -> String 
             @#noise {}
             @#texture_mask {}
             tip_mask = 1.0 - (1.0 - tip_mask) * (1.0 - copy_mask);
-            let copy_bounds = Rect(
+            let copy_bounds = render::math::Rect(
                 tip_center - vec2f(tip_radius),
                 tip_center + vec2f(tip_radius),
             );
-            combined_bounds = Rect(
+            combined_bounds = render::math::Rect(
                 min(combined_bounds.min, copy_bounds.min),
                 max(combined_bounds.max, copy_bounds.max),
             );
@@ -1111,7 +1145,7 @@ pub fn sampled_main(tip: SampledMainTip, options: MainGraphOptions) -> String {
         @#size_diameter {}
         @#tip_roundness {}
         @#tip_foreground {}
-        let tip_texture_size = vec2f(atlas_size(#texture));
+        let tip_texture_size = vec2f(textureDimensions(#texture));
         let tip_base_size = max(tip_texture_size.x, tip_texture_size.y);
         let tip_scale = vec2f(
             #flip_x * tip_diameter / tip_base_size,
@@ -1120,30 +1154,42 @@ pub fn sampled_main(tip: SampledMainTip, options: MainGraphOptions) -> String {
         let tip_anchor = vec2f(0.5);
         let active_copy_count = #active_copy_count;
         var tip_mask = 0.0;
-        var combined_bounds = Rect(vec2f(1000000.0), vec2f(-1000000.0));
+        var combined_bounds = render::math::Rect(
+            vec2f(1000000.0),
+            vec2f(-1000000.0),
+        );
         for (var copy_index = 0u; copy_index < active_copy_count; copy_index += 1u) {
             let tip_center = #pen + #scatter_offset;
             let copy_scale = tip_scale * #flip_jitter;
-            let tip_sample = sample_transformed_local_texture_clamp(
-                #texture,
-                #pixel,
+            let tip_transform = render::math::scale_rotate_transform_anchored_inv(
                 copy_scale,
                 #tip_angle + roundness_angle,
                 tip_center,
-                tip_anchor,
+                tip_anchor * tip_texture_size,
             );
+            let tip_texture_pixel = (
+                tip_transform * vec3f(#pixel, 1.0)
+            ).xy;
+            var tip_sample = vec4f(0.0);
+            if all(tip_texture_pixel >= vec2f(0.0))
+                && all(tip_texture_pixel < tip_texture_size) {
+                tip_sample = textureLoad(#texture, vec2i(tip_texture_pixel), 0);
+            }
             var copy_mask = tip_sample.a * tip_sample.r;
             @#noise {}
             @#texture_mask {}
             tip_mask = 1.0 - (1.0 - tip_mask) * (1.0 - copy_mask);
-            let copy_bounds = filter_within_mask_bounds(
-                #texture,
+            let copy_transform = render::math::scale_rotate_transform_anchored(
                 copy_scale,
                 #tip_angle + roundness_angle,
                 tip_center,
-                tip_anchor,
+                tip_anchor * tip_texture_size,
             );
-            combined_bounds = Rect(
+            let copy_bounds = render::math::transform_rect(
+                render::math::Rect(vec2f(0.0), tip_texture_size),
+                copy_transform,
+            );
+            combined_bounds = render::math::Rect(
                 min(combined_bounds.min, copy_bounds.min),
                 max(combined_bounds.max, copy_bounds.max),
             );
@@ -1159,6 +1205,7 @@ pub fn opacity_postprocess(opacity: f32, blend_mode: BlendMode) -> String {
     let user_opacity = (*USER_OPACITY_IDENT).clone();
     let input_color = (*POSTPROCESS_INPUT_COLOR_IDENT).clone();
     let stroke_bounds = (*POSTPROCESS_STROKE_BOUNDS_IDENT).clone();
+    let target_color = (*POSTPROCESS_TARGET_COLOR_IDENT).clone();
     let color = (*MAIN_COLOR_IDENT).clone();
     let bounds = (*MAIN_BOUNDS_IDENT).clone();
     let blend = Ident::new(blend_mode.shader_func().to_string());
@@ -1168,10 +1215,7 @@ pub fn opacity_postprocess(opacity: f32, blend_mode: BlendMode) -> String {
             #input_color.rgb,
             #input_color.a * #opacity * clamp(#user_opacity, 0.0, 1.0),
         );
-        #color = image::blend_modes::#blend(
-            stroke_color,
-            target_layer_color(pixel_pos),
-        );
+        #color = image::blend_modes::#blend(stroke_color, #target_color);
         #bounds = #stroke_bounds;
     }}
     .to_string()

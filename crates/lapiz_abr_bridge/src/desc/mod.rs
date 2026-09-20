@@ -9,7 +9,6 @@ use lapiz_assets::asset::AssetId;
 use lapiz_brush::asset::{BrushPreset, BrushPresetMetadata};
 use lapiz_image::blend_modes::BlendMode;
 use lapiz_render::texture::Image;
-use lapiz_shader_graph::save::SerializableExternalVariable;
 use uuid::Uuid;
 
 use crate::desc::{
@@ -504,12 +503,16 @@ pub fn parse_desc(
         BrushTip::Sampled(tip) => tip.diameter.value as f32,
         BrushTip::DBrush(_) => bail!("unsupported dual brush tip in {}", brush.name),
     };
-    let external_vars = graph::external_variables(base_size);
-
-    let (required_spacing_graph, main_graph) = match &brush.brush {
+    let (spacing_effect, main_effect, inputs) = match &brush.brush {
         BrushTip::Computed(tip) => {
             ensure!(tip.interpolation, "unsupported computed interpolation");
-            graph::computed_graphs(
+            let inputs = graph::BrushInputs::new(
+                base_size,
+                None,
+                main_graph_options.pattern_asset,
+                main_graph_options.dual_sample_asset,
+            )?;
+            let (spacing, main) = graph::computed_graphs(
                 ComputedMainTip {
                     diameter: tip.diameter.value as f32,
                     hardness: (tip.hardness.value / 100.0).clamp(0.0, 1.0) as f32,
@@ -520,8 +523,9 @@ pub fn parse_desc(
                     spacing: (tip.spacing.value / 100.0).max(0.001) as f32,
                 },
                 main_graph_options,
-                &external_vars,
-            )?
+                &inputs,
+            )?;
+            (spacing, main, inputs)
         }
         BrushTip::Sampled(tip) => {
             ensure!(tip.interpolation, "unsupported sampled interpolation");
@@ -529,7 +533,13 @@ pub fn parse_desc(
                 .get(&tip.id)
                 .copied()
                 .with_context(|| format!("sample not found {}", tip.id))?;
-            graph::sampled_graphs(
+            let inputs = graph::BrushInputs::new(
+                base_size,
+                Some(sample_asset),
+                main_graph_options.pattern_asset,
+                main_graph_options.dual_sample_asset,
+            )?;
+            let (spacing, main) = graph::sampled_graphs(
                 SampledMainTip {
                     sample_asset,
                     diameter: tip.diameter.value as f32,
@@ -540,31 +550,22 @@ pub fn parse_desc(
                     spacing: (tip.spacing.value / 100.0).max(0.001) as f32,
                 },
                 main_graph_options,
-                &external_vars,
-            )?
+                &inputs,
+            )?;
+            (spacing, main, inputs)
         }
         BrushTip::DBrush(_) => bail!("unsupported dual brush tip in {}", brush.name),
     };
 
-    let stroke_postprocess_graphs = vec![graph::opacity_postprocess_graph(
-        opacity,
-        paint_blend_mode,
-        &external_vars,
-    )?];
-    let serialized_external_vars = external_vars
-        .storage
-        .all()
-        .iter()
-        .map(|entry| SerializableExternalVariable::serialize(entry.value()))
-        .collect::<Result<Vec<_>, _>>()?;
+    let postprocess_effect = graph::opacity_postprocess_effect(opacity, paint_blend_mode, &inputs)?;
 
     Ok(BrushPreset {
         metadata: BrushPresetMetadata {
             name: brush.name.clone(),
         },
-        required_spacing_graph,
-        main_graph,
-        stroke_postprocess_graphs,
-        external_vars: serialized_external_vars,
+        spacing_effect,
+        main_effect,
+        postprocess_effect,
+        parameters: inputs.serialized_parameters().collect(),
     })
 }

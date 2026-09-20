@@ -173,7 +173,9 @@ pub fn input_slot<'a>(
             chroma,
             slot_name,
             SlotSide::Left,
-            slot.data.ty().view_literal(slot_id, slot.data.value(), assets),
+            slot.data
+                .ty()
+                .view_literal(slot_id, slot.data.value(), assets),
         ),
     }
 }

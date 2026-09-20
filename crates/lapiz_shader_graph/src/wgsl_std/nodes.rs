@@ -3240,6 +3240,25 @@ impl CustomExpressionNodeState {
         Self::add_variable::<T>(&mut self.inputs, name)
     }
 
+    pub fn add_input_non_default<T: GraphValueType>(
+        &mut self,
+        name: impl Into<String>,
+        ty: T,
+    ) -> CustomExpressionVariableId {
+        let name = name.into();
+        let id = CustomExpressionVariableId::new(Uuid::new_v4());
+        self.inputs.insert(
+            id,
+            CustomExpressionVariable {
+                id,
+                display_name: name.clone(),
+                name,
+                ty: Arc::new(ty),
+            },
+        );
+        id
+    }
+
     pub fn add_output<T: GraphValueType + Default>(
         &mut self,
         name: impl Into<String>,
