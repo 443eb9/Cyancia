@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow, ensure};
 use glam::{IVec4, Vec2, Vec4};
 use iced_runtime::Task;
 use image::{ImageFormat, RgbaImage};
-use lapiz_assets::{AssetAppExt, asset::AssetHandle};
+use lapiz_assets::asset::AssetHandle;
 use lapiz_dirs::cache_dir;
 use lapiz_image::{
     layer_bounds::LayerBoundsPipeline,
@@ -157,7 +157,6 @@ pub fn create_stroke_preview(
         height,
         services.render_device(),
         services.render_queue(),
-        services.assets(),
         canvas_resources,
     )
 }
@@ -169,7 +168,6 @@ pub fn create_stroke_preview_with(
     height: u32,
     device: &Device,
     queue: &Queue,
-    assets: &lapiz_assets::store::AssetRegistry,
     canvas_resources: &CanvasResources,
 ) -> Result<Task<Texture>> {
     let target_layer = DynamicLayerStorage::new(
@@ -186,7 +184,6 @@ pub fn create_stroke_preview_with(
         height,
         device,
         queue,
-        assets,
         canvas_resources,
         target_layer,
     )
@@ -208,7 +205,6 @@ pub fn create_stroke_preview_on_target(
         height,
         services.render_device(),
         services.render_queue(),
-        services.assets(),
         canvas_resources,
         target_layer,
     )
@@ -221,7 +217,6 @@ pub fn create_stroke_preview_on_target_with(
     height: u32,
     device: &Device,
     queue: &Queue,
-    assets: &lapiz_assets::store::AssetRegistry,
     canvas_resources: &CanvasResources,
     mut target_layer: DynamicLayerStorage,
 ) -> Result<Task<Texture>> {
@@ -252,14 +247,18 @@ pub fn create_stroke_preview_on_target_with(
         b
     };
 
-    let compiled = brush.compile()?;
-    let mut renderer = BrushPresetRenderer::new(
-        &compiled,
+    let compiled = brush.compile(
         target_layer.layer_info().texel_type,
         selection_layer.layer_info().texel_type,
         device,
         queue,
-        assets,
+    )?;
+    let mut renderer = BrushPresetRenderer::new(
+        compiled,
+        target_layer.layer_info().texel_type,
+        selection_layer.layer_info().texel_type,
+        device,
+        queue,
         &canvas_resources,
     );
 
@@ -289,7 +288,7 @@ pub fn create_stroke_preview_on_target_with(
         render_tasks.push(renderer.update(device, queue, pen_input));
     }
 
-    let final_result = renderer.end(device, queue);
+    let final_result = renderer.end();
     let device = device.clone();
     let queue = queue.clone();
 

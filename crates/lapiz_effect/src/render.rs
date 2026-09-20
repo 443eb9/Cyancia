@@ -7,10 +7,8 @@ use anyhow::{Context, Result, bail, ensure};
 use indexmap::IndexMap;
 use lapiz_image::tile::DynamicLayerStorage;
 use lapiz_render::{
-    bind_group_entries::{BindGroupEntries, DynamicBindGroupEntries},
-    bind_group_layout_entries::DynamicBindGroupLayoutEntries,
-    owned_bind_group_entries::OwnedBindGroupEntry,
-    wesl_jit,
+    bind_group_entries::DynamicBindGroupEntries,
+    bind_group_layout_entries::DynamicBindGroupLayoutEntries, wesl_jit,
 };
 use lapiz_shader_graph::{
     graph::{
@@ -50,6 +48,7 @@ pub struct EffectPassOutputSlotTarget {
 pub struct EffectRenderer {
     inputs: Vec<EffectInputSlot>,
     outputs: HashMap<EffectOutputSlotId, EffectPassOutputSlotId>,
+    builtin_literals: HashMap<String, Arc<dyn ErasedGraphValueType>>,
 
     passes: Vec<EffectRenderPass>,
     device: Device,
@@ -306,6 +305,7 @@ impl EffectRenderer {
                 outputs_decl,
                 &effect_inputs_decl,
                 &pass_output_types,
+                &builtin_literals,
                 source.dispatch_strategy,
                 &source.graph,
                 &device,
@@ -315,6 +315,7 @@ impl EffectRenderer {
         Ok(Self {
             inputs: instance.inputs.values().cloned().collect(),
             outputs: exports,
+            builtin_literals,
             passes,
             device,
             queue,
@@ -336,11 +337,26 @@ impl EffectRenderer {
                 def.id
             );
         }
+        for (name, ty) in &self.builtin_literals {
+            let literal = builtin_literals
+                .get(name)
+                .with_context(|| format!("Missing effect builtin literal '{name}'"))?;
+            ensure!(
+                ty.id() == literal.ty().id(),
+                "Wrong effect builtin literal type for '{name}'"
+            );
+        }
 
         let mut produced = EffectPassOutputs::new();
         for pass in &self.passes {
             pass.init_output_values(&mut produced, &self.device, &self.queue)?;
-            pass.run(inputs, &mut produced, &self.device, &self.queue)?;
+            pass.run(
+                inputs,
+                &builtin_literals,
+                &mut produced,
+                &self.device,
+                &self.queue,
+            )?;
         }
 
         self.outputs
@@ -358,6 +374,7 @@ impl EffectRenderer {
 struct PreparedEffectRenderPassStage {
     input_group: BindGroup,
     output_group: BindGroup,
+    builtin_group: BindGroup,
     dispatch: [u32; 3],
 }
 
@@ -366,6 +383,7 @@ struct EffectRenderPassStage {
     pipeline: ComputePipeline,
     input_layout: BindGroupLayout,
     output_layout: BindGroupLayout,
+    builtin_layout: BindGroupLayout,
     dispatch: EffectPassDispatchStrategy,
 }
 
@@ -377,6 +395,7 @@ impl EffectRenderPassStage {
         pass_outputs_decl: &EffectPassOutputsDecl,
         effect_inputs_decl: &EffectInputsDecl,
         pass_output_types: &HashMap<EffectPassOutputSlotId, Arc<dyn ErasedGraphValueType>>,
+        builtin_literals: &HashMap<String, Arc<dyn ErasedGraphValueType>>,
         dispatch: EffectPassDispatchStrategy,
         is_eval: bool,
     ) -> Result<Self> {
@@ -433,6 +452,27 @@ impl EffectRenderPassStage {
             bindings
         };
 
+        let builtin_entries = {
+            let mut binding = 0;
+            let mut bindings = DynamicBindGroupLayoutEntries::new(ShaderStages::COMPUTE);
+            let mut names = builtin_literals.keys().collect::<Vec<_>>();
+            names.sort();
+            for name in names {
+                let (next, extended, shader) = builtin_literals[name].push_shader_layout(
+                    name,
+                    GraphShaderStage::Input,
+                    2,
+                    binding,
+                    bindings,
+                    declarations,
+                )?;
+                binding = next;
+                bindings = extended;
+                declarations = shader;
+            }
+            bindings
+        };
+
         let template =
             include_str!("effect_template.wesl").replace("//CODEGEN_FLAG_BINDINGS", &declarations);
 
@@ -443,6 +483,7 @@ impl EffectRenderPassStage {
             pass_outputs_decl,
             effect_inputs_decl,
             pass_output_types,
+            builtin_literals,
             dispatch,
             is_eval,
         )?;
@@ -454,9 +495,17 @@ impl EffectRenderPassStage {
             label: Some("effect outputs"),
             entries: &output_entries,
         });
+        let builtin_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("effect builtin literals"),
+            entries: &builtin_entries,
+        });
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("effect pipeline layout"),
-            bind_group_layouts: &[Some(&input_layout), Some(&output_layout)],
+            bind_group_layouts: &[
+                Some(&input_layout),
+                Some(&output_layout),
+                Some(&builtin_layout),
+            ],
             immediate_size: 0,
         });
         let module = device.create_shader_module(ShaderModuleDescriptor {
@@ -476,6 +525,7 @@ impl EffectRenderPassStage {
             pipeline,
             input_layout,
             output_layout,
+            builtin_layout,
             dispatch,
         })
     }
@@ -486,6 +536,7 @@ impl EffectRenderPassStage {
         pass_outputs_decl: &EffectPassOutputsDecl,
         pass_outputs_global: &EffectPassOutputs,
         effect_inputs: &EffectInputs,
+        builtin_literals: &HashMap<String, GraphShaderLiteral>,
         device: &Device,
     ) -> Result<PreparedEffectRenderPassStage> {
         let input_entries = {
@@ -539,6 +590,29 @@ impl EffectRenderPassStage {
             label: None,
             layout: &self.output_layout,
             entries: &output_entries,
+        });
+        let builtin_entries = {
+            let mut binding = 0;
+            let mut bindings = DynamicBindGroupEntries::new();
+            let mut names = builtin_literals.keys().collect::<Vec<_>>();
+            names.sort();
+            for name in names {
+                let literal = &builtin_literals[name];
+                let (next, extended) = literal.ty().push_shader_binding(
+                    GraphShaderStage::Input,
+                    literal.value(),
+                    binding,
+                    bindings,
+                )?;
+                binding = next;
+                bindings = extended;
+            }
+            bindings
+        };
+        let builtin_group = device.create_bind_group(&BindGroupDescriptor {
+            label: None,
+            layout: &self.builtin_layout,
+            entries: &builtin_entries,
         });
 
         let dispatch = if self.is_eval {
@@ -603,6 +677,7 @@ impl EffectRenderPassStage {
         Ok(PreparedEffectRenderPassStage {
             input_group,
             output_group,
+            builtin_group,
             dispatch,
         })
     }
@@ -619,6 +694,7 @@ impl EffectRenderPassStage {
         compute.set_pipeline(&self.pipeline);
         compute.set_bind_group(0, &prepared.input_group, &[]);
         compute.set_bind_group(1, &prepared.output_group, &[]);
+        compute.set_bind_group(2, &prepared.builtin_group, &[]);
         compute.dispatch_workgroups(
             prepared.dispatch[0],
             prepared.dispatch[1],
@@ -641,6 +717,7 @@ impl EffectRenderPass {
         pass_outputs_decl: EffectPassOutputsDecl,
         effect_inputs_decl: &EffectInputsDecl,
         pass_output_types: &HashMap<EffectPassOutputSlotId, Arc<dyn ErasedGraphValueType>>,
+        builtin_literals: &HashMap<String, Arc<dyn ErasedGraphValueType>>,
         dispatch: EffectPassDispatchStrategy,
         graph: &Graph,
         device: &Device,
@@ -656,6 +733,7 @@ impl EffectRenderPass {
                     &pass_outputs_decl,
                     effect_inputs_decl,
                     pass_output_types,
+                    builtin_literals,
                     dispatch,
                     true,
                 )
@@ -668,6 +746,7 @@ impl EffectRenderPass {
             &pass_outputs_decl,
             effect_inputs_decl,
             pass_output_types,
+            builtin_literals,
             dispatch,
             false,
         )?;
@@ -702,6 +781,7 @@ impl EffectRenderPass {
     fn run(
         &self,
         effect_inputs: &EffectInputs,
+        builtin_literals: &HashMap<String, GraphShaderLiteral>,
         pass_outputs_global: &mut EffectPassOutputs,
         device: &Device,
         queue: &Queue,
@@ -713,6 +793,7 @@ impl EffectRenderPass {
                 &self.outputs_decl,
                 pass_outputs_global,
                 effect_inputs,
+                builtin_literals,
                 device,
             )?;
             eval.dispatch(&mut encoder, &eval_prepared)?;
@@ -733,6 +814,7 @@ impl EffectRenderPass {
             &self.outputs_decl,
             pass_outputs_global,
             effect_inputs,
+            builtin_literals,
             device,
         )?;
         self.main.dispatch(&mut encoder, &main_prepared)?;
@@ -748,6 +830,7 @@ fn compile_shader(
     pass_outputs_decl: &EffectPassOutputsDecl,
     effect_inputs_decl: &EffectInputsDecl,
     pass_output_types: &EffectPassOutputTypes,
+    builtin_literals: &HashMap<String, Arc<dyn ErasedGraphValueType>>,
     dispatch: EffectPassDispatchStrategy,
     is_eval: bool,
 ) -> Result<String> {
@@ -768,6 +851,15 @@ fn compile_shader(
 
         if let Some(body) =
             ty.generate_extra_shader_body(GraphShaderStage::Input, &pass_input_ident(*id))
+        {
+            resource_helpers.push_str(&body);
+        }
+    }
+    let mut builtin_names = builtin_literals.keys().collect::<Vec<_>>();
+    builtin_names.sort();
+    for name in builtin_names {
+        if let Some(body) =
+            builtin_literals[name].generate_extra_shader_body(GraphShaderStage::Input, name)
         {
             resource_helpers.push_str(&body);
         }

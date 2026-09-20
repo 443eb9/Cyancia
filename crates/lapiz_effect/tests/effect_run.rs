@@ -923,7 +923,12 @@ fn effect_matches_cpu_reference() {
     let effect = EffectInstance::from_asset(&asset, graph_resources).unwrap();
 
     let renderer =
-        EffectRenderer::from_instance(&effect, context.device.clone(), context.queue.clone())
+        EffectRenderer::from_instance(
+            &effect,
+            HashMap::new(),
+            context.device.clone(),
+            context.queue.clone(),
+        )
             .unwrap();
     let params_type = EffectParamType;
     let params = params_type
@@ -950,7 +955,7 @@ fn effect_matches_cpu_reference() {
             prepare_texture(texture.clone(), &context.device, &context.queue),
         ),
     ]);
-    let outputs = renderer.run(&inputs).unwrap();
+    let outputs = renderer.run(&inputs, HashMap::new()).unwrap();
 
     let histogram = block_on(read_histogram(
         &outputs[&histogram_output],

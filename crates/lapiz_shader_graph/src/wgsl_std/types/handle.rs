@@ -302,10 +302,23 @@ pub struct LayerReference;
 
 pub struct PreparedLayer {
     pub storage: DynamicLayerStorage,
+    pub pixel_bounds: IRect,
     // Only bound during eval; other passes read pixels through the storage.
     pub bounds: Buffer,
     dummy_texture: TextureView,
     dummy_tile_info: Buffer,
+}
+
+impl PreparedLayer {
+    pub fn deep_clone(&self) -> Self {
+        Self {
+            storage: self.storage.deep_clone(),
+            pixel_bounds: self.pixel_bounds,
+            bounds: self.bounds.clone(),
+            dummy_texture: self.dummy_texture.clone(),
+            dummy_tile_info: self.dummy_tile_info.clone(),
+        }
+    }
 }
 
 impl GraphValueType for LayerType {
@@ -539,6 +552,7 @@ impl GraphValueType for LayerType {
                     texel_type: self.texel_type,
                 },
             ),
+            pixel_bounds: IRect::EMPTY,
             bounds: device.create_buffer(&BufferDescriptor {
                 label: Some("graph layer bounds"),
                 size: 16,
@@ -570,11 +584,21 @@ impl GraphValueType for LayerType {
         let readback = readback_buffer_on_submit_async::<IVec4, _>(&mut encoder, &staging, ..);
         let submission = queue.submit([encoder.finish()]);
         device.poll_indefinitely_for(submission)?;
-        let bounds = futures::executor::block_on(readback.into_inner())??;
-        value.storage.allocate_pixels(IRect {
+        let mut readback = readback.into_inner();
+        let bounds = loop {
+            if let Some(bounds) = readback.try_recv()? {
+                break bounds?;
+            }
+            device.poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            })?;
+        };
+        value.pixel_bounds = IRect {
             min: IVec2::new(bounds.x, bounds.y),
             max: IVec2::new(bounds.z, bounds.w),
-        });
+        };
+        value.storage.allocate_pixels(value.pixel_bounds);
         Ok(())
     }
 

@@ -13,35 +13,31 @@ use lapiz_assets::loader::{AssetRegistryBuilder, AssetSerializer};
 use lapiz_brush::{
     asset::{BrushPreset, BrushPresetMetadata, BrushPresetSerializer, SerializableBrushParameter},
     instance::BrushPresetInstance,
-    render::graph::{
-        DAB_BOUNDS_OUTPUT, DAB_COLOR_OUTPUT, SPACING_OUTPUT, STROKE_BOUNDS_OUTPUT,
-        STROKE_COLOR_OUTPUT,
-    },
-    render::stroke_preview::{
-        create_stroke_preview_with, predefined_curve_samples,
-    },
+    render::graph::{MAIN_ACCUMULATE_BUFFER, SPACING_OUTPUT, STROKE_RESULT},
+    render::stroke_preview::{create_stroke_preview_with, predefined_curve_samples},
 };
 use lapiz_effect::{
     asset::{
         EffectAssetSerializer, EffectInputSlotId, EffectOutputSlotId, EffectPassDispatchStrategy,
         EffectPassId,
     },
-    instance::{EffectInputSlot, EffectOutputSlot, EffectInstance, EffectPass},
-    nodes::{PassInput, PassInputNode, PassOutput, PassOutputNode},
+    instance::{EffectInputSlot, EffectInstance, EffectOutputSlot, EffectPass},
+    nodes::{PassInput, PassInputNode, PassOutput, PassOutputDef, PassOutputNode},
 };
 use lapiz_render::util::DevicePollExt as _;
 use lapiz_runtime::renderer::RenderContext;
 use lapiz_shader_graph::{
     graph::{Graph, variable::GraphLiteral},
     save::SerializableGraphLiteral,
-    wgsl_std::nodes::ScalarMathNodeMode,
 };
 use uuid::Uuid;
 
 const SPACING_PARAMETER: f32 = 10.0;
 const RADIUS_PARAMETER: f32 = 14.0;
 
-fn spacing_effect(assets: lapiz_assets::store::AssetRegistry) -> Result<(EffectInstance, EffectInputSlotId)> {
+fn spacing_effect(
+    assets: lapiz_assets::store::AssetRegistry,
+) -> Result<(EffectInstance, EffectInputSlotId)> {
     let resources = lapiz_brush::instance::spacing_effect_resources(assets.clone());
     let spacing_parameter = EffectInputSlotId::new(Uuid::new_v4());
     let spacing_output = EffectOutputSlotId::new(Uuid::new_v4());
@@ -90,37 +86,55 @@ fn spacing_effect(assets: lapiz_assets::store::AssetRegistry) -> Result<(EffectI
     Ok((instance, spacing_parameter))
 }
 
-fn main_effect(assets: lapiz_assets::store::AssetRegistry) -> Result<(EffectInstance, EffectInputSlotId)> {
+fn main_effect(
+    assets: lapiz_assets::store::AssetRegistry,
+) -> Result<(EffectInstance, EffectInputSlotId)> {
     use lapiz_brush::render::graph::{
-        BlendWithInputNode, EllipticalMaskNode, ForegroundColorNode, PenPositionNode,
-        PixelPositionNode,
+        AccumulateBoundsNode, BlendWithInputNode, EllipticalMaskNode, ForegroundColorNode,
+        PenPositionNode, PixelPositionNode,
     };
-    use lapiz_shader_graph::wgsl_std::nodes::{CombineComponentsNode, ScalarMathNode};
+    use lapiz_shader_graph::wgsl_std::nodes::CombineComponentsNode;
 
     let resources = lapiz_brush::instance::main_effect_resources(assets.clone());
     let radius_parameter = EffectInputSlotId::new(Uuid::new_v4());
-    let dab_color = EffectOutputSlotId::new(Uuid::new_v4());
-    let dab_bounds = EffectOutputSlotId::new(Uuid::new_v4());
+    let main_accumulate = EffectOutputSlotId::new(Uuid::new_v4());
     let f32_ty: Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType> =
         Arc::new(lapiz_shader_graph::wgsl_std::types::F32Type);
-    let color_ty: Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType> =
-        Arc::new(lapiz_shader_graph::wgsl_std::types::ColorType);
-    let rect_ty: Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType> =
-        Arc::new(lapiz_shader_graph::wgsl_std::types::RectType);
+
+    // Intermediate pass: forward the radius through a pass-local buffer
+    // consumed by the final dab pass.
+    let mut soften = Graph::new(resources.clone());
+    let radius_in = soften.add_node(Point::ORIGIN, PassInputNode);
+    soften.update_node_state::<PassInputNode>(radius_in, |state| {
+        state.input = Some(PassInput::Effect(radius_parameter));
+        state.cached_ty = Some(f32_ty.clone());
+    });
+    let softened_out = soften.add_node(Point::ORIGIN, PassOutputNode);
+    let softened_port = soften
+        .get_node(&softened_out)
+        .unwrap()
+        .data
+        .state::<PassOutputNode>()
+        .unwrap()
+        .id;
+    soften.update_node_state::<PassOutputNode>(softened_out, |state| {
+        state.output = Some(PassOutput::Pass(PassOutputDef {
+            name: "softened radius".into(),
+            ty: f32_ty.clone(),
+        }));
+        state.cached_ty = Some(f32_ty.clone());
+    });
+    soften.connect_slots_by_index(radius_in, 0, softened_out, 0);
 
     let mut graph = Graph::new(resources.clone());
 
     let radius = graph.add_node(Point::ORIGIN, PassInputNode);
     graph.update_node_state::<PassInputNode>(radius, |state| {
-        state.input = Some(PassInput::Effect(radius_parameter));
+        state.input = Some(PassInput::Pass(softened_port));
         state.cached_ty = Some(f32_ty.clone());
     });
 
     // radii = vec2f(radius, radius)
-    let half = graph.add_node(Point::ORIGIN, ScalarMathNode);
-    graph.update_node_state::<ScalarMathNode>(half, |mode| {
-        *mode = ScalarMathNodeMode::Multiply;
-    });
     let radii = graph.add_node(Point::ORIGIN, CombineComponentsNode);
 
     let position = graph.add_node(Point::ORIGIN, PenPositionNode);
@@ -128,39 +142,58 @@ fn main_effect(assets: lapiz_assets::store::AssetRegistry) -> Result<(EffectInst
     let mask = graph.add_node(Point::ORIGIN, EllipticalMaskNode);
     let color = graph.add_node(Point::ORIGIN, ForegroundColorNode);
     let blend = graph.add_node(Point::ORIGIN, BlendWithInputNode);
+    let accumulated_bounds = graph.add_node(Point::ORIGIN, AccumulateBoundsNode);
 
-    let output_color = graph.add_node(Point::ORIGIN, PassOutputNode);
-    graph.update_node_state::<PassOutputNode>(output_color, |state| {
-        state.output = Some(PassOutput::Effect(dab_color));
-        state.cached_ty = Some(color_ty.clone());
-    });
-    let output_bounds = graph.add_node(Point::ORIGIN, PassOutputNode);
-    graph.update_node_state::<PassOutputNode>(output_bounds, |state| {
-        state.output = Some(PassOutput::Effect(dab_bounds));
-        state.cached_ty = Some(rect_ty.clone());
+    let output = graph.add_node(Point::ORIGIN, PassOutputNode);
+    let output_port = graph
+        .get_node(&output)
+        .unwrap()
+        .data
+        .state::<PassOutputNode>()
+        .unwrap()
+        .id;
+    let layer_ty: Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType> =
+        Arc::new(lapiz_shader_graph::wgsl_std::types::LayerType {
+            texel_type: lapiz_image::texel::TexelType::RGBA8,
+        });
+    graph.update_node_state::<PassOutputNode>(output, |state| {
+        state.output = Some(PassOutput::Effect(main_accumulate));
+        state.cached_ty = Some(layer_ty.clone());
     });
 
-    graph.connect_slots_by_index(radius, 0, half, 0);
-    graph.connect_slots_by_index(half, 0, radii, 0);
+    graph.connect_slots_by_index(radius, 0, radii, 0);
     graph.connect_slots_by_index(radius, 0, radii, 1);
     graph.connect_slots_by_index(pixel, 0, mask, 0);
     graph.connect_slots_by_index(position, 0, mask, 1);
     graph.connect_slots_by_index(radii, 0, mask, 2);
     graph.connect_slots_by_index(color, 0, blend, 0);
     graph.connect_slots_by_index(mask, 0, blend, 1);
-    graph.connect_slots_by_index(blend, 0, output_color, 0);
-    graph.connect_slots_by_index(mask, 1, output_bounds, 0);
+    graph.connect_slots_by_index(blend, 0, output, 0);
+    graph.connect_slots_by_index(mask, 1, accumulated_bounds, 0);
+    graph.connect_slots_by_index(accumulated_bounds, 0, output, 1);
 
     let mut instance = EffectInstance {
         name: "Brush Main".into(),
-        passes: IndexMap::from([(
-            EffectPassId::new(Uuid::new_v4()),
-            EffectPass {
-                name: "Dab".into(),
-                graph,
-                dispatch_strategy: EffectPassDispatchStrategy::Once,
-            },
-        )]),
+        passes: IndexMap::from([
+            (
+                EffectPassId::new(Uuid::new_v4()),
+                EffectPass {
+                    name: "Soften Radius".into(),
+                    graph: soften,
+                    dispatch_strategy: EffectPassDispatchStrategy::Once,
+                },
+            ),
+            (
+                EffectPassId::new(Uuid::new_v4()),
+                EffectPass {
+                    name: "Dab".into(),
+                    graph,
+                    dispatch_strategy: EffectPassDispatchStrategy::EveryOutputLayerPixel(
+                        output_port,
+                    ),
+                },
+            ),
+        ]),
         inputs: IndexMap::from([(
             radius_parameter,
             EffectInputSlot {
@@ -169,24 +202,14 @@ fn main_effect(assets: lapiz_assets::store::AssetRegistry) -> Result<(EffectInst
                 ty: f32_ty,
             },
         )]),
-        outputs: IndexMap::from([
-            (
-                dab_color,
-                EffectOutputSlot {
-                    name: DAB_COLOR_OUTPUT.into(),
-                    id: dab_color,
-                    ty: color_ty,
-                },
-            ),
-            (
-                dab_bounds,
-                EffectOutputSlot {
-                    name: DAB_BOUNDS_OUTPUT.into(),
-                    id: dab_bounds,
-                    ty: rect_ty,
-                },
-            ),
-        ]),
+        outputs: IndexMap::from([(
+            main_accumulate,
+            EffectOutputSlot {
+                name: MAIN_ACCUMULATE_BUFFER.into(),
+                id: main_accumulate,
+                ty: layer_ty,
+            },
+        )]),
     };
     instance.sync_pass_graph_effect_properties()?;
     Ok((instance, radius_parameter))
@@ -196,32 +219,33 @@ fn postprocess_effect(assets: lapiz_assets::store::AssetRegistry) -> Result<(Eff
     use lapiz_brush::render::graph::{CurrentPixelColorNode, PixelPositionNode, StrokeBoundsNode};
 
     let resources = lapiz_brush::instance::postprocess_effect_resources(assets.clone());
-    let stroke_color = EffectOutputSlotId::new(Uuid::new_v4());
-    let stroke_bounds = EffectOutputSlotId::new(Uuid::new_v4());
-    let color_ty: Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType> =
-        Arc::new(lapiz_shader_graph::wgsl_std::types::ColorType);
-    let rect_ty: Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType> =
-        Arc::new(lapiz_shader_graph::wgsl_std::types::RectType);
+    let stroke_result = EffectOutputSlotId::new(Uuid::new_v4());
+    let layer_ty: Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType> =
+        Arc::new(lapiz_shader_graph::wgsl_std::types::LayerType {
+            texel_type: lapiz_image::texel::TexelType::RGBA8,
+        });
 
     let mut graph = Graph::new(resources.clone());
     let pixel = graph.add_node(Point::ORIGIN, PixelPositionNode);
     let color = graph.add_node(Point::ORIGIN, CurrentPixelColorNode);
     let bounds = graph.add_node(Point::ORIGIN, StrokeBoundsNode);
 
-    let output_color = graph.add_node(Point::ORIGIN, PassOutputNode);
-    graph.update_node_state::<PassOutputNode>(output_color, |state| {
-        state.output = Some(PassOutput::Effect(stroke_color));
-        state.cached_ty = Some(color_ty.clone());
-    });
-    let output_bounds = graph.add_node(Point::ORIGIN, PassOutputNode);
-    graph.update_node_state::<PassOutputNode>(output_bounds, |state| {
-        state.output = Some(PassOutput::Effect(stroke_bounds));
-        state.cached_ty = Some(rect_ty.clone());
+    let output = graph.add_node(Point::ORIGIN, PassOutputNode);
+    let output_port = graph
+        .get_node(&output)
+        .unwrap()
+        .data
+        .state::<PassOutputNode>()
+        .unwrap()
+        .id;
+    graph.update_node_state::<PassOutputNode>(output, |state| {
+        state.output = Some(PassOutput::Effect(stroke_result));
+        state.cached_ty = Some(layer_ty.clone());
     });
 
     graph.connect_slots_by_index(pixel, 0, color, 0);
-    graph.connect_slots_by_index(color, 0, output_color, 0);
-    graph.connect_slots_by_index(bounds, 0, output_bounds, 0);
+    graph.connect_slots_by_index(color, 0, output, 0);
+    graph.connect_slots_by_index(bounds, 0, output, 1);
 
     let mut instance = EffectInstance {
         name: "Brush Post Process".into(),
@@ -230,28 +254,18 @@ fn postprocess_effect(assets: lapiz_assets::store::AssetRegistry) -> Result<(Eff
             EffectPass {
                 name: "Passthrough".into(),
                 graph,
-                dispatch_strategy: EffectPassDispatchStrategy::Once,
+                dispatch_strategy: EffectPassDispatchStrategy::EveryOutputLayerPixel(output_port),
             },
         )]),
         inputs: IndexMap::new(),
-        outputs: IndexMap::from([
-            (
-                stroke_color,
-                EffectOutputSlot {
-                    name: STROKE_COLOR_OUTPUT.into(),
-                    id: stroke_color,
-                    ty: color_ty,
-                },
-            ),
-            (
-                stroke_bounds,
-                EffectOutputSlot {
-                    name: STROKE_BOUNDS_OUTPUT.into(),
-                    id: stroke_bounds,
-                    ty: rect_ty,
-                },
-            ),
-        ]),
+        outputs: IndexMap::from([(
+            stroke_result,
+            EffectOutputSlot {
+                name: STROKE_RESULT.into(),
+                id: stroke_result,
+                ty: layer_ty,
+            },
+        )]),
     };
     instance.sync_pass_graph_effect_properties()?;
     Ok((instance, ()))
@@ -325,11 +339,18 @@ fn brush_round_trips_and_renders_preview() -> Result<()> {
     bail_if_none(spacing_value.is_some(), "spacing parameter value missing")?;
 
     // Compile smoke check before touching the GPU pipeline.
-    instance.compile().context("brush must compile")?;
+    let context = RenderContext::default();
+    instance
+        .compile(
+            lapiz_image::texel::TexelType::RGBA8,
+            lapiz_image::texel::TexelType::A8,
+            &context.device,
+            &context.queue,
+        )
+        .context("brush must compile")?;
     eprintln!("brush compiled");
 
     // Render a preview through the full brush pipeline.
-    let context = RenderContext::default();
     let samples = predefined_curve_samples(256, 128);
     eprintln!("creating preview task");
     let task = create_stroke_preview_with(
@@ -339,7 +360,6 @@ fn brush_round_trips_and_renders_preview() -> Result<()> {
         128,
         &context.device,
         &context.queue,
-        &assets,
         &lapiz_brush::render::graph::CanvasResources {
             foreground_color: glam::Vec4::ONE,
             background_color: glam::Vec4::ZERO,
@@ -351,17 +371,18 @@ fn brush_round_trips_and_renders_preview() -> Result<()> {
         // Headless runs have no frame loop to maintain the device, so keep a
         // poll thread alive while the preview tasks wait on buffer maps.
         let poll_device = context.device.clone();
-        let poll_handle = std::thread::spawn(move || loop {
-            let _ = poll_device.poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: None,
-            });
+        let poll_handle = std::thread::spawn(move || {
+            loop {
+                let _ = poll_device.poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: None,
+                });
+            }
         });
         use futures::StreamExt;
 
         let texture = block_on(async {
-            let stream =
-                iced_runtime::task::into_stream(task).expect("preview task is a stream");
+            let stream = iced_runtime::task::into_stream(task).expect("preview task is a stream");
             futures::pin_mut!(stream);
             while let Some(action) = stream.next().await {
                 if let iced_runtime::Action::Output(received) = action {
@@ -382,17 +403,15 @@ fn brush_round_trips_and_renders_preview() -> Result<()> {
         &mut ec,
         &texture,
     );
-    let readback = lapiz_render::readback::readback_buffer_raw_on_submit_async(
-        &mut ec,
-        &staging,
-        ..,
-    );
+    let readback =
+        lapiz_render::readback::readback_buffer_raw_on_submit_async(&mut ec, &staging, ..);
     let submission = context.queue.submit([ec.finish()]);
     context
         .device
         .poll_indefinitely_for(submission)
         .expect("preview readback submission must complete");
-    let rgba_bytes = block_on(readback.into_inner())??;    let image = image::RgbaImage::from_raw(texture.width(), texture.height(), rgba_bytes)
+    let rgba_bytes = block_on(readback.into_inner())??;
+    let image = image::RgbaImage::from_raw(texture.width(), texture.height(), rgba_bytes)
         .context("preview image must match the texture size")?;
 
     let painted = image.pixels().filter(|p| p.0[3] > 0).count();

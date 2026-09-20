@@ -1,9 +1,14 @@
 use std::sync::{Arc, LazyLock};
 
+use anyhow::{Result, bail};
 use encase::ShaderType;
 use glam::Vec4;
 use lapiz_effect::nodes::effect_nodes;
-use lapiz_image::blend_modes::BlendMode;
+use lapiz_image::{blend_modes::BlendMode, texel::TexelType, tile::LayerBinding};
+use lapiz_render::{
+    bind_group_entries::DynamicBindGroupEntries,
+    bind_group_layout_entries::DynamicBindGroupLayoutEntries,
+};
 use lapiz_shader_graph::{
     GraphElement,
     graph::{
@@ -13,16 +18,24 @@ use lapiz_shader_graph::{
             GraphNodeDefaultStateContext, GraphNodeRegistry, GraphNodeUpdateContext,
             GraphNodeViewContext, StatelessCommonGraphNode, stateless,
         },
-        slot::{ErasedGraphLiteralUpdateMessage, GraphDefaultInputSlot, GraphDefaultOutputSlot},
+        slot::{
+            ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphDefaultInputSlot,
+            GraphDefaultOutputSlot, GraphShaderStage, GraphValueType,
+        },
+        variable::GraphTypeRegistry,
     },
+    save::GraphValueTypeId,
     wgsl_std::types::{ColorType, F32Type, I32Type, RectType, Vec2FType},
 };
 use lapiz_utils::random_oklch_hue_chroma;
 use lapiz_widgets::combo_box::ComboBox;
 use serde::{Deserialize, Serialize};
+use wesl::syntax::Expression;
 
+use iced_core::widget::Void;
+use wgpu::util::DeviceExt as _;
 // TODO We may move to another crate.
-#[derive(Debug, Default, Clone, ShaderType)]
+#[derive(Debug, Default, Clone, ShaderType, Serialize, Deserialize)]
 pub struct CanvasResources {
     pub foreground_color: Vec4,
     pub background_color: Vec4,
@@ -32,10 +45,444 @@ pub struct CanvasResources {
 // conventional identifiers; the brush compiler wires the output variables into
 // the template exit points. For now brushes are expected to keep them.
 pub const SPACING_OUTPUT: &str = "spacing";
-pub const DAB_COLOR_OUTPUT: &str = "dab_color";
-pub const DAB_BOUNDS_OUTPUT: &str = "dab_bounds";
-pub const STROKE_COLOR_OUTPUT: &str = "stroke_color";
-pub const STROKE_BOUNDS_OUTPUT: &str = "stroke_bounds";
+// Intermediate output accumulated across dabs.
+pub const MAIN_ACCUMULATE_BUFFER: &str = "main_accumulate";
+// Final stroke output, already blended with the target layer.
+pub const STROKE_RESULT: &str = "stroke_result";
+
+// The builtin literals brush hosts inject into compiled effects. The shader
+// declarations use the original names, so brush nodes and the templates can
+// reference them directly.
+pub const CANVAS_RESOURCES_BUILTIN: &str = "canvas_resources";
+pub const TARGET_LAYER_BUILTIN: &str = "target_layer";
+pub const SELECTION_BUILTIN: &str = "selection";
+pub const HAS_SELECTION_BUILTIN: &str = "has_selection";
+pub const BRUSH_SAMPLE_BUILTIN: &str = "brush_sample";
+pub const INITIAL_PEN_INPUT_BUILTIN: &str = "initial_pen_input";
+pub const STROKE_DATA_BUILTIN: &str = "stroke_data";
+
+#[derive(Default, Clone)]
+pub struct CanvasResourcesValueType;
+
+impl GraphValueType for CanvasResourcesValueType {
+    type AssociatedLiteralType = CanvasResources;
+    type PreparedShaderType = wgpu::Buffer;
+    type Message = ();
+
+    fn id(&self) -> GraphValueTypeId {
+        GraphValueTypeId::new("brush_canvas_resources")
+    }
+
+    fn push_shader_layout(
+        &self,
+        name: &str,
+        stage: GraphShaderStage,
+        group: u32,
+        binding: u32,
+        bindings: DynamicBindGroupLayoutEntries,
+        mut shader: String,
+    ) -> Result<(u32, DynamicBindGroupLayoutEntries, String)> {
+        if stage != GraphShaderStage::Input {
+            bail!("canvas resources can only be a shader input");
+        }
+        if !shader.contains("struct CanvasResources") {
+            shader.push_str(
+                "struct CanvasResources { foreground_color: vec4f, background_color: vec4f }\n",
+            );
+        }
+        shader.push_str(&format!(
+            "@group({group}) @binding({binding}) var<storage, read> {name}: CanvasResources;\n"
+        ));
+        let bindings = bindings.extend_with_indices(((
+            binding,
+            lapiz_render::bind_group_layout_entries::binding_types::storage_buffer_read_only_sized(
+                false, None,
+            ),
+        ),));
+        Ok((binding + 1, bindings, shader))
+    }
+
+    fn push_shader_binding<'a>(
+        &self,
+        _stage: GraphShaderStage,
+        value: &'a wgpu::Buffer,
+        binding: u32,
+        bindings: DynamicBindGroupEntries<'a>,
+    ) -> Result<(u32, DynamicBindGroupEntries<'a>)> {
+        let bindings = bindings.extend_with_indices(((binding, value.as_entire_binding()),));
+        Ok((binding + 1, bindings))
+    }
+
+    fn prepare_to_shader(
+        &self,
+        data: &CanvasResources,
+        device: &wgpu::Device,
+        _queue: &wgpu::Queue,
+    ) -> Result<wgpu::Buffer> {
+        let mut storage = encase::StorageBuffer::new(Vec::new());
+        storage.write(data)?;
+        Ok(
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("brush canvas resources buffer"),
+                contents: storage.as_ref(),
+                usage: wgpu::BufferUsages::STORAGE,
+            }),
+        )
+    }
+
+    fn default_literal(&self) -> CanvasResources {
+        CanvasResources::default()
+    }
+
+    fn wgsl_type_name(&self) -> Option<&'static str> {
+        Some("CanvasResources")
+    }
+
+    fn hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(CanvasResourcesValueType)
+    }
+
+    fn view_literal(&self, _data: &CanvasResources) -> GraphElement<'static, Self::Message> {
+        Void.into()
+    }
+
+    fn update_literal(&self, _data: &mut CanvasResources, _message: Self::Message) {}
+
+    fn literal_to_code(&self, _data: &CanvasResources) -> Option<Expression> {
+        None
+    }
+}
+
+// A canvas layer bound as read-only storage texture pairs (packed texel
+// texture + tile info buffer). Hosts inject the actual LayerBinding.
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub struct BrushLayerReference;
+
+#[derive(Clone)]
+pub struct BrushLayerType {
+    pub texel_type: TexelType,
+}
+
+impl GraphValueType for BrushLayerType {
+    type AssociatedLiteralType = BrushLayerReference;
+    type PreparedShaderType = LayerBinding;
+    type Message = ();
+
+    fn id(&self) -> GraphValueTypeId {
+        GraphValueTypeId::new(match self.texel_type {
+            TexelType::RGBA8 => "brush_layer_rgba8",
+            TexelType::A8 => "brush_layer_a8",
+        })
+    }
+
+    fn push_shader_layout(
+        &self,
+        name: &str,
+        stage: GraphShaderStage,
+        group: u32,
+        binding: u32,
+        bindings: DynamicBindGroupLayoutEntries,
+        mut shader: String,
+    ) -> Result<(u32, DynamicBindGroupLayoutEntries, String)> {
+        if stage != GraphShaderStage::Input {
+            bail!("brush layers can only be shader inputs");
+        }
+        let texel = self.texel_type.wgpu_texel();
+        shader.push_str(&format!(
+            "@group({group}) @binding({binding}) var {name}: texture_storage_2d_array<{texel}, read>;\n"
+        ));
+        let bindings = bindings.extend_with_indices(((
+            binding,
+            lapiz_render::bind_group_layout_entries::binding_types::texture_storage_2d_array(
+                self.texel_type.wgpu_format(),
+                wgpu::StorageTextureAccess::ReadOnly,
+            ),
+        ),));
+        let tile_info_binding = binding + 1;
+        let tile_info = lapiz_shader_graph::wgsl_std::types::layer_tile_info_ident(name);
+        shader.push_str(&format!(
+            "@group({group}) @binding({tile_info_binding}) var<storage, read> {tile_info}: array<image::image_tiling::TileInfo>;\n"
+        ));
+        let bindings = bindings.extend_with_indices(((
+            tile_info_binding,
+            lapiz_render::bind_group_layout_entries::binding_types::storage_buffer_read_only_sized(
+                false, None,
+            ),
+        ),));
+        Ok((binding + 2, bindings, shader))
+    }
+
+    fn push_shader_binding<'a>(
+        &self,
+        _stage: GraphShaderStage,
+        value: &'a LayerBinding,
+        binding: u32,
+        bindings: DynamicBindGroupEntries<'a>,
+    ) -> Result<(u32, DynamicBindGroupEntries<'a>)> {
+        let bindings = bindings.extend_with_indices(((binding, &value.texture),));
+        let bindings = bindings
+            .extend_with_indices(((binding + 1, value.tile_info_buffer.as_entire_binding()),));
+        Ok((binding + 2, bindings))
+    }
+
+    fn prepare_to_shader(
+        &self,
+        _data: &BrushLayerReference,
+        _device: &wgpu::Device,
+        _queue: &wgpu::Queue,
+    ) -> Result<LayerBinding> {
+        bail!("brush layers are host-bound and never prepared from literals")
+    }
+
+    fn default_literal(&self) -> BrushLayerReference {
+        BrushLayerReference
+    }
+
+    fn wgsl_type_name(&self) -> Option<&'static str> {
+        None
+    }
+
+    fn hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(BrushLayerType)
+    }
+
+    fn view_literal(&self, _data: &BrushLayerReference) -> GraphElement<'static, Self::Message> {
+        Void.into()
+    }
+
+    fn update_literal(&self, _data: &mut BrushLayerReference, _message: Self::Message) {}
+
+    fn literal_to_code(&self, _data: &BrushLayerReference) -> Option<Expression> {
+        None
+    }
+
+    fn generate_extra_shader_body(&self, stage: GraphShaderStage, name: &str) -> Option<String> {
+        if stage != GraphShaderStage::Input {
+            return None;
+        }
+        let tile_info = lapiz_shader_graph::wgsl_std::types::layer_tile_info_ident(name);
+        let (return_type, unpack, default) = match self.texel_type {
+            TexelType::RGBA8 => (
+                "vec4f",
+                "image::texture_unpack::unpack_rgba8_texel",
+                "vec4f(0.0)",
+            ),
+            TexelType::A8 => ("f32", "image::texture_unpack::unpack_a8_texel", "0.0"),
+        };
+        Some(format!(
+            "fn brush_layer_load_{name}(pixel: vec2i) -> {return_type} {{\n\
+                 for (var tile = 0u; tile < arrayLength(&{tile_info}); tile += 1u) {{\n\
+                     let info = {tile_info}[tile];\n\
+                     if all(pixel >= info.origin) && all(pixel < info.origin + i32(image::image_tiling::TILE_SIZE)) {{\n\
+                         return {unpack}(textureLoad({name}, pixel - info.origin, tile));\n\
+                     }}\n\
+                 }}\n\
+                 return {default};\n\
+             }}\n"
+        ))
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct ComputedPenInputValueType;
+
+impl GraphValueType for ComputedPenInputValueType {
+    type AssociatedLiteralType = crate::render::ComputedPenInput;
+    type PreparedShaderType = wgpu::Buffer;
+    type Message = ();
+
+    fn id(&self) -> GraphValueTypeId {
+        GraphValueTypeId::new("brush_computed_pen_input")
+    }
+
+    fn push_shader_layout(
+        &self,
+        name: &str,
+        stage: GraphShaderStage,
+        group: u32,
+        binding: u32,
+        bindings: DynamicBindGroupLayoutEntries,
+        mut shader: String,
+    ) -> Result<(u32, DynamicBindGroupLayoutEntries, String)> {
+        if stage != GraphShaderStage::Input {
+            bail!("computed pen input can only be a shader input");
+        }
+        if !shader.contains("struct BrushComputedPenInput") {
+            shader.push_str(
+                "struct BrushTime { now: f32, stroke_begin: f32 }\n\
+                 struct BrushComputedPenInput {\n\
+                     position: vec2f, draw_direction_vec: vec2f, tilt: vec2f, angle: vec2f,\n\
+                     draw_direction_angle: f32, pressure: f32, dab_index: u32, stroke_distance: f32,\n\
+                     time: BrushTime\n\
+                 }\n",
+            );
+        }
+        shader.push_str(&format!(
+            "@group({group}) @binding({binding}) var<storage, read> {name}: BrushComputedPenInput;\n"
+        ));
+        let bindings = bindings.extend_with_indices(((
+            binding,
+            lapiz_render::bind_group_layout_entries::binding_types::storage_buffer_read_only_sized(
+                false, None,
+            ),
+        ),));
+        Ok((binding + 1, bindings, shader))
+    }
+
+    fn push_shader_binding<'a>(
+        &self,
+        _stage: GraphShaderStage,
+        value: &'a wgpu::Buffer,
+        binding: u32,
+        bindings: DynamicBindGroupEntries<'a>,
+    ) -> Result<(u32, DynamicBindGroupEntries<'a>)> {
+        Ok((
+            binding + 1,
+            bindings.extend_with_indices(((binding, value.as_entire_binding()),)),
+        ))
+    }
+
+    fn prepare_to_shader(
+        &self,
+        data: &crate::render::ComputedPenInput,
+        device: &wgpu::Device,
+        _queue: &wgpu::Queue,
+    ) -> Result<wgpu::Buffer> {
+        let mut storage = encase::StorageBuffer::new(Vec::new());
+        storage.write(data)?;
+        Ok(
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("brush computed pen input"),
+                contents: storage.as_ref(),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            }),
+        )
+    }
+
+    fn default_literal(&self) -> crate::render::ComputedPenInput {
+        crate::render::ComputedPenInput::default()
+    }
+
+    fn wgsl_type_name(&self) -> Option<&'static str> {
+        None
+    }
+    fn hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(ComputedPenInputValueType)
+    }
+    fn view_literal(&self, _: &crate::render::ComputedPenInput) -> GraphElement<'static, ()> {
+        Void.into()
+    }
+    fn update_literal(&self, _: &mut crate::render::ComputedPenInput, _: ()) {}
+    fn literal_to_code(&self, _: &crate::render::ComputedPenInput) -> Option<Expression> {
+        None
+    }
+
+    fn generate_extra_shader_body(&self, _stage: GraphShaderStage, name: &str) -> Option<String> {
+        (name == BRUSH_SAMPLE_BUILTIN).then(||
+            "struct BrushMask { bounds: render::math::Rect, value: f32 }\n\
+             fn elliptical_mask(pixel: vec2f, center: vec2f, radii: vec2f, rotation: f32) -> BrushMask {\n\
+                 let relative = pixel - center;\n\
+                 let rotated = render::math::rotate_mat2x2(rotation) * relative;\n\
+                 let extent = vec2f(max(radii.x, radii.y));\n\
+                 let distance = render::math::sdf_ellipse(rotated, vec2f(0.0), radii);\n\
+                 return BrushMask(render::math::Rect(center - extent, center + extent), smoothstep(1.0, 0.0, distance));\n\
+             }\n"
+                .into()
+        )
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct StrokeDataValueType;
+
+impl GraphValueType for StrokeDataValueType {
+    type AssociatedLiteralType = crate::render::StrokePostprocessData;
+    type PreparedShaderType = wgpu::Buffer;
+    type Message = ();
+
+    fn id(&self) -> GraphValueTypeId {
+        GraphValueTypeId::new("brush_stroke_data")
+    }
+
+    fn push_shader_layout(
+        &self,
+        name: &str,
+        stage: GraphShaderStage,
+        group: u32,
+        binding: u32,
+        bindings: DynamicBindGroupLayoutEntries,
+        mut shader: String,
+    ) -> Result<(u32, DynamicBindGroupLayoutEntries, String)> {
+        if stage != GraphShaderStage::Input {
+            bail!("stroke data can only be a shader input");
+        }
+        if !shader.contains("struct BrushStrokeData") {
+            if !shader.contains("struct BrushTime") {
+                shader.push_str("struct BrushTime { now: f32, stroke_begin: f32 }\n");
+            }
+            shader.push_str(
+                "struct BrushStrokeData { accumulated_pixel_bounds: render::math::IRect, time: BrushTime }\n",
+            );
+        }
+        shader.push_str(&format!(
+            "@group({group}) @binding({binding}) var<storage, read> {name}: BrushStrokeData;\n"
+        ));
+        let bindings = bindings.extend_with_indices(((
+            binding,
+            lapiz_render::bind_group_layout_entries::binding_types::storage_buffer_read_only_sized(
+                false, None,
+            ),
+        ),));
+        Ok((binding + 1, bindings, shader))
+    }
+
+    fn push_shader_binding<'a>(
+        &self,
+        _stage: GraphShaderStage,
+        value: &'a wgpu::Buffer,
+        binding: u32,
+        bindings: DynamicBindGroupEntries<'a>,
+    ) -> Result<(u32, DynamicBindGroupEntries<'a>)> {
+        Ok((
+            binding + 1,
+            bindings.extend_with_indices(((binding, value.as_entire_binding()),)),
+        ))
+    }
+
+    fn prepare_to_shader(
+        &self,
+        data: &crate::render::StrokePostprocessData,
+        device: &wgpu::Device,
+        _queue: &wgpu::Queue,
+    ) -> Result<wgpu::Buffer> {
+        let mut storage = encase::StorageBuffer::new(Vec::new());
+        storage.write(data)?;
+        Ok(
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("brush stroke data"),
+                contents: storage.as_ref(),
+                usage: wgpu::BufferUsages::STORAGE,
+            }),
+        )
+    }
+
+    fn default_literal(&self) -> crate::render::StrokePostprocessData {
+        Default::default()
+    }
+    fn wgsl_type_name(&self) -> Option<&'static str> {
+        None
+    }
+    fn hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(StrokeDataValueType)
+    }
+    fn view_literal(&self, _: &crate::render::StrokePostprocessData) -> GraphElement<'static, ()> {
+        Void.into()
+    }
+    fn update_literal(&self, _: &mut crate::render::StrokePostprocessData, _: ()) {}
+    fn literal_to_code(&self, _: &crate::render::StrokePostprocessData) -> Option<Expression> {
+        None
+    }
+}
 
 #[derive(Default, Clone)]
 pub struct PenPositionNode;
@@ -63,7 +510,7 @@ impl StatelessCommonGraphNode for PenPositionNode {
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         Ok(format!(
-            "let {} = graph_input.position;\n",
+            "let {} = brush_sample.position;\n",
             ctx.get_output(0)?
         ))
     }
@@ -95,7 +542,7 @@ impl StatelessCommonGraphNode for PenPressureNode {
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         Ok(format!(
-            "let {} = graph_input.pressure;\n",
+            "let {} = brush_sample.pressure;\n",
             ctx.get_output(0)?
         ))
     }
@@ -126,10 +573,7 @@ impl StatelessCommonGraphNode for PenTiltNode {
         &self,
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
-        Ok(format!(
-            "let {} = graph_input.tilt;\n",
-            ctx.get_output(0)?
-        ))
+        Ok(format!("let {} = brush_sample.tilt;\n", ctx.get_output(0)?))
     }
 }
 
@@ -162,7 +606,7 @@ impl StatelessCommonGraphNode for PenAngleNode {
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         Ok(format!(
-            "let {} = graph_input.angle.x;\nlet {} = graph_input.angle.y;\n",
+            "let {} = brush_sample.angle.x;\nlet {} = brush_sample.angle.y;\n",
             ctx.get_output(0)?,
             ctx.get_output(1)?
         ))
@@ -198,7 +642,7 @@ impl StatelessCommonGraphNode for DrawDirectionNode {
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         Ok(format!(
-            "let {} = graph_input.draw_direction_angle;\nlet {} = graph_input.draw_direction_vec;\n",
+            "let {} = brush_sample.draw_direction_angle;\nlet {} = brush_sample.draw_direction_vec;\n",
             ctx.get_output(0)?,
             ctx.get_output(1)?
         ))
@@ -231,7 +675,7 @@ impl StatelessCommonGraphNode for DabIndexNode {
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         Ok(format!(
-            "let {} = i32(graph_input.dab_index);",
+            "let {} = i32(brush_sample.dab_index);",
             ctx.get_output(0)?
         ))
     }
@@ -263,7 +707,7 @@ impl StatelessCommonGraphNode for StrokeDistanceNode {
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         Ok(format!(
-            "let {} = graph_input.stroke_distance;",
+            "let {} = brush_sample.stroke_distance;",
             ctx.get_output(0)?
         ))
     }
@@ -466,7 +910,7 @@ impl StatelessCommonGraphNode for TimeNode {
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         Ok(format!(
-            "let {} = graph_input.time.now;\nlet {} = graph_input.time.stroke_begin;\n",
+            "let {} = brush_sample.time.now;\nlet {} = brush_sample.time.stroke_begin;\n",
             ctx.get_output(0)?,
             ctx.get_output(1)?
         ))
@@ -498,7 +942,10 @@ impl StatelessCommonGraphNode for PixelPositionNode {
         &self,
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
-        Ok(format!("let {} = pixel_posf;", ctx.get_output(0)?))
+        Ok(format!(
+            "let {} = vec2f(dispatch_index);",
+            ctx.get_output(0)?
+        ))
     }
 }
 
@@ -727,7 +1174,7 @@ impl GraphNode for BlendWithInputNode {
         let opacity = ctx.get_input(1)?;
         let output = ctx.get_output(0)?;
         Ok(format!(
-            "let {output} = image::blend_modes::{}(vec4f({color}.rgb, {color}.a * {opacity}), current_input_color(pixel_pos));\n",
+            "let {output} = image::blend_modes::{}(vec4f({color}.rgb, {color}.a * {opacity}), main_accumulate_load(dispatch_index));\n",
             state.blend_mode.shader_func(),
         ))
     }
@@ -814,7 +1261,7 @@ impl GraphNode for BlendWithLayerNode {
         let opacity = ctx.get_input(1)?;
         let output = ctx.get_output(0)?;
         Ok(format!(
-            "let {output} = image::blend_modes::{}(vec4f({color}.rgb, {color}.a * {opacity}), target_layer_color(pixel_pos));\n",
+            "let {output} = image::blend_modes::{}(vec4f({color}.rgb, {color}.a * {opacity}), brush_layer_load_target_layer(dispatch_index));\n",
             state.blend_mode.shader_func(),
         ))
     }
@@ -867,7 +1314,7 @@ impl StatelessCommonGraphNode for LayerPixelColorNode {
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         Ok(format!(
-            "let {} = target_layer_color(vec2i({}));\n",
+            "let {} = brush_layer_load_target_layer(vec2i({}));\n",
             ctx.get_output(0)?,
             ctx.get_input(0)?
         ))
@@ -900,7 +1347,7 @@ impl StatelessCommonGraphNode for CurrentPixelColorNode {
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         Ok(format!(
-            "let {} = current_input_color(vec2i({}));\n",
+            "let {} = main_accumulate_load(vec2i({}));\n",
             ctx.get_output(0)?,
             ctx.get_input(0)?
         ))
@@ -933,8 +1380,43 @@ impl StatelessCommonGraphNode for StrokeBoundsNode {
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         Ok(format!(
-            "let {} = Rect(vec2f(graph_input.accumulated_pixel_bound.min), vec2f(graph_input.accumulated_pixel_bound.max));",
+            "let {} = render::math::Rect(vec2f(stroke_data.accumulated_pixel_bounds.min), vec2f(stroke_data.accumulated_pixel_bounds.max));",
             ctx.get_output(0)?
+        ))
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct AccumulateBoundsNode;
+
+#[stateless]
+impl StatelessCommonGraphNode for AccumulateBoundsNode {
+    fn id(&self) -> &'static str {
+        "accumulate_bounds_node"
+    }
+
+    fn header_hue_chroma(&self) -> (f32, f32) {
+        random_oklch_hue_chroma!(AccumulateBoundsNode)
+    }
+
+    fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
+        vec![GraphDefaultInputSlot::new::<RectType>("dab bounds".into())]
+    }
+
+    fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
+        vec![GraphDefaultOutputSlot::new::<RectType>(
+            "stroke bounds".into(),
+        )]
+    }
+
+    fn generate_code(
+        &self,
+        mut ctx: GraphNodeCodeGenContext<'_>,
+    ) -> Result<String, GraphNodeCodeGenError> {
+        let bounds = ctx.get_input(0)?;
+        let output = ctx.get_output(0)?;
+        Ok(format!(
+            "let {output} = render::math::Rect(min(({bounds}).min, vec2f(main_accumulate_bounds.xy)), max(({bounds}).max, vec2f(main_accumulate_bounds.zw)));"
         ))
     }
 }
@@ -1013,7 +1495,7 @@ impl StatelessCommonGraphNode for SelectionMaskNode {
         let input = ctx.get_input(0)?;
         let output = ctx.get_output(0)?;
         Ok(format!(
-            "let {output} = load_selection_mask_value(vec2i({input}));\n"
+            "let {output} = brush_layer_load_selection(vec2i({input}));\n"
         ))
     }
 }
@@ -1082,11 +1564,15 @@ impl StatelessCommonGraphNode for BackgroundColorNode {
     }
 }
 
-pub static BRUSH_GRAPH_TYPES: LazyLock<Arc<lapiz_shader_graph::graph::variable::GraphTypeRegistry>> =
+pub static BRUSH_GRAPH_TYPES: LazyLock<Arc<GraphTypeRegistry>> =
     LazyLock::new(|| Arc::new(brush_graph_types()));
 
-fn brush_graph_types() -> lapiz_shader_graph::graph::variable::GraphTypeRegistry {
-    lapiz_shader_graph::wgsl_std::builtin_types()
+fn brush_graph_types() -> GraphTypeRegistry {
+    let mut types = lapiz_shader_graph::wgsl_std::builtin_types();
+    types.register_type::<CanvasResourcesValueType>();
+    types.register_type::<ComputedPenInputValueType>();
+    types.register_type::<StrokeDataValueType>();
+    types
 }
 
 pub fn spacing_graph_nodes() -> GraphNodeRegistry {
@@ -1128,6 +1614,8 @@ pub fn main_graph_nodes() -> GraphNodeRegistry {
     nodes.register::<BlendColorNode>();
     nodes.register::<LayerPixelColorNode>();
     nodes.register::<CurrentPixelColorNode>();
+    nodes.register::<StrokeBoundsNode>();
+    nodes.register::<AccumulateBoundsNode>();
     nodes.register::<EllipticalMaskNode>();
     nodes.register::<BlendWithInputNode>();
     nodes.register::<BlendWithLayerNode>();
@@ -1152,6 +1640,78 @@ pub fn postprocess_graph_nodes() -> GraphNodeRegistry {
     nodes.register::<ForegroundColorNode>();
     nodes.register::<BackgroundColorNode>();
     nodes
+}
+
+// The builtin literal types brush hosts inject, keyed by the original names
+// the compiled shaders reference.
+pub fn brush_builtin_types(
+    target_layer_format: TexelType,
+    selection_layer_format: TexelType,
+) -> std::collections::BTreeMap<
+    String,
+    Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType>,
+> {
+    std::collections::BTreeMap::from([
+        (
+            CANVAS_RESOURCES_BUILTIN.to_string(),
+            Arc::new(CanvasResourcesValueType)
+                as Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType>,
+        ),
+        (
+            HAS_SELECTION_BUILTIN.to_string(),
+            Arc::new(lapiz_shader_graph::wgsl_std::types::U32Type)
+                as Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType>,
+        ),
+        (
+            SELECTION_BUILTIN.to_string(),
+            Arc::new(BrushLayerType {
+                texel_type: selection_layer_format,
+            }) as Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType>,
+        ),
+        (
+            TARGET_LAYER_BUILTIN.to_string(),
+            Arc::new(BrushLayerType {
+                texel_type: target_layer_format,
+            }) as Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType>,
+        ),
+    ])
+}
+
+pub fn main_builtin_types(
+    target_layer_format: TexelType,
+    selection_layer_format: TexelType,
+) -> std::collections::BTreeMap<String, Arc<dyn ErasedGraphValueType>> {
+    let mut types = brush_builtin_types(target_layer_format, selection_layer_format);
+    types.insert(
+        BRUSH_SAMPLE_BUILTIN.into(),
+        Arc::new(ComputedPenInputValueType),
+    );
+    types.insert(
+        INITIAL_PEN_INPUT_BUILTIN.into(),
+        Arc::new(ComputedPenInputValueType),
+    );
+    types.insert(
+        MAIN_ACCUMULATE_BUFFER.into(),
+        Arc::new(lapiz_shader_graph::wgsl_std::types::LayerType {
+            texel_type: target_layer_format,
+        }),
+    );
+    types
+}
+
+pub fn postprocess_builtin_types(
+    target_layer_format: TexelType,
+    selection_layer_format: TexelType,
+) -> std::collections::BTreeMap<String, Arc<dyn ErasedGraphValueType>> {
+    let mut types = brush_builtin_types(target_layer_format, selection_layer_format);
+    types.insert(
+        MAIN_ACCUMULATE_BUFFER.into(),
+        Arc::new(lapiz_shader_graph::wgsl_std::types::LayerType {
+            texel_type: target_layer_format,
+        }),
+    );
+    types.insert(STROKE_DATA_BUILTIN.into(), Arc::new(StrokeDataValueType));
+    types
 }
 
 pub fn brush_graph_resources(

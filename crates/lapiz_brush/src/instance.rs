@@ -1,34 +1,40 @@
-use std::sync::{Arc, LazyLock};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, LazyLock},
+};
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
 use lapiz_assets::asset::{AssetHandle, AssetId};
 use lapiz_effect::{
-    asset::{EffectInputSlotId, EffectPassOutputSlotId},
-    instance::EffectInstance,
+    asset::{EffectInputSlotId, EffectOutputSlotId},
+    instance::{EffectInputs, EffectInstance},
     nodes::{PassInput, PassInputNode, PassOutput, PassOutputNode},
-    render::{pass_input_ident, pass_output_ident},
+    render::{EffectRenderer, pass_input_ident, pass_output_ident},
 };
-use lapiz_render::wesl_jit;
+use lapiz_image::texel::TexelType;
+use lapiz_render::{bind_group_layout_entries::DynamicBindGroupLayoutEntries, wesl_jit};
 use lapiz_shader_graph::{
     graph::{
-        Graph, GraphResources, GraphVarIdentGenerator,
+        GraphResources, GraphVarIdentGenerator,
         node::GraphNodeRegistry,
         slot::{ErasedGraphValueType, GraphShaderStage},
-        variable::GraphLiteral,
+        variable::{GraphLiteral, GraphShaderLiteral},
     },
     save::SerializableGraphLiteral,
 };
-use wgpu::BindGroupLayoutEntry;
+use wgpu::{BindGroupLayoutEntry, Device, Queue, ShaderStages};
 
 use crate::{
     asset::{BrushPreset, BrushPresetMetadata, SerializableBrushParameter},
     render::graph::{
-        BRUSH_GRAPH_TYPES, DAB_BOUNDS_OUTPUT, DAB_COLOR_OUTPUT,
-        SPACING_OUTPUT, STROKE_BOUNDS_OUTPUT, STROKE_COLOR_OUTPUT, main_graph_nodes,
+        BRUSH_GRAPH_TYPES, MAIN_ACCUMULATE_BUFFER, SPACING_OUTPUT, STROKE_RESULT,
+        brush_builtin_types, main_builtin_types, main_graph_nodes, postprocess_builtin_types,
         postprocess_graph_nodes, spacing_graph_nodes,
     },
 };
+
+const SPACING_RESOURCE_GROUP: u32 = 1;
 
 #[derive(Clone)]
 pub struct BrushParameter {
@@ -36,27 +42,29 @@ pub struct BrushParameter {
     pub value: GraphLiteral,
 }
 
-pub struct CompiledGraph {
-    pub main: String,
-    pub bounds_eval: String,
-}
-
 pub struct CompiledBrushPreset {
-    pub input_sampling: String,
-    pub main_graph: CompiledGraph,
-    pub stroke_postprocess_graphs: Vec<CompiledGraph>,
-    pub parameter_declarations: String,
-    pub parameter_layouts: Vec<BindGroupLayoutEntry>,
-    pub parameters: Arc<[GraphLiteral]>,
+    pub spacing: String,
+    pub spacing_resource_layouts: Vec<BindGroupLayoutEntry>,
+    pub spacing_builtin_types: BTreeMap<String, Arc<dyn ErasedGraphValueType>>,
+    pub spacing_parameters: Arc<[GraphLiteral]>,
+    pub main: EffectRenderer,
+    pub postprocess: EffectRenderer,
+    pub main_inputs: EffectInputs,
+    pub postprocess_inputs: EffectInputs,
+    pub main_output: EffectOutputSlotId,
+    pub postprocess_output: EffectOutputSlotId,
 }
 
 pub struct BrushPresetInstance {
     brush_id: Option<AssetId<BrushPreset>>,
     metadata: BrushPresetMetadata,
 
+    // Spacing executes inside input sampling and must remain a single pass.
     spacing_effect: EffectInstance,
+    // Main and postprocess effects may contain multiple effect passes.
     main_effect: EffectInstance,
     postprocess_effect: EffectInstance,
+    // UI-defined brush parameters, such as size and opacity.
     parameters: IndexMap<EffectInputSlotId, BrushParameter>,
 }
 
@@ -67,18 +75,17 @@ impl BrushPresetInstance {
     ) -> Result<Self> {
         let preset = handle
             .get()
-            .map_err(|e| anyhow::anyhow!("Brush preset asset is not loaded yet: {e}"))?;
+            .map_err(|error| anyhow::anyhow!("Brush preset asset is not loaded yet: {error}"))?;
         let mut instance = Self::new(&preset, assets)?;
         instance.brush_id = Some(handle.id());
         Ok(instance)
     }
 
-    pub fn new(
-        preset: &BrushPreset,
-        assets: lapiz_assets::store::AssetRegistry,
-    ) -> Result<Self> {
-        let spacing_effect =
-            EffectInstance::from_asset(&preset.spacing_effect, spacing_effect_resources(assets.clone()))?;
+    pub fn new(preset: &BrushPreset, assets: lapiz_assets::store::AssetRegistry) -> Result<Self> {
+        let spacing_effect = EffectInstance::from_asset(
+            &preset.spacing_effect,
+            spacing_effect_resources(assets.clone()),
+        )?;
         let main_effect =
             EffectInstance::from_asset(&preset.main_effect, main_effect_resources(assets.clone()))?;
         let postprocess_effect = EffectInstance::from_asset(
@@ -86,8 +93,6 @@ impl BrushPresetInstance {
             postprocess_effect_resources(assets),
         )?;
 
-        // Every effect input is a brush parameter. Persisted values win; new
-        // or missing inputs fall back to the type's default literal.
         let mut parameters = IndexMap::new();
         for effect in [&spacing_effect, &main_effect, &postprocess_effect] {
             for (id, slot) in &effect.inputs {
@@ -131,16 +136,19 @@ impl BrushPresetInstance {
     }
 
     pub fn as_asset(&self) -> Result<BrushPreset> {
-        let mut parameters = IndexMap::new();
-        for (id, parameter) in &self.parameters {
-            parameters.insert(
-                *id,
-                SerializableBrushParameter {
-                    name: parameter.name.clone(),
-                    value: SerializableGraphLiteral::serialize(&parameter.value)?,
-                },
-            );
-        }
+        let parameters = self
+            .parameters
+            .iter()
+            .map(|(id, parameter)| {
+                Ok((
+                    *id,
+                    SerializableBrushParameter {
+                        name: parameter.name.clone(),
+                        value: SerializableGraphLiteral::serialize(&parameter.value)?,
+                    },
+                ))
+            })
+            .collect::<Result<_>>()?;
 
         Ok(BrushPreset {
             metadata: self.metadata.clone(),
@@ -206,201 +214,175 @@ impl BrushPresetInstance {
     }
 
     #[tracing::instrument(skip_all, name = "compile_brush_preset")]
-    pub fn compile(&self) -> Result<CompiledBrushPreset> {
-        let mut parameters = Vec::new();
-        let mut declarations = String::new();
-        let mut layouts = Vec::new();
-        let mut binding = 0u32;
+    pub fn compile(
+        &self,
+        target_layer_format: TexelType,
+        selection_layer_format: TexelType,
+        device: &Device,
+        queue: &Queue,
+    ) -> Result<CompiledBrushPreset> {
+        let spacing_builtin_types =
+            brush_builtin_types(target_layer_format, selection_layer_format);
+        let (spacing, spacing_resource_layouts, spacing_parameters) =
+            self.compile_spacing_pass(&spacing_builtin_types)?;
 
-        for effect in [&self.spacing_effect, &self.main_effect, &self.postprocess_effect] {
-            for (id, slot) in &effect.inputs {
-                let parameter = self
-                    .parameters
-                    .get(id)
-                    .with_context(|| format!("Brush effect input '{:?}' has no parameter", id))?;
-                let port = pass_input_port_of(effect, *id)?;
-                let (next, layout, extended) = slot.ty.push_shader_layout(
-                    &pass_input_ident(port),
-                    GraphShaderStage::Input,
-                    0,
-                    crate::render::PARAMETER_BASE_BINDING + binding,
-                    lapiz_render::bind_group_layout_entries::DynamicBindGroupLayoutEntries::new(
-                        wgpu::ShaderStages::COMPUTE,
-                    ),
-                    declarations,
-                )?;
-                declarations = extended;
-                ensure!(
-                    next == crate::render::PARAMETER_BASE_BINDING + binding + 1,
-                    "brush parameters must occupy exactly one binding slot each"
-                );
-                layouts.extend(layout.to_vec());
-                parameters.push(parameter.value.clone());
-                binding += 1;
-            }
-        }
-
-        let input_sampling = self.compile_spacing_pass(&declarations)?;
-        let main_graph = self.compile_main_pass(&declarations)?;
-        let stroke_postprocess_graphs = self.compile_postprocess_passes(&declarations)?;
+        let main_types = main_builtin_types(target_layer_format, selection_layer_format);
+        let postprocess_types =
+            postprocess_builtin_types(target_layer_format, selection_layer_format);
+        let main = EffectRenderer::from_instance(
+            &self.main_effect,
+            main_types.into_iter().collect(),
+            device.clone(),
+            queue.clone(),
+        )?;
+        let postprocess = EffectRenderer::from_instance(
+            &self.postprocess_effect,
+            postprocess_types.into_iter().collect(),
+            device.clone(),
+            queue.clone(),
+        )?;
 
         Ok(CompiledBrushPreset {
-            input_sampling,
-            main_graph,
-            stroke_postprocess_graphs,
-            parameter_declarations: declarations,
-            parameter_layouts: layouts,
-            parameters: parameters.into(),
+            spacing,
+            spacing_resource_layouts,
+            spacing_builtin_types,
+            spacing_parameters: spacing_parameters.into(),
+            main,
+            postprocess,
+            main_inputs: self.prepare_effect_inputs(&self.main_effect, device, queue)?,
+            postprocess_inputs: self.prepare_effect_inputs(
+                &self.postprocess_effect,
+                device,
+                queue,
+            )?,
+            main_output: named_output(&self.main_effect, MAIN_ACCUMULATE_BUFFER)?,
+            postprocess_output: named_output(&self.postprocess_effect, STROKE_RESULT)?,
         })
     }
 
-    fn compile_spacing_pass(&self, parameter_declarations: &str) -> Result<String> {
-        let graph = single_pass_graph(&self.spacing_effect, "spacing")?;
+    fn prepare_effect_inputs(
+        &self,
+        effect: &EffectInstance,
+        device: &Device,
+        queue: &Queue,
+    ) -> Result<EffectInputs> {
+        effect
+            .inputs
+            .iter()
+            .map(|(id, slot)| {
+                let parameter = self
+                    .parameters
+                    .get(id)
+                    .with_context(|| format!("Brush effect input {id:?} has no parameter"))?;
+                let prepared = slot
+                    .ty
+                    .prepare_to_shader(parameter.value.value(), device, queue)?;
+                Ok((
+                    *id,
+                    GraphShaderLiteral::new_boxed(prepared, slot.ty.clone()),
+                ))
+            })
+            .collect()
+    }
+
+    fn compile_spacing_pass(
+        &self,
+        builtin_types: &BTreeMap<String, Arc<dyn ErasedGraphValueType>>,
+    ) -> Result<(String, Vec<BindGroupLayoutEntry>, Vec<GraphLiteral>)> {
+        if self.spacing_effect.passes.len() != 1 {
+            bail!("Brush spacing effect must have exactly one pass");
+        }
+        let graph = &self.spacing_effect.passes.first().unwrap().1.graph;
         let spacing_port = output_port_of(&self.spacing_effect, SPACING_OUTPUT)?;
         let spacing_ty = self
             .spacing_effect
             .outputs
-            .iter()
-            .find(|(_, slot)| slot.name == SPACING_OUTPUT)
-            .map(|(_, slot)| slot.ty.clone())
+            .values()
+            .find(|slot| slot.name == SPACING_OUTPUT)
+            .map(|slot| slot.ty.clone())
             .with_context(|| format!("Brush spacing effect has no '{SPACING_OUTPUT}' output"))?;
 
-        let (_, _, code) = graph.compile(Vec::new(), GraphVarIdentGenerator::default())?;
-        let spacing_var = pass_output_ident(spacing_port);
-        let body = format!(
-            "var {spacing_var}: {};\n{code}return {spacing_var};\n",
-            conventional_type_name(&spacing_ty)?,
-        );
+        let mut declarations = String::new();
+        let mut layouts = Vec::new();
+        let mut binding = 0;
+        for (name, ty) in builtin_types {
+            let (next, entries, shader) = ty.push_shader_layout(
+                name,
+                GraphShaderStage::Input,
+                SPACING_RESOURCE_GROUP,
+                binding,
+                DynamicBindGroupLayoutEntries::new(ShaderStages::COMPUTE),
+                declarations,
+            )?;
+            binding = next;
+            layouts.extend(entries.to_vec());
+            declarations = shader;
+        }
 
+        let mut parameters = Vec::new();
+        for (id, slot) in &self.spacing_effect.inputs {
+            let parameter = self
+                .parameters
+                .get(id)
+                .with_context(|| format!("Brush effect input {id:?} has no parameter"))?;
+            let port = pass_input_port_of(&self.spacing_effect, *id)?;
+            let (next, entries, shader) = slot.ty.push_shader_layout(
+                &pass_input_ident(port),
+                GraphShaderStage::Input,
+                SPACING_RESOURCE_GROUP,
+                binding,
+                DynamicBindGroupLayoutEntries::new(ShaderStages::COMPUTE),
+                declarations,
+            )?;
+            binding = next;
+            layouts.extend(entries.to_vec());
+            declarations = shader;
+            parameters.push(parameter.value.clone());
+        }
+
+        let (_, _, code) = graph.compile(Vec::new(), GraphVarIdentGenerator::default())?;
+        let output = pass_output_ident(spacing_port);
+        let output_ty = spacing_ty.wgsl_type_name().with_context(|| {
+            format!(
+                "Brush spacing output must be a nameable value type, got '{}'",
+                spacing_ty.id().id
+            )
+        })?;
+        let body = format!("var {output}: {output_ty};\n{code}return {output};\n");
         let shader = include_str!("render/brush_sample.wesl")
             .replace("//CODEGENFLAG_COMPUTED_GRAPH_REQUIRED_SPACING", &body)
-            .replace(
-                "//CODEGENFLAG_EXTERNAL_VARIABLE_BINDINGS",
-                parameter_declarations,
-            );
-
-        compile_brush_wesl(shader, false, false)
-    }
-
-    fn compile_main_pass(&self, parameter_declarations: &str) -> Result<CompiledGraph> {
-        let graph = single_pass_graph(&self.main_effect, "main")?;
-        let color_port = output_port_of(&self.main_effect, DAB_COLOR_OUTPUT)?;
-        let bounds_port = output_port_of(&self.main_effect, DAB_BOUNDS_OUTPUT)?;
-
-        compile_two_stage_pass(
-            graph,
-            color_port,
-            bounds_port,
-            parameter_declarations,
-            false,
+            .replace("//CODEGENFLAG_INJECTED_RESOURCES", &declarations);
+        let shader = wesl_jit::compile_wesl_with_config_and_include(
+            shader,
+            &[&lapiz_image::image::PACKAGE, &lapiz_render::render::PACKAGE],
+            |resolver| {
+                resolver.add_module(
+                    "package::brush_types".parse().unwrap(),
+                    include_str!("render/brush_types.wesl").into(),
+                );
+            },
+            |_| {},
         )
-    }
+        .context("Brush spacing WESL compilation failed")?;
 
-    fn compile_postprocess_passes(&self, parameter_declarations: &str) -> Result<Vec<CompiledGraph>> {
-        self.postprocess_effect
-            .passes
-            .values()
-            .map(|pass| {
-                let color_port = output_port_in_pass(&self.postprocess_effect, pass, STROKE_COLOR_OUTPUT)
-                    .with_context(|| format!("Brush postprocess pass '{}' has no '{STROKE_COLOR_OUTPUT}' output", pass.name))?;
-                let bounds_port = output_port_in_pass(&self.postprocess_effect, pass, STROKE_BOUNDS_OUTPUT)
-                    .with_context(|| format!("Brush postprocess pass '{}' has no '{STROKE_BOUNDS_OUTPUT}' output", pass.name))?;
-                compile_two_stage_pass(
-                    &pass.graph,
-                    color_port,
-                    bounds_port,
-                    parameter_declarations,
-                    true,
-                )
-            })
-            .collect()
+        Ok((shader, layouts, parameters))
     }
 }
 
-fn compile_two_stage_pass(
-    graph: &Graph,
-    color_port: EffectPassOutputSlotId,
-    bounds_port: EffectPassOutputSlotId,
-    parameter_declarations: &str,
-    postprocess: bool,
-) -> Result<CompiledGraph> {
-    let (_, _, code) = graph.compile(Vec::new(), GraphVarIdentGenerator::default())?;
-    let color_var = pass_output_ident(color_port);
-    let bounds_var = pass_output_ident(bounds_port);
-    let body = format!(
-        "var {color_var}: vec4f;\nvar {bounds_var}: Rect;\n{code}\
-         @if(BOUNDS_EVAL) {{ set_output_pixel_bounds({bounds_var}); }}\n\
-         @if(!BOUNDS_EVAL) {{ set_output_color(pixel_pos, {color_var}); }}\n",
-    );
-
-    let mut compiled = CompiledGraph {
-        main: String::new(),
-        bounds_eval: String::new(),
-    };
-    for bounds_eval in [false, true] {
-        let shader = include_str!("render/brush_template.wesl")
-            .replace("//CODEGENFLAG_COMPILED_GRAPH", &body)
-            .replace(
-                "//CODEGENFLAG_EXTERNAL_VARIABLE_BINDINGS",
-                parameter_declarations,
-            );
-        let wesl = compile_brush_wesl(shader, postprocess, bounds_eval)?;
-        if bounds_eval {
-            compiled.bounds_eval = wesl;
-        } else {
-            compiled.main = wesl;
-        }
-    }
-    Ok(compiled)
+fn named_output(effect: &EffectInstance, name: &str) -> Result<EffectOutputSlotId> {
+    effect
+        .outputs
+        .iter()
+        .find(|(_, output)| output.name == name)
+        .map(|(id, _)| *id)
+        .with_context(|| format!("Brush effect has no '{name}' output"))
 }
 
-fn compile_brush_wesl(
-    shader: String,
-    postprocess: bool,
-    bounds_eval: bool,
-) -> Result<String> {
-    wesl_jit::compile_wesl_with_config_and_include(
-        shader,
-        &[&lapiz_image::image::PACKAGE, &lapiz_render::render::PACKAGE],
-        |resolver| {
-            resolver.add_module(
-                "package::brush_types".parse().unwrap(),
-                include_str!("render/brush_types.wesl").into(),
-            );
-        },
-        |compiler| {
-            compiler.set_feature("POSTPROCESS", postprocess);
-            compiler.set_feature("BOUNDS_EVAL", bounds_eval);
-            compiler.set_feature("EVAL", false);
-        },
-    )
-    .context("Brush WESL compilation failed")
-}
-
-// The conventional outputs live in shader function variables, so their types
-// must be nameable in the brush templates.
-fn conventional_type_name(ty: &Arc<dyn ErasedGraphValueType>) -> Result<&'static str> {
-    ty.wgsl_type_name().with_context(|| {
-        format!(
-            "Brush conventional outputs must be nameable value types, got '{}'",
-            ty.id().id
-        )
-    })
-}
-
-fn single_pass_graph<'a>(effect: &'a EffectInstance, label: &str) -> Result<&'a Graph> {
-    if effect.passes.len() != 1 {
-        bail!("Brush {label} effect must have exactly one pass");
-    }
-    Ok(&effect.passes.first().unwrap().1.graph)
-}
-
-// The pass input port bound to an effect input.
 fn pass_input_port_of(
     effect: &EffectInstance,
     effect_input: EffectInputSlotId,
 ) -> Result<lapiz_effect::asset::EffectPassInputSlotId> {
-    for (_id, pass) in &effect.passes {
+    for pass in effect.passes.values() {
         for node in pass.graph.iter_nodes() {
             let Some(state) = node.data.state::<PassInputNode>() else {
                 continue;
@@ -410,38 +392,22 @@ fn pass_input_port_of(
             }
         }
     }
-    bail!(
-        "Brush effect input {:?} is not bound by any pass input node",
-        effect_input
-    );
+    bail!("Brush effect input {effect_input:?} is not bound by a pass input node")
 }
 
-// The output port of the pass output node bound to a named effect output.
-fn output_port_of(effect: &EffectInstance, output_name: &str) -> Result<EffectPassOutputSlotId> {
-    if effect.passes.len() != 1 {
-        bail!("Brush effect must have exactly one pass to resolve '{output_name}'");
-    }
-    let pass = effect.passes.first().unwrap().1;
-    output_port_in_pass(effect, pass, output_name)
-}
-
-fn output_port_in_pass(
+fn output_port_of(
     effect: &EffectInstance,
-    pass: &lapiz_effect::instance::EffectPass,
     output_name: &str,
-) -> Result<EffectPassOutputSlotId> {
-    let output_id = effect
-        .outputs
-        .iter()
-        .find(|(_, slot)| slot.name == output_name)
-        .map(|(id, _)| *id)
-        .with_context(|| format!("Effect has no output named '{output_name}'"))?;
-    for node in pass.graph.iter_nodes() {
-        let Some(state) = node.data.state::<PassOutputNode>() else {
-            continue;
-        };
-        if matches!(&state.output, Some(PassOutput::Effect(id)) if *id == output_id) {
-            return Ok(state.id);
+) -> Result<lapiz_effect::asset::EffectPassOutputSlotId> {
+    let output_id = named_output(effect, output_name)?;
+    for pass in effect.passes.values() {
+        for node in pass.graph.iter_nodes() {
+            let Some(state) = node.data.state::<PassOutputNode>() else {
+                continue;
+            };
+            if matches!(state.output, Some(PassOutput::Effect(id)) if id == output_id) {
+                return Ok(state.id);
+            }
         }
     }
     bail!("No pass output node is bound to effect output '{output_name}'")
@@ -479,7 +445,9 @@ impl GraphFunctionInstance {
         &self.graph_function
     }
 
-    pub fn graph_function_mut(&mut self) -> &mut lapiz_shader_graph::graph::function::GraphFunction {
+    pub fn graph_function_mut(
+        &mut self,
+    ) -> &mut lapiz_shader_graph::graph::function::GraphFunction {
         &mut self.graph_function
     }
 }

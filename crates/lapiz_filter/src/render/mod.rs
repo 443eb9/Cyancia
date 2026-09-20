@@ -81,7 +81,12 @@ impl FilterRenderer {
             "Filter effect must have exactly one layer output"
         );
 
-        let renderer = EffectRenderer::from_instance(effect, device.clone(), queue.clone())?;
+        let renderer = EffectRenderer::from_instance(
+            effect,
+            std::collections::HashMap::new(),
+            device.clone(),
+            queue.clone(),
+        )?;
         let (tx, rx) = oneshot::channel();
         tx.send(()).ok();
         Ok(Self {
@@ -211,7 +216,7 @@ impl FilterRendererInner {
             parameters.insert(self.target_input, input);
             let mut outputs = self
                 .renderer
-                .run(&parameters)
+                .run(&parameters, std::collections::HashMap::new())
                 .context("Filter effect run failed")?;
             parameters.remove(&self.target_input);
 
