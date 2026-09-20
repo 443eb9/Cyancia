@@ -142,7 +142,11 @@ impl GraphValueType for CanvasResourcesValueType {
         random_oklch_hue_chroma!(CanvasResourcesValueType)
     }
 
-    fn view_literal(&self, _data: &CanvasResources) -> GraphElement<'static, Self::Message> {
+    fn view_literal(
+        &self,
+        _data: &CanvasResources,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> GraphElement<'static, Self::Message> {
         Void.into()
     }
 
@@ -246,7 +250,11 @@ impl GraphValueType for BrushLayerType {
         random_oklch_hue_chroma!(BrushLayerType)
     }
 
-    fn view_literal(&self, _data: &BrushLayerReference) -> GraphElement<'static, Self::Message> {
+    fn view_literal(
+        &self,
+        _data: &BrushLayerReference,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> GraphElement<'static, Self::Message> {
         Void.into()
     }
 
@@ -369,7 +377,11 @@ impl GraphValueType for ComputedPenInputValueType {
     fn hue_chroma(&self) -> (f32, f32) {
         random_oklch_hue_chroma!(ComputedPenInputValueType)
     }
-    fn view_literal(&self, _: &crate::render::ComputedPenInput) -> GraphElement<'static, ()> {
+    fn view_literal(
+        &self,
+        _: &crate::render::ComputedPenInput,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> GraphElement<'static, ()> {
         Void.into()
     }
     fn update_literal(&self, _: &mut crate::render::ComputedPenInput, _: ()) {}
@@ -475,7 +487,11 @@ impl GraphValueType for StrokeDataValueType {
     fn hue_chroma(&self) -> (f32, f32) {
         random_oklch_hue_chroma!(StrokeDataValueType)
     }
-    fn view_literal(&self, _: &crate::render::StrokePostprocessData) -> GraphElement<'static, ()> {
+    fn view_literal(
+        &self,
+        _: &crate::render::StrokePostprocessData,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> GraphElement<'static, ()> {
         Void.into()
     }
     fn update_literal(&self, _: &mut crate::render::StrokePostprocessData, _: ()) {}

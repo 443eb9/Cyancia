@@ -270,17 +270,15 @@ impl ToolFunction for BrushTool {
             .parameters()
             .iter()
             .map(|(id, parameter)| {
-                let slot_id = lapiz_shader_graph::graph::slot::GraphInputSlotId::new(id.into_inner());
+                let slot_id =
+                    lapiz_shader_graph::graph::slot::GraphInputSlotId::new(id.into_inner());
                 column![
                     Label::new(parameter.name.clone()),
                     parameter
                         .value
                         .ty()
-                        .view_literal(slot_id, parameter.value.value())
-                        .map(move |message| BrushToolMessage::UpdateParameter {
-                            id: *id,
-                            message,
-                        }),
+                        .view_literal(slot_id, parameter.value.value(), services.assets())
+                        .map(move |message| BrushToolMessage::UpdateParameter { id: *id, message }),
                 ]
                 .spacing(4)
                 .into()

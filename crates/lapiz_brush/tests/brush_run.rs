@@ -274,7 +274,7 @@ fn postprocess_effect(assets: lapiz_assets::store::AssetRegistry) -> Result<(Eff
 fn generate_brush_preset(assets: lapiz_assets::store::AssetRegistry) -> Result<BrushPreset> {
     let (spacing, spacing_parameter) = spacing_effect(assets.clone())?;
     let (main, radius_parameter) = main_effect(assets.clone())?;
-    let (postprocess, ()) = postprocess_effect(assets)?;
+    let (postprocess, ()) = postprocess_effect(assets.clone())?;
 
     let mut parameters = IndexMap::new();
     for (id, value) in [
@@ -285,9 +285,10 @@ fn generate_brush_preset(assets: lapiz_assets::store::AssetRegistry) -> Result<B
             id,
             SerializableBrushParameter {
                 name: "value".into(),
-                value: SerializableGraphLiteral::serialize(&GraphLiteral::new::<
-                    lapiz_shader_graph::wgsl_std::types::F32Type,
-                >(value))?,
+                value: SerializableGraphLiteral::serialize(
+                    &GraphLiteral::new::<lapiz_shader_graph::wgsl_std::types::F32Type>(value),
+                    &assets,
+                )?,
             },
         );
     }

@@ -90,7 +90,7 @@ impl BrushPresetInstance {
             EffectInstance::from_asset(&preset.main_effect, main_effect_resources(assets.clone()))?;
         let postprocess_effect = EffectInstance::from_asset(
             &preset.postprocess_effect,
-            postprocess_effect_resources(assets),
+            postprocess_effect_resources(assets.clone()),
         )?;
 
         let mut parameters = IndexMap::new();
@@ -102,7 +102,7 @@ impl BrushPresetInstance {
                     .and_then(|persisted| {
                         persisted
                             .value
-                            .deserialize(BRUSH_GRAPH_TYPES.as_ref())
+                            .deserialize(BRUSH_GRAPH_TYPES.as_ref(), &assets)
                             .map_err(|error| {
                                 log::warn!(
                                     "Brush parameter '{}' failed to deserialize, using default: {error}",
@@ -135,7 +135,7 @@ impl BrushPresetInstance {
         })
     }
 
-    pub fn as_asset(&self) -> Result<BrushPreset> {
+    pub fn as_asset(&self, assets: &lapiz_assets::store::AssetRegistry) -> Result<BrushPreset> {
         let parameters = self
             .parameters
             .iter()
@@ -144,7 +144,7 @@ impl BrushPresetInstance {
                     *id,
                     SerializableBrushParameter {
                         name: parameter.name.clone(),
-                        value: SerializableGraphLiteral::serialize(&parameter.value)?,
+                        value: SerializableGraphLiteral::serialize(&parameter.value, assets)?,
                     },
                 ))
             })
@@ -210,6 +210,34 @@ impl BrushPresetInstance {
     ) {
         if let Some(parameter) = self.parameters.get_mut(id) {
             parameter.value.update(message);
+        }
+    }
+
+    pub fn resync_parameters(&mut self) {
+        self.parameters.retain(|id, _| {
+            [
+                &self.spacing_effect,
+                &self.main_effect,
+                &self.postprocess_effect,
+            ]
+            .iter()
+            .any(|effect| effect.inputs.contains_key(id))
+        });
+        for effect in [
+            &self.spacing_effect,
+            &self.main_effect,
+            &self.postprocess_effect,
+        ] {
+            for (id, slot) in &effect.inputs {
+                let parameter = self
+                    .parameters
+                    .entry(*id)
+                    .or_insert_with(|| BrushParameter {
+                        name: slot.name.clone(),
+                        value: GraphLiteral::new_boxed(slot.ty.default_literal(), slot.ty.clone()),
+                    });
+                parameter.name = slot.name.clone();
+            }
         }
     }
 
