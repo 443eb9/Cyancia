@@ -1,7 +1,7 @@
 use std::{borrow::Cow, sync::Arc};
 
 use iced_core::Length;
-use iced_widget::{Column, Component, column, component::component, row};
+use iced_widget::{Column, Component, column, component::component, container, row};
 use lapiz_assets::store::AssetRegistry;
 use lapiz_i18n::t;
 use lapiz_widgets::{
@@ -126,7 +126,9 @@ impl<'a, Message> Component<'a, Message, GraphTheme, GraphRenderer>
             .collect::<Vec<_>>();
 
         let parameters: GraphElement<'a, ParametersEditorEvent> = if parameter_rows.is_empty() {
-            Label::new(t!("no_parameters")).muted().into()
+            container(Label::new(t!("no_parameters")).muted())
+                .height(Length::Fill)
+                .into()
         } else {
             Scrollable::new(Column::with_children(parameter_rows).spacing(8))
                 .height(Length::Fill)
@@ -149,7 +151,10 @@ impl<'a, Message> Component<'a, Message, GraphTheme, GraphRenderer>
         ]
         .spacing(4);
 
-        column![parameters, add_row].spacing(8).into()
+        column![parameters, add_row]
+            .spacing(8)
+            .height(Length::Fill)
+            .into()
     }
 }
 

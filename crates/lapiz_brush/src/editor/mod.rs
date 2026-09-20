@@ -333,6 +333,7 @@ impl BrushEditor {
         Panel::new(column![Label::new(t!("parameters")).strong(), parameters].spacing(6))
             .padding(8)
             .width(320)
+            .height(Length::Fill)
             .into()
     }
 

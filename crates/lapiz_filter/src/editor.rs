@@ -325,7 +325,8 @@ impl FilterEditor {
         let parameters =
             Panel::new(column![Label::new(t!("parameters")).strong(), parameter_editor].spacing(6))
                 .padding(8)
-                .width(320);
+                .width(320)
+                .height(Length::Fill);
 
         (naming, effect_editor, parameters.into())
     }
