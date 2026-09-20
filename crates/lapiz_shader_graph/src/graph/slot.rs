@@ -302,6 +302,10 @@ pub trait ErasedGraphValueType: Send + Sync + 'static + DynClone + Downcast {
     fn push_input_slots(&self) -> Vec<GraphDefaultInputSlot>;
     // TODO better naming
     fn push_output_slots(&self) -> Vec<GraphDefaultOutputSlot>;
+    // TODO better naming
+    // This actually means to read the value of this type from shader binding.
+    // For general types, it just copies the identifier. But for special types like
+    // layer, the pixel value needs to call a helper to get.
     fn handle_input_values(
         &self,
         input_name: &str,
