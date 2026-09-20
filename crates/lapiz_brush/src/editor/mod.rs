@@ -8,8 +8,9 @@ use iced_widget::{Column, column, component::component, row};
 use lapiz_assets::{AssetAppExt, asset::AssetHandle, store::AssetRegistry};
 use lapiz_effect::{
     asset::{EffectInputSlotId, EffectOutputSlotId, EffectPassDispatchStrategy, EffectPassId},
-    editor::{EffectEditorMessage, EffectEditorState, EffectEditorView, EffectIoEditor},
-    instance::{EffectInstance, EffectOutputSlot, EffectPass},
+    editor::{EffectEditorMessage, EffectEditorState, EffectEditorView},
+    instance::{EffectInputSlot, EffectInstance, EffectOutputSlot, EffectPass},
+    nodes::{PassInput, PassInputNode},
 };
 use lapiz_i18n::t;
 use lapiz_image::texel::TexelType;
@@ -19,10 +20,8 @@ use lapiz_runtime::{
 };
 use lapiz_shader_graph::{
     GraphElement,
-    graph::{
-        Graph,
-        slot::{ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphInputSlotId},
-    },
+    editor::parameters::{ParametersEditor, ParametersEditorMessage},
+    graph::{Graph, slot::ErasedGraphValueType},
     wgsl_std::types::{F32Type, LayerType},
 };
 use lapiz_widgets::{
@@ -34,7 +33,7 @@ use uuid::Uuid;
 use crate::{
     asset::{BrushPreset, BrushPresetMetadata},
     instance::{
-        BrushPresetInstance, main_effect_resources, postprocess_effect_resources,
+        BrushParameter, BrushPresetInstance, main_effect_resources, postprocess_effect_resources,
         spacing_effect_resources,
     },
     render::graph::{MAIN_ACCUMULATE_BUFFER, SPACING_OUTPUT, STROKE_RESULT},
@@ -123,7 +122,7 @@ pub enum BrushEditorMessage {
     Save,
     SelectEffectSlot(BrushEffectSlot),
     Effect(EffectEditorMessage),
-    UpdateParameter(EffectInputSlotId, ErasedGraphLiteralUpdateMessage),
+    Parameters(ParametersEditorMessage),
 }
 
 impl WindowView for BrushEditor {
@@ -241,15 +240,13 @@ impl WindowView for BrushEditor {
                         effect_mut(&mut selected.instance, self.active_slot),
                         message,
                     );
-                    // Io edits change the parameter set; realign values.
-                    selected.instance.resync_parameters();
                     self.dirty = true;
                 }
                 Task::none()
             }
-            BrushEditorMessage::UpdateParameter(id, message) => {
+            BrushEditorMessage::Parameters(message) => {
                 if let Some(selected) = self.selected.as_mut() {
-                    selected.instance.update_parameter(&id, message);
+                    apply_parameter_message(&mut selected.instance, message);
                     self.dirty = true;
                 }
                 Task::none()
@@ -320,58 +317,23 @@ impl BrushEditor {
             .into()
     }
 
-    // Region 3: the active effect's io (edits here grow the brush's parameter
-    // set) above the resulting parameter values.
     fn view_parameters<'a>(&'a self, selected: &'a SelectedBrush) -> EditorElement<'a> {
         let resources = &self.editor_states.get(self.active_slot).resources;
-        let io = component(EffectIoEditor::new(
-            effect(&selected.instance, self.active_slot),
+        let parameters = component(ParametersEditor::new(
+            selected
+                .instance
+                .parameters()
+                .values()
+                .map(|parameter| (parameter.name.as_str(), &parameter.value)),
             &resources.type_registry,
-        ))
-        .map(|message| BrushEditorMessage::Effect(EffectEditorMessage::Io(message)));
+            &resources.assets,
+            BrushEditorMessage::Parameters,
+        ));
 
-        let parameter_rows = selected
-            .instance
-            .parameters()
-            .iter()
-            .map(|(id, parameter)| {
-                row![
-                    Label::new(parameter.name.clone()).width(Length::Fill),
-                    parameter
-                        .value
-                        .ty()
-                        .view_literal(
-                            GraphInputSlotId::new(id.0),
-                            parameter.value.value(),
-                            &resources.assets,
-                        )
-                        .map(move |message| BrushEditorMessage::UpdateParameter(*id, message)),
-                ]
-                .spacing(6)
-                .into()
-            })
-            .collect::<Vec<_>>();
-        let parameters: EditorElement<'a> = if parameter_rows.is_empty() {
-            Label::new(t!("no_external_variables")).muted().into()
-        } else {
-            Scrollable::new(Column::with_children(parameter_rows).spacing(6))
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into()
-        };
-
-        Panel::new(
-            column![
-                Label::new(t!("effect_io")).strong(),
-                io,
-                Label::new(t!("parameters")).strong(),
-                parameters,
-            ]
-            .spacing(6),
-        )
-        .padding(8)
-        .width(320)
-        .into()
+        Panel::new(column![Label::new(t!("parameters")).strong(), parameters].spacing(6))
+            .padding(8)
+            .width(320)
+            .into()
     }
 
     fn select_brush(&mut self, index: usize, services: &Services) -> Task<BrushEditorMessage> {
@@ -478,6 +440,71 @@ impl BrushEditor {
         self.dirty = false;
         Task::none()
     }
+}
+
+fn apply_parameter_message(instance: &mut BrushPresetInstance, message: ParametersEditorMessage) {
+    match message {
+        ParametersEditorMessage::Add { name, value } => {
+            instance.parameters_mut().insert(
+                EffectInputSlotId::new(Uuid::new_v4()),
+                BrushParameter { name, value },
+            );
+        }
+        ParametersEditorMessage::Remove { index } => {
+            instance.parameters_mut().shift_remove_index(index);
+        }
+        ParametersEditorMessage::Rename { index, name } => {
+            if let Some((_, parameter)) = instance.parameters_mut().get_index_mut(index) {
+                parameter.name = name;
+            }
+        }
+        ParametersEditorMessage::UpdateLiteral { index, message } => {
+            if let Some((_, parameter)) = instance.parameters_mut().get_index_mut(index) {
+                parameter.value.update(message);
+            }
+        }
+    }
+
+    let parameters = instance
+        .parameters()
+        .iter()
+        .map(|(id, parameter)| (*id, parameter.name.clone(), parameter.value.ty().clone()))
+        .collect::<Vec<_>>();
+    sync_brush_effect_parameters(instance.spacing_effect_mut(), &parameters);
+    sync_brush_effect_parameters(instance.main_effect_mut(), &parameters);
+    sync_brush_effect_parameters(instance.postprocess_effect_mut(), &parameters);
+}
+
+fn sync_brush_effect_parameters(
+    effect: &mut EffectInstance,
+    parameters: &[(EffectInputSlotId, String, Arc<dyn ErasedGraphValueType>)],
+) {
+    effect.inputs = parameters
+        .iter()
+        .map(|(id, name, ty)| {
+            (
+                *id,
+                EffectInputSlot {
+                    name: name.clone(),
+                    id: *id,
+                    ty: ty.clone(),
+                },
+            )
+        })
+        .collect();
+    for pass in effect.passes.values_mut() {
+        for node in pass.graph.iter_nodes_mut() {
+            if let Some(state) = node.data.state_mut::<PassInputNode>()
+                && let Some(PassInput::Effect(id)) = state.input
+                && !effect.inputs.contains_key(&id)
+            {
+                state.input = None;
+            }
+        }
+    }
+    effect
+        .sync_pass_graph_effect_properties()
+        .expect("brush parameter inputs always sync");
 }
 
 fn effect(instance: &BrushPresetInstance, slot: BrushEffectSlot) -> &EffectInstance {

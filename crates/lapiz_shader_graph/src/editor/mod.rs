@@ -46,7 +46,9 @@ use crate::{
     },
 };
 
+pub mod parameters;
 pub mod slot;
+pub mod types;
 
 pub const NODE_WIDTH: f32 = 200.0;
 

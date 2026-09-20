@@ -1,7 +1,10 @@
 use indexmap::IndexMap;
 use lapiz_assets::asset::{AssetHandle, AssetId};
 use lapiz_effect::{asset::EffectInputSlotId, instance::EffectInstance};
-use lapiz_shader_graph::graph::{slot::ErasedGraphLiteralUpdateMessage, variable::GraphLiteral};
+use lapiz_shader_graph::{
+    graph::{slot::ErasedGraphLiteralUpdateMessage, variable::GraphLiteral},
+    wgsl_std::types::LayerType,
+};
 
 use crate::asset::{FilterPreset, FilterPresetMetadata, SerializableFilterParameter};
 
@@ -43,7 +46,10 @@ impl FilterInstance {
         let mut parameters = IndexMap::new();
         for (id, slot) in &effect.inputs {
             if let Some(persisted) = preset.parameters.get(id) {
-                match persisted.value.deserialize(&resources.type_registry, &resources.assets) {
+                match persisted
+                    .value
+                    .deserialize(&resources.type_registry, &resources.assets)
+                {
                     Ok(value) => {
                         parameters.insert(
                             *id,
@@ -85,7 +91,10 @@ impl FilterInstance {
         })
     }
 
-    pub fn as_asset(&self, assets: &lapiz_assets::store::AssetRegistry) -> anyhow::Result<FilterPreset> {
+    pub fn as_asset(
+        &self,
+        assets: &lapiz_assets::store::AssetRegistry,
+    ) -> anyhow::Result<FilterPreset> {
         let mut parameters = IndexMap::new();
         for (id, parameter) in &self.parameters {
             parameters.insert(
@@ -145,9 +154,16 @@ impl FilterInstance {
     }
 
     pub fn resync_parameters(&mut self) {
-        self.parameters
-            .retain(|id, _| self.effect.inputs.contains_key(id));
+        self.parameters.retain(|id, _| {
+            self.effect
+                .inputs
+                .get(id)
+                .is_some_and(|slot| !slot.ty.is::<LayerType>())
+        });
         for (id, slot) in &self.effect.inputs {
+            if slot.ty.is::<LayerType>() {
+                continue;
+            }
             let parameter = self
                 .parameters
                 .entry(*id)

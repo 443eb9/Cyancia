@@ -8,8 +8,9 @@ use iced_widget::{Column, column, component::component, row};
 use lapiz_assets::{AssetAppExt, asset::AssetHandle};
 use lapiz_effect::{
     asset::EffectInputSlotId,
-    editor::{EffectEditorMessage, EffectEditorState, EffectEditorView, EffectIoEditor},
+    editor::{EffectEditorMessage, EffectEditorState, EffectEditorView},
     instance::{EffectInputSlot, EffectInstance, EffectOutputSlot},
+    nodes::{PassInput, PassInputNode},
 };
 use lapiz_i18n::t;
 use lapiz_image::texel::TexelType;
@@ -19,7 +20,8 @@ use lapiz_runtime::{
 };
 use lapiz_shader_graph::{
     GraphElement,
-    graph::slot::{ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphInputSlotId},
+    editor::parameters::{ParametersEditor, ParametersEditorMessage},
+    graph::slot::ErasedGraphValueType,
     wgsl_std::types::LayerType,
 };
 use lapiz_widgets::{
@@ -29,7 +31,7 @@ use uuid::Uuid;
 
 use crate::{
     asset::{FilterPreset, FilterPresetMetadata},
-    instance::FilterInstance,
+    instance::{FilterInstance, FilterParameter},
     render::graph::filter_graph_resources,
 };
 
@@ -57,7 +59,7 @@ pub enum FilterEditorMessage {
     FilterNameChanged(String),
     Save,
     Effect(EffectEditorMessage),
-    UpdateParameter(EffectInputSlotId, ErasedGraphLiteralUpdateMessage),
+    Parameters(ParametersEditorMessage),
 }
 
 impl WindowView for FilterEditor {
@@ -139,11 +141,10 @@ impl WindowView for FilterEditor {
         .width(220);
 
         let empty = || -> EditorElement<'_> { Label::new("").into() };
-        let (naming, effect_editor, io_panel, parameters) = match self.selected.as_ref() {
+        let (naming, effect_editor, parameters) = match self.selected.as_ref() {
             Some(selected) => self.view_selected(selected),
             None => (
                 Label::new(t!("select_a_filter_to_adjust")).muted().into(),
-                empty(),
                 empty(),
                 empty(),
             ),
@@ -154,7 +155,7 @@ impl WindowView for FilterEditor {
             .spacing(6)
             .height(Length::Fill);
 
-        row![sidebar, center, io_panel, parameters]
+        row![sidebar, center, parameters]
             .spacing(8)
             .height(Length::Fill)
             .padding(8)
@@ -181,17 +182,16 @@ impl WindowView for FilterEditor {
                 if let Some(selected) = self.selected.as_mut() {
                     self.effect_editor_state
                         .update(selected.instance.effect_mut(), message);
-                    // Io edits change the parameter set; realign values.
-                    selected.instance.resync_parameters();
                     self.dirty = true;
                     self.revalidate();
                 }
                 Task::none()
             }
-            FilterEditorMessage::UpdateParameter(id, message) => {
+            FilterEditorMessage::Parameters(message) => {
                 if let Some(selected) = self.selected.as_mut() {
-                    selected.instance.update_parameter(&id, message);
+                    apply_parameter_message(&mut selected.instance, message);
                     self.dirty = true;
+                    self.revalidate();
                 }
                 Task::none()
             }
@@ -217,16 +217,61 @@ impl WindowView for FilterEditor {
 
 type EditorElement<'a> = GraphElement<'a, FilterEditorMessage>;
 
+fn apply_parameter_message(instance: &mut FilterInstance, message: ParametersEditorMessage) {
+    match message {
+        ParametersEditorMessage::Add { name, value } => {
+            instance.parameters_mut().insert(
+                EffectInputSlotId::new(Uuid::new_v4()),
+                FilterParameter { name, value },
+            );
+        }
+        ParametersEditorMessage::Remove { index } => {
+            instance.parameters_mut().shift_remove_index(index);
+        }
+        ParametersEditorMessage::Rename { index, name } => {
+            if let Some((_, parameter)) = instance.parameters_mut().get_index_mut(index) {
+                parameter.name = name;
+            }
+        }
+        ParametersEditorMessage::UpdateLiteral { index, message } => {
+            if let Some((_, parameter)) = instance.parameters_mut().get_index_mut(index) {
+                parameter.value.update(message);
+            }
+        }
+    }
+
+    let parameters = instance
+        .parameters()
+        .iter()
+        .map(|(id, parameter)| (*id, parameter.name.clone(), parameter.value.ty().clone()))
+        .collect::<Vec<_>>();
+    let effect = instance.effect_mut();
+    effect.inputs.retain(|_, slot| slot.ty.is::<LayerType>());
+    effect.inputs.extend(
+        parameters
+            .into_iter()
+            .map(|(id, name, ty)| (id, EffectInputSlot { name, id, ty })),
+    );
+    for pass in effect.passes.values_mut() {
+        for node in pass.graph.iter_nodes_mut() {
+            if let Some(state) = node.data.state_mut::<PassInputNode>()
+                && let Some(PassInput::Effect(id)) = state.input
+                && !effect.inputs.contains_key(&id)
+            {
+                state.input = None;
+            }
+        }
+    }
+    effect
+        .sync_pass_graph_effect_properties()
+        .expect("filter parameter inputs always sync");
+}
+
 impl FilterEditor {
     fn view_selected<'a>(
         &'a self,
         selected: &'a SelectedFilter,
-    ) -> (
-        EditorElement<'a>,
-        EditorElement<'a>,
-        EditorElement<'a>,
-        EditorElement<'a>,
-    ) {
+    ) -> (EditorElement<'a>, EditorElement<'a>, EditorElement<'a>) {
         let status = if self.dirty {
             Label::new("*").muted()
         } else {
@@ -266,58 +311,23 @@ impl FilterEditor {
         ))
         .map(FilterEditorMessage::Effect);
 
-        // Region 3: effect io editor. Adding or retyping an input here also
-        // grows the filter's parameter set.
-        let io_panel = Panel::new(
-            column![
-                Label::new(t!("effect_io")).strong(),
-                component(EffectIoEditor::new(
-                    selected.instance.effect(),
-                    &self.effect_editor_state.resources.type_registry,
-                ))
-                .map(|message| FilterEditorMessage::Effect(EffectEditorMessage::Io(message))),
-            ]
-            .spacing(6),
-        )
-        .padding(8)
-        .width(320);
+        let resources = &self.effect_editor_state.resources;
+        let parameter_editor = component(ParametersEditor::new(
+            selected
+                .instance
+                .parameters()
+                .values()
+                .map(|parameter| (parameter.name.as_str(), &parameter.value)),
+            &resources.type_registry,
+            &resources.assets,
+            FilterEditorMessage::Parameters,
+        ));
+        let parameters =
+            Panel::new(column![Label::new(t!("parameters")).strong(), parameter_editor].spacing(6))
+                .padding(8)
+                .width(320);
 
-        // Region 4: filter parameter values. Names and types come from the
-        // effect inputs managed in region 3.
-        let parameter_rows = selected
-            .instance
-            .parameters()
-            .iter()
-            .map(|(id, parameter)| {
-                row![
-                    Label::new(parameter.name.clone()).width(Length::Fill),
-                    parameter
-                        .value
-                        .ty()
-                        .view_literal(
-                            GraphInputSlotId::new(id.0),
-                            parameter.value.value(),
-                            &self.effect_editor_state.resources.assets,
-                        )
-                        .map(move |message| FilterEditorMessage::UpdateParameter(*id, message)),
-                ]
-                .spacing(6)
-                .into()
-            })
-            .collect::<Vec<_>>();
-        let parameters_content = if parameter_rows.is_empty() {
-            column![Label::new(t!("no_external_variables")).muted()].spacing(6)
-        } else {
-            column![Label::new(t!("parameters")).strong()]
-                .spacing(6)
-                .push(
-                    Scrollable::new(Column::with_children(parameter_rows).spacing(6))
-                        .height(Length::Fill),
-                )
-        };
-        let parameters = Panel::new(parameters_content).padding(8).width(260);
-
-        (naming, effect_editor, io_panel.into(), parameters.into())
+        (naming, effect_editor, parameters.into())
     }
 
     fn select_filter(&mut self, index: usize, services: &Services) -> Task<FilterEditorMessage> {
