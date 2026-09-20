@@ -7,6 +7,7 @@ use lapiz_render::{
     bind_group_layout_entries::{DynamicBindGroupLayoutEntries, binding_types},
 };
 use lapiz_utils::random_oklch_hue_chroma;
+use serde::{Deserialize, Serialize};
 use wesl::syntax::*;
 use wesl_quote::{quote_declaration, quote_expression, quote_statement};
 use wgpu::{Buffer, Device, Queue};
@@ -141,6 +142,22 @@ macro_rules! atomic_type {
             fn literal_to_code(&self, _data: &Self::AssociatedLiteralType) -> Option<Expression> {
                 None
             }
+
+            fn serialize_literal(
+                &self,
+                data: &Self::AssociatedLiteralType,
+                _assets: &lapiz_assets::store::AssetRegistry,
+            ) -> Result<toml::Value> {
+                Ok(toml::Value::try_from(data)?)
+            }
+
+            fn deserialize_literal(
+                &self,
+                value: toml::Value,
+                _assets: &lapiz_assets::store::AssetRegistry,
+            ) -> Result<Self::AssociatedLiteralType> {
+                Ok(Self::AssociatedLiteralType::deserialize(value)?)
+            }
         }
     };
 }
@@ -272,6 +289,22 @@ macro_rules! atomic_array_type {
 
             fn literal_to_code(&self, _data: &Self::AssociatedLiteralType) -> Option<Expression> {
                 None
+            }
+
+            fn serialize_literal(
+                &self,
+                data: &Self::AssociatedLiteralType,
+                _assets: &lapiz_assets::store::AssetRegistry,
+            ) -> Result<toml::Value> {
+                Ok(toml::Value::try_from(data)?)
+            }
+
+            fn deserialize_literal(
+                &self,
+                value: toml::Value,
+                _assets: &lapiz_assets::store::AssetRegistry,
+            ) -> Result<Self::AssociatedLiteralType> {
+                Ok(Self::AssociatedLiteralType::deserialize(value)?)
             }
         }
     };

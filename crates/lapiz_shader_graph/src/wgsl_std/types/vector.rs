@@ -10,6 +10,7 @@ use lapiz_render::{
 };
 use lapiz_utils::random_oklch_hue_chroma;
 use lapiz_widgets::spin_slider::SpinSlider;
+use serde::{Deserialize, Serialize};
 use wesl::syntax::*;
 use wesl_quote::quote_expression;
 use wgpu::{Buffer, Device, Queue};
@@ -100,7 +101,7 @@ macro_rules! vector_type {
             fn view_literal(
                 &self,
                 data: &Self::AssociatedLiteralType,
-                   _assets: &lapiz_assets::store::AssetRegistry,
+                _assets: &lapiz_assets::store::AssetRegistry,
             ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
                 let controls = (0..$len)
                     .map(|index| {
@@ -131,6 +132,22 @@ macro_rules! vector_type {
                         .collect(),
                 };
                 Some(Expression::FunctionCall(constructor))
+            }
+
+            fn serialize_literal(
+                &self,
+                data: &Self::AssociatedLiteralType,
+                _assets: &lapiz_assets::store::AssetRegistry,
+            ) -> Result<toml::Value> {
+                Ok(toml::Value::try_from(data)?)
+            }
+
+            fn deserialize_literal(
+                &self,
+                value: toml::Value,
+                _assets: &lapiz_assets::store::AssetRegistry,
+            ) -> Result<Self::AssociatedLiteralType> {
+                Ok(Self::AssociatedLiteralType::deserialize(value)?)
             }
         }
     };

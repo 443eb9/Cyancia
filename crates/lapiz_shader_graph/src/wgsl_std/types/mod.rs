@@ -6,6 +6,7 @@ use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
     bind_group_layout_entries::{DynamicBindGroupLayoutEntries, binding_types},
 };
+use serde::{Deserialize, Serialize};
 use wesl::syntax::*;
 use wesl_quote::quote_declaration;
 use wgpu::{Buffer, BufferDescriptor, BufferUsages, Device};

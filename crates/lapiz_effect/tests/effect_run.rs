@@ -167,6 +167,22 @@ impl GraphValueType for EffectParamType {
     fn literal_to_code(&self, _data: &EffectParam) -> Option<Expression> {
         None
     }
+
+    fn serialize_literal(
+        &self,
+        data: &Self::AssociatedLiteralType,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<toml::Value> {
+        Ok(toml::Value::try_from(data)?)
+    }
+
+    fn deserialize_literal(
+        &self,
+        value: toml::Value,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<Self::AssociatedLiteralType> {
+        Ok(EffectParam::deserialize(value)?)
+    }
 }
 
 macro_rules! parameter_node {
@@ -923,14 +939,13 @@ fn effect_matches_cpu_reference() {
     let asset = serializer.read(&mut Cursor::new(encoded)).unwrap();
     let effect = EffectInstance::from_asset(&asset, graph_resources).unwrap();
 
-    let renderer =
-        EffectRenderer::from_instance(
-            &effect,
-            HashMap::new(),
-            context.device.clone(),
-            context.queue.clone(),
-        )
-            .unwrap();
+    let renderer = EffectRenderer::from_instance(
+        &effect,
+        HashMap::new(),
+        context.device.clone(),
+        context.queue.clone(),
+    )
+    .unwrap();
     let params_type = EffectParamType;
     let params = params_type
         .prepare_to_shader(

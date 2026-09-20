@@ -221,7 +221,7 @@ impl GraphValueType for TextureType {
         &self,
         data: &Self::AssociatedLiteralType,
         _assets: &lapiz_assets::store::AssetRegistry,
-    ) -> Result<toml::Value, toml::ser::Error> {
+    ) -> Result<toml::Value> {
         let mut table = toml::map::Map::new();
         if let Some(handle) = &data.texture {
             table.insert("asset".into(), toml::Value::try_from(handle.id())?);
@@ -229,20 +229,20 @@ impl GraphValueType for TextureType {
         Ok(toml::Value::Table(table))
     }
 
-    fn deserialize_literal<'a>(
+    fn deserialize_literal(
         &self,
         deserializer: toml::Value,
         assets: &lapiz_assets::store::AssetRegistry,
-    ) -> Result<Self::AssociatedLiteralType, <toml::Value as serde::Deserializer<'a>>::Error> {
+    ) -> Result<Self::AssociatedLiteralType> {
         let Some(asset) = deserializer.get("asset") else {
             return Ok(TextureReference::NULL);
         };
         let id = lapiz_assets::asset::AssetId::<lapiz_render::texture::Image>::deserialize(
             asset.clone(),
         )?;
-        let handle = assets.handle(id).map_err(|e| {
-            serde::de::Error::custom(format!("texture asset {id} is unavailable: {e:?}"))
-        })?;
+        let handle = assets
+            .handle(id)
+            .map_err(|e| anyhow::anyhow!("texture asset {id} is unavailable: {e:?}"))?;
         Ok(TextureReference {
             texture: Some(handle),
         })
@@ -617,15 +617,15 @@ impl GraphValueType for LayerType {
         &self,
         _data: &Self::AssociatedLiteralType,
         _assets: &lapiz_assets::store::AssetRegistry,
-    ) -> Result<toml::Value, toml::ser::Error> {
+    ) -> Result<toml::Value> {
         Ok(toml::Value::Table(Default::default()))
     }
 
-    fn deserialize_literal<'a>(
+    fn deserialize_literal(
         &self,
         _deserializer: toml::Value,
         _assets: &lapiz_assets::store::AssetRegistry,
-    ) -> Result<Self::AssociatedLiteralType, <toml::Value as serde::Deserializer<'a>>::Error> {
+    ) -> Result<Self::AssociatedLiteralType> {
         Ok(LayerReference)
     }
 
@@ -737,28 +737,6 @@ pub struct ArrayType {
 #[derive(Clone)]
 pub struct ArrayLiteral {
     pub elements: Vec<GraphLiteral>,
-}
-
-impl Serialize for ArrayLiteral {
-    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        Err(<S::Error as serde::ser::Error>::custom(
-            "array literals require their array type for serialization",
-        ))
-    }
-}
-
-impl<'de> Deserialize<'de> for ArrayLiteral {
-    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        Err(<D::Error as serde::de::Error>::custom(
-            "array literals require their array type for deserialization",
-        ))
-    }
 }
 
 #[derive(Clone)]
@@ -980,49 +958,45 @@ impl GraphValueType for ArrayType {
         &self,
         data: &Self::AssociatedLiteralType,
         assets: &lapiz_assets::store::AssetRegistry,
-    ) -> Result<toml::Value, toml::ser::Error> {
+    ) -> Result<toml::Value> {
         if data.elements.len() != self.len as usize {
-            return Err(<toml::ser::Error as serde::ser::Error>::custom(format!(
+            bail!(
                 "Array literal has {} elements, expected {}",
                 data.elements.len(),
                 self.len
-            )));
+            );
         }
         data.elements
             .iter()
             .map(|element| {
                 if element.ty().id() != self.element_type.id() {
-                    return Err(<toml::ser::Error as serde::ser::Error>::custom(format!(
+                    bail!(
                         "Array literal element type is {}, expected {}",
                         element.ty().id().id,
                         self.element_type.id().id
-                    )));
+                    );
                 }
                 self.element_type.serialize_literal(element.value(), assets)
             })
-            .collect::<Result<Vec<_>, _>>()
+            .collect::<Result<Vec<_>>>()
             .map(toml::Value::Array)
     }
 
-    fn deserialize_literal<'a>(
+    fn deserialize_literal(
         &self,
         deserializer: toml::Value,
         assets: &lapiz_assets::store::AssetRegistry,
-    ) -> Result<Self::AssociatedLiteralType, <toml::Value as serde::Deserializer<'a>>::Error> {
+    ) -> Result<Self::AssociatedLiteralType> {
         let values = match deserializer {
             toml::Value::Array(values) => values,
-            _ => {
-                return Err(<toml::de::Error as serde::de::Error>::custom(
-                    "Array literal must be an array",
-                ));
-            }
+            _ => bail!("Array literal must be an array"),
         };
         if values.len() != self.len as usize {
-            return Err(<toml::de::Error as serde::de::Error>::custom(format!(
+            bail!(
                 "Array literal has {} elements, expected {}",
                 values.len(),
                 self.len
-            )));
+            );
         }
         let elements = values
             .into_iter()
@@ -1031,7 +1005,7 @@ impl GraphValueType for ArrayType {
                     .deserialize_literal(value, assets)
                     .map(|value| GraphLiteral::new_boxed(value, self.element_type.clone()))
             })
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<_>>()?;
         Ok(ArrayLiteral { elements })
     }
 }

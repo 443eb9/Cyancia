@@ -96,7 +96,7 @@ impl GraphValueType for F32Type {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-           _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &lapiz_assets::store::AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         SpinSlider::new(0.0..=1.0, *data)
             .on_change(identity)
@@ -110,6 +110,22 @@ impl GraphValueType for F32Type {
 
     fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<Expression> {
         Some((*data).into())
+    }
+
+    fn serialize_literal(
+        &self,
+        data: &Self::AssociatedLiteralType,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<toml::Value> {
+        Ok(toml::Value::try_from(data)?)
+    }
+
+    fn deserialize_literal(
+        &self,
+        value: toml::Value,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<Self::AssociatedLiteralType> {
+        Ok(Self::AssociatedLiteralType::deserialize(value)?)
     }
 }
 
@@ -174,13 +190,29 @@ impl GraphValueType for I32Type {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-           _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &lapiz_assets::store::AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         SpinSlider::new(-10..=10, *data).on_change(identity).into()
     }
 
     fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message) {
         *data = message;
+    }
+
+    fn serialize_literal(
+        &self,
+        data: &Self::AssociatedLiteralType,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<toml::Value> {
+        Ok(toml::Value::try_from(data)?)
+    }
+
+    fn deserialize_literal(
+        &self,
+        value: toml::Value,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<Self::AssociatedLiteralType> {
+        Ok(Self::AssociatedLiteralType::deserialize(value)?)
     }
 }
 
@@ -244,13 +276,29 @@ impl GraphValueType for U32Type {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-           _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &lapiz_assets::store::AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         SpinSlider::new(0..=10, *data).on_change(identity).into()
     }
 
     fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message) {
         *data = message;
+    }
+
+    fn serialize_literal(
+        &self,
+        data: &Self::AssociatedLiteralType,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<toml::Value> {
+        Ok(toml::Value::try_from(data)?)
+    }
+
+    fn deserialize_literal(
+        &self,
+        value: toml::Value,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<Self::AssociatedLiteralType> {
+        Ok(Self::AssociatedLiteralType::deserialize(value)?)
     }
 }
 
@@ -343,7 +391,7 @@ impl GraphValueType for BoolType {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-           _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &lapiz_assets::store::AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         Checkbox::new(*data)
             .on_toggle(std::convert::identity)
@@ -352,5 +400,21 @@ impl GraphValueType for BoolType {
 
     fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message) {
         *data = message;
+    }
+
+    fn serialize_literal(
+        &self,
+        data: &Self::AssociatedLiteralType,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<toml::Value> {
+        Ok(toml::Value::try_from(data)?)
+    }
+
+    fn deserialize_literal(
+        &self,
+        value: toml::Value,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<Self::AssociatedLiteralType> {
+        Ok(Self::AssociatedLiteralType::deserialize(value)?)
     }
 }

@@ -139,6 +139,22 @@ impl GraphValueType for ColorType {
             (data.x.into(), data.y.into(), data.z.into(), data.w.into());
         Some(quote_expression! { vec4f(#x, #y, #z, #w) })
     }
+
+    fn serialize_literal(
+        &self,
+        data: &Self::AssociatedLiteralType,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<toml::Value> {
+        Ok(toml::Value::try_from(data)?)
+    }
+
+    fn deserialize_literal(
+        &self,
+        value: toml::Value,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<Self::AssociatedLiteralType> {
+        Ok(Self::AssociatedLiteralType::deserialize(value)?)
+    }
 }
 
 #[derive(Default, Clone)]
@@ -246,5 +262,21 @@ impl GraphValueType for RectType {
         Some(quote_expression! {
             render::math::Rect(vec2f(#min_x, #min_y), vec2f(#max_x, #max_y))
         })
+    }
+
+    fn serialize_literal(
+        &self,
+        data: &Self::AssociatedLiteralType,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<toml::Value> {
+        Ok(toml::Value::try_from(data)?)
+    }
+
+    fn deserialize_literal(
+        &self,
+        value: toml::Value,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<Self::AssociatedLiteralType> {
+        Ok(Self::AssociatedLiteralType::deserialize(value)?)
     }
 }

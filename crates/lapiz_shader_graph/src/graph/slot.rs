@@ -13,7 +13,7 @@ use lapiz_render::{
 };
 use lapiz_utils::wrapper;
 use parse_display::Display;
-use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use wesl::syntax::*;
 use wesl_quote::quote_statement;
@@ -128,7 +128,7 @@ pub enum GraphShaderStage {
 }
 
 pub trait GraphValueType: Send + Sync + 'static + DynClone {
-    type AssociatedLiteralType: GraphLiteralValue + Serialize + DeserializeOwned;
+    type AssociatedLiteralType: GraphLiteralValue;
     // TODO Better naming
     // This means the resources that is uploaded to gpu and can be binded in pipelines.
     type PreparedShaderType: GraphShaderLiteralValue;
@@ -233,17 +233,13 @@ pub trait GraphValueType: Send + Sync + 'static + DynClone {
     fn serialize_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
-    ) -> Result<toml::Value, toml::ser::Error> {
-        toml::Value::try_from(data)
-    }
-    fn deserialize_literal<'a>(
+        assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<toml::Value>;
+    fn deserialize_literal(
         &self,
         deserializer: toml::Value,
-        _assets: &lapiz_assets::store::AssetRegistry,
-    ) -> Result<Self::AssociatedLiteralType, <toml::Value as Deserializer<'a>>::Error> {
-        Self::AssociatedLiteralType::deserialize(deserializer)
-    }
+        assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<Self::AssociatedLiteralType>;
 }
 
 pub trait GraphLiteralUpdateMessage: DynClone + Send + Sync + 'static + Downcast {}
@@ -356,12 +352,12 @@ pub trait ErasedGraphValueType: Send + Sync + 'static + DynClone + Downcast {
         &self,
         data: &dyn GraphLiteralValue,
         assets: &lapiz_assets::store::AssetRegistry,
-    ) -> Result<toml::Value, toml::ser::Error>;
-    fn deserialize_literal<'a>(
+    ) -> Result<toml::Value>;
+    fn deserialize_literal(
         &self,
         deserializer: toml::Value,
         assets: &lapiz_assets::store::AssetRegistry,
-    ) -> Result<Box<dyn GraphLiteralValue>, <toml::Value as Deserializer<'a>>::Error>;
+    ) -> Result<Box<dyn GraphLiteralValue>>;
 }
 
 downcast_rs::impl_downcast!(ErasedGraphValueType);
@@ -526,7 +522,7 @@ impl<T: GraphValueType> ErasedGraphValueType for T {
         &self,
         data: &dyn GraphLiteralValue,
         assets: &lapiz_assets::store::AssetRegistry,
-    ) -> Result<toml::Value, toml::ser::Error> {
+    ) -> Result<toml::Value> {
         self.serialize_literal(
             data.downcast_ref::<T::AssociatedLiteralType>()
                 .expect("failed to downcast graph literal"),
@@ -534,11 +530,11 @@ impl<T: GraphValueType> ErasedGraphValueType for T {
         )
     }
 
-    fn deserialize_literal<'a>(
+    fn deserialize_literal(
         &self,
         deserializer: toml::Value,
         assets: &lapiz_assets::store::AssetRegistry,
-    ) -> Result<Box<dyn GraphLiteralValue>, <toml::Value as Deserializer<'a>>::Error> {
+    ) -> Result<Box<dyn GraphLiteralValue>> {
         Ok(Box::new(self.deserialize_literal(deserializer, assets)?))
     }
 }

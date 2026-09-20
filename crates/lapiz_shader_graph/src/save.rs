@@ -70,7 +70,7 @@ pub enum GraphDeserializeError {
     #[error("Input slot {1:?} on node {0:?} is connected to missing output slot {2:?}")]
     MissingConnectedSlot(GraphNodeId, GraphInputSlotId, GraphOutputSlotId),
     #[error("Failed to deserialize literal data: {0}")]
-    LiteralDeserializeError(toml::de::Error),
+    LiteralDeserializeError(anyhow::Error),
     #[error("Failed to deserialize node state: {0}")]
     NodeStateDeserializeError(anyhow::Error),
     #[error("Deserialization error: {0}")]
@@ -164,8 +164,9 @@ impl Graph {
                     }
                 };
 
-                let literal_value =
-                    match value_type_obj.deserialize_literal(slot.data.clone(), &resources.assets) {
+                let literal_value = match value_type_obj
+                    .deserialize_literal(slot.data.clone(), &resources.assets)
+                {
                     Ok(val) => val,
                     Err(e) => {
                         errs.push(GraphDeserializeError::LiteralDeserializeError(e));
@@ -380,7 +381,7 @@ pub enum SerializableGraphLiteralError {
     #[error("Type not found: {0}")]
     TypeNotFound(String),
     #[error("Failed to deserialize literal data: {0}")]
-    LiteralDeserializeError(#[from] toml::de::Error),
+    LiteralDeserializeError(#[from] anyhow::Error),
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -393,7 +394,7 @@ impl SerializableGraphLiteral {
     pub fn serialize(
         literal: &GraphLiteral,
         assets: &lapiz_assets::store::AssetRegistry,
-    ) -> Result<SerializableGraphLiteral, toml::ser::Error> {
+    ) -> Result<SerializableGraphLiteral> {
         Ok(SerializableGraphLiteral {
             ty: literal.ty().id().id,
             value: literal.ty().serialize_literal(literal.value(), assets)?,

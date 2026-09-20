@@ -155,6 +155,22 @@ impl GraphValueType for CanvasResourcesValueType {
     fn literal_to_code(&self, _data: &CanvasResources) -> Option<Expression> {
         None
     }
+
+    fn serialize_literal(
+        &self,
+        data: &Self::AssociatedLiteralType,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<toml::Value> {
+        Ok(toml::Value::try_from(data)?)
+    }
+
+    fn deserialize_literal(
+        &self,
+        value: toml::Value,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<Self::AssociatedLiteralType> {
+        Ok(Self::AssociatedLiteralType::deserialize(value)?)
+    }
 }
 
 // A canvas layer bound as read-only storage texture pairs (packed texel
@@ -262,6 +278,22 @@ impl GraphValueType for BrushLayerType {
 
     fn literal_to_code(&self, _data: &BrushLayerReference) -> Option<Expression> {
         None
+    }
+
+    fn serialize_literal(
+        &self,
+        data: &Self::AssociatedLiteralType,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<toml::Value> {
+        Ok(toml::Value::try_from(data)?)
+    }
+
+    fn deserialize_literal(
+        &self,
+        value: toml::Value,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<Self::AssociatedLiteralType> {
+        Ok(Self::AssociatedLiteralType::deserialize(value)?)
     }
 
     fn generate_extra_shader_body(&self, stage: GraphShaderStage, name: &str) -> Option<String> {
@@ -389,6 +421,22 @@ impl GraphValueType for ComputedPenInputValueType {
         None
     }
 
+    fn serialize_literal(
+        &self,
+        data: &Self::AssociatedLiteralType,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<toml::Value> {
+        Ok(toml::Value::try_from(data)?)
+    }
+
+    fn deserialize_literal(
+        &self,
+        value: toml::Value,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<Self::AssociatedLiteralType> {
+        Ok(Self::AssociatedLiteralType::deserialize(value)?)
+    }
+
     fn generate_extra_shader_body(&self, _stage: GraphShaderStage, name: &str) -> Option<String> {
         (name == BRUSH_SAMPLE_BUILTIN).then(||
             "struct BrushMask { bounds: render::math::Rect, value: f32 }\n\
@@ -497,6 +545,22 @@ impl GraphValueType for StrokeDataValueType {
     fn update_literal(&self, _: &mut crate::render::StrokePostprocessData, _: ()) {}
     fn literal_to_code(&self, _: &crate::render::StrokePostprocessData) -> Option<Expression> {
         None
+    }
+
+    fn serialize_literal(
+        &self,
+        data: &Self::AssociatedLiteralType,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<toml::Value> {
+        Ok(toml::Value::try_from(data)?)
+    }
+
+    fn deserialize_literal(
+        &self,
+        value: toml::Value,
+        _assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<Self::AssociatedLiteralType> {
+        Ok(Self::AssociatedLiteralType::deserialize(value)?)
     }
 }
 
