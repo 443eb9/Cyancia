@@ -5,7 +5,8 @@ use bevy_math::{IRect, IVec2, IVec4, Rect};
 use encase::{DynamicUniformBuffer, ShaderType, internal::WriteInto};
 use glam::{Vec2, Vec4};
 use iced_core::Element;
-use iced_widget::{column, space};
+use iced_widget::{Column, column, row, space};
+use lapiz_i18n::t;
 use lapiz_image::{
     texel::TexelType,
     tile::{DynamicLayerStorage, GpuLayerInfo},
@@ -16,15 +17,18 @@ use lapiz_render::{
     readback::{create_readback_buffer_and_schedule_copy_buffer, readback_buffer_on_submit_async},
     util::DevicePollExt,
 };
-use lapiz_i18n::t;
 use lapiz_utils::random_oklch_hue_chroma;
-use lapiz_widgets::{checkbox::Checkbox, combo_box::ComboBox, spin_slider::SpinSlider};
+use lapiz_widgets::{
+    checkbox::Checkbox, combo_box::ComboBox, label::Label, spin_slider::SpinSlider,
+};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 use wesl::syntax::*;
 use wesl_quote::{quote_declaration, quote_expression, quote_statement};
 use wgpu::{
-    Buffer, BufferDescriptor, BufferUsages, Device, Extent3d, Queue, TextureDescriptor,
-    TextureDimension, TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension,
+    Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Device, Extent3d, Queue,
+    TextureDescriptor, TextureDimension, TextureUsages, TextureView, TextureViewDescriptor,
+    TextureViewDimension,
 };
 
 use super::{
@@ -36,9 +40,10 @@ use crate::{
     graph::{
         node::{GraphNodeCodeGenContext, ident_expression},
         slot::{
-            ErasedGraphValueType, GraphDefaultInputSlot, GraphDefaultOutputSlot, GraphShaderStage,
-            GraphValueType,
+            ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphDefaultInputSlot,
+            GraphDefaultOutputSlot, GraphInputSlotId, GraphShaderStage, GraphValueType,
         },
+        variable::GraphLiteral,
     },
     save::GraphValueTypeId,
 };
@@ -63,9 +68,7 @@ impl PartialEq for TextureOption {
 }
 
 #[derive(Clone)]
-pub struct TextureChanged(
-    pub lapiz_assets::asset::AssetHandle<lapiz_render::texture::Image>,
-);
+pub struct TextureChanged(pub lapiz_assets::asset::AssetHandle<lapiz_render::texture::Image>);
 
 #[derive(Clone)]
 pub struct TextureType {
@@ -276,10 +279,12 @@ impl GraphValueType for TextureType {
                 .find(|option| option.handle.id() == handle.id())
                 .cloned()
         });
-        ComboBox::new(options, selected, |option| TextureChanged(option.handle.clone()))
-            .placeholder(t!("select_texture"))
-            .width(iced_core::Length::Fill)
-            .into()
+        ComboBox::new(options, selected, |option| {
+            TextureChanged(option.handle.clone())
+        })
+        .placeholder(t!("select_texture"))
+        .width(iced_core::Length::Fill)
+        .into()
     }
 
     fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message) {
@@ -729,8 +734,38 @@ pub struct ArrayType {
     pub len: u32,
 }
 
-#[derive(Clone, Copy, Default, Serialize, Deserialize)]
-pub struct ArrayLiteral;
+#[derive(Clone)]
+pub struct ArrayLiteral {
+    pub elements: Vec<GraphLiteral>,
+}
+
+impl Serialize for ArrayLiteral {
+    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        Err(<S::Error as serde::ser::Error>::custom(
+            "array literals require their array type for serialization",
+        ))
+    }
+}
+
+impl<'de> Deserialize<'de> for ArrayLiteral {
+    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Err(<D::Error as serde::de::Error>::custom(
+            "array literals require their array type for deserialization",
+        ))
+    }
+}
+
+#[derive(Clone)]
+pub struct ArrayLiteralUpdateMessage {
+    index: usize,
+    message: ErasedGraphLiteralUpdateMessage,
+}
 
 #[derive(Clone)]
 pub struct PreparedArray {
@@ -741,7 +776,7 @@ pub struct PreparedArray {
 impl GraphValueType for ArrayType {
     type AssociatedLiteralType = ArrayLiteral;
     type PreparedShaderType = PreparedArray;
-    type Message = ();
+    type Message = ArrayLiteralUpdateMessage;
 
     fn hue_chroma(&self) -> (f32, f32) {
         random_oklch_hue_chroma!(ArrayType)
@@ -830,10 +865,17 @@ impl GraphValueType for ArrayType {
 
     fn prepare_to_shader(
         &self,
-        _data: &Self::AssociatedLiteralType,
+        data: &Self::AssociatedLiteralType,
         device: &Device,
-        _queue: &Queue,
+        queue: &Queue,
     ) -> Result<Self::PreparedShaderType> {
+        if data.elements.len() != self.len as usize {
+            bail!(
+                "Array literal has {} elements, expected {}",
+                data.elements.len(),
+                self.len
+            );
+        }
         let stride = self
             .element_type
             .wgsl_array_element_stride()
@@ -841,20 +883,58 @@ impl GraphValueType for ArrayType {
         let size = u64::from(self.len)
             .checked_mul(stride)
             .context("Array too large")?;
-        // Fresh wgpu buffers are zero-initialized.
+        let buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("graph array literal"),
+            size: size.max(4),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let prepared_elements = data
+            .elements
+            .iter()
+            .map(|element| {
+                if element.ty().id() != self.element_type.id() {
+                    bail!(
+                        "Array literal element type is {}, expected {}",
+                        element.ty().id().id,
+                        self.element_type.id().id
+                    );
+                }
+                self.element_type
+                    .prepare_to_shader(element.value(), device, queue)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("graph array literal upload"),
+        });
+        // TODO better way to avoid cloning?
+        for (index, prepared) in prepared_elements.iter().enumerate() {
+            let source = prepared
+                .downcast_ref::<Buffer>()
+                .context("Array element type did not prepare to a buffer")?;
+            encoder.copy_buffer_to_buffer(
+                source,
+                0,
+                &buffer,
+                index as u64 * stride,
+                source.size().min(stride),
+            );
+        }
+        queue.submit([encoder.finish()]);
+
         Ok(PreparedArray {
-            buffer: device.create_buffer(&BufferDescriptor {
-                label: Some("graph array literal"),
-                size: size.max(4),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
+            buffer,
             len: self.len,
         })
     }
 
     fn default_literal(&self) -> Self::AssociatedLiteralType {
-        ArrayLiteral
+        ArrayLiteral {
+            elements: vec![
+                GraphLiteral::new_boxed_default(self.element_type.clone());
+                self.len as usize
+            ],
+        }
     }
 
     fn wgsl_type_name(&self) -> Option<&'static str> {
@@ -863,15 +943,95 @@ impl GraphValueType for ArrayType {
 
     fn view_literal(
         &self,
-        _data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        data: &Self::AssociatedLiteralType,
+        assets: &lapiz_assets::store::AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
-        Element::new(space())
+        let elements = data
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(index, element)| {
+                row![
+                    Label::new(index.to_string()).width(24).muted(),
+                    element
+                        .ty()
+                        .view_literal(GraphInputSlotId::new(Uuid::nil()), element.value(), assets,)
+                        .map(move |message| ArrayLiteralUpdateMessage { index, message }),
+                ]
+                .spacing(4)
+                .into()
+            })
+            .collect::<Vec<_>>();
+        Column::with_children(elements).spacing(4).into()
     }
 
-    fn update_literal(&self, _data: &mut Self::AssociatedLiteralType, _message: Self::Message) {}
+    fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message) {
+        data.elements
+            .get_mut(message.index)
+            .expect("array literal update index is valid")
+            .update(message.message);
+    }
 
     fn literal_to_code(&self, _data: &Self::AssociatedLiteralType) -> Option<Expression> {
         None
+    }
+
+    fn serialize_literal(
+        &self,
+        data: &Self::AssociatedLiteralType,
+        assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<toml::Value, toml::ser::Error> {
+        if data.elements.len() != self.len as usize {
+            return Err(<toml::ser::Error as serde::ser::Error>::custom(format!(
+                "Array literal has {} elements, expected {}",
+                data.elements.len(),
+                self.len
+            )));
+        }
+        data.elements
+            .iter()
+            .map(|element| {
+                if element.ty().id() != self.element_type.id() {
+                    return Err(<toml::ser::Error as serde::ser::Error>::custom(format!(
+                        "Array literal element type is {}, expected {}",
+                        element.ty().id().id,
+                        self.element_type.id().id
+                    )));
+                }
+                self.element_type.serialize_literal(element.value(), assets)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(toml::Value::Array)
+    }
+
+    fn deserialize_literal<'a>(
+        &self,
+        deserializer: toml::Value,
+        assets: &lapiz_assets::store::AssetRegistry,
+    ) -> Result<Self::AssociatedLiteralType, <toml::Value as serde::Deserializer<'a>>::Error> {
+        let values = match deserializer {
+            toml::Value::Array(values) => values,
+            _ => {
+                return Err(<toml::de::Error as serde::de::Error>::custom(
+                    "Array literal must be an array",
+                ));
+            }
+        };
+        if values.len() != self.len as usize {
+            return Err(<toml::de::Error as serde::de::Error>::custom(format!(
+                "Array literal has {} elements, expected {}",
+                values.len(),
+                self.len
+            )));
+        }
+        let elements = values
+            .into_iter()
+            .map(|value| {
+                self.element_type
+                    .deserialize_literal(value, assets)
+                    .map(|value| GraphLiteral::new_boxed(value, self.element_type.clone()))
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(ArrayLiteral { elements })
     }
 }

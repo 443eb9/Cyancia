@@ -887,8 +887,9 @@ fn array_buffers_use_wgsl_strides() {
             element_type: element,
             len,
         };
+        let literal = array.default_literal();
         let prepared = array
-            .prepare_to_shader(&ArrayLiteral, &context.device, &context.queue)
+            .prepare_to_shader(&literal, &context.device, &context.queue)
             .unwrap();
         assert_eq!(
             prepared.buffer.size(),

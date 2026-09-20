@@ -107,6 +107,7 @@ impl<'a, Message> Component<'a, Message, GraphTheme, GraphRenderer>
                                 })
                             })
                             .width(Length::Fill),
+                        Label::new(value.ty().id().id).size(10).faint(),
                         Button::new(icon::trash().size(13))
                             .width(24)
                             .height(24)
