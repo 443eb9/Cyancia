@@ -5,7 +5,7 @@ use crate::main_view::MainView;
 mod main_view;
 lapiz_i18n::define_i18n!("app");
 
-use lapiz_abr_bridge::AbrAssetBundle;
+// use lapiz_abr_bridge::AbrAssetBundle;
 use lapiz_actions::ActionPlugin;
 use lapiz_assets::{
     AssetsPlugin,
@@ -69,25 +69,25 @@ fn main() {
         );
     }
 
-    {
-        let (abr_bundles, errs) = AbrAssetBundle::scan_bundles(assets_dir());
-        log::info!(
-            "Loaded {} abr bundles with {} errors",
-            abr_bundles.len(),
-            errs.len()
-        );
-        for err in errs {
-            log::error!("Error loading ABR asset bundle: {}", err);
-        }
-        for bundle in &abr_bundles {
-            log::info!("Loaded ABR asset bundle: {}", bundle.path().display());
-        }
-        asset_bundles.extend(
-            abr_bundles
-                .into_iter()
-                .map(|b| Arc::new(b) as Arc<dyn ErasedAssetBundle>),
-        );
-    }
+    // {
+    //     let (abr_bundles, errs) = AbrAssetBundle::scan_bundles(assets_dir());
+    //     log::info!(
+    //         "Loaded {} abr bundles with {} errors",
+    //         abr_bundles.len(),
+    //         errs.len()
+    //     );
+    //     for err in errs {
+    //         log::error!("Error loading ABR asset bundle: {}", err);
+    //     }
+    //     for bundle in &abr_bundles {
+    //         log::info!("Loaded ABR asset bundle: {}", bundle.path().display());
+    //     }
+    //     asset_bundles.extend(
+    //         abr_bundles
+    //             .into_iter()
+    //             .map(|b| Arc::new(b) as Arc<dyn ErasedAssetBundle>),
+    //     );
+    // }
 
     app.add_service_instance(lapiz_runtime::renderer::global_render_context())
         .add_service::<WindowCommandBuffer>()
