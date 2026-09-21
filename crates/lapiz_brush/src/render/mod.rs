@@ -292,10 +292,6 @@ struct StrokeSession {
     pen_input: DynamicBuffer<PenInput>,
     output_samples: DynamicBuffer<OutputSamples>,
     input_sample_prepared: PreparedInputSamplingPipelineData,
-    target_layer: LayerBinding,
-    target_layer_bounds: Buffer,
-    selection_layer: LayerBinding,
-    selection_layer_bounds: Buffer,
 }
 
 pub struct BrushStrokePreview {
@@ -395,6 +391,24 @@ impl BrushPresetRenderer {
             .scan_to_binary_buffer(device, queue, &selection_layer);
         let target_layer_bounds = self.target_layer_bounds.create_result_buffer(device);
         let selection_layer_bounds = self.selection_layer_bounds.create_result_buffer(device);
+        let mut encoder = device.create_command_encoder(&Default::default());
+        self.target_layer_bounds.dispatch_to(
+            device,
+            queue,
+            &mut encoder,
+            &target_layer,
+            None,
+            &target_layer_bounds,
+        );
+        self.selection_layer_bounds.dispatch_to(
+            device,
+            queue,
+            &mut encoder,
+            &selection_layer,
+            None,
+            &selection_layer_bounds,
+        );
+        queue.submit([encoder.finish()]);
         let prepared_target_layer =
             PreparedLayer::from_binding(target_layer.clone(), target_layer_bounds.clone());
         let prepared_selection_layer =
@@ -434,12 +448,10 @@ impl BrushPresetRenderer {
         self.session = Some(StrokeSession {
             shared: Arc::new(Mutex::new(BrushEffectState {
                 compiled,
-                target_layer: target_layer.clone(),
-                target_layer_bounds: target_layer_bounds.clone(),
-                selection_layer: selection_layer.clone(),
-                selection_layer_bounds: selection_layer_bounds.clone(),
-                target_layer_bounds_pipeline: self.target_layer_bounds.clone(),
-                selection_layer_bounds_pipeline: self.selection_layer_bounds.clone(),
+                target_layer,
+                target_layer_bounds,
+                selection_layer,
+                selection_layer_bounds,
                 has_selection,
                 foreground_color: self.resources.foreground_color.clone(),
                 background_color: self.resources.background_color.clone(),
@@ -454,10 +466,6 @@ impl BrushPresetRenderer {
             pen_input,
             output_samples,
             input_sample_prepared,
-            target_layer,
-            target_layer_bounds,
-            selection_layer,
-            selection_layer_bounds,
         });
     }
 
@@ -470,22 +478,6 @@ impl BrushPresetRenderer {
         session.pen_input.write_buffer(device, queue);
 
         let mut encoder = device.create_command_encoder(&Default::default());
-        self.target_layer_bounds.dispatch_to(
-            device,
-            queue,
-            &mut encoder,
-            &session.target_layer,
-            None,
-            &session.target_layer_bounds,
-        );
-        self.selection_layer_bounds.dispatch_to(
-            device,
-            queue,
-            &mut encoder,
-            &session.selection_layer,
-            None,
-            &session.selection_layer_bounds,
-        );
         {
             let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor::default());
             self.input_sample.dispatch(
@@ -630,7 +622,6 @@ async fn run_main_effects(
 }
 
 fn run_postprocess(state: &mut BrushEffectState) -> Result<GraphShaderLiteral> {
-    scan_layer_bounds(state);
     let accumulator = state
         .accumulator
         .take()
@@ -651,8 +642,6 @@ struct BrushEffectState {
     target_layer_bounds: Buffer,
     selection_layer: LayerBinding,
     selection_layer_bounds: Buffer,
-    target_layer_bounds_pipeline: Arc<LayerBoundsPipeline>,
-    selection_layer_bounds_pipeline: Arc<LayerBoundsPipeline>,
     has_selection: Buffer,
     foreground_color: Buffer,
     background_color: Buffer,
@@ -662,27 +651,6 @@ struct BrushEffectState {
     queue: Queue,
     target_layer_format: TexelType,
     selection_layer_format: TexelType,
-}
-
-fn scan_layer_bounds(state: &BrushEffectState) {
-    let mut encoder = state.device.create_command_encoder(&Default::default());
-    state.target_layer_bounds_pipeline.dispatch_to(
-        &state.device,
-        &state.queue,
-        &mut encoder,
-        &state.target_layer,
-        None,
-        &state.target_layer_bounds,
-    );
-    state.selection_layer_bounds_pipeline.dispatch_to(
-        &state.device,
-        &state.queue,
-        &mut encoder,
-        &state.selection_layer,
-        None,
-        &state.selection_layer_bounds,
-    );
-    state.queue.submit([encoder.finish()]);
 }
 
 fn main_builtins(
