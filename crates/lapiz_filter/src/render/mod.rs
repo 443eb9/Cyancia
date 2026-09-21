@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use bevy_math::IRect;
 use futures::channel::oneshot;
 use iced_runtime::Task;
@@ -19,7 +19,7 @@ use lapiz_render::render_context::RenderContextAppExt;
 use lapiz_runtime::Services;
 use lapiz_shader_graph::{
     graph::{slot::GraphValueType, variable::GraphShaderLiteral},
-    wgsl_std::types::{LayerReference, LayerType, PreparedLayer},
+    wgsl_std::types::{LayerReference, LayerType, PreparedLayer, PreparedLayerPixels},
 };
 use parking_lot::Mutex;
 use wgpu::{Device, Queue};
@@ -224,7 +224,10 @@ impl FilterRendererInner {
                 .remove(&self.layer_output)
                 .context("Filter effect did not produce its layer output")?;
             let prepared = literal.downcast::<PreparedLayer>();
-            results.insert(layer.id, prepared.storage);
+            let PreparedLayerPixels::ReadWrite { storage, .. } = prepared.pixels else {
+                bail!("filter produced a read-only layer");
+            };
+            results.insert(layer.id, storage);
         }
         Ok(results)
     }
@@ -246,7 +249,15 @@ pub fn prepare_layer_input(
         texel_type: TexelType::RGBA8,
     };
     let mut prepared = ty.prepare_to_shader(&LayerReference, device, queue)?;
-    prepared.storage = storage;
+    let PreparedLayerPixels::ReadWrite {
+        storage: prepared_storage,
+        ..
+    } = &mut prepared.pixels
+    else {
+        unreachable!("newly prepared layer should be writable");
+    };
+    *prepared_storage = storage;
+    prepared.pixel_bounds = Some(bounds);
     queue.write_buffer(
         &prepared.bounds,
         0,

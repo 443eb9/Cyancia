@@ -18,7 +18,7 @@ use lapiz_shader_graph::{
     },
     wgsl_std::types::{
         ArrayAtomicI32Type, ArrayAtomicU32Type, ArrayType, LayerType, PreparedArray,
-        PreparedAtomicArray, PreparedLayer, layer_tile_info_ident,
+        PreparedAtomicArray, PreparedLayer, PreparedLayerPixels, layer_tile_info_ident,
     },
 };
 use wesl::syntax::*;
@@ -650,8 +650,11 @@ impl EffectRenderPassStage {
                         .context("Dispatch output is not in this pass")?
                         .try_as_ref::<PreparedLayer>()
                         .context("EveryOutputLayerPixel requires Layer")?;
+                    let PreparedLayerPixels::ReadWrite { storage, .. } = &layer.pixels else {
+                        bail!("EveryOutputLayerPixel requires a writable layer");
+                    };
                     let side = DynamicLayerStorage::TILE_SIZE.div_ceil(16);
-                    [side, side, u32::try_from(layer.storage.len())?]
+                    [side, side, u32::try_from(storage.len())?]
                 }
                 EffectPassDispatchStrategy::EveryInputLayerPixel(id) => {
                     let literal = match pass_inputs_decl
@@ -668,8 +671,11 @@ impl EffectRenderPassStage {
                     let layer = literal
                         .try_as_ref::<PreparedLayer>()
                         .context("EveryInputLayerPixel requires Layer")?;
+                    let PreparedLayerPixels::ReadWrite { storage, .. } = &layer.pixels else {
+                        bail!("EveryInputLayerPixel requires a writable layer");
+                    };
                     let side = DynamicLayerStorage::TILE_SIZE.div_ceil(16);
-                    [side, side, u32::try_from(layer.storage.len())?]
+                    [side, side, u32::try_from(storage.len())?]
                 }
             }
         };

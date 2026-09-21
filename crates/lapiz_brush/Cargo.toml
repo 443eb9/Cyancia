@@ -48,6 +48,7 @@ toml.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 wesl.workspace = true
+wesl-quote.workspace = true
 wgpu.workspace = true
 zip.workspace = true
 

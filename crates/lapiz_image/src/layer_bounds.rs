@@ -18,6 +18,13 @@ use crate::{
     tile::{GpuTileInfo, GpuTileStorage, LayerBinding},
 };
 
+const EMPTY_BOUNDS: [u32; 4] = [
+    i32::MAX as u32,
+    i32::MAX as u32,
+    i32::MIN as u32,
+    i32::MIN as u32,
+];
+
 pub struct LayerBoundsPipeline {
     layout: BindGroupLayout,
     pipeline: ComputePipeline,
@@ -90,6 +97,14 @@ impl LayerBoundsPipeline {
         }
     }
 
+    pub fn create_result_buffer(&self, device: &Device) -> Buffer {
+        device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("layer bounds result"),
+            contents: bytemuck::bytes_of(&EMPTY_BOUNDS),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+        })
+    }
+
     pub fn dispatch(
         &self,
         device: &Device,
@@ -98,17 +113,21 @@ impl LayerBoundsPipeline {
         layer: &LayerBinding,
         selection: Option<&LayerBinding>,
     ) -> Buffer {
-        let result_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("layer bounds result"),
-            contents: bytemuck::bytes_of(&[
-                i32::MAX as u32,
-                i32::MAX as u32,
-                i32::MIN as u32,
-                i32::MIN as u32,
-            ]),
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
-        });
+        let result_buffer = self.create_result_buffer(device);
+        self.dispatch_to(device, queue, ec, layer, selection, &result_buffer);
+        result_buffer
+    }
 
+    pub fn dispatch_to(
+        &self,
+        device: &Device,
+        queue: &Queue,
+        ec: &mut CommandEncoder,
+        layer: &LayerBinding,
+        selection: Option<&LayerBinding>,
+        result_buffer: &Buffer,
+    ) {
+        queue.write_buffer(result_buffer, 0, bytemuck::bytes_of(&EMPTY_BOUNDS));
         let has_selection = selection.as_ref().map(|selection_binding| {
             self.scan_pipeline
                 .scan_to_binary_buffer(device, queue, selection_binding)
@@ -149,7 +168,5 @@ impl LayerBoundsPipeline {
                 layer.texture.texture().depth_or_array_layers(),
             );
         }
-
-        result_buffer
     }
 }

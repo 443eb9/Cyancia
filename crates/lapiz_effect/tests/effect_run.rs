@@ -7,7 +7,8 @@
 
 use std::{collections::HashMap, io::Cursor, sync::Arc};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
+use bevy_math::{IRect, IVec2};
 use encase::{ShaderType, StorageBuffer};
 use futures::executor::block_on;
 use iced_core::{Element, Point, widget::Void};
@@ -716,10 +717,17 @@ fn prepare_layer(
         texel_type: TexelType::RGBA8,
     };
     let mut prepared = ty.prepare_to_shader(&LayerReference, device, queue)?;
-    prepared.storage = manager
+    let PreparedLayerPixels::ReadWrite { storage, .. } = &mut prepared.pixels else {
+        unreachable!("newly prepared layer should be writable");
+    };
+    *storage = manager
         .get_layer(layer_id)
         .context("uploaded layer missing")?
         .deep_clone();
+    prepared.pixel_bounds = Some(IRect::from_corners(
+        IVec2::ZERO,
+        IVec2::new(width as i32, height as i32),
+    ));
     queue.write_buffer(
         &prepared.bounds,
         0,
@@ -805,8 +813,11 @@ async fn readback_layer(
     let layer = value
         .try_as_ref::<PreparedLayer>()
         .context("layer output type")?;
-    let tiles = layer.storage.iter_tile_indices().collect::<Vec<_>>();
-    let data = layer.storage.readback(device, queue, tiles).await?;
+    let PreparedLayerPixels::ReadWrite { storage, .. } = &layer.pixels else {
+        bail!("effect returned a read-only layer");
+    };
+    let tiles = storage.iter_tile_indices().collect::<Vec<_>>();
+    let data = storage.readback(device, queue, tiles).await?;
     let mut output = RgbaImage::new(width, height);
     for (tile, bytes) in data {
         let origin = tile * GpuTileStorage::TILE_SIZE as i32;

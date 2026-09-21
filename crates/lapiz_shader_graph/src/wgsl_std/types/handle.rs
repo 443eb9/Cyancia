@@ -9,7 +9,7 @@ use iced_widget::{Column, column, row, space};
 use lapiz_i18n::t;
 use lapiz_image::{
     texel::TexelType,
-    tile::{DynamicLayerStorage, GpuLayerInfo, GpuTileInfo},
+    tile::{DynamicLayerStorage, GpuLayerInfo, GpuTileInfo, LayerBinding},
 };
 use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
@@ -305,23 +305,46 @@ pub struct LayerType {
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct LayerReference;
 
+pub enum PreparedLayerPixels {
+    ReadWrite {
+        storage: DynamicLayerStorage,
+        empty_binding: LayerBinding,
+    },
+    ReadOnly(LayerBinding),
+}
+
 pub struct PreparedLayer {
-    pub storage: DynamicLayerStorage,
-    pub pixel_bounds: IRect,
-    // Only bound during eval; other passes read pixels through the storage.
+    pub pixels: PreparedLayerPixels,
+    pub pixel_bounds: Option<IRect>,
     pub bounds: Buffer,
-    dummy_texture: TextureView,
-    dummy_tile_info: Buffer,
 }
 
 impl PreparedLayer {
-    pub fn deep_clone(&self) -> Self {
+    pub fn from_binding(binding: LayerBinding, bounds: Buffer) -> Self {
         Self {
-            storage: self.storage.deep_clone(),
+            pixels: PreparedLayerPixels::ReadOnly(binding),
+            pixel_bounds: None,
+            bounds,
+        }
+    }
+
+    pub fn deep_clone(&self) -> Self {
+        let pixels = match &self.pixels {
+            PreparedLayerPixels::ReadWrite {
+                storage,
+                empty_binding,
+            } => PreparedLayerPixels::ReadWrite {
+                storage: storage.deep_clone(),
+                empty_binding: empty_binding.clone(),
+            },
+            PreparedLayerPixels::ReadOnly(binding) => {
+                PreparedLayerPixels::ReadOnly(binding.clone())
+            }
+        };
+        Self {
+            pixels,
             pixel_bounds: self.pixel_bounds,
             bounds: self.bounds.clone(),
-            dummy_texture: self.dummy_texture.clone(),
-            dummy_tile_info: self.dummy_tile_info.clone(),
         }
     }
 }
@@ -505,11 +528,23 @@ impl GraphValueType for LayerType {
     ) -> Result<(u32, DynamicBindGroupEntries<'a>)> {
         match stage {
             GraphShaderStage::Input | GraphShaderStage::Main => {
-                let texture = value.storage.texture_view().unwrap_or(&value.dummy_texture);
-                let tile_info = value
-                    .storage
-                    .tile_info_buffer()
-                    .unwrap_or(&value.dummy_tile_info);
+                let (texture, tile_info) = match &value.pixels {
+                    PreparedLayerPixels::ReadWrite {
+                        storage,
+                        empty_binding,
+                    } => (
+                        storage.texture_view().unwrap_or(&empty_binding.texture),
+                        storage
+                            .tile_info_buffer()
+                            .unwrap_or(&empty_binding.tile_info_buffer),
+                    ),
+                    PreparedLayerPixels::ReadOnly(binding) => {
+                        if stage == GraphShaderStage::Main {
+                            bail!("read-only layer cannot be a shader output");
+                        }
+                        (&binding.texture, &binding.tile_info_buffer)
+                    }
+                };
                 let bindings = bindings.extend_with_indices(((binding, texture),));
                 let bindings =
                     bindings.extend_with_indices(((binding + 1, tile_info.as_entire_binding()),));
@@ -552,28 +587,32 @@ impl GraphValueType for LayerType {
         let mut initial_bounds = StorageBuffer::new(Vec::new());
         initial_bounds.write(&IVec4::new(i32::MAX, i32::MAX, i32::MIN, i32::MIN))?;
         Ok(PreparedLayer {
-            storage: DynamicLayerStorage::new(
-                device.clone(),
-                queue.clone(),
-                GpuLayerInfo {
-                    texel_type: self.texel_type,
+            pixels: PreparedLayerPixels::ReadWrite {
+                storage: DynamicLayerStorage::new(
+                    device.clone(),
+                    queue.clone(),
+                    GpuLayerInfo {
+                        texel_type: self.texel_type,
+                    },
+                ),
+                empty_binding: LayerBinding {
+                    texture: dummy_texture.create_view(&TextureViewDescriptor {
+                        dimension: Some(TextureViewDimension::D2Array),
+                        ..Default::default()
+                    }),
+                    tile_info_buffer: device.create_buffer(&BufferDescriptor {
+                        label: Some("graph empty layer tile info"),
+                        size: u64::from(GpuTileInfo::min_size()),
+                        usage: BufferUsages::STORAGE,
+                        mapped_at_creation: false,
+                    }),
                 },
-            ),
-            pixel_bounds: IRect::EMPTY,
+            },
+            pixel_bounds: Some(IRect::EMPTY),
             bounds: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("graph layer bounds"),
                 contents: initial_bounds.as_ref(),
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-            }),
-            dummy_texture: dummy_texture.create_view(&TextureViewDescriptor {
-                dimension: Some(TextureViewDimension::D2Array),
-                ..Default::default()
-            }),
-            dummy_tile_info: device.create_buffer(&BufferDescriptor {
-                label: Some("graph empty layer tile info"),
-                size: u64::from(GpuTileInfo::min_size()),
-                usage: BufferUsages::STORAGE,
-                mapped_at_creation: false,
             }),
         })
     }
@@ -600,11 +639,15 @@ impl GraphValueType for LayerType {
                 timeout: None,
             })?;
         };
-        value.pixel_bounds = IRect {
+        let pixel_bounds = IRect {
             min: IVec2::new(bounds.x, bounds.y),
             max: IVec2::new(bounds.z, bounds.w),
         };
-        value.storage.allocate_pixels(value.pixel_bounds);
+        value.pixel_bounds = Some(pixel_bounds);
+        let PreparedLayerPixels::ReadWrite { storage, .. } = &mut value.pixels else {
+            bail!("read-only layer cannot be allocated as a shader output");
+        };
+        storage.allocate_pixels(pixel_bounds);
         Ok(())
     }
 

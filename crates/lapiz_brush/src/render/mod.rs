@@ -14,6 +14,7 @@ use lapiz_image::{
         LayerId,
         properties::{LayerTexelTypePropertyExt, TexelSource},
     },
+    layer_bounds::LayerBoundsPipeline,
     scan_pixels::ScanPixelsPipeline,
     texel::TexelType,
     tile::{DynamicLayerStorage, LayerBinding, TileStorageAppExt},
@@ -32,7 +33,7 @@ use lapiz_shader_graph::{
         slot::{ErasedGraphValueType, GraphValueType},
         variable::GraphShaderLiteral,
     },
-    wgsl_std::types::{LayerReference, LayerType, PreparedLayer},
+    wgsl_std::types::{LayerReference, LayerType, PreparedLayer, PreparedLayerPixels},
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -291,6 +292,10 @@ struct StrokeSession {
     pen_input: DynamicBuffer<PenInput>,
     output_samples: DynamicBuffer<OutputSamples>,
     input_sample_prepared: PreparedInputSamplingPipelineData,
+    target_layer: LayerBinding,
+    target_layer_bounds: Buffer,
+    selection_layer: LayerBinding,
+    selection_layer_bounds: Buffer,
 }
 
 pub struct BrushStrokePreview {
@@ -312,6 +317,8 @@ pub struct BrushPresetRenderer {
     input_sample: BrushInputSamplingPipeline,
     resources: StrokeResources,
     scan_pixels: ScanPixelsPipeline,
+    target_layer_bounds: Arc<LayerBoundsPipeline>,
+    selection_layer_bounds: Arc<LayerBoundsPipeline>,
     input_sampler: DynamicBuffer<InputSampler>,
     compiled: Arc<CompiledBrushPreset>,
     session: Option<StrokeSession>,
@@ -349,6 +356,16 @@ impl BrushPresetRenderer {
             input_sample,
             resources,
             scan_pixels: ScanPixelsPipeline::new(device, selection_layer_format),
+            target_layer_bounds: Arc::new(LayerBoundsPipeline::new(
+                device,
+                target_layer_format,
+                false,
+            )),
+            selection_layer_bounds: Arc::new(LayerBoundsPipeline::new(
+                device,
+                selection_layer_format,
+                false,
+            )),
             input_sampler,
             compiled: Arc::new(brush),
             session: None,
@@ -376,6 +393,12 @@ impl BrushPresetRenderer {
         let has_selection = self
             .scan_pixels
             .scan_to_binary_buffer(device, queue, &selection_layer);
+        let target_layer_bounds = self.target_layer_bounds.create_result_buffer(device);
+        let selection_layer_bounds = self.selection_layer_bounds.create_result_buffer(device);
+        let prepared_target_layer =
+            PreparedLayer::from_binding(target_layer.clone(), target_layer_bounds.clone());
+        let prepared_selection_layer =
+            PreparedLayer::from_binding(selection_layer.clone(), selection_layer_bounds.clone());
         let mut pen_input = DynamicBuffer::new(Some("pen input".into()), BufferUsages::STORAGE);
         pen_input.push(&PenInput::default());
         pen_input.write_buffer(device, queue);
@@ -399,8 +422,8 @@ impl BrushPresetRenderer {
                 foreground_color: &self.resources.foreground_color,
                 background_color: &self.resources.background_color,
                 has_selection: &has_selection,
-                selection: &selection_layer,
-                target_layer: &target_layer,
+                selection: &prepared_selection_layer,
+                target_layer: &prepared_target_layer,
             },
         );
 
@@ -411,8 +434,12 @@ impl BrushPresetRenderer {
         self.session = Some(StrokeSession {
             shared: Arc::new(Mutex::new(BrushEffectState {
                 compiled,
-                target_layer,
-                selection_layer,
+                target_layer: target_layer.clone(),
+                target_layer_bounds: target_layer_bounds.clone(),
+                selection_layer: selection_layer.clone(),
+                selection_layer_bounds: selection_layer_bounds.clone(),
+                target_layer_bounds_pipeline: self.target_layer_bounds.clone(),
+                selection_layer_bounds_pipeline: self.selection_layer_bounds.clone(),
                 has_selection,
                 foreground_color: self.resources.foreground_color.clone(),
                 background_color: self.resources.background_color.clone(),
@@ -427,6 +454,10 @@ impl BrushPresetRenderer {
             pen_input,
             output_samples,
             input_sample_prepared,
+            target_layer,
+            target_layer_bounds,
+            selection_layer,
+            selection_layer_bounds,
         });
     }
 
@@ -439,6 +470,22 @@ impl BrushPresetRenderer {
         session.pen_input.write_buffer(device, queue);
 
         let mut encoder = device.create_command_encoder(&Default::default());
+        self.target_layer_bounds.dispatch_to(
+            device,
+            queue,
+            &mut encoder,
+            &session.target_layer,
+            None,
+            &session.target_layer_bounds,
+        );
+        self.selection_layer_bounds.dispatch_to(
+            device,
+            queue,
+            &mut encoder,
+            &session.selection_layer,
+            None,
+            &session.selection_layer_bounds,
+        );
         {
             let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor::default());
             self.input_sample.dispatch(
@@ -472,7 +519,11 @@ impl BrushPresetRenderer {
         Task::future(async move {
             let mut state = shared.lock();
             let result = run_postprocess(&mut state).expect("brush postprocess failed");
-            result.downcast::<PreparedLayer>().storage
+            let result = result.downcast::<PreparedLayer>();
+            let PreparedLayerPixels::ReadWrite { storage, .. } = result.pixels else {
+                panic!("brush postprocess returned a read-only layer");
+            };
+            storage
         })
     }
 
@@ -488,7 +539,10 @@ impl BrushPresetRenderer {
             };
             let ty = accumulator.ty().clone();
             let accumulator = accumulator.as_ref::<PreparedLayer>();
-            if accumulator.pixel_bounds.is_empty() {
+            if !accumulator
+                .pixel_bounds
+                .is_some_and(|bounds| !bounds.is_empty())
+            {
                 return None;
             }
             let prepared = accumulator.deep_clone();
@@ -497,7 +551,13 @@ impl BrushPresetRenderer {
                 .replace(GraphShaderLiteral::new_boxed(Box::new(prepared), ty));
             let result = run_postprocess(&mut state).ok();
             state.accumulator = original;
-            result.map(|literal| literal.downcast::<PreparedLayer>().storage)
+            result.map(|literal| {
+                let result = literal.downcast::<PreparedLayer>();
+                let PreparedLayerPixels::ReadWrite { storage, .. } = result.pixels else {
+                    panic!("brush postprocess returned a read-only layer");
+                };
+                storage
+            })
         })
     }
 }
@@ -516,6 +576,7 @@ async fn run_main_effects(
             .accumulator
             .take()
             .context("missing brush accumulator")?;
+        scan_layer_bounds(&state);
         let builtins = main_builtins(&state, sample, accumulator)?;
         let mut outputs = state
             .compiled
@@ -532,6 +593,7 @@ async fn run_main_effects(
 }
 
 fn run_postprocess(state: &mut BrushEffectState) -> Result<GraphShaderLiteral> {
+    scan_layer_bounds(state);
     let accumulator = state
         .accumulator
         .take()
@@ -549,7 +611,11 @@ fn run_postprocess(state: &mut BrushEffectState) -> Result<GraphShaderLiteral> {
 struct BrushEffectState {
     compiled: Arc<CompiledBrushPreset>,
     target_layer: LayerBinding,
+    target_layer_bounds: Buffer,
     selection_layer: LayerBinding,
+    selection_layer_bounds: Buffer,
+    target_layer_bounds_pipeline: Arc<LayerBoundsPipeline>,
+    selection_layer_bounds_pipeline: Arc<LayerBoundsPipeline>,
     has_selection: Buffer,
     foreground_color: Buffer,
     background_color: Buffer,
@@ -559,6 +625,27 @@ struct BrushEffectState {
     queue: Queue,
     target_layer_format: TexelType,
     selection_layer_format: TexelType,
+}
+
+fn scan_layer_bounds(state: &BrushEffectState) {
+    let mut encoder = state.device.create_command_encoder(&Default::default());
+    state.target_layer_bounds_pipeline.dispatch_to(
+        &state.device,
+        &state.queue,
+        &mut encoder,
+        &state.target_layer,
+        None,
+        &state.target_layer_bounds,
+    );
+    state.selection_layer_bounds_pipeline.dispatch_to(
+        &state.device,
+        &state.queue,
+        &mut encoder,
+        &state.selection_layer,
+        None,
+        &state.selection_layer_bounds,
+    );
+    state.queue.submit([encoder.finish()]);
 }
 
 fn main_builtins(
@@ -607,8 +694,14 @@ fn base_builtins(state: &BrushEffectState) -> HashMap<String, GraphShaderLiteral
                 FOREGROUND_COLOR_BUILTIN => Box::new(state.foreground_color.clone()),
                 BACKGROUND_COLOR_BUILTIN => Box::new(state.background_color.clone()),
                 HAS_SELECTION_BUILTIN => Box::new(state.has_selection.clone()),
-                SELECTION_BUILTIN => Box::new(state.selection_layer.clone()),
-                TARGET_LAYER_BUILTIN => Box::new(state.target_layer.clone()),
+                SELECTION_BUILTIN => Box::new(PreparedLayer::from_binding(
+                    state.selection_layer.clone(),
+                    state.selection_layer_bounds.clone(),
+                )),
+                TARGET_LAYER_BUILTIN => Box::new(PreparedLayer::from_binding(
+                    state.target_layer.clone(),
+                    state.target_layer_bounds.clone(),
+                )),
                 _ => unreachable!(),
             };
         values.insert(name, GraphShaderLiteral::new_boxed(value, ty));
@@ -698,8 +791,8 @@ pub struct BuiltinHostValues<'a> {
     pub foreground_color: &'a Buffer,
     pub background_color: &'a Buffer,
     pub has_selection: &'a Buffer,
-    pub selection: &'a LayerBinding,
-    pub target_layer: &'a LayerBinding,
+    pub selection: &'a PreparedLayer,
+    pub target_layer: &'a PreparedLayer,
 }
 
 pub struct StrokeResources {
