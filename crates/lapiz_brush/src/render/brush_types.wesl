@@ -1,6 +1,4 @@
 import image::image_tiling::{TileInfo};
-import render::math::{IRect};
-
 const MAIN_WORKGROUP_SIZE = vec3u(16, 16, 1);
 const ESTIMATION_WORKGROUP_SIZE = vec3u(1, 1, 16);
 
@@ -61,11 +59,6 @@ struct PenInput {
     // this one.  Computed on the CPU by BezierInputSampler.
     bezier_control_prev: vec2f,
     bezier_control_cur: vec2f,
-}
-
-struct StrokePostprocessData {
-    accumulated_pixel_bound: IRect,
-    time: Time,
 }
 
 struct Time {

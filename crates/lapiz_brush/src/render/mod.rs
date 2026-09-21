@@ -16,7 +16,7 @@ use lapiz_image::{
     },
     scan_pixels::ScanPixelsPipeline,
     texel::TexelType,
-    tile::{DynamicLayerStorage, GpuTileStorage, LayerBinding, TileStorageAppExt},
+    tile::{DynamicLayerStorage, LayerBinding, TileStorageAppExt},
 };
 use lapiz_input::mouse::PressedMouseState;
 use lapiz_render::{
@@ -45,8 +45,7 @@ use crate::{
         graph::{
             BRUSH_SAMPLE_BUILTIN, CANVAS_RESOURCES_BUILTIN, CanvasResources,
             ComputedPenInputValueType, HAS_SELECTION_BUILTIN, INITIAL_PEN_INPUT_BUILTIN,
-            MAIN_ACCUMULATE_BUFFER, SELECTION_BUILTIN, STROKE_DATA_BUILTIN, StrokeDataValueType,
-            TARGET_LAYER_BUILTIN,
+            MAIN_ACCUMULATE_BUFFER, SELECTION_BUILTIN, TARGET_LAYER_BUILTIN,
         },
         pipeline::{BrushInputSamplingPipeline, PreparedInputSamplingPipelineData},
     },
@@ -581,22 +580,7 @@ fn postprocess_builtins(
     accumulator: GraphShaderLiteral,
 ) -> Result<HashMap<String, GraphShaderLiteral>> {
     let mut values = base_builtins(state);
-    let stroke_data = StrokePostprocessData {
-        accumulated_pixel_bounds: GpuTileStorage::snap_to_tile_grid(
-            accumulator.as_ref::<PreparedLayer>().pixel_bounds,
-        ),
-        ..Default::default()
-    };
     values.insert(MAIN_ACCUMULATE_BUFFER.into(), accumulator);
-    values.insert(
-        STROKE_DATA_BUILTIN.into(),
-        prepared_literal(
-            Arc::new(StrokeDataValueType),
-            &stroke_data,
-            &state.device,
-            &state.queue,
-        )?,
-    );
     Ok(values)
 }
 
@@ -686,12 +670,6 @@ pub struct ComputedPenInput {
     pub pressure: f32,
     pub dab_index: u32,
     pub stroke_distance: f32,
-    pub time: Time,
-}
-
-#[derive(ShaderType, Debug, Default, Clone, Copy, Serialize, Deserialize)]
-pub struct StrokePostprocessData {
-    pub accumulated_pixel_bounds: IRect,
     pub time: Time,
 }
 
