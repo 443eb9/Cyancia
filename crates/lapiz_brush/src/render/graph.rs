@@ -43,7 +43,7 @@ pub struct CanvasResources {
 }
 
 pub const SPACING_OUTPUT: &str = "spacing";
-pub const MAIN_ACCUMULATE_BUFFER: &str = "main_accumulate";
+pub const MAIN_DAB_BUFFER: &str = "main_dab";
 pub const STROKE_RESULT: &str = "stroke_result";
 
 pub const FOREGROUND_COLOR_BUILTIN: &str = "foreground_color";
@@ -53,6 +53,7 @@ pub const SELECTION_BUILTIN: &str = "selection";
 pub const HAS_SELECTION_BUILTIN: &str = "has_selection";
 pub const BRUSH_SAMPLE_BUILTIN: &str = "brush_sample";
 pub const INITIAL_PEN_INPUT_BUILTIN: &str = "initial_pen_input";
+pub const MAIN_ACCUMULATE_BUFFER: &str = "main_accumulate";
 
 #[derive(Default, Clone)]
 pub struct ComputedPenInputValueType;

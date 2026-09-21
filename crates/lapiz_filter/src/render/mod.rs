@@ -216,7 +216,7 @@ impl FilterRendererInner {
             parameters.insert(self.target_input, input);
             let mut outputs = self
                 .renderer
-                .run(&parameters, std::collections::HashMap::new())
+                .run(&parameters, &std::collections::HashMap::new())
                 .context("Filter effect run failed")?;
             parameters.remove(&self.target_input);
 

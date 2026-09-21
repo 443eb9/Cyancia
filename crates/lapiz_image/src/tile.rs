@@ -808,6 +808,61 @@ impl DynamicLayerStorage {
         self.queue.submit([ec.finish()]);
     }
 
+    pub fn copy_pixels_from(&mut self, src: &Self, pixel_rect: IRect) {
+        if pixel_rect.is_empty() {
+            return;
+        }
+        let tiles = src
+            .iter_tile_indices()
+            .filter(|tile| {
+                !GpuTileStorage::tile_to_pixel_rect(*tile)
+                    .intersect(pixel_rect)
+                    .is_empty()
+            })
+            .collect::<Vec<_>>();
+        if tiles.is_empty() {
+            return;
+        }
+
+        self.allocate_tiles_batch(tiles.iter().copied());
+
+        let mut ec = self.device.create_command_encoder(&Default::default());
+        for tile in tiles {
+            let tile_rect = GpuTileStorage::tile_to_pixel_rect(tile);
+            let copy_rect = tile_rect.intersect(pixel_rect);
+            let offset = (copy_rect.min - tile_rect.min).as_uvec2();
+            let size = copy_rect.size().as_uvec2();
+            ec.copy_texture_to_texture(
+                TexelCopyTextureInfo {
+                    texture: src.texture().unwrap(),
+                    mip_level: 0,
+                    origin: Origin3d {
+                        x: offset.x,
+                        y: offset.y,
+                        z: src.get_tile_layer(tile).unwrap(),
+                    },
+                    aspect: TextureAspect::All,
+                },
+                TexelCopyTextureInfo {
+                    texture: self.texture().unwrap(),
+                    mip_level: 0,
+                    origin: Origin3d {
+                        x: offset.x,
+                        y: offset.y,
+                        z: self.get_tile_layer(tile).unwrap(),
+                    },
+                    aspect: TextureAspect::All,
+                },
+                Extent3d {
+                    width: size.x,
+                    height: size.y,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        self.queue.submit([ec.finish()]);
+    }
+
     pub fn clear_tiles(&mut self, tiles: impl IntoIterator<Item = IVec2>) {
         let layers = tiles
             .into_iter()

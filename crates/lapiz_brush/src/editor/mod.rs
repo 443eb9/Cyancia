@@ -36,7 +36,7 @@ use crate::{
         BrushParameter, BrushPresetInstance, main_effect_resources, postprocess_effect_resources,
         spacing_effect_resources,
     },
-    render::graph::{MAIN_ACCUMULATE_BUFFER, SPACING_OUTPUT, STROKE_RESULT},
+    render::graph::{MAIN_DAB_BUFFER, SPACING_OUTPUT, STROKE_RESULT},
 };
 
 // The three effect slots a brush preset hosts; the editor edits one at a time.
@@ -383,7 +383,7 @@ impl BrushEditor {
             spacing_effect: spacing
                 .as_asset()
                 .expect("freshly built effects always serialize"),
-            main_effect: conventional_effect("Main", [(MAIN_ACCUMULATE_BUFFER, layer_ty.clone())])
+            main_effect: conventional_effect("Main", [(MAIN_DAB_BUFFER, layer_ty.clone())])
                 .as_asset()
                 .expect("freshly built effects always serialize"),
             postprocess_effect: conventional_effect("Postprocess", [(STROKE_RESULT, layer_ty)])

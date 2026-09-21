@@ -221,7 +221,7 @@ pub trait GraphValueType: Send + Sync + 'static + DynClone {
         &self,
         data: &Self::AssociatedLiteralType,
         // TODO should this change to GraphResources?
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> GraphElement<'static, Self::Message>;
     fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message);
     fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<Expression>;
@@ -233,12 +233,12 @@ pub trait GraphValueType: Send + Sync + 'static + DynClone {
     fn serialize_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> Result<toml::Value>;
     fn deserialize_literal(
         &self,
         deserializer: toml::Value,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> Result<Self::AssociatedLiteralType>;
 }
 

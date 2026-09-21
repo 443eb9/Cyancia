@@ -1,10 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use bevy_math::IRect;
 use chrono::{DateTime, Utc};
-use encase::ShaderType;
-use glam::{Vec2, Vec4};
+use encase::{ShaderType, StorageBuffer};
+use glam::{IVec4, Vec2, Vec4};
 use iced_runtime::Task;
 use lapiz_canvas::{CanvasAppExt, CanvasId};
 use lapiz_color::ForegroundBackgroundColorExt;
@@ -576,18 +576,55 @@ async fn run_main_effects(
             .accumulator
             .take()
             .context("missing brush accumulator")?;
-        scan_layer_bounds(&state);
-        let builtins = main_builtins(&state, sample, accumulator)?;
+        let mut builtins = main_builtins(&state, sample, accumulator)?;
         let mut outputs = state
             .compiled
             .main
-            .run(&state.compiled.main_inputs, builtins)
+            .run(&state.compiled.main_inputs, &builtins)
             .context("main brush effect failed")?;
-        state.accumulator = Some(
-            outputs
-                .remove(&state.compiled.main_output)
-                .context("main effect did not produce its accumulation output")?,
-        );
+        let dab = outputs
+            .remove(&state.compiled.main_dab_output)
+            .context("main effect did not produce its accumulation output")?;
+        let mut accumulator = builtins
+            .remove(MAIN_ACCUMULATE_BUFFER)
+            .context("main effect builtins lost the brush accumulator")?;
+
+        let dab = dab.downcast::<PreparedLayer>();
+        let dab_bounds = dab.pixel_bounds.context("brush dab bounds are unknown")?;
+        let PreparedLayerPixels::ReadWrite {
+            storage: dab_storage,
+            ..
+        } = dab.pixels
+        else {
+            bail!("brush main effect returned a read-only layer");
+        };
+
+        {
+            let accumulator = accumulator
+                .try_as_mut::<PreparedLayer>()
+                .context("brush accumulator is not a layer")?;
+            let PreparedLayerPixels::ReadWrite { storage, .. } = &mut accumulator.pixels else {
+                bail!("brush accumulator is read-only");
+            };
+            storage.copy_pixels_from(&dab_storage, dab_bounds);
+            let bounds = accumulator
+                .pixel_bounds
+                .unwrap_or(IRect::EMPTY)
+                .union(dab_bounds);
+            accumulator.pixel_bounds = Some(bounds);
+            let mut encoded = StorageBuffer::new(Vec::new());
+            encoded.write(&IVec4::new(
+                bounds.min.x,
+                bounds.min.y,
+                bounds.max.x,
+                bounds.max.y,
+            ))?;
+            state
+                .queue
+                .write_buffer(&accumulator.bounds, 0, encoded.as_ref());
+        }
+
+        state.accumulator = Some(accumulator);
     }
     Ok(())
 }
@@ -602,7 +639,7 @@ fn run_postprocess(state: &mut BrushEffectState) -> Result<GraphShaderLiteral> {
     let mut outputs = state
         .compiled
         .postprocess
-        .run(&state.compiled.postprocess_inputs, builtins)?;
+        .run(&state.compiled.postprocess_inputs, &builtins)?;
     outputs
         .remove(&state.compiled.postprocess_output)
         .context("postprocess effect did not produce the stroke result")

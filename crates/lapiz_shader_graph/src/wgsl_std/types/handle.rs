@@ -301,13 +301,13 @@ pub struct LayerType {
     pub texel_type: TexelType,
 }
 
-// Layers bind as resources; the literal is only a connectable placeholder.
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct LayerReference;
 
 pub enum PreparedLayerPixels {
     ReadWrite {
         storage: DynamicLayerStorage,
+        // TODO can we optimize this out?
         empty_binding: LayerBinding,
     },
     ReadOnly(LayerBinding),
@@ -655,8 +655,6 @@ impl GraphValueType for LayerType {
         None
     }
 
-    // Layer literals are connectable placeholders; hosts always override the
-    // prepared value with a real layer, so they serialize as empty slots.
     fn serialize_literal(
         &self,
         _data: &Self::AssociatedLiteralType,

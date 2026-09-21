@@ -325,7 +325,7 @@ impl EffectRenderer {
     pub fn run(
         &self,
         inputs: &EffectInputs,
-        builtin_literals: HashMap<String, GraphShaderLiteral>,
+        builtin_literals: &HashMap<String, GraphShaderLiteral>,
     ) -> Result<EffectOutputs> {
         for def in &self.inputs {
             let literal = inputs
@@ -352,7 +352,7 @@ impl EffectRenderer {
             pass.init_output_values(&mut produced, &self.device, &self.queue)?;
             pass.run(
                 inputs,
-                &builtin_literals,
+                builtin_literals,
                 &mut produced,
                 &self.device,
                 &self.queue,

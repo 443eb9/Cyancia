@@ -7,10 +7,10 @@ use lapiz_brush::{
     asset::SerializableBrushParameter,
     instance::{main_effect_resources, postprocess_effect_resources, spacing_effect_resources},
     render::graph::{
-        AccumulateBoundsNode, BackgroundColorNode, CurrentPixelColorNode, DabIndexNode,
-        DrawDirectionNode, ForegroundColorNode, InitialDrawDirectionNode, LayerPixelColorNode,
-        MAIN_ACCUMULATE_BUFFER, PenAngleNode, PenPositionNode, PenPressureNode, PenTiltNode,
-        PixelPositionNode, SPACING_OUTPUT, STROKE_RESULT, StrokeBoundsNode, StrokeDistanceNode,
+        BackgroundColorNode, CurrentPixelColorNode, DabIndexNode, DrawDirectionNode,
+        ForegroundColorNode, InitialDrawDirectionNode, LayerPixelColorNode, MAIN_DAB_BUFFER,
+        PenAngleNode, PenPositionNode, PenPressureNode, PenTiltNode, PixelPositionNode,
+        SPACING_OUTPUT, STROKE_RESULT, StrokeBoundsNode, StrokeDistanceNode,
     },
 };
 use lapiz_effect::{
@@ -528,10 +528,8 @@ fn build_main_effect(
         user_size_input + 1,
     );
 
-    let accumulated_bounds = graph.add_node(Point::new(500.0, 200.0), AccumulateBoundsNode);
     graph.connect_slots_by_index(expression, 0, output, 0);
-    graph.connect_slots_by_index(expression, 1, accumulated_bounds, 0);
-    graph.connect_slots_by_index(accumulated_bounds, 0, output, 1);
+    graph.connect_slots_by_index(expression, 1, output, 1);
 
     Ok(effect_asset(
         "Brush Main",
@@ -540,7 +538,7 @@ fn build_main_effect(
         EffectPassDispatchStrategy::EveryOutputLayerPixel(output_port),
         inputs,
         vec![SerializableEffectOutputSlot {
-            name: MAIN_ACCUMULATE_BUFFER.into(),
+            name: MAIN_DAB_BUFFER.into(),
             id: output_id,
             ty: layer_ty.id().id,
         }],

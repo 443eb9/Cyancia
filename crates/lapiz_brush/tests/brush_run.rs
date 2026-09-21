@@ -13,7 +13,7 @@ use lapiz_assets::loader::{AssetRegistryBuilder, AssetSerializer};
 use lapiz_brush::{
     asset::{BrushPreset, BrushPresetMetadata, BrushPresetSerializer, SerializableBrushParameter},
     instance::BrushPresetInstance,
-    render::graph::{MAIN_ACCUMULATE_BUFFER, SPACING_OUTPUT, STROKE_RESULT},
+    render::graph::{MAIN_DAB_BUFFER, SPACING_OUTPUT, STROKE_RESULT},
     render::stroke_preview::{create_stroke_preview_with, predefined_curve_samples},
 };
 use lapiz_effect::{
@@ -90,14 +90,14 @@ fn main_effect(
     assets: lapiz_assets::store::AssetRegistry,
 ) -> Result<(EffectInstance, EffectInputSlotId)> {
     use lapiz_brush::render::graph::{
-        AccumulateBoundsNode, BlendWithInputNode, EllipticalMaskNode, ForegroundColorNode,
-        PenPositionNode, PixelPositionNode,
+        BlendWithInputNode, EllipticalMaskNode, ForegroundColorNode, PenPositionNode,
+        PixelPositionNode,
     };
     use lapiz_shader_graph::wgsl_std::nodes::CombineComponentsNode;
 
     let resources = lapiz_brush::instance::main_effect_resources(assets.clone());
     let radius_parameter = EffectInputSlotId::new(Uuid::new_v4());
-    let main_accumulate = EffectOutputSlotId::new(Uuid::new_v4());
+    let main_dab = EffectOutputSlotId::new(Uuid::new_v4());
     let f32_ty: Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType> =
         Arc::new(lapiz_shader_graph::wgsl_std::types::F32Type);
 
@@ -142,7 +142,6 @@ fn main_effect(
     let mask = graph.add_node(Point::ORIGIN, EllipticalMaskNode);
     let color = graph.add_node(Point::ORIGIN, ForegroundColorNode);
     let blend = graph.add_node(Point::ORIGIN, BlendWithInputNode);
-    let accumulated_bounds = graph.add_node(Point::ORIGIN, AccumulateBoundsNode);
 
     let output = graph.add_node(Point::ORIGIN, PassOutputNode);
     let output_port = graph
@@ -157,7 +156,7 @@ fn main_effect(
             texel_type: lapiz_image::texel::TexelType::RGBA8,
         });
     graph.update_node_state::<PassOutputNode>(output, |state| {
-        state.output = Some(PassOutput::Effect(main_accumulate));
+        state.output = Some(PassOutput::Effect(main_dab));
         state.cached_ty = Some(layer_ty.clone());
     });
 
@@ -169,8 +168,7 @@ fn main_effect(
     graph.connect_slots_by_index(color, 0, blend, 0);
     graph.connect_slots_by_index(mask, 0, blend, 1);
     graph.connect_slots_by_index(blend, 0, output, 0);
-    graph.connect_slots_by_index(mask, 1, accumulated_bounds, 0);
-    graph.connect_slots_by_index(accumulated_bounds, 0, output, 1);
+    graph.connect_slots_by_index(mask, 1, output, 1);
 
     let mut instance = EffectInstance {
         name: "Brush Main".into(),
@@ -203,10 +201,10 @@ fn main_effect(
             },
         )]),
         outputs: IndexMap::from([(
-            main_accumulate,
+            main_dab,
             EffectOutputSlot {
-                name: MAIN_ACCUMULATE_BUFFER.into(),
-                id: main_accumulate,
+                name: MAIN_DAB_BUFFER.into(),
+                id: main_dab,
                 ty: layer_ty,
             },
         )]),

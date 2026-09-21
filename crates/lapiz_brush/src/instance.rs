@@ -28,9 +28,9 @@ use wgpu::{BindGroupLayoutEntry, Device, Queue, ShaderStages};
 use crate::{
     asset::{BrushPreset, BrushPresetMetadata, SerializableBrushParameter},
     render::graph::{
-        BRUSH_GRAPH_TYPES, MAIN_ACCUMULATE_BUFFER, SPACING_OUTPUT, STROKE_RESULT,
-        brush_builtin_types, main_builtin_types, main_graph_nodes, postprocess_builtin_types,
-        postprocess_graph_nodes, spacing_graph_nodes,
+        BRUSH_GRAPH_TYPES, MAIN_DAB_BUFFER, SPACING_OUTPUT, STROKE_RESULT, brush_builtin_types,
+        main_builtin_types, main_graph_nodes, postprocess_builtin_types, postprocess_graph_nodes,
+        spacing_graph_nodes,
     },
 };
 
@@ -51,7 +51,7 @@ pub struct CompiledBrushPreset {
     pub postprocess: EffectRenderer,
     pub main_inputs: EffectInputs,
     pub postprocess_inputs: EffectInputs,
-    pub main_output: EffectOutputSlotId,
+    pub main_dab_output: EffectOutputSlotId,
     pub postprocess_output: EffectOutputSlotId,
 }
 
@@ -59,12 +59,9 @@ pub struct BrushPresetInstance {
     brush_id: Option<AssetId<BrushPreset>>,
     metadata: BrushPresetMetadata,
 
-    // Spacing executes inside input sampling and must remain a single pass.
     spacing_effect: EffectInstance,
-    // Main and postprocess effects may contain multiple effect passes.
     main_effect: EffectInstance,
     postprocess_effect: EffectInstance,
-    // UI-defined brush parameters, such as size and opacity.
     parameters: IndexMap<EffectInputSlotId, BrushParameter>,
 }
 
@@ -283,7 +280,7 @@ impl BrushPresetInstance {
                 device,
                 queue,
             )?,
-            main_output: named_output(&self.main_effect, MAIN_ACCUMULATE_BUFFER)?,
+            main_dab_output: named_output(&self.main_effect, MAIN_DAB_BUFFER)?,
             postprocess_output: named_output(&self.postprocess_effect, STROKE_RESULT)?,
         })
     }
