@@ -1,13 +1,22 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, Result, bail};
 use bevy_math::IRect;
 use chrono::{DateTime, Utc};
 use encase::{ShaderType, StorageBuffer};
+use futures::{
+    StreamExt,
+    channel::{mpsc, oneshot},
+};
 use glam::{IVec4, Vec2, Vec4};
 use iced_runtime::Task;
 use lapiz_canvas::{CanvasAppExt, CanvasId};
 use lapiz_color::ForegroundBackgroundColorExt;
+use lapiz_effect::render::EffectRunTiming;
 use lapiz_image::{
     composite::PixelPreviewOverrider,
     layer::{
@@ -37,7 +46,8 @@ use lapiz_shader_graph::{
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use wgpu::{Buffer, BufferUsages, ComputePassDescriptor, Device, Queue};
+use wgpu::{Buffer, BufferUsages, ComputePassDescriptor, Device, Features, PollType, Queue};
+use wgpu_profiler::{GpuProfiler, GpuProfilerSettings, GpuTimerQueryResult};
 
 use crate::{
     input_processing::{InputProcessor, RawPenInput},
@@ -210,31 +220,35 @@ impl CanvasBrushPresetOperator {
         let selection_layer = tiles
             .get_layer_binding_or_empty(session.selection_layer_id)
             .expect("Failed to bind selection layer");
-        renderer.begin(&self.device, &self.queue, target_layer, selection_layer);
+        let worker = renderer.begin(&self.device, &self.queue, target_layer, selection_layer);
+        renderer.record_raw_inputs(1);
 
-        let sample =
+        if let Some(sample) =
             self.input_processor
-                .push(RawPenInput::new(position, session.stroke_begin, input));
-        let task = sample.map(|sample| renderer.update(&self.device, &self.queue, sample));
+                .push(RawPenInput::new(position, session.stroke_begin, input))
+        {
+            renderer.update(sample);
+        }
         self.session = Some(session);
-        task.unwrap_or_else(Task::none).discard()
+        worker
     }
 
     pub fn update_stroke(&mut self, input: &PressedMouseState, services: &Services) -> Task<()> {
         let (Some(renderer), Some(session)) = (&mut self.renderer, &self.session) else {
             return Task::none();
         };
+        renderer.record_raw_inputs(1);
         let canvas = services.canvas(&session.canvas_id).unwrap();
         let position = canvas
             .transform
             .window_to_pixel(Vec2::new(input.position.x, input.position.y));
-        let Some(sample) =
+        if let Some(sample) =
             self.input_processor
                 .push(RawPenInput::new(position, session.stroke_begin, input))
-        else {
-            return Task::none();
-        };
-        renderer.update(&self.device, &self.queue, sample).discard()
+        {
+            renderer.update(sample);
+        }
+        Task::none()
     }
 
     pub fn end_stroke(
@@ -245,25 +259,25 @@ impl CanvasBrushPresetOperator {
         let (Some(renderer), Some(session)) = (&mut self.renderer, self.session.take()) else {
             return Task::none();
         };
+        renderer.record_raw_inputs(1);
         let canvas = services
             .canvas(&session.canvas_id)
             .expect("Stroke canvas should exist");
         let position = canvas
             .transform
             .window_to_pixel(Vec2::new(input.position.x, input.position.y));
-        let updates = self
-            .input_processor
-            .flush(RawPenInput::new(position, session.stroke_begin, input))
-            .into_iter()
-            .map(|sample| renderer.update(&self.device, &self.queue, sample));
-        let updates = Task::batch(updates).discard();
-        let end = renderer.end().map(move |result| BrushStrokeResult {
+        for sample in
+            self.input_processor
+                .flush(RawPenInput::new(position, session.stroke_begin, input))
+        {
+            renderer.update(sample);
+        }
+        renderer.end().map(move |result| BrushStrokeResult {
             stroke_id: session.stroke_id,
             canvas_id: session.canvas_id,
             target_layer_id: session.target_layer_id,
             result,
-        });
-        updates.chain(end)
+        })
     }
 
     pub fn preview(&mut self) -> Task<Option<BrushStrokePreview>> {
@@ -286,8 +300,63 @@ impl CanvasBrushPresetOperator {
     }
 }
 
+#[derive(Default)]
+struct BrushStrokeProfile {
+    raw_inputs: u64,
+    input_batches: u64,
+    dabs: u64,
+    dab_tiles: u64,
+    input_readback: Duration,
+    effect_eval_cpu: Duration,
+    effect_readback: Duration,
+    effect_main_cpu: Duration,
+    preview_count: u64,
+    preview: Duration,
+}
+
+impl BrushStrokeProfile {
+    fn record_main_effect(&mut self, timing: EffectRunTiming) {
+        self.effect_eval_cpu += timing.eval_cpu;
+        self.effect_readback += timing.readback;
+        self.effect_main_cpu += timing.main_cpu;
+    }
+
+    fn log(&self) {
+        log::info!(
+            target: "lapiz_brush::profile",
+            "stroke raw_inputs={} input_batches={} dabs={} dab_tiles={} input_readback_ms={:.3} effect_eval_cpu_ms={:.3} effect_readback_ms={:.3} effect_main_cpu_ms={:.3} preview_count={} preview_ms={:.3}",
+            self.raw_inputs,
+            self.input_batches,
+            self.dabs,
+            self.dab_tiles,
+            self.input_readback.as_secs_f64() * 1_000.0,
+            self.effect_eval_cpu.as_secs_f64() * 1_000.0,
+            self.effect_readback.as_secs_f64() * 1_000.0,
+            self.effect_main_cpu.as_secs_f64() * 1_000.0,
+            self.preview_count,
+            self.preview.as_secs_f64() * 1_000.0,
+        );
+    }
+}
+
+#[derive(Default)]
+struct StrokeMailbox {
+    inputs: Vec<PenInput>,
+    preview_requests: VecDeque<oneshot::Sender<Option<DynamicLayerStorage>>>,
+    finish: Option<oneshot::Sender<DynamicLayerStorage>>,
+}
+
 struct StrokeSession {
-    shared: Arc<Mutex<BrushEffectState>>,
+    mailbox: Arc<Mutex<StrokeMailbox>>,
+    wake: mpsc::Sender<()>,
+    profile: Arc<Mutex<BrushStrokeProfile>>,
+}
+
+struct BrushStrokeWorker {
+    state: BrushEffectState,
+    input_sample: Arc<BrushInputSamplingPipeline>,
+    input_profiler: GpuProfiler,
+    profile: Arc<Mutex<BrushStrokeProfile>>,
     resource_group: wgpu::BindGroup,
     pen_input: DynamicBuffer<PenInput>,
     output_samples: DynamicBuffer<OutputSamples>,
@@ -310,12 +379,11 @@ pub struct BrushStrokeResult {
 }
 
 pub struct BrushPresetRenderer {
-    input_sample: BrushInputSamplingPipeline,
+    input_sample: Arc<BrushInputSamplingPipeline>,
     resources: StrokeResources,
     scan_pixels: ScanPixelsPipeline,
     target_layer_bounds: Arc<LayerBoundsPipeline>,
     selection_layer_bounds: Arc<LayerBoundsPipeline>,
-    input_sampler: DynamicBuffer<InputSampler>,
     compiled: Arc<CompiledBrushPreset>,
     session: Option<StrokeSession>,
 }
@@ -344,12 +412,8 @@ impl BrushPresetRenderer {
             &resources.resource_layout,
             brush.spacing.clone().into(),
         );
-        let mut input_sampler =
-            DynamicBuffer::new(Some("input sampler".into()), BufferUsages::STORAGE);
-        input_sampler.push(&InputSampler::default());
-        input_sampler.write_buffer(device, queue);
         Self {
-            input_sample,
+            input_sample: Arc::new(input_sample),
             resources,
             scan_pixels: ScanPixelsPipeline::new(device, selection_layer_format),
             target_layer_bounds: Arc::new(LayerBoundsPipeline::new(
@@ -362,7 +426,6 @@ impl BrushPresetRenderer {
                 selection_layer_format,
                 false,
             )),
-            input_sampler,
             compiled: Arc::new(brush),
             session: None,
         }
@@ -374,10 +437,11 @@ impl BrushPresetRenderer {
         queue: &Queue,
         target_layer: LayerBinding,
         selection_layer: LayerBinding,
-    ) {
-        self.input_sampler.clear();
-        self.input_sampler.push(&InputSampler::default());
-        self.input_sampler.write_buffer(device, queue);
+    ) -> Task<()> {
+        let mut input_sampler =
+            DynamicBuffer::new(Some("input sampler".into()), BufferUsages::STORAGE);
+        input_sampler.push(&InputSampler::default());
+        input_sampler.write_buffer(device, queue);
 
         let mut initial_pen_input = DynamicBuffer::new(
             Some("initial pen input".into()),
@@ -390,7 +454,9 @@ impl BrushPresetRenderer {
             .scan_pixels
             .scan_to_binary_buffer(device, queue, &selection_layer);
         let target_layer_bounds = self.target_layer_bounds.create_result_buffer_uninit(device);
-        let selection_layer_bounds = self.selection_layer_bounds.create_result_buffer_uninit(device);
+        let selection_layer_bounds = self
+            .selection_layer_bounds
+            .create_result_buffer_uninit(device);
         let mut encoder = device.create_command_encoder(&Default::default());
         self.target_layer_bounds.dispatch_to(
             device,
@@ -426,7 +492,7 @@ impl BrushPresetRenderer {
         let input_sample_prepared = self.input_sample.prepare(
             device,
             &pen_input,
-            &self.input_sampler,
+            &input_sampler,
             &output_samples,
             &initial_pen_input,
         );
@@ -441,13 +507,21 @@ impl BrushPresetRenderer {
             },
         );
 
-        let compiled = self.compiled.clone();
+        let profile = Arc::new(Mutex::new(BrushStrokeProfile::default()));
         let empty_accumulator =
             prepare_empty_layer(self.resources.target_layer_format, device, queue)
                 .expect("failed to prepare brush accumulation layer");
-        self.session = Some(StrokeSession {
-            shared: Arc::new(Mutex::new(BrushEffectState {
-                compiled,
+        let input_profiler = GpuProfiler::new(
+            device,
+            GpuProfilerSettings {
+                enable_timer_queries: device.features().contains(Features::TIMESTAMP_QUERY),
+                ..Default::default()
+            },
+        )
+        .expect("valid brush GPU profiler settings");
+        let worker = BrushStrokeWorker {
+            state: BrushEffectState {
+                compiled: self.compiled.clone(),
                 target_layer,
                 target_layer_bounds,
                 selection_layer,
@@ -461,57 +535,198 @@ impl BrushPresetRenderer {
                 queue: queue.clone(),
                 target_layer_format: self.resources.target_layer_format,
                 selection_layer_format: self.resources.selection_layer_format,
-            })),
+            },
+            input_sample: self.input_sample.clone(),
+            input_profiler,
+            profile: profile.clone(),
             resource_group,
             pen_input,
             output_samples,
             input_sample_prepared,
+        };
+        let mailbox = Arc::new(Mutex::new(StrokeMailbox::default()));
+        let (wake, receiver) = mpsc::channel(1);
+        self.session = Some(StrokeSession {
+            mailbox: mailbox.clone(),
+            wake,
+            profile,
         });
+        Task::future(worker.run(mailbox, receiver))
     }
 
-    pub fn update(&mut self, device: &Device, queue: &Queue, input: PenInput) -> Task<Result<()>> {
-        let Some(session) = &mut self.session else {
-            return Task::none();
-        };
-        session.pen_input.clear();
-        session.pen_input.push(&input);
-        session.pen_input.write_buffer(device, queue);
-
-        let mut encoder = device.create_command_encoder(&Default::default());
-        {
-            let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor::default());
-            self.input_sample.dispatch(
-                &mut pass,
-                &session.input_sample_prepared,
-                &session.resource_group,
-            );
+    pub fn record_raw_inputs(&self, count: usize) {
+        if let Some(session) = &self.session {
+            session.profile.lock().raw_inputs += count as u64;
         }
-        let staging = create_readback_buffer_and_schedule_copy_buffer(
-            device,
-            &mut encoder,
-            session.output_samples.inner_buffer().unwrap(),
-        );
-        let readback = readback_buffer_on_submit_async(&mut encoder, &staging, ..);
-        queue.submit([encoder.finish()]);
-        let shared = session.shared.clone();
-        Task::future(async move {
-            let result = run_main_effects(shared, readback).await;
-            if let Err(error) = &result {
-                log::error!("Brush main effects failed: {error:#}");
-            }
-            result
-        })
+    }
+
+    pub fn update(&mut self, input: PenInput) {
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        session.mailbox.lock().inputs.push(input);
+        let _ = session.wake.try_send(());
     }
 
     pub fn end(&mut self) -> Task<DynamicLayerStorage> {
-        let Some(session) = self.session.take() else {
+        let Some(mut session) = self.session.take() else {
             return Task::none();
         };
-        let shared = session.shared;
+        let (sender, receiver) = oneshot::channel();
+        let previous = session.mailbox.lock().finish.replace(sender);
+        assert!(
+            previous.is_none(),
+            "brush stroke finish was already requested"
+        );
+        let _ = session.wake.try_send(());
         Task::future(async move {
-            let mut state = shared.lock();
-            let result = run_postprocess(&mut state).expect("brush postprocess failed");
-            let result = result.downcast::<PreparedLayer>();
+            receiver
+                .await
+                .expect("brush stroke worker stopped before producing a result")
+        })
+    }
+
+    pub fn generate_preview(&mut self) -> Task<Option<DynamicLayerStorage>> {
+        let Some(session) = &mut self.session else {
+            return Task::done(None);
+        };
+        let (sender, receiver) = oneshot::channel();
+        session.mailbox.lock().preview_requests.push_back(sender);
+        let _ = session.wake.try_send(());
+        Task::future(async move { receiver.await.unwrap_or(None) })
+    }
+}
+
+enum StrokeWork {
+    Inputs(Vec<PenInput>),
+    Preview(oneshot::Sender<Option<DynamicLayerStorage>>),
+    Finish(oneshot::Sender<DynamicLayerStorage>),
+}
+
+impl BrushStrokeWorker {
+    async fn run(mut self, mailbox: Arc<Mutex<StrokeMailbox>>, mut wake: mpsc::Receiver<()>) {
+        while wake.next().await.is_some() {
+            loop {
+                let work = {
+                    let mut mailbox = mailbox.lock();
+                    if !mailbox.inputs.is_empty() {
+                        Some(StrokeWork::Inputs(std::mem::take(&mut mailbox.inputs)))
+                    } else if let Some(request) = mailbox.preview_requests.pop_front() {
+                        Some(StrokeWork::Preview(request))
+                    } else {
+                        mailbox.finish.take().map(StrokeWork::Finish)
+                    }
+                };
+                let Some(work) = work else {
+                    break;
+                };
+                match work {
+                    StrokeWork::Inputs(inputs) => {
+                        for input in inputs {
+                            if let Err(error) = self.process_input(input).await {
+                                log::error!("Brush main effects failed: {error:#}");
+                            }
+                        }
+                    }
+                    StrokeWork::Preview(sender) => {
+                        sender.send(self.generate_preview()).ok();
+                    }
+                    StrokeWork::Finish(sender) => {
+                        sender.send(self.finish()).ok();
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    async fn process_input(&mut self, input: PenInput) -> Result<()> {
+        let device = self.state.device.clone();
+        let queue = self.state.queue.clone();
+        self.pen_input.clear();
+        self.pen_input.push(&input);
+        self.pen_input.write_buffer(&device, &queue);
+        let batch_index = {
+            let mut profile = self.profile.lock();
+            profile.input_batches += 1;
+            profile.input_batches
+        };
+
+        let mut encoder = device.create_command_encoder(&Default::default());
+        log_finished_gpu_profiles(&mut self.input_profiler, &queue);
+        let query = self.input_profiler.begin_pass_query(
+            format!("brush/input_sample/batch_{batch_index}"),
+            &mut encoder,
+        );
+        {
+            let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("brush input sampling pass"),
+                timestamp_writes: query.compute_pass_timestamp_writes(),
+            });
+            self.input_sample.dispatch(
+                &mut pass,
+                &self.input_sample_prepared,
+                &self.resource_group,
+            );
+        }
+        self.input_profiler.end_query(&mut encoder, query);
+        let staging = create_readback_buffer_and_schedule_copy_buffer(
+            &device,
+            &mut encoder,
+            self.output_samples.inner_buffer().unwrap(),
+        );
+        let readback = readback_buffer_on_submit_async(&mut encoder, &staging, ..);
+        self.input_profiler.resolve_queries(&mut encoder);
+        let readback_started = Instant::now();
+        queue.submit([encoder.finish()]);
+        self.input_profiler
+            .end_frame()
+            .expect("brush input GPU profile frame must be complete");
+        run_main_effects(
+            &mut self.state,
+            &self.profile,
+            batch_index,
+            readback_started,
+            readback,
+        )
+        .await
+    }
+
+    fn generate_preview(&mut self) -> Option<DynamicLayerStorage> {
+        let accumulator = self.state.accumulator.as_ref()?;
+        let ty = accumulator.ty().clone();
+        let accumulator = accumulator.as_ref::<PreparedLayer>();
+        if !accumulator
+            .pixel_bounds
+            .is_some_and(|bounds| !bounds.is_empty())
+        {
+            return None;
+        }
+        let prepared = accumulator.deep_clone();
+        let original = self
+            .state
+            .accumulator
+            .replace(GraphShaderLiteral::new_boxed(Box::new(prepared), ty));
+        let started = Instant::now();
+        let mut timing = EffectRunTiming::default();
+        let result = run_postprocess(&mut self.state, &mut timing).ok();
+        let elapsed = started.elapsed();
+        {
+            let mut profile = self.profile.lock();
+            profile.preview_count += 1;
+            profile.preview += elapsed;
+        }
+        log::info!(
+            target: "lapiz_brush::profile",
+            "preview duration_ms={:.3} eval_cpu_ms={:.3} readback_ms={:.3} main_cpu_ms={:.3}",
+            elapsed.as_secs_f64() * 1_000.0,
+            timing.eval_cpu.as_secs_f64() * 1_000.0,
+            timing.readback.as_secs_f64() * 1_000.0,
+            timing.main_cpu.as_secs_f64() * 1_000.0,
+        );
+        self.state.accumulator = original;
+        result.map(|literal| {
+            let result = literal.downcast::<PreparedLayer>();
             let PreparedLayerPixels::ReadWrite { storage, .. } = result.pixels else {
                 panic!("brush postprocess returned a read-only layer");
             };
@@ -519,48 +734,51 @@ impl BrushPresetRenderer {
         })
     }
 
-    pub fn generate_preview(&mut self) -> Task<Option<DynamicLayerStorage>> {
-        let Some(session) = &self.session else {
-            return Task::done(None);
-        };
-        let shared = session.shared.clone();
-        Task::future(async move {
-            let mut state = shared.lock();
-            let Some(accumulator) = state.accumulator.as_ref() else {
-                return None;
-            };
-            let ty = accumulator.ty().clone();
-            let accumulator = accumulator.as_ref::<PreparedLayer>();
-            if !accumulator
-                .pixel_bounds
-                .is_some_and(|bounds| !bounds.is_empty())
-            {
-                return None;
-            }
-            let prepared = accumulator.deep_clone();
-            let original = state
-                .accumulator
-                .replace(GraphShaderLiteral::new_boxed(Box::new(prepared), ty));
-            let result = run_postprocess(&mut state).ok();
-            state.accumulator = original;
-            result.map(|literal| {
-                let result = literal.downcast::<PreparedLayer>();
-                let PreparedLayerPixels::ReadWrite { storage, .. } = result.pixels else {
-                    panic!("brush postprocess returned a read-only layer");
-                };
-                storage
+    fn finish(&mut self) -> DynamicLayerStorage {
+        let mut timing = EffectRunTiming::default();
+        let result =
+            run_postprocess(&mut self.state, &mut timing).expect("brush postprocess failed");
+        self.state
+            .compiled
+            .main
+            .finish_profiling()
+            .expect("failed to finish main effect profiling");
+        self.state
+            .compiled
+            .postprocess
+            .finish_profiling()
+            .expect("failed to finish postprocess effect profiling");
+        self.state
+            .device
+            .poll(PollType::Wait {
+                submission_index: None,
+                timeout: None,
             })
-        })
+            .expect("failed to finish brush input profiling");
+        log_finished_gpu_profiles(&mut self.input_profiler, &self.state.queue);
+        self.profile.lock().log();
+        let result = result.downcast::<PreparedLayer>();
+        let PreparedLayerPixels::ReadWrite { storage, .. } = result.pixels else {
+            panic!("brush postprocess returned a read-only layer");
+        };
+        storage
     }
 }
 
 async fn run_main_effects(
-    shared: Arc<Mutex<BrushEffectState>>,
+    state: &mut BrushEffectState,
+    profile: &Arc<Mutex<BrushStrokeProfile>>,
+    batch_index: u64,
+    readback_started: Instant,
     readback: AsyncBufferReadback<OutputSamples>,
 ) -> Result<()> {
     let samples = readback.into_inner().await??;
-    let mut state = shared.lock();
-    for sample in samples.samples.into_iter().take(samples.n_samples as usize) {
+    let input_readback = readback_started.elapsed();
+    let batch_dab_count = samples.n_samples as usize;
+    let is_overflow = samples.is_overflow != 0;
+    let mut batch_dab_tiles = Vec::with_capacity(batch_dab_count);
+    let mut effect_timing = EffectRunTiming::default();
+    for sample in samples.samples.into_iter().take(batch_dab_count) {
         if state.initial_sample.is_none() {
             state.initial_sample = Some(sample);
         }
@@ -568,11 +786,11 @@ async fn run_main_effects(
             .accumulator
             .take()
             .context("missing brush accumulator")?;
-        let mut builtins = main_builtins(&state, sample, accumulator)?;
+        let mut builtins = main_builtins(state, sample, accumulator)?;
         let mut outputs = state
             .compiled
             .main
-            .run(&state.compiled.main_inputs, &builtins)
+            .run_profiled(&state.compiled.main_inputs, &builtins, &mut effect_timing)
             .context("main brush effect failed")?;
         let dab = outputs
             .remove(&state.compiled.main_dab_output)
@@ -590,6 +808,7 @@ async fn run_main_effects(
         else {
             bail!("brush main effect returned a read-only layer");
         };
+        batch_dab_tiles.push(dab_storage.len());
 
         {
             let accumulator = accumulator
@@ -618,19 +837,55 @@ async fn run_main_effects(
 
         state.accumulator = Some(accumulator);
     }
+
+    let accumulator_tiles = state
+        .accumulator
+        .as_ref()
+        .and_then(|literal| literal.try_as_ref::<PreparedLayer>())
+        .and_then(|layer| match &layer.pixels {
+            PreparedLayerPixels::ReadWrite { storage, .. } => Some(storage.len()),
+            PreparedLayerPixels::ReadOnly(_) => None,
+        })
+        .unwrap_or(0);
+    let batch_tile_count = batch_dab_tiles.iter().sum::<usize>();
+    {
+        let mut profile = profile.lock();
+        profile.dabs += batch_dab_count as u64;
+        profile.dab_tiles += batch_tile_count as u64;
+        profile.input_readback += input_readback;
+        profile.record_main_effect(effect_timing);
+    }
+    log::info!(
+        target: "lapiz_brush::profile",
+        "batch index={} dabs={} dab_tiles={:?} batch_tiles={} accumulator_tiles={} overflow={} input_readback_ms={:.3} eval_cpu_ms={:.3} effect_readback_ms={:.3} main_cpu_ms={:.3}",
+        batch_index,
+        batch_dab_count,
+        batch_dab_tiles,
+        batch_tile_count,
+        accumulator_tiles,
+        is_overflow,
+        input_readback.as_secs_f64() * 1_000.0,
+        effect_timing.eval_cpu.as_secs_f64() * 1_000.0,
+        effect_timing.readback.as_secs_f64() * 1_000.0,
+        effect_timing.main_cpu.as_secs_f64() * 1_000.0,
+    );
     Ok(())
 }
 
-fn run_postprocess(state: &mut BrushEffectState) -> Result<GraphShaderLiteral> {
+fn run_postprocess(
+    state: &mut BrushEffectState,
+    timing: &mut EffectRunTiming,
+) -> Result<GraphShaderLiteral> {
     let accumulator = state
         .accumulator
         .take()
         .context("missing brush accumulator")?;
     let builtins = postprocess_builtins(state, accumulator)?;
-    let mut outputs = state
-        .compiled
-        .postprocess
-        .run(&state.compiled.postprocess_inputs, &builtins)?;
+    let mut outputs = state.compiled.postprocess.run_profiled(
+        &state.compiled.postprocess_inputs,
+        &builtins,
+        timing,
+    )?;
     outputs
         .remove(&state.compiled.postprocess_output)
         .context("postprocess effect did not produce the stroke result")
@@ -651,6 +906,26 @@ struct BrushEffectState {
     queue: Queue,
     target_layer_format: TexelType,
     selection_layer_format: TexelType,
+}
+
+fn log_finished_gpu_profiles(profiler: &mut GpuProfiler, queue: &Queue) {
+    while let Some(results) = profiler.process_finished_frame(queue.get_timestamp_period()) {
+        log_gpu_profile_results(&results);
+    }
+}
+
+fn log_gpu_profile_results(results: &[GpuTimerQueryResult]) {
+    for result in results {
+        if let Some(time) = &result.time {
+            log::info!(
+                target: "lapiz_gpu_profile",
+                "scope={} duration_ms={:.6}",
+                result.label,
+                (time.end - time.start) * 1_000.0
+            );
+        }
+        log_gpu_profile_results(&result.nested_queries);
+    }
 }
 
 fn main_builtins(

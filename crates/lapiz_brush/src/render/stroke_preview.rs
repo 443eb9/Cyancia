@@ -287,34 +287,46 @@ pub fn create_stroke_preview_on_target_with(
     target_layer.get_tile_or_allocate(lapiz_image::tile::GpuTileInfo::NULL.index);
     selection_layer.get_tile_or_allocate(lapiz_image::tile::GpuTileInfo::NULL.index);
 
-    renderer.begin(
+    let worker = renderer.begin(
         device,
         queue,
         target_layer.binding_or_empty(),
         selection_layer.binding_or_empty(),
     );
-
-    let mut render_tasks = Vec::new();
+    renderer.record_raw_inputs(samples.len());
 
     for sample in samples.iter().take(samples.len() - 1) {
         if let Some(pen_input) = input_processor.push(*sample) {
-            render_tasks.push(renderer.update(device, queue, pen_input));
+            renderer.update(pen_input);
         }
     }
 
     for pen_input in input_processor.flush(*samples.last().unwrap()) {
-        render_tasks.push(renderer.update(device, queue, pen_input));
+        renderer.update(pen_input);
     }
 
     let final_result = renderer.end();
     let device = device.clone();
     let queue = queue.clone();
 
-    Ok(Task::batch(render_tasks)
-        .discard()
-        .chain(final_result.map(move |result| {
-            map_result_texture(device.clone(), queue.clone(), width, height, result)
-        })))
+    let texture = final_result.map(move |result| {
+        Some(map_result_texture(
+            device.clone(),
+            queue.clone(),
+            width,
+            height,
+            result,
+        ))
+    });
+    Ok(Task::batch([worker.map(|()| None), texture])
+        .collect()
+        .map(|textures| {
+            textures
+                .into_iter()
+                .flatten()
+                .next()
+                .expect("stroke preview worker produced no texture")
+        }))
 }
 
 fn map_result_texture(
