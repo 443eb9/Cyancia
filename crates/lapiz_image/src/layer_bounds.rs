@@ -5,8 +5,8 @@ use lapiz_render::{
     wesl_jit,
 };
 use wgpu::{
-    BindGroupLayout, BindGroupLayoutDescriptor, Buffer, BufferUsages, CommandEncoder,
-    ComputePassDescriptor, ComputePipeline, ComputePipelineDescriptor, Device,
+    BindGroupLayout, BindGroupLayoutDescriptor, Buffer, BufferDescriptor, BufferUsages,
+    CommandEncoder, ComputePassDescriptor, ComputePipeline, ComputePipelineDescriptor, Device,
     PipelineLayoutDescriptor, Queue, ShaderModuleDescriptor, ShaderSource, ShaderStages,
     StorageTextureAccess,
     util::{BufferInitDescriptor, DeviceExt as _},
@@ -29,6 +29,7 @@ pub struct LayerBoundsPipeline {
     layout: BindGroupLayout,
     pipeline: ComputePipeline,
     scan_pipeline: ScanPixelsPipeline,
+    empty_bounds: Buffer,
 }
 
 impl LayerBoundsPipeline {
@@ -90,18 +91,26 @@ impl LayerBoundsPipeline {
             cache: None,
         });
 
+        let empty_bounds = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("empty layer bounds"),
+            contents: bytemuck::bytes_of(&EMPTY_BOUNDS),
+            usage: BufferUsages::COPY_SRC,
+        });
+
         Self {
             layout,
             pipeline,
             scan_pipeline: ScanPixelsPipeline::new(device, TexelType::A8),
+            empty_bounds,
         }
     }
 
-    pub fn create_result_buffer(&self, device: &Device) -> Buffer {
-        device.create_buffer_init(&BufferInitDescriptor {
+    pub fn create_result_buffer_uninit(&self, device: &Device) -> Buffer {
+        device.create_buffer(&BufferDescriptor {
             label: Some("layer bounds result"),
-            contents: bytemuck::bytes_of(&EMPTY_BOUNDS),
+            size: self.empty_bounds.size(),
             usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         })
     }
 
@@ -113,7 +122,7 @@ impl LayerBoundsPipeline {
         layer: &LayerBinding,
         selection: Option<&LayerBinding>,
     ) -> Buffer {
-        let result_buffer = self.create_result_buffer(device);
+        let result_buffer = self.create_result_buffer_uninit(device);
         self.dispatch_to(device, queue, ec, layer, selection, &result_buffer);
         result_buffer
     }
@@ -127,7 +136,13 @@ impl LayerBoundsPipeline {
         selection: Option<&LayerBinding>,
         result_buffer: &Buffer,
     ) {
-        queue.write_buffer(result_buffer, 0, bytemuck::bytes_of(&EMPTY_BOUNDS));
+        ec.copy_buffer_to_buffer(
+            &self.empty_bounds,
+            0,
+            result_buffer,
+            0,
+            self.empty_bounds.size(),
+        );
         let has_selection = selection.as_ref().map(|selection_binding| {
             self.scan_pipeline
                 .scan_to_binary_buffer(device, queue, selection_binding)

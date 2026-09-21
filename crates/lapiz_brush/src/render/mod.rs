@@ -389,8 +389,8 @@ impl BrushPresetRenderer {
         let has_selection = self
             .scan_pixels
             .scan_to_binary_buffer(device, queue, &selection_layer);
-        let target_layer_bounds = self.target_layer_bounds.create_result_buffer(device);
-        let selection_layer_bounds = self.selection_layer_bounds.create_result_buffer(device);
+        let target_layer_bounds = self.target_layer_bounds.create_result_buffer_uninit(device);
+        let selection_layer_bounds = self.selection_layer_bounds.create_result_buffer_uninit(device);
         let mut encoder = device.create_command_encoder(&Default::default());
         self.target_layer_bounds.dispatch_to(
             device,
