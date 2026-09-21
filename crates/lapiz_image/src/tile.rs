@@ -95,6 +95,9 @@ impl GpuTileStorage {
     }
 
     pub fn pixel_rect_to_tile(pixel_rect: IRect) -> IRect {
+        if pixel_rect.is_empty() {
+            return IRect::EMPTY;
+        }
         IRect {
             min: pixel_rect.min / IVec2::splat(Self::TILE_SIZE as i32),
             max: (pixel_rect.max - 1) / IVec2::splat(Self::TILE_SIZE as i32) + 1,

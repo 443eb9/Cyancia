@@ -2,7 +2,7 @@ use std::{convert::identity, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use bevy_math::{IRect, IVec2, IVec4, Rect};
-use encase::{DynamicUniformBuffer, ShaderType, internal::WriteInto};
+use encase::{DynamicUniformBuffer, ShaderType, StorageBuffer, internal::WriteInto};
 use glam::{Vec2, Vec4};
 use iced_core::Element;
 use iced_widget::{Column, column, row, space};
@@ -28,7 +28,7 @@ use wesl_quote::{quote_declaration, quote_expression, quote_statement};
 use wgpu::{
     Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Device, Extent3d, Queue,
     TextureDescriptor, TextureDimension, TextureUsages, TextureView, TextureViewDescriptor,
-    TextureViewDimension,
+    TextureViewDimension, util::DeviceExt as _,
 };
 
 use super::{
@@ -549,6 +549,8 @@ impl GraphValueType for LayerType {
             usage: TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         });
+        let mut initial_bounds = StorageBuffer::new(Vec::new());
+        initial_bounds.write(&IVec4::new(i32::MAX, i32::MAX, i32::MIN, i32::MIN))?;
         Ok(PreparedLayer {
             storage: DynamicLayerStorage::new(
                 device.clone(),
@@ -558,11 +560,10 @@ impl GraphValueType for LayerType {
                 },
             ),
             pixel_bounds: IRect::EMPTY,
-            bounds: device.create_buffer(&BufferDescriptor {
+            bounds: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("graph layer bounds"),
-                size: 16,
+                contents: initial_bounds.as_ref(),
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
             }),
             dummy_texture: dummy_texture.create_view(&TextureViewDescriptor {
                 dimension: Some(TextureViewDimension::D2Array),

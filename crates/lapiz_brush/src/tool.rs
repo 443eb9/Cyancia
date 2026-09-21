@@ -172,30 +172,25 @@ impl ToolFunction for BrushTool {
         match message {
             BrushToolMessage::StrokePreview(maybe_preview) => {
                 self.preview_ongoing = false;
-                let Some(BrushStrokePreview {
+                if let Some(BrushStrokePreview {
                     stroke_id,
                     canvas_id,
                     target_layer_id,
                     overrider,
                     dirty_tiles,
                 }) = maybe_preview
-                else {
-                    return Task::none();
-                };
-
-                if self.active_stroke_id != Some(stroke_id) {
-                    return Task::none();
+                    && self.active_stroke_id == Some(stroke_id)
+                {
+                    services
+                        .service_mut::<LayerPreviewOverriders>()
+                        .insert_overrider(target_layer_id, overrider);
+                    CanvasUpdated::broadcast(CanvasUpdated {
+                        id: canvas_id,
+                        dirty_tiles,
+                    });
                 }
 
-                services
-                    .service_mut::<LayerPreviewOverriders>()
-                    .insert_overrider(target_layer_id, overrider);
-                CanvasUpdated::broadcast(CanvasUpdated {
-                    id: canvas_id,
-                    dirty_tiles,
-                });
-
-                if !self.request_preview_when_preview_ongoing {
+                if !self.request_preview_when_preview_ongoing || self.active_stroke_id.is_none() {
                     return Task::none();
                 }
 

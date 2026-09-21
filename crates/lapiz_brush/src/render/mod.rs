@@ -16,7 +16,7 @@ use lapiz_image::{
     },
     scan_pixels::ScanPixelsPipeline,
     texel::TexelType,
-    tile::{DynamicLayerStorage, LayerBinding, TileStorageAppExt},
+    tile::{DynamicLayerStorage, GpuTileStorage, LayerBinding, TileStorageAppExt},
 };
 use lapiz_input::mouse::PressedMouseState;
 use lapiz_render::{
@@ -265,14 +265,12 @@ impl CanvasBrushPresetOperator {
         let canvas_id = session.canvas_id;
         let target_layer_id = session.target_layer_id;
         renderer.generate_preview().map(move |result| {
-            result.map(|result| BrushStrokePreview {
+            let result = result.filter(|result| !result.is_empty())?;
+            Some(BrushStrokePreview {
                 stroke_id,
                 canvas_id,
                 target_layer_id,
-                overrider: PixelPreviewOverrider {
-                    texture: result.texture_view().unwrap().clone(),
-                    tile_info_buffer: result.tile_info_buffer().unwrap().clone(),
-                },
+                overrider: PixelPreviewOverrider::from_layer_storage(&result),
                 dirty_tiles: result.compute_tile_bounds(),
             })
         })
@@ -476,8 +474,12 @@ impl BrushPresetRenderer {
             let Some(accumulator) = state.accumulator.as_ref() else {
                 return None;
             };
-            let prepared = accumulator.as_ref::<PreparedLayer>().deep_clone();
             let ty = accumulator.ty().clone();
+            let accumulator = accumulator.as_ref::<PreparedLayer>();
+            if accumulator.pixel_bounds.is_empty() {
+                return None;
+            }
+            let prepared = accumulator.deep_clone();
             let original = state
                 .accumulator
                 .replace(GraphShaderLiteral::new_boxed(Box::new(prepared), ty));
@@ -580,7 +582,9 @@ fn postprocess_builtins(
 ) -> Result<HashMap<String, GraphShaderLiteral>> {
     let mut values = base_builtins(state);
     let stroke_data = StrokePostprocessData {
-        accumulated_pixel_bounds: accumulator.as_ref::<PreparedLayer>().pixel_bounds,
+        accumulated_pixel_bounds: GpuTileStorage::snap_to_tile_grid(
+            accumulator.as_ref::<PreparedLayer>().pixel_bounds,
+        ),
         ..Default::default()
     };
     values.insert(MAIN_ACCUMULATE_BUFFER.into(), accumulator);
