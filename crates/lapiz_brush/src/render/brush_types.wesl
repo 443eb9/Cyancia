@@ -16,6 +16,11 @@ struct OutputSamples {
     samples: array<ComputedPenInput>,
 }
 
+struct PenInputBatch {
+    n_inputs: u32,
+    inputs: array<PenInput>,
+}
+
 struct DabInfos {
     n_dabs: u32,
     buf: array<DabInfo>,

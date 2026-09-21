@@ -11,7 +11,7 @@ use wgpu::{
     ShaderModuleDescriptor, ShaderSource, ShaderStages,
 };
 
-use crate::render::{ComputedPenInput, InputSampler, OutputSamples, PenInput};
+use crate::render::{ComputedPenInput, InputSampler, OutputSamples, PenInputBatch};
 
 pub struct PreparedInputSamplingPipelineData {
     bind_group: BindGroup,
@@ -33,7 +33,7 @@ impl BrushInputSamplingPipeline {
             entries: BindGroupLayoutEntries::sequential(
                 ShaderStages::COMPUTE,
                 (
-                    binding_types::storage_buffer_read_only::<PenInput>(false),
+                    binding_types::storage_buffer_read_only::<PenInputBatch>(false),
                     binding_types::storage_buffer::<InputSampler>(false),
                     binding_types::storage_buffer::<OutputSamples>(false),
                     binding_types::storage_buffer::<ComputedPenInput>(false),
@@ -61,10 +61,10 @@ impl BrushInputSamplingPipeline {
         Self { layout, pipeline }
     }
 
-    pub fn prepare(
+    pub(super) fn prepare(
         &self,
         device: &Device,
-        pen_input: &DynamicBuffer<PenInput>,
+        input_batch: &DynamicBuffer<PenInputBatch>,
         input_sampler: &DynamicBuffer<InputSampler>,
         output_samples: &DynamicBuffer<OutputSamples>,
         initial_pen_input: &DynamicBuffer<ComputedPenInput>,
@@ -73,7 +73,7 @@ impl BrushInputSamplingPipeline {
             label: Some("brush input sampling bind group"),
             layout: &self.layout,
             entries: BindGroupEntries::sequential((
-                pen_input.binding().unwrap(),
+                input_batch.inner_buffer().unwrap().as_entire_binding(),
                 input_sampler.binding().unwrap(),
                 output_samples.inner_buffer().unwrap().as_entire_binding(),
                 initial_pen_input.binding().unwrap(),

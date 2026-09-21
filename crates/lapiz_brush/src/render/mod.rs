@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use bevy_math::IRect;
 use chrono::{DateTime, Utc};
-use encase::{ShaderType, StorageBuffer};
+use encase::{ShaderSize, ShaderType, StorageBuffer};
 use futures::{
     StreamExt,
     channel::{mpsc, oneshot},
@@ -29,13 +29,7 @@ use lapiz_image::{
     tile::{DynamicLayerStorage, LayerBinding, TileStorageAppExt},
 };
 use lapiz_input::mouse::PressedMouseState;
-use lapiz_render::{
-    buffer::DynamicBuffer,
-    readback::{
-        AsyncBufferReadback, create_readback_buffer_and_schedule_copy_buffer,
-        readback_buffer_on_submit_async,
-    },
-};
+use lapiz_render::{buffer::DynamicBuffer, readback::readback_buffer_on_submit_async};
 use lapiz_runtime::Services;
 use lapiz_shader_graph::{
     graph::{
@@ -46,7 +40,10 @@ use lapiz_shader_graph::{
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use wgpu::{Buffer, BufferUsages, ComputePassDescriptor, Device, Features, PollType, Queue};
+use wgpu::{
+    Buffer, BufferDescriptor, BufferUsages, ComputePassDescriptor, Device, Features, PollType,
+    Queue,
+};
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings, GpuTimerQueryResult};
 
 use crate::{
@@ -66,7 +63,8 @@ pub mod graph;
 pub mod pipeline;
 pub mod stroke_preview;
 
-pub const MAX_DABS_PER_STROKE: u32 = 256;
+const MAX_DABS_PER_STROKE: u32 = 256;
+const MAX_INPUTS_PER_SAMPLE_BATCH: usize = 32;
 
 pub struct CanvasBrushStrokeSessionInfo {
     pub stroke_id: u64,
@@ -358,7 +356,7 @@ struct BrushStrokeWorker {
     input_profiler: GpuProfiler,
     profile: Arc<Mutex<BrushStrokeProfile>>,
     resource_group: wgpu::BindGroup,
-    pen_input: DynamicBuffer<PenInput>,
+    input_batch: DynamicBuffer<PenInputBatch>,
     output_samples: DynamicBuffer<OutputSamples>,
     input_sample_prepared: PreparedInputSamplingPipelineData,
 }
@@ -479,19 +477,22 @@ impl BrushPresetRenderer {
             PreparedLayer::from_binding(target_layer.clone(), target_layer_bounds.clone());
         let prepared_selection_layer =
             PreparedLayer::from_binding(selection_layer.clone(), selection_layer_bounds.clone());
-        let mut pen_input = DynamicBuffer::new(Some("pen input".into()), BufferUsages::STORAGE);
-        pen_input.push(&PenInput::default());
-        pen_input.write_buffer(device, queue);
+        let mut input_batch =
+            DynamicBuffer::new(Some("pen input batch".into()), BufferUsages::STORAGE);
+        input_batch.push(&PenInputBatch::new(&[]));
+        input_batch.write_buffer(device, queue);
         let mut output_samples = DynamicBuffer::new(
             Some("output samples".into()),
             BufferUsages::COPY_SRC | BufferUsages::STORAGE,
         );
-        output_samples.push(&OutputSamples::new(MAX_DABS_PER_STROKE));
+        output_samples.push(&OutputSamples::new(
+            MAX_DABS_PER_STROKE * MAX_INPUTS_PER_SAMPLE_BATCH as u32,
+        ));
         output_samples.write_buffer(device, queue);
 
         let input_sample_prepared = self.input_sample.prepare(
             device,
-            &pen_input,
+            &input_batch,
             &input_sampler,
             &output_samples,
             &initial_pen_input,
@@ -540,7 +541,7 @@ impl BrushPresetRenderer {
             input_profiler,
             profile: profile.clone(),
             resource_group,
-            pen_input,
+            input_batch,
             output_samples,
             input_sample_prepared,
         };
@@ -622,8 +623,8 @@ impl BrushStrokeWorker {
                 };
                 match work {
                     StrokeWork::Inputs(inputs) => {
-                        for input in inputs {
-                            if let Err(error) = self.process_input(input).await {
+                        for inputs in inputs.chunks(MAX_INPUTS_PER_SAMPLE_BATCH) {
+                            if let Err(error) = self.process_input_batch(inputs).await {
                                 log::error!("Brush main effects failed: {error:#}");
                             }
                         }
@@ -640,12 +641,12 @@ impl BrushStrokeWorker {
         }
     }
 
-    async fn process_input(&mut self, input: PenInput) -> Result<()> {
+    async fn process_input_batch(&mut self, inputs: &[PenInput]) -> Result<()> {
         let device = self.state.device.clone();
         let queue = self.state.queue.clone();
-        self.pen_input.clear();
-        self.pen_input.push(&input);
-        self.pen_input.write_buffer(&device, &queue);
+        self.input_batch.clear();
+        self.input_batch.push(&PenInputBatch::new(inputs));
+        self.input_batch.write_buffer(&device, &queue);
         let batch_index = {
             let mut profile = self.profile.lock();
             profile.input_batches += 1;
@@ -670,11 +671,21 @@ impl BrushStrokeWorker {
             );
         }
         self.input_profiler.end_query(&mut encoder, query);
-        let staging = create_readback_buffer_and_schedule_copy_buffer(
-            &device,
-            &mut encoder,
-            self.output_samples.inner_buffer().unwrap(),
-        );
+
+        let output_samples = self.output_samples.inner_buffer().unwrap();
+
+        let max_samples = inputs.len() * MAX_DABS_PER_STROKE as usize;
+        // avoid readback dummy samples
+        let readback_size = OutputSamples::min_size().get()
+            + (max_samples as u64 - 1) * ComputedPenInput::SHADER_SIZE.get();
+
+        let staging = device.create_buffer(&BufferDescriptor {
+            label: Some("brush input samples readback"),
+            size: readback_size,
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        encoder.copy_buffer_to_buffer(output_samples, 0, &staging, 0, readback_size);
         let readback =
             readback_buffer_on_submit_async::<OutputSamples, _>(&mut encoder, &staging, ..);
         self.input_profiler.resolve_queries(&mut encoder);
@@ -776,8 +787,9 @@ impl BrushStrokeWorker {
         }
         log::info!(
             target: "lapiz_brush::profile",
-            "batch index={} dabs={} dab_tiles={:?} batch_tiles={} accumulator_tiles={} overflow={} input_readback_ms={:.3} eval_cpu_ms={:.3} effect_readback_ms={:.3} main_cpu_ms={:.3}",
+            "batch index={} inputs={} dabs={} dab_tiles={:?} batch_tiles={} accumulator_tiles={} overflow={} input_readback_ms={:.3} eval_cpu_ms={:.3} effect_readback_ms={:.3} main_cpu_ms={:.3}",
             batch_index,
+            inputs.len(),
             batch_dab_count,
             batch_dab_tiles,
             batch_tile_count,
@@ -788,6 +800,9 @@ impl BrushStrokeWorker {
             effect_timing.readback.as_secs_f64() * 1_000.0,
             effect_timing.main_cpu.as_secs_f64() * 1_000.0,
         );
+        if is_overflow {
+            bail!("brush input sampling batch {batch_index} exceeded its output capacity");
+        }
 
         Ok(())
     }
@@ -999,6 +1014,30 @@ fn prepare_empty_layer(
 ) -> Result<GraphShaderLiteral> {
     let ty = Arc::new(LayerType { texel_type });
     prepared_literal(ty, &LayerReference, device, queue)
+}
+
+#[derive(Clone, Debug, ShaderType)]
+struct PenInputBatch {
+    n_inputs: u32,
+    #[shader(size(runtime))]
+    inputs: Vec<PenInput>,
+}
+
+impl PenInputBatch {
+    fn new(inputs: &[PenInput]) -> Self {
+        assert!(inputs.len() <= MAX_INPUTS_PER_SAMPLE_BATCH);
+        let mut batch = inputs.to_vec();
+        batch.resize(MAX_INPUTS_PER_SAMPLE_BATCH, PenInput::default());
+        Self {
+            n_inputs: inputs.len() as u32,
+            inputs: batch,
+        }
+    }
+}
+
+fn output_samples_size(max_samples: usize) -> u64 {
+    assert!(max_samples > 0);
+    OutputSamples::min_size().get() + (max_samples as u64 - 1) * ComputedPenInput::SHADER_SIZE.get()
 }
 
 #[derive(ShaderType, Debug, Clone)]

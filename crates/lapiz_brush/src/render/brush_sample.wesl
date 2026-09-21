@@ -1,7 +1,7 @@
-import package::brush_types::{PenInput, ComputedPenInput, PenInputSampler, OutputSamples, Time};
+import package::brush_types::{PenInput, PenInputBatch, ComputedPenInput, PenInputSampler, OutputSamples, Time};
 import render::math::{bezier_eval, bezier_tangent_eval, mix_angle};
 
-@group(0) @binding(0) var<storage> new_input: PenInput;
+@group(0) @binding(0) var<storage> input_batch: PenInputBatch;
 @group(0) @binding(1) var<storage, read_write> input_sampler: PenInputSampler;
 @group(0) @binding(2) var<storage, read_write> output_samples: OutputSamples;
 @group(0) @binding(3) var<storage, read_write> initial_pen_input: ComputedPenInput;
@@ -10,8 +10,7 @@ import render::math::{bezier_eval, bezier_tangent_eval, mix_angle};
 
 const BEZIER_SAMPLES: u32 = 32u;
 
-fn compute_required_spacing(graph_input: ComputedPenInput) -> f32 {
-    let brush_sample = graph_input;
+fn compute_required_spacing(brush_sample: ComputedPenInput) -> f32 {
     //CODEGENFLAG_COMPUTED_GRAPH_REQUIRED_SPACING
 }
 
@@ -55,12 +54,7 @@ fn compute_pen_input(last: PenInput, current: PenInput, p0: vec2f, p1: vec2f, p2
     return ComputedPenInput(position, draw_direction_vec, tilt, angle, draw_direction_angle, pressure, dab_index, stroke_distance, time);
 }
 
-@compute
-// TODO: Parallel
-@workgroup_size(1, 1, 1)
-fn main() {
-    output_samples.n_samples = 0;
-
+fn sample_input(new_input: PenInput, max_output_samples: u32) {
     let p0 = input_sampler.last_input.position;
     let p1 = new_input.bezier_control_prev;
     let p2 = new_input.bezier_control_cur;
@@ -103,8 +97,7 @@ fn main() {
     }
 
     var target_arc = input_sampler.distance_to_next_dab;
-    while target_arc <= total_arc && output_samples.n_samples < arrayLength(&output_samples.samples)
-    {
+    while target_arc <= total_arc && output_samples.n_samples < max_output_samples {
         let t = bezier_t_for_arc_length(&arc_table, target_arc);
         let interpolated = compute_pen_input(
             input_sampler.last_input,
@@ -134,10 +127,30 @@ fn main() {
         }
     }
 
+    if target_arc <= total_arc {
+        output_samples.is_overflow = 1u;
+    }
     input_sampler.distance_to_next_dab = target_arc - total_arc;
     input_sampler.stroke_distance += total_arc;
     input_sampler.last_input = new_input;
     if output_samples.n_samples > 0u {
         input_sampler.last_sample = output_samples.samples[output_samples.n_samples - 1u];
+    }
+}
+
+@compute
+@workgroup_size(1, 1, 1)
+fn main() {
+    output_samples.n_samples = 0u;
+    output_samples.is_overflow = 0u;
+
+    let max_output_samples = input_batch.n_inputs
+        * arrayLength(&output_samples.samples)
+        / arrayLength(&input_batch.inputs);
+    for (var i = 0u; i < input_batch.n_inputs; i++) {
+        sample_input(input_batch.inputs[i], max_output_samples);
+        if output_samples.is_overflow != 0u {
+            return;
+        }
     }
 }
