@@ -43,8 +43,8 @@ use crate::{
     instance::{BrushPresetInstance, CompiledBrushPreset},
     render::{
         graph::{
-            BRUSH_SAMPLE_BUILTIN, CANVAS_RESOURCES_BUILTIN, CanvasResources,
-            ComputedPenInputValueType, HAS_SELECTION_BUILTIN, INITIAL_PEN_INPUT_BUILTIN,
+            BACKGROUND_COLOR_BUILTIN, BRUSH_SAMPLE_BUILTIN, ComputedPenInputValueType,
+            FOREGROUND_COLOR_BUILTIN, HAS_SELECTION_BUILTIN, INITIAL_PEN_INPUT_BUILTIN,
             MAIN_ACCUMULATE_BUFFER, SELECTION_BUILTIN, TARGET_LAYER_BUILTIN,
         },
         pipeline::{BrushInputSamplingPipeline, PreparedInputSamplingPipelineData},
@@ -74,7 +74,8 @@ pub struct CanvasBrushPresetOperator {
     renderer: Option<BrushPresetRenderer>,
     session: Option<CanvasBrushStrokeSessionInfo>,
     input_processor: InputProcessor,
-    canvas_resources: DynamicBuffer<CanvasResources>,
+    foreground_color: DynamicBuffer<Vec4>,
+    background_color: DynamicBuffer<Vec4>,
 }
 
 impl CanvasBrushPresetOperator {
@@ -91,8 +92,12 @@ impl CanvasBrushPresetOperator {
             queue,
             session: None,
             input_processor,
-            canvas_resources: DynamicBuffer::new(
-                Some("canvas_resources".into()),
+            foreground_color: DynamicBuffer::new(
+                Some("brush foreground color".into()),
+                BufferUsages::STORAGE,
+            ),
+            background_color: DynamicBuffer::new(
+                Some("brush background color".into()),
                 BufferUsages::STORAGE,
             ),
         }
@@ -140,12 +145,15 @@ impl CanvasBrushPresetOperator {
             .inverse();
         let foreground = services.foreground_color().get().into_rgb(xyz_to_rgb);
         let background = services.background_color().get().into_rgb(xyz_to_rgb);
-        self.canvas_resources.clear();
-        self.canvas_resources.push(&CanvasResources {
-            foreground_color: Vec4::new(foreground.r, foreground.g, foreground.b, 1.0),
-            background_color: Vec4::new(background.r, background.g, background.b, 1.0),
-        });
-        self.canvas_resources
+        self.foreground_color.clear();
+        self.foreground_color
+            .push(&Vec4::new(foreground.r, foreground.g, foreground.b, 1.0));
+        self.foreground_color
+            .write_buffer(&self.device, &self.queue);
+        self.background_color.clear();
+        self.background_color
+            .push(&Vec4::new(background.r, background.g, background.b, 1.0));
+        self.background_color
             .write_buffer(&self.device, &self.queue);
 
         let tiles = services.tile_storage();
@@ -187,7 +195,8 @@ impl CanvasBrushPresetOperator {
                 session.selection_layer_format,
                 &self.device,
                 &self.queue,
-                &self.canvas_resources,
+                &self.foreground_color,
+                &self.background_color,
             ));
         }
         let renderer = self.renderer.as_mut().unwrap();
@@ -315,7 +324,8 @@ impl BrushPresetRenderer {
         selection_layer_format: TexelType,
         device: &Device,
         queue: &Queue,
-        canvas_resources: &DynamicBuffer<CanvasResources>,
+        foreground_color: &DynamicBuffer<Vec4>,
+        background_color: &DynamicBuffer<Vec4>,
     ) -> Self {
         let resources = StrokeResources::new(
             device,
@@ -323,7 +333,8 @@ impl BrushPresetRenderer {
             &brush,
             target_layer_format,
             selection_layer_format,
-            canvas_resources,
+            foreground_color,
+            background_color,
         );
         let input_sample = BrushInputSamplingPipeline::new(
             device,
@@ -385,7 +396,8 @@ impl BrushPresetRenderer {
         let resource_group = self.resources.resource_bind_group(
             device,
             &BuiltinHostValues {
-                canvas_resources: &self.resources.canvas_resources,
+                foreground_color: &self.resources.foreground_color,
+                background_color: &self.resources.background_color,
                 has_selection: &has_selection,
                 selection: &selection_layer,
                 target_layer: &target_layer,
@@ -402,7 +414,8 @@ impl BrushPresetRenderer {
                 target_layer,
                 selection_layer,
                 has_selection,
-                canvas_resources: self.resources.canvas_resources.clone(),
+                foreground_color: self.resources.foreground_color.clone(),
+                background_color: self.resources.background_color.clone(),
                 accumulator: Some(empty_accumulator),
                 initial_sample: None,
                 device: device.clone(),
@@ -538,7 +551,8 @@ struct BrushEffectState {
     target_layer: LayerBinding,
     selection_layer: LayerBinding,
     has_selection: Buffer,
-    canvas_resources: Buffer,
+    foreground_color: Buffer,
+    background_color: Buffer,
     accumulator: Option<GraphShaderLiteral>,
     initial_sample: Option<ComputedPenInput>,
     device: Device,
@@ -590,7 +604,8 @@ fn base_builtins(state: &BrushEffectState) -> HashMap<String, GraphShaderLiteral
     for (name, ty) in types {
         let value: Box<dyn lapiz_shader_graph::graph::variable::GraphShaderLiteralValue> =
             match name.as_str() {
-                CANVAS_RESOURCES_BUILTIN => Box::new(state.canvas_resources.clone()),
+                FOREGROUND_COLOR_BUILTIN => Box::new(state.foreground_color.clone()),
+                BACKGROUND_COLOR_BUILTIN => Box::new(state.background_color.clone()),
                 HAS_SELECTION_BUILTIN => Box::new(state.has_selection.clone()),
                 SELECTION_BUILTIN => Box::new(state.selection_layer.clone()),
                 TARGET_LAYER_BUILTIN => Box::new(state.target_layer.clone()),
@@ -680,7 +695,8 @@ pub struct Time {
 }
 
 pub struct BuiltinHostValues<'a> {
-    pub canvas_resources: &'a Buffer,
+    pub foreground_color: &'a Buffer,
+    pub background_color: &'a Buffer,
     pub has_selection: &'a Buffer,
     pub selection: &'a LayerBinding,
     pub target_layer: &'a LayerBinding,
@@ -691,7 +707,8 @@ pub struct StrokeResources {
     builtin_types: std::collections::BTreeMap<String, Arc<dyn ErasedGraphValueType>>,
     parameters: Arc<[lapiz_shader_graph::graph::variable::GraphLiteral]>,
     prepared_parameters: Vec<Box<dyn lapiz_shader_graph::graph::variable::GraphShaderLiteralValue>>,
-    canvas_resources: Buffer,
+    foreground_color: Buffer,
+    background_color: Buffer,
     target_layer_format: TexelType,
     selection_layer_format: TexelType,
 }
@@ -703,7 +720,8 @@ impl StrokeResources {
         brush: &CompiledBrushPreset,
         target_layer_format: TexelType,
         selection_layer_format: TexelType,
-        canvas_resources: &DynamicBuffer<CanvasResources>,
+        foreground_color: &DynamicBuffer<Vec4>,
+        background_color: &DynamicBuffer<Vec4>,
     ) -> Self {
         let prepared_parameters = brush
             .spacing_parameters
@@ -723,7 +741,8 @@ impl StrokeResources {
             builtin_types: brush.spacing_builtin_types.clone(),
             parameters: brush.spacing_parameters.clone(),
             prepared_parameters,
-            canvas_resources: canvas_resources.inner_buffer().unwrap().clone(),
+            foreground_color: foreground_color.inner_buffer().unwrap().clone(),
+            background_color: background_color.inner_buffer().unwrap().clone(),
             target_layer_format,
             selection_layer_format,
         }
@@ -739,7 +758,8 @@ impl StrokeResources {
         for (name, ty) in &self.builtin_types {
             let value: &dyn lapiz_shader_graph::graph::variable::GraphShaderLiteralValue =
                 match name.as_str() {
-                    CANVAS_RESOURCES_BUILTIN => builtins.canvas_resources,
+                    FOREGROUND_COLOR_BUILTIN => builtins.foreground_color,
+                    BACKGROUND_COLOR_BUILTIN => builtins.background_color,
                     HAS_SELECTION_BUILTIN => builtins.has_selection,
                     SELECTION_BUILTIN => builtins.selection,
                     TARGET_LAYER_BUILTIN => builtins.target_layer,

@@ -245,14 +245,23 @@ pub fn create_stroke_preview_on_target_with(
         },
     );
 
-    let canvas_resources = {
-        let mut b = DynamicBuffer::new(
-            Some("canvas_resources_buffer".into()),
+    let foreground_color = {
+        let mut buffer = DynamicBuffer::new(
+            Some("brush preview foreground color".into()),
             BufferUsages::STORAGE,
         );
-        b.push(canvas_resources);
-        b.write_buffer(device, queue);
-        b
+        buffer.push(&canvas_resources.foreground_color);
+        buffer.write_buffer(device, queue);
+        buffer
+    };
+    let background_color = {
+        let mut buffer = DynamicBuffer::new(
+            Some("brush preview background color".into()),
+            BufferUsages::STORAGE,
+        );
+        buffer.push(&canvas_resources.background_color);
+        buffer.write_buffer(device, queue);
+        buffer
     };
 
     let compiled = brush.compile(
@@ -267,7 +276,8 @@ pub fn create_stroke_preview_on_target_with(
         selection_layer.layer_info().texel_type,
         device,
         queue,
-        &canvas_resources,
+        &foreground_color,
+        &background_color,
     );
 
     let mut input_processor = InputProcessor::new(256, Box::new(BasicStabilizer));

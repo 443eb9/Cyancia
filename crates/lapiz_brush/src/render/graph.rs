@@ -1,7 +1,6 @@
 use std::sync::{Arc, LazyLock};
 
 use anyhow::{Result, bail};
-use encase::ShaderType;
 use glam::Vec4;
 use iced_core::widget::Void;
 use lapiz_effect::nodes::effect_nodes;
@@ -34,8 +33,7 @@ use serde::{Deserialize, Serialize};
 use wesl::syntax::Expression;
 use wgpu::util::DeviceExt as _;
 
-// TODO We may move to another crate.
-#[derive(Debug, Default, Clone, ShaderType, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct CanvasResources {
     pub foreground_color: Vec4,
     pub background_color: Vec4,
@@ -45,124 +43,13 @@ pub const SPACING_OUTPUT: &str = "spacing";
 pub const MAIN_ACCUMULATE_BUFFER: &str = "main_accumulate";
 pub const STROKE_RESULT: &str = "stroke_result";
 
-pub const CANVAS_RESOURCES_BUILTIN: &str = "canvas_resources";
+pub const FOREGROUND_COLOR_BUILTIN: &str = "foreground_color";
+pub const BACKGROUND_COLOR_BUILTIN: &str = "background_color";
 pub const TARGET_LAYER_BUILTIN: &str = "target_layer";
 pub const SELECTION_BUILTIN: &str = "selection";
 pub const HAS_SELECTION_BUILTIN: &str = "has_selection";
 pub const BRUSH_SAMPLE_BUILTIN: &str = "brush_sample";
 pub const INITIAL_PEN_INPUT_BUILTIN: &str = "initial_pen_input";
-
-#[derive(Default, Clone)]
-pub struct CanvasResourcesValueType;
-
-impl GraphValueType for CanvasResourcesValueType {
-    type AssociatedLiteralType = CanvasResources;
-    type PreparedShaderType = wgpu::Buffer;
-    type Message = ();
-
-    fn id(&self) -> GraphValueTypeId {
-        GraphValueTypeId::new("brush_canvas_resources")
-    }
-
-    fn push_shader_layout(
-        &self,
-        name: &str,
-        stage: GraphShaderStage,
-        group: u32,
-        binding: u32,
-        bindings: DynamicBindGroupLayoutEntries,
-        mut shader: String,
-    ) -> Result<(u32, DynamicBindGroupLayoutEntries, String)> {
-        if stage != GraphShaderStage::Input {
-            bail!("canvas resources can only be a shader input");
-        }
-        if !shader.contains("struct CanvasResources") {
-            shader.push_str(
-                "struct CanvasResources { foreground_color: vec4f, background_color: vec4f }\n",
-            );
-        }
-        shader.push_str(&format!(
-            "@group({group}) @binding({binding}) var<storage, read> {name}: CanvasResources;\n"
-        ));
-        let bindings = bindings.extend_with_indices(((
-            binding,
-            lapiz_render::bind_group_layout_entries::binding_types::storage_buffer_read_only_sized(
-                false, None,
-            ),
-        ),));
-        Ok((binding + 1, bindings, shader))
-    }
-
-    fn push_shader_binding<'a>(
-        &self,
-        _stage: GraphShaderStage,
-        value: &'a wgpu::Buffer,
-        binding: u32,
-        bindings: DynamicBindGroupEntries<'a>,
-    ) -> Result<(u32, DynamicBindGroupEntries<'a>)> {
-        let bindings = bindings.extend_with_indices(((binding, value.as_entire_binding()),));
-        Ok((binding + 1, bindings))
-    }
-
-    fn prepare_to_shader(
-        &self,
-        data: &CanvasResources,
-        device: &wgpu::Device,
-        _queue: &wgpu::Queue,
-    ) -> Result<wgpu::Buffer> {
-        let mut storage = encase::StorageBuffer::new(Vec::new());
-        storage.write(data)?;
-        Ok(
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("brush canvas resources buffer"),
-                contents: storage.as_ref(),
-                usage: wgpu::BufferUsages::STORAGE,
-            }),
-        )
-    }
-
-    fn default_literal(&self) -> CanvasResources {
-        CanvasResources::default()
-    }
-
-    fn wgsl_type_name(&self) -> Option<&'static str> {
-        Some("CanvasResources")
-    }
-
-    fn hue_chroma(&self) -> (f32, f32) {
-        random_oklch_hue_chroma!(CanvasResourcesValueType)
-    }
-
-    fn view_literal(
-        &self,
-        _data: &CanvasResources,
-        _assets: &lapiz_assets::store::AssetRegistry,
-    ) -> GraphElement<'static, Self::Message> {
-        Void.into()
-    }
-
-    fn update_literal(&self, _data: &mut CanvasResources, _message: Self::Message) {}
-
-    fn literal_to_code(&self, _data: &CanvasResources) -> Option<Expression> {
-        None
-    }
-
-    fn serialize_literal(
-        &self,
-        data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
-    ) -> Result<toml::Value> {
-        Ok(toml::Value::try_from(data)?)
-    }
-
-    fn deserialize_literal(
-        &self,
-        value: toml::Value,
-        _assets: &lapiz_assets::store::AssetRegistry,
-    ) -> Result<Self::AssociatedLiteralType> {
-        Ok(Self::AssociatedLiteralType::deserialize(value)?)
-    }
-}
 
 // A canvas layer bound as read-only storage texture pairs (packed texel
 // texture + tile info buffer). Hosts inject the actual LayerBinding.
@@ -1488,10 +1375,7 @@ impl StatelessCommonGraphNode for ForegroundColorNode {
         &self,
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
-        Ok(format!(
-            "let {} = canvas_resources.foreground_color;\n",
-            ctx.get_output(0)?
-        ))
+        Ok(format!("let {} = foreground_color;\n", ctx.get_output(0)?))
     }
 }
 
@@ -1520,10 +1404,7 @@ impl StatelessCommonGraphNode for BackgroundColorNode {
         &self,
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
-        Ok(format!(
-            "let {} = canvas_resources.background_color;\n",
-            ctx.get_output(0)?
-        ))
+        Ok(format!("let {} = background_color;\n", ctx.get_output(0)?))
     }
 }
 
@@ -1532,7 +1413,6 @@ pub static BRUSH_GRAPH_TYPES: LazyLock<Arc<GraphTypeRegistry>> =
 
 fn brush_graph_types() -> GraphTypeRegistry {
     let mut types = lapiz_shader_graph::wgsl_std::builtin_types();
-    types.register_type::<CanvasResourcesValueType>();
     types.register_type::<ComputedPenInputValueType>();
     types
 }
@@ -1615,9 +1495,12 @@ pub fn brush_builtin_types(
 > {
     std::collections::BTreeMap::from([
         (
-            CANVAS_RESOURCES_BUILTIN.to_string(),
-            Arc::new(CanvasResourcesValueType)
-                as Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType>,
+            FOREGROUND_COLOR_BUILTIN.to_string(),
+            Arc::new(ColorType) as Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType>,
+        ),
+        (
+            BACKGROUND_COLOR_BUILTIN.to_string(),
+            Arc::new(ColorType) as Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType>,
         ),
         (
             HAS_SELECTION_BUILTIN.to_string(),
