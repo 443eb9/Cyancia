@@ -675,21 +675,121 @@ impl BrushStrokeWorker {
             &mut encoder,
             self.output_samples.inner_buffer().unwrap(),
         );
-        let readback = readback_buffer_on_submit_async(&mut encoder, &staging, ..);
+        let readback =
+            readback_buffer_on_submit_async::<OutputSamples, _>(&mut encoder, &staging, ..);
         self.input_profiler.resolve_queries(&mut encoder);
         let readback_started = Instant::now();
         queue.submit([encoder.finish()]);
         self.input_profiler
             .end_frame()
             .expect("brush input GPU profile frame must be complete");
-        run_main_effects(
-            &mut self.state,
-            &self.profile,
+
+        let samples = readback.into_inner().await??;
+        let input_readback = readback_started.elapsed();
+        let batch_dab_count = samples.n_samples as usize;
+        let is_overflow = samples.is_overflow != 0;
+        let mut batch_dab_tiles = Vec::with_capacity(batch_dab_count);
+        let mut effect_timing = EffectRunTiming::default();
+        for sample in samples.samples.into_iter().take(batch_dab_count) {
+            if self.state.initial_sample.is_none() {
+                self.state.initial_sample = Some(sample);
+            }
+            let accumulator = self
+                .state
+                .accumulator
+                .take()
+                .context("missing brush accumulator")?;
+            let mut builtins = main_builtins(&self.state, sample, accumulator)?;
+            let mut outputs = self
+                .state
+                .compiled
+                .main
+                .run_profiled(
+                    &self.state.compiled.main_inputs,
+                    &builtins,
+                    &mut effect_timing,
+                )
+                .context("main brush effect failed")?;
+            let dab = outputs
+                .remove(&self.state.compiled.main_dab_output)
+                .context("main effect did not produce its accumulation output")?;
+            let mut accumulator = builtins
+                .remove(MAIN_ACCUMULATE_BUFFER)
+                .context("main effect builtins lost the brush accumulator")?;
+
+            let dab = dab.downcast::<PreparedLayer>();
+            let dab_bounds = dab.pixel_bounds.context("brush dab bounds are unknown")?;
+            let PreparedLayerPixels::ReadWrite {
+                storage: dab_storage,
+                ..
+            } = dab.pixels
+            else {
+                bail!("brush main effect returned a read-only layer");
+            };
+            batch_dab_tiles.push(dab_storage.len());
+
+            {
+                let accumulator = accumulator
+                    .try_as_mut::<PreparedLayer>()
+                    .context("brush accumulator is not a layer")?;
+                let PreparedLayerPixels::ReadWrite { storage, .. } = &mut accumulator.pixels else {
+                    bail!("brush accumulator is read-only");
+                };
+                storage.copy_pixels_from(&dab_storage, dab_bounds);
+                let bounds = accumulator
+                    .pixel_bounds
+                    .unwrap_or(IRect::EMPTY)
+                    .union(dab_bounds);
+                accumulator.pixel_bounds = Some(bounds);
+                let mut encoded = StorageBuffer::new(Vec::new());
+                encoded.write(&IVec4::new(
+                    bounds.min.x,
+                    bounds.min.y,
+                    bounds.max.x,
+                    bounds.max.y,
+                ))?;
+                self.state
+                    .queue
+                    .write_buffer(&accumulator.bounds, 0, encoded.as_ref());
+            }
+
+            self.state.accumulator = Some(accumulator);
+        }
+
+        let accumulator_tiles = self
+            .state
+            .accumulator
+            .as_ref()
+            .and_then(|literal| literal.try_as_ref::<PreparedLayer>())
+            .and_then(|layer| match &layer.pixels {
+                PreparedLayerPixels::ReadWrite { storage, .. } => Some(storage.len()),
+                PreparedLayerPixels::ReadOnly(_) => None,
+            })
+            .unwrap_or(0);
+        let batch_tile_count = batch_dab_tiles.iter().sum::<usize>();
+        {
+            let mut profile = self.profile.lock();
+            profile.dabs += batch_dab_count as u64;
+            profile.dab_tiles += batch_tile_count as u64;
+            profile.input_readback += input_readback;
+            profile.record_main_effect(effect_timing);
+        }
+        log::info!(
+            target: "lapiz_brush::profile",
+            "batch index={} dabs={} dab_tiles={:?} batch_tiles={} accumulator_tiles={} overflow={} input_readback_ms={:.3} eval_cpu_ms={:.3} effect_readback_ms={:.3} main_cpu_ms={:.3}",
             batch_index,
-            readback_started,
-            readback,
-        )
-        .await
+            batch_dab_count,
+            batch_dab_tiles,
+            batch_tile_count,
+            accumulator_tiles,
+            is_overflow,
+            input_readback.as_secs_f64() * 1_000.0,
+            effect_timing.eval_cpu.as_secs_f64() * 1_000.0,
+            effect_timing.readback.as_secs_f64() * 1_000.0,
+            effect_timing.main_cpu.as_secs_f64() * 1_000.0,
+        );
+
+        Ok(())
     }
 
     fn generate_preview(&mut self) -> Option<DynamicLayerStorage> {
@@ -763,113 +863,6 @@ impl BrushStrokeWorker {
         };
         storage
     }
-}
-
-async fn run_main_effects(
-    state: &mut BrushEffectState,
-    profile: &Arc<Mutex<BrushStrokeProfile>>,
-    batch_index: u64,
-    readback_started: Instant,
-    readback: AsyncBufferReadback<OutputSamples>,
-) -> Result<()> {
-    let samples = readback.into_inner().await??;
-    let input_readback = readback_started.elapsed();
-    let batch_dab_count = samples.n_samples as usize;
-    let is_overflow = samples.is_overflow != 0;
-    let mut batch_dab_tiles = Vec::with_capacity(batch_dab_count);
-    let mut effect_timing = EffectRunTiming::default();
-    for sample in samples.samples.into_iter().take(batch_dab_count) {
-        if state.initial_sample.is_none() {
-            state.initial_sample = Some(sample);
-        }
-        let accumulator = state
-            .accumulator
-            .take()
-            .context("missing brush accumulator")?;
-        let mut builtins = main_builtins(state, sample, accumulator)?;
-        let mut outputs = state
-            .compiled
-            .main
-            .run_profiled(&state.compiled.main_inputs, &builtins, &mut effect_timing)
-            .context("main brush effect failed")?;
-        let dab = outputs
-            .remove(&state.compiled.main_dab_output)
-            .context("main effect did not produce its accumulation output")?;
-        let mut accumulator = builtins
-            .remove(MAIN_ACCUMULATE_BUFFER)
-            .context("main effect builtins lost the brush accumulator")?;
-
-        let dab = dab.downcast::<PreparedLayer>();
-        let dab_bounds = dab.pixel_bounds.context("brush dab bounds are unknown")?;
-        let PreparedLayerPixels::ReadWrite {
-            storage: dab_storage,
-            ..
-        } = dab.pixels
-        else {
-            bail!("brush main effect returned a read-only layer");
-        };
-        batch_dab_tiles.push(dab_storage.len());
-
-        {
-            let accumulator = accumulator
-                .try_as_mut::<PreparedLayer>()
-                .context("brush accumulator is not a layer")?;
-            let PreparedLayerPixels::ReadWrite { storage, .. } = &mut accumulator.pixels else {
-                bail!("brush accumulator is read-only");
-            };
-            storage.copy_pixels_from(&dab_storage, dab_bounds);
-            let bounds = accumulator
-                .pixel_bounds
-                .unwrap_or(IRect::EMPTY)
-                .union(dab_bounds);
-            accumulator.pixel_bounds = Some(bounds);
-            let mut encoded = StorageBuffer::new(Vec::new());
-            encoded.write(&IVec4::new(
-                bounds.min.x,
-                bounds.min.y,
-                bounds.max.x,
-                bounds.max.y,
-            ))?;
-            state
-                .queue
-                .write_buffer(&accumulator.bounds, 0, encoded.as_ref());
-        }
-
-        state.accumulator = Some(accumulator);
-    }
-
-    let accumulator_tiles = state
-        .accumulator
-        .as_ref()
-        .and_then(|literal| literal.try_as_ref::<PreparedLayer>())
-        .and_then(|layer| match &layer.pixels {
-            PreparedLayerPixels::ReadWrite { storage, .. } => Some(storage.len()),
-            PreparedLayerPixels::ReadOnly(_) => None,
-        })
-        .unwrap_or(0);
-    let batch_tile_count = batch_dab_tiles.iter().sum::<usize>();
-    {
-        let mut profile = profile.lock();
-        profile.dabs += batch_dab_count as u64;
-        profile.dab_tiles += batch_tile_count as u64;
-        profile.input_readback += input_readback;
-        profile.record_main_effect(effect_timing);
-    }
-    log::info!(
-        target: "lapiz_brush::profile",
-        "batch index={} dabs={} dab_tiles={:?} batch_tiles={} accumulator_tiles={} overflow={} input_readback_ms={:.3} eval_cpu_ms={:.3} effect_readback_ms={:.3} main_cpu_ms={:.3}",
-        batch_index,
-        batch_dab_count,
-        batch_dab_tiles,
-        batch_tile_count,
-        accumulator_tiles,
-        is_overflow,
-        input_readback.as_secs_f64() * 1_000.0,
-        effect_timing.eval_cpu.as_secs_f64() * 1_000.0,
-        effect_timing.readback.as_secs_f64() * 1_000.0,
-        effect_timing.main_cpu.as_secs_f64() * 1_000.0,
-    );
-    Ok(())
 }
 
 fn run_postprocess(
