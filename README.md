@@ -21,12 +21,11 @@ This project uses [just](https://just.systems/) as the build system.
 just setup # setup all required tools
 
 just build dev # or: just build release
-just run dev # or: just run release
+just run dev # or: just run release/dev-local
 just package dev # or: just package release
 
-just check
-just check-deny
-just check-reuse
+just fmt # format the code
+just check # run fmt check, clippy, and custom lint xtasks
 ```
 
 ## LLM Assisted Contributions

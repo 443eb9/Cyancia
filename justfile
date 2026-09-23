@@ -115,7 +115,7 @@ test-wgsl:
 
 setup-for-check: setup-rust setup-format setup-deny setup-reuse setup-linux
 
-check: check-fmt check-clippy check-deny check-reuse
+check: check-fmt check-clippy check-deny check-reuse check-import-alias check-let-type-annotation
 
 check-fmt:
     cargo +{{ nightly }} fmt --all -- --check
@@ -123,6 +123,14 @@ check-fmt:
 
 check-clippy:
     cargo clippy --workspace --all-targets --locked -- -D warnings
+
+# TODO: Remove this when clippy supports.
+check-import-alias:
+    cargo run --locked --quiet -p xtask -- import-alias-check
+
+# TODO: Remove this when clippy supports;
+check-let-type-annotation:
+    cargo run --locked --quiet -p xtask -- let-type-annotation-check
 
 check-deny:
     cargo deny check advisories bans licenses sources

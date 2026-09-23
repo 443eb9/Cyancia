@@ -1,0 +1,4 @@
+absolute-paths-allowed-crates = []
+absolute-paths-max-segments = 1
+allowed-wildcard-imports = []
+too-many-arguments-threshold = 5
