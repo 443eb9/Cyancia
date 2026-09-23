@@ -8,7 +8,7 @@ use iced_widget::shader;
 use lapiz_render::{
     bind_group_layout_entries::{BindGroupLayoutEntries, binding_types},
     buffer::DynamicBuffer,
-    render_context::RenderContextAppExt,
+    render_context::RenderContextAppExt as _,
 };
 use lapiz_runtime::Services;
 use moxcms::ColorProfile;

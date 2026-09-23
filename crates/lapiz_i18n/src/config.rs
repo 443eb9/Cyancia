@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::str::FromStr as _;
 
 use lapiz_config::{Config, Configuration};
 use serde::{Deserialize, Serialize};

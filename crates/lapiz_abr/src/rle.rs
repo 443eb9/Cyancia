@@ -1,6 +1,6 @@
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context as _, Result, ensure};
 
-use crate::Cursor;
+use crate::cursor::Cursor;
 
 pub(crate) fn decode(
     cursor: &mut Cursor<'_>,

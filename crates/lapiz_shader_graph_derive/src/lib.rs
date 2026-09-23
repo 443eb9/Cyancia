@@ -1,5 +1,4 @@
 use proc_macro::TokenStream;
-use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{ItemImpl, parse_macro_input};
 
@@ -19,7 +18,10 @@ pub fn stateless(_attr: TokenStream, item: TokenStream) -> TokenStream {
     .into()
 }
 
-fn generate_graph_node_impl(impl_block: &ItemImpl, crate_path: &TokenStream2) -> TokenStream2 {
+fn generate_graph_node_impl(
+    impl_block: &ItemImpl,
+    crate_path: &proc_macro2::TokenStream,
+) -> proc_macro2::TokenStream {
     let self_ty = &impl_block.self_ty;
     let generics = &impl_block.generics;
     let (impl_generics, _, where_clause) = generics.split_for_impl();

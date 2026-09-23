@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context as _, Result, bail, ensure};
 use image::{DynamicImage, ImageBuffer, Luma, Rgb, Rgba};
 use uuid::Uuid;
 

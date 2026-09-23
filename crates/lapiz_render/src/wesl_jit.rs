@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::str::FromStr as _;
 
 use anyhow::Result;
 use wesl::{CodegenModule, CodegenPkg, ModulePath, VirtualResolver, Wesl, syntax::PathOrigin};

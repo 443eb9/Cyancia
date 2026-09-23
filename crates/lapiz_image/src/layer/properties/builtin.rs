@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     blend_modes::BlendMode,
-    composite::{BlendFunction, BlendFunctionId},
+    composite::{BlendFunction as _, BlendFunctionId},
     layer::properties::{LayerProperties, LayerProperty},
     texel::TexelType,
 };

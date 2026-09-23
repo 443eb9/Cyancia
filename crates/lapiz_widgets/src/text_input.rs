@@ -2,10 +2,10 @@ use iced_core::{
     Background, Border, Element, Length, Padding, Pixels, Rectangle, Theme, alignment,
     widget::{
         Id,
-        operation::{Focusable, Operation, TextInput as TextInputOp},
+        operation::{self, Focusable, Operation},
     },
 };
-pub use iced_widget::text_input::{Catalog, Status, Style, StyleFn};
+use iced_widget::text_input::{Catalog, Status, Style};
 use lapiz_runtime::Renderer;
 
 pub fn is_focused(apply: impl FnOnce(&mut dyn Operation)) -> bool {
@@ -42,7 +42,7 @@ pub fn focus_and_select_all(apply: impl FnOnce(&mut dyn Operation)) {
             &mut self,
             _id: Option<&Id>,
             _bounds: Rectangle,
-            state: &mut dyn TextInputOp,
+            state: &mut dyn operation::TextInput,
         ) {
             state.select_all();
         }

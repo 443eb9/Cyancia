@@ -8,7 +8,7 @@ use std::{
 use anyhow::Result;
 use bevy_math::IRect;
 use glam::{IVec2, UVec2};
-use imagers::{ImageDecoder, ImageReader};
+use imagers::{ImageDecoder as _, ImageReader};
 use lapiz_i18n::t;
 use lapiz_runtime::{Application, plugin::Plugin};
 use moxcms::ColorProfile;
@@ -20,7 +20,8 @@ use crate::{
     composite::{BlendFunctionRegistry, LayerPreviewOverriders},
     layer::{
         LayerId, LayerNameGenerator, LayerStack, LayerStackNode, LayerTypeRegistry, SpecialLayers,
-        group_layer::GroupLayer, pixel_layer::PixelLayer, properties::NamePropertyExt,
+        group_layer::GroupLayer, pixel_layer::PixelLayer,
+        properties::builtin::NamePropertyExt as _,
     },
     texel::TexelType,
     tile::GpuTileStorage,

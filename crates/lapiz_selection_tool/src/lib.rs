@@ -1,5 +1,5 @@
 use lapiz_runtime::{Application, plugin::Plugin};
-use lapiz_tools::ToolsAppExt;
+use lapiz_tools::ToolsAppExt as _;
 
 use crate::{
     freehand::{FreehandSelectionTool, PolygonSelectionTool},

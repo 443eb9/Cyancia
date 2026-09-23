@@ -6,8 +6,8 @@ use std::{
 
 use bevy_color::{Oklcha, Srgba};
 use iced_core::{
-    Background, Border, Color, Element, Event, Layout, Length, Point, Shell, Size, Transformation,
-    Vector,
+    Background, Border, Color, Element, Event, Layout, Length, Point, Renderer as _, Shell, Size,
+    Transformation, Vector,
     alignment::Vertical,
     gradient::ColorStop,
     keyboard::{self, key},
@@ -18,11 +18,11 @@ use iced_core::{
         mouse::{self, Interaction},
     },
     renderer::{self, Quad},
-    theme::{Base, Mode},
+    theme::{Base as _, Mode},
     widget::{Operation, Tree, tree},
 };
 use iced_graphics::{
-    geometry::{self, Frame, Stroke},
+    geometry::{self, Frame, Renderer as _, Stroke},
     gradient::Linear,
 };
 use iced_widget::{
@@ -553,7 +553,6 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
         shell.merge(children_shell, |m| m);
 
         if shell.is_event_captured() {
-            dbg!();
             return;
         }
 
@@ -955,17 +954,13 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
         let inverse_view_transformation = view_transformation.inverse();
         let graph_cursor = cursor * inverse_view_transformation;
         let graph_viewport = *viewport * inverse_view_transformation;
-        {
-            use iced_core::Renderer;
-
-            renderer.fill_quad(
-                Quad {
-                    bounds: layout.bounds(),
-                    ..Default::default()
-                },
-                theme.palette().background.base.color,
-            );
-        }
+        renderer.fill_quad(
+            Quad {
+                bounds: layout.bounds(),
+                ..Default::default()
+            },
+            theme.palette().background.base.color,
+        );
 
         let mut frame = Frame::with_bounds(renderer, graph_viewport);
         {
@@ -1051,80 +1046,72 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
             }
         }
 
-        {
-            use iced_core::Renderer;
-
-            renderer.with_layer(layout.bounds(), |renderer| {
-                renderer.with_transformation(view_transformation, |renderer| {
-                    use iced_graphics::geometry::Renderer;
-                    renderer.draw_geometry(frame.into_geometry());
-                });
+        renderer.with_layer(layout.bounds(), |renderer| {
+            renderer.with_transformation(view_transformation, |renderer| {
+                renderer.draw_geometry(frame.into_geometry());
             });
-        }
+        });
 
-        {
-            use iced_core::Renderer;
-            renderer.with_layer(layout.bounds(), |renderer| {
-                renderer.with_transformation(view_transformation, |renderer| {
-                    for ((child, node_tree), node_layout) in self
-                        .graph
-                        .nodes
-                        .values()
-                        .zip(&tree.children)
-                        .zip(layout.children())
-                        .filter(|(_, layout)| layout.bounds().intersects(&graph_viewport))
-                    {
-                        let node_bounds = node_layout.bounds();
-                        let selected = state.selected_nodes.contains(&child.node_id);
-                        let shadow_offset = if selected { 4.0 } else { 3.0 };
-                        let shadow_alpha = if selected { 0.28 } else { 0.2 };
+        renderer.with_layer(layout.bounds(), |renderer| {
+            renderer.with_transformation(view_transformation, |renderer| {
+                for ((child, node_tree), node_layout) in self
+                    .graph
+                    .nodes
+                    .values()
+                    .zip(&tree.children)
+                    .zip(layout.children())
+                    .filter(|(_, layout)| layout.bounds().intersects(&graph_viewport))
+                {
+                    let node_bounds = node_layout.bounds();
+                    let selected = state.selected_nodes.contains(&child.node_id);
+                    let shadow_offset = if selected { 4.0 } else { 3.0 };
+                    let shadow_alpha = if selected { 0.28 } else { 0.2 };
+                    renderer.fill_quad(
+                        Quad {
+                            bounds: Rectangle::new(
+                                Point::new(
+                                    node_bounds.x + shadow_offset,
+                                    node_bounds.y + shadow_offset,
+                                ),
+                                node_bounds.size(),
+                            ),
+                            ..Default::default()
+                        },
+                        Color::BLACK.scale_alpha(shadow_alpha),
+                    );
+                    if selected {
                         renderer.fill_quad(
                             Quad {
-                                bounds: Rectangle::new(
-                                    Point::new(
-                                        node_bounds.x + shadow_offset,
-                                        node_bounds.y + shadow_offset,
-                                    ),
-                                    node_bounds.size(),
-                                ),
+                                bounds: node_bounds.expand(2.0),
+                                border: Border::default()
+                                    .width(2.0)
+                                    .color(theme.palette().primary.base.color),
                                 ..Default::default()
                             },
-                            Color::BLACK.scale_alpha(shadow_alpha),
+                            Color::TRANSPARENT,
                         );
-                        if selected {
-                            renderer.fill_quad(
-                                Quad {
-                                    bounds: node_bounds.expand(2.0),
-                                    border: Border::default()
-                                        .width(2.0)
-                                        .color(theme.palette().primary.base.color),
-                                    ..Default::default()
-                                },
-                                Color::TRANSPARENT,
-                            );
-                        }
-                        child.widget.as_widget().draw(
-                            node_tree,
-                            renderer,
-                            theme,
-                            style,
-                            node_layout,
-                            graph_cursor,
-                            &graph_viewport,
-                        );
-                        if self.graph.vert_in_loop.contains(&child.node_id) {
-                            renderer.fill_quad(
-                                Quad {
-                                    bounds: node_layout.bounds(),
-                                    ..Default::default()
-                                },
-                                Color::from_rgb8(255, 0, 0).scale_alpha(0.3),
-                            );
-                        }
                     }
-                });
+                    child.widget.as_widget().draw(
+                        node_tree,
+                        renderer,
+                        theme,
+                        style,
+                        node_layout,
+                        graph_cursor,
+                        &graph_viewport,
+                    );
+                    if self.graph.vert_in_loop.contains(&child.node_id) {
+                        renderer.fill_quad(
+                            Quad {
+                                bounds: node_layout.bounds(),
+                                ..Default::default()
+                            },
+                            Color::from_rgb8(255, 0, 0).scale_alpha(0.3),
+                        );
+                    }
+                }
             });
-        }
+        });
 
         if let (
             InteractionState::EdgeConnecting {
@@ -1154,10 +1141,8 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
                 },
             );
 
-            use iced_core::Renderer;
             renderer.with_layer(layout.bounds(), |renderer| {
                 renderer.with_transformation(view_transformation, |renderer| {
-                    use iced_graphics::geometry::Renderer;
                     renderer.draw_geometry(frame.into_geometry());
                 });
             });
@@ -1167,7 +1152,6 @@ impl<'a, Data: GraphData> Widget<GraphEditorMessage, GraphTheme, GraphRenderer>
             let Some(cursor_pos) = graph_cursor.position() else {
                 return;
             };
-            use iced_core::Renderer;
             renderer.with_layer(layout.bounds(), |renderer| {
                 renderer.with_transformation(view_transformation, |renderer| {
                     renderer.fill_quad(
@@ -1377,8 +1361,6 @@ impl iced_core::Overlay<GraphEditorMessage, GraphTheme, GraphRenderer>
         layout: Layout<'_>,
         cursor: Cursor,
     ) {
-        use iced_core::Renderer;
-
         renderer.with_transformation(self.transformation, |renderer| {
             self.content.as_overlay().draw(
                 renderer,

@@ -1,3 +1,8 @@
+#![expect(
+    clippy::pub_use,
+    reason = "Event derive expansions use the root __private path"
+)]
+
 use std::{
     any::{Any, TypeId},
     cell::{Ref, RefCell, RefMut},

@@ -7,7 +7,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension as _, params};
 use uuid::Uuid;
 
 use crate::{
@@ -963,7 +963,7 @@ WHERE bundle_id = ?1;
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
+    use chrono::TimeZone as _;
 
     use super::*;
 

@@ -2,7 +2,9 @@ use iced_core::{
     Border, Color, Element, Event, Font, Layout, Length, Point, Radians, Rectangle, Renderer as _,
     Shadow, Shell, Size, Theme, Vector, Widget, alignment, keyboard, layout, overlay, pointer,
     pointer::mouse,
-    renderer, svg, text,
+    renderer,
+    svg::{self, Renderer as _},
+    text,
     text::{Paragraph as _, Renderer as _},
     widget::{Tree, tree},
 };
@@ -815,7 +817,6 @@ fn draw_svg_icon(
     bounds: Rectangle,
     clip_bounds: Rectangle,
 ) {
-    use iced_core::svg::Renderer as _;
     renderer.draw_svg(
         svg::Svg {
             handle: svg::Handle::from_memory(bytes),

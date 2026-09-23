@@ -1,6 +1,8 @@
 use iced_core::{Element, Length, Theme};
-pub use iced_widget::svg::{Catalog, Status, Style, StyleFn};
-use iced_widget::{Svg, svg};
+use iced_widget::{
+    Svg, svg,
+    svg::{Catalog, Status, Style},
+};
 use lapiz_runtime::Renderer;
 
 pub struct Icon<'a> {

@@ -4,9 +4,9 @@ use bevy_math::{IRect, Rect, UVec2};
 use iced::{Element, Subscription, Task, Theme, pointer, widget::Space, window};
 use iced_core::Point;
 use iced_widget::stack;
-use image::{ImageEncoder, codecs::png::PngEncoder};
+use image::{ImageEncoder as _, codecs::png::PngEncoder};
 use lapiz_canvas::{
-    CanvasAppExt, CanvasId, CanvasManager, CanvasToolProxyAppExt,
+    CanvasAppExt as _, CanvasId, CanvasManager, CanvasToolProxyAppExt as _,
     event::{CanvasRemoved, CanvasUpdated},
     recent::recent_file_thumbnail_path,
     widget::canvas::CanvasWidget,
@@ -15,16 +15,16 @@ use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;
 use lapiz_image::{
     composite::{BlendFunctionRegistry, ImageCompositor, LayerPreviewOverriders},
-    tile::{GpuTileStorage, TileStorageAppExt},
+    tile::{GpuTileStorage, TileStorageAppExt as _},
 };
 use lapiz_input::{
     key::KeyboardState,
     mouse::{HoverMouseState, PressedMouseState},
 };
-use lapiz_render::render_context::RenderContextAppExt;
-use lapiz_runtime::{Renderer, Services, event::Event};
+use lapiz_render::render_context::RenderContextAppExt as _;
+use lapiz_runtime::{Renderer, Services, event::Event as _};
 use lapiz_tools::ErasedToolFunctionMessage;
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 
 pub fn construct_canvas_dock_id(canvas: CanvasId) -> String {
     format!("canvas_{}", canvas)

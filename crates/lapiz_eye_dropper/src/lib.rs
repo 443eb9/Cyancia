@@ -6,29 +6,31 @@ use glam::{IVec2, Vec2};
 use iced_core::{Background, Element, Length, Padding, Point, Theme, keyboard::Modifiers};
 use iced_runtime::Task;
 use iced_widget::{Space, container, row};
-use lapiz_canvas::{CanvasAppExt, CanvasId};
-use lapiz_color::{Color, ForegroundBackgroundColorExt, ForegroundColorChanged, model::rgb::Rgb};
+use lapiz_canvas::{CanvasAppExt as _, CanvasId};
+use lapiz_color::{
+    Color, ForegroundBackgroundColorExt as _, ForegroundColorChanged, model::rgb::Rgb,
+};
 use lapiz_i18n::t;
 use lapiz_image::{
     CImage,
     layer::{
         Layer, LayerId, group_layer::GroupLayer, pixel_layer::PixelLayer,
-        properties::LayerTexelTypePropertyExt,
+        properties::builtin::LayerTexelTypePropertyExt as _,
     },
-    tile::{GpuTileStorage, TileStorageAppExt},
+    tile::{GpuTileStorage, TileStorageAppExt as _},
 };
 use lapiz_input::{
     key::KeyboardState,
     mouse::{HoverMouseState, PressedMouseState},
 };
-use lapiz_render::render_context::RenderContextAppExt;
+use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{
-    Application, Renderer, Services, event::Event, plugin::Plugin, service::Service,
+    Application, Renderer, Services, event::Event as _, plugin::Plugin, service::Service,
 };
-use lapiz_tools::{ToolFunction, ToolId, ToolsAppExt};
-use lapiz_utils::log_err::LogErr;
+use lapiz_tools::{ToolFunction, ToolId, ToolsAppExt as _};
+use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
-    fluent_builder::When, form::Form, icon, label::Label, panel::Panel,
+    fluent_builder::When as _, form::Form, icon, label::Label, panel::Panel,
     segmented_control::SegmentedControl, spin_slider::SpinSlider,
 };
 use wgpu::{Device, Queue};

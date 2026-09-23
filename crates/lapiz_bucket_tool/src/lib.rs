@@ -6,22 +6,22 @@ use iced_core::{
 use iced_futures::Subscription;
 use iced_runtime::Task;
 use iced_widget::row;
-use lapiz_canvas::{CanvasAppExt, CanvasUndoStackAppExt, command::TileReplaceCommand};
-use lapiz_color::ForegroundBackgroundColorExt;
+use lapiz_canvas::{CanvasAppExt as _, CanvasUndoStackAppExt as _, command::TileReplaceCommand};
+use lapiz_color::ForegroundBackgroundColorExt as _;
 use lapiz_i18n::{Translated, t};
 use lapiz_image::{
     blend_modes::BlendMode,
-    composite::{BlendFunction, BlendFunctionId, BlendFunctionRegistry},
-    layer::properties::{LayerTexelTypePropertyExt, TexelSource},
-    tile::TileStorageAppExt,
+    composite::{BlendFunction as _, BlendFunctionId, BlendFunctionRegistry},
+    layer::properties::builtin::{LayerTexelTypePropertyExt as _, TexelSource},
+    tile::TileStorageAppExt as _,
 };
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
-use lapiz_render::render_context::RenderContextAppExt;
+use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{Application, Renderer, Services, plugin::Plugin};
-use lapiz_tools::{ToolFunction, ToolId, ToolsAppExt};
-use lapiz_utils::log_err::LogErr;
+use lapiz_tools::{ToolFunction, ToolId, ToolsAppExt as _};
+use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
-    button::Button, checkbox::Checkbox, combo_box::ComboBox, fluent_builder::When, form::Form,
+    button::Button, checkbox::Checkbox, combo_box::ComboBox, fluent_builder::When as _, form::Form,
     icon, label::Label, panel::Panel, spin_slider::SpinSlider,
 };
 use tracing::error;

@@ -1,4 +1,7 @@
-#![allow(clippy::excessive_precision)]
+#![allow(
+    clippy::excessive_precision,
+    reason = "OK color conversion constants retain their published precision"
+)]
 use crate::model::oklab::OkLab;
 
 #[derive(Clone, Copy)]

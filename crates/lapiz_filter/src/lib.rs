@@ -1,4 +1,4 @@
-use lapiz_assets::AssetAppExt;
+use lapiz_assets::AssetAppExt as _;
 use lapiz_runtime::{Application, plugin::Plugin};
 
 use crate::{asset::FilterPresetSerializer, editor::FilterEditor, panel::FilterPanel};

@@ -373,12 +373,11 @@ impl Compositor {
         shell: iced_graphics::Shell,
     ) -> Result<Self, iced_wgpu::window::compositor::Error> {
         let render_context = global_render_context();
-        let display: Arc<dyn compositor::Display> = Arc::new(display);
+        let display = Arc::new(display) as Arc<dyn compositor::Display>;
 
         log::info!("{settings:#?}");
         log::info!("Selected: {:#?}", render_context.adapter.get_info());
 
-        #[allow(unsafe_code)]
         let compatible_surface = render_context
             .instance
             .create_surface(wgpu::SurfaceTarget::DisplayAndWindow(Box::new(

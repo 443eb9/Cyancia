@@ -1,3 +1,8 @@
+#![expect(
+    clippy::pub_use,
+    reason = "Event derive and its expansion use these public paths"
+)]
+
 use std::{any::TypeId, sync::LazyLock};
 
 use async_broadcast::{InactiveReceiver, Receiver, Sender, TrySendError};

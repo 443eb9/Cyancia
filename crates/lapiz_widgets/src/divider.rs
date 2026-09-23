@@ -1,6 +1,8 @@
 use iced_core::{Element, Pixels, Theme};
-use iced_widget::rule;
-pub use iced_widget::rule::{Catalog, FillMode, Style, StyleFn};
+use iced_widget::{
+    rule,
+    rule::{Catalog, FillMode, Style},
+};
 use lapiz_runtime::Renderer;
 
 pub struct Divider<'a> {

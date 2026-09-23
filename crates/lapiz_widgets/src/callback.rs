@@ -55,7 +55,7 @@ macro_rules! callback_methods {
                 self
             }
 
-            #[allow(dead_code)]
+            #[allow(dead_code, reason = "generated optional callback setter is not used by every widget")]
             pub(crate) fn [<on_ $field _with_callback>](
                 mut self,
                 callback: $crate::callback::Callback<'a, Message>,

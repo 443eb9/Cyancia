@@ -1,3 +1,8 @@
+#![expect(
+    clippy::pub_use,
+    reason = "stateless attribute macro is exposed for graph node definitions"
+)]
+
 use std::{
     any::Any,
     collections::{BTreeMap, HashMap, hash_map::Entry},

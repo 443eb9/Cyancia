@@ -317,7 +317,7 @@ impl<'a, Message: 'a> From<FloatingDockWidget<'a, Message>>
             is_attaching,
         } = w;
 
-        let on_action: Rc<dyn Fn(TabEvent) -> Message + 'a> = Rc::from(on_action);
+        let on_action = Rc::from(on_action) as Rc<dyn Fn(TabEvent) -> Message + 'a>;
 
         let tab_row = TabRowWidget::new(
             group_data,

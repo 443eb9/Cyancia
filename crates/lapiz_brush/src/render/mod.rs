@@ -7,18 +7,20 @@ use encase::ShaderType;
 use glam::{IVec2, Vec2, Vec4};
 use iced_runtime::Task;
 use indexmap::IndexSet;
-use lapiz_assets::{AssetAppExt, store::AssetRegistry};
-use lapiz_canvas::{CanvasAppExt, CanvasId};
-use lapiz_color::ForegroundBackgroundColorExt;
+use lapiz_assets::{AssetAppExt as _, store::AssetRegistry};
+use lapiz_canvas::{CanvasAppExt as _, CanvasId};
+use lapiz_color::ForegroundBackgroundColorExt as _;
 use lapiz_image::{
     composite::PixelPreviewOverrider,
     layer::{
         LayerId,
-        properties::{LayerTexelTypePropertyExt, TexelSource},
+        properties::builtin::{LayerTexelTypePropertyExt as _, TexelSource},
     },
     scan_pixels::ScanPixelsPipeline,
     texel::TexelType,
-    tile::{DynamicLayerStorage, GpuLayerInfo, GpuTileStorage, LayerBinding, TileStorageAppExt},
+    tile::{
+        DynamicLayerStorage, GpuLayerInfo, GpuTileStorage, LayerBinding, TileStorageAppExt as _,
+    },
 };
 use lapiz_input::mouse::PressedMouseState;
 use lapiz_render::{
@@ -27,7 +29,7 @@ use lapiz_render::{
         AsyncBufferReadback, create_readback_buffer_and_schedule_copy_buffer,
         readback_buffer_on_submit_async,
     },
-    render_context::RenderContextAppExt,
+    render_context::RenderContextAppExt as _,
     texture::GpuImage,
     texture_atlas::{TextureAtlas, TextureAtlasBuilder},
 };

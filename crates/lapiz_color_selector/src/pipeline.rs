@@ -23,7 +23,7 @@ use wgpu::{
     ComputePipelineDescriptor, Device, FragmentState, PipelineLayoutDescriptor, Queue,
     RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages,
     TextureFormat, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
-    util::{BufferInitDescriptor, DeviceExt},
+    util::{BufferInitDescriptor, DeviceExt as _},
 };
 
 use crate::{

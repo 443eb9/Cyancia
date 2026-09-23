@@ -1,5 +1,5 @@
 use iced_core::{Element, Theme};
-use lapiz_assets::AssetAppExt;
+use lapiz_assets::AssetAppExt as _;
 use lapiz_render::texture::Image;
 use lapiz_runtime::{Application, plugin::Plugin};
 

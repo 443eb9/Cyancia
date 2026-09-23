@@ -1,4 +1,7 @@
-#![allow(clippy::excessive_precision)]
+#![allow(
+    clippy::excessive_precision,
+    reason = "OKLab conversion constants retain their published precision"
+)]
 use serde::{Deserialize, Serialize};
 
 use crate::model::xyz::Xyz;

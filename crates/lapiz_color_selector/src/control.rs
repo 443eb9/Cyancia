@@ -470,8 +470,8 @@ impl Widget<ColorSelectorMessage, Theme, Renderer> for PlaneRow {
             .max(1.0);
         let surface_size = (cell - 5.0).max(1.0);
 
-        let mut nodes: Vec<layout::Node> = Vec::with_capacity(count);
-        let mut height: f32 = 0.0;
+        let mut nodes = Vec::<layout::Node>::with_capacity(count);
+        let mut height = 0.0_f32;
         for (surface, child_tree) in self.surfaces.iter_mut().zip(tree.children.iter_mut()) {
             let child_limits = Limits::new(Size::ZERO, Size::new(surface_size, f32::INFINITY));
             let node = surface.layout(child_tree, renderer, &child_limits);

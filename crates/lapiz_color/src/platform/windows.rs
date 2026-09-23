@@ -1,4 +1,9 @@
-use anyhow::{Context, Result, anyhow, bail};
+#![allow(
+    clippy::undocumented_unsafe_blocks,
+    reason = "Win32 FFI in this function is sequenced and checked locally"
+)]
+
+use anyhow::{Context as _, Result, anyhow, bail};
 use moxcms::ColorProfile;
 use windows::Win32::{
     Devices::Display::{

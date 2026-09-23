@@ -6,16 +6,16 @@ use lapiz_bucket_tool::{
     BucketTool,
     bucket::{Bucket, BucketAntialiasApproach, BucketParams},
 };
-use lapiz_canvas::{CanvasAppExt, CanvasUndoStackAppExt, command::TileReplaceCommand};
+use lapiz_canvas::{CanvasAppExt as _, CanvasUndoStackAppExt as _, command::TileReplaceCommand};
 use lapiz_i18n::t;
-use lapiz_image::tile::TileStorageAppExt;
+use lapiz_image::tile::TileStorageAppExt as _;
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
-use lapiz_render::render_context::RenderContextAppExt;
+use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{Renderer, Services};
 use lapiz_tools::{ToolFunction, ToolId};
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
-    button::Button, fluent_builder::When, form::Form, icon, label::Label, panel::Panel,
+    button::Button, fluent_builder::When as _, form::Form, icon, label::Label, panel::Panel,
     spin_slider::SpinSlider,
 };
 

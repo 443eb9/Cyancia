@@ -142,7 +142,6 @@ impl FilterMainPipeline {
         Self { layout, pipeline }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn dispatch(
         &self,
         device: &Device,
@@ -238,7 +237,6 @@ impl FilterBoundsEvalPipeline {
         Self { pipeline, layout }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn dispatch(
         &self,
         device: &Device,

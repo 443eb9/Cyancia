@@ -1,8 +1,8 @@
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
-    hash::Hash,
-    io::Write,
+    hash::Hash as _,
+    io::Write as _,
     marker::PhantomData,
     sync::{Arc, LazyLock},
 };

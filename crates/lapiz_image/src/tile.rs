@@ -8,13 +8,13 @@ use anyhow::Result;
 use bevy_math::IRect;
 use dashmap::{DashMap, Entry};
 use encase::ShaderType;
-use futures::{FutureExt, future::join_all};
+use futures::{FutureExt as _, future::join_all};
 use glam::{IVec2, UVec2};
-use image::{DynamicImage, GenericImageView, ImageBuffer, imageops::FilterType};
+use image::{DynamicImage, GenericImageView as _, ImageBuffer, imageops::FilterType};
 use indexmap::{IndexMap, IndexSet};
 use lapiz_render::{
     buffer::BufferVec, readback::readback_buffer_raw_on_submit_async,
-    render_context::RenderContextAppExt, util::DevicePollExt,
+    render_context::RenderContextAppExt as _, util::DevicePollExt as _,
 };
 use lapiz_runtime::{
     Services,
@@ -26,7 +26,7 @@ use wgpu::{
     Buffer, BufferDescriptor, BufferUsages, Device, Extent3d, ImageSubresourceRange, Origin3d,
     Queue, TexelCopyBufferInfo, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture,
     TextureAspect, TextureDescriptor, TextureDimension, TextureUsages, TextureView,
-    TextureViewDescriptor, TextureViewDimension, util::DeviceExt,
+    TextureViewDescriptor, TextureViewDimension, util::DeviceExt as _,
 };
 
 use crate::{

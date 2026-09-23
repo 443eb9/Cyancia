@@ -5,9 +5,9 @@ use iced_core::{Alignment, Length, Size, Theme, keyboard, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
 use iced_widget::{Space, column, row};
-use lapiz_assets::{AssetAppExt, asset::AssetHandle};
+use lapiz_assets::{AssetAppExt as _, asset::AssetHandle};
 use lapiz_canvas::{
-    CCanvas, CanvasAppExt, CanvasId, CanvasUndoStackAppExt, command::TileReplaceCommand,
+    CCanvas, CanvasAppExt as _, CanvasId, CanvasUndoStackAppExt as _, command::TileReplaceCommand,
     event::CanvasUpdated,
 };
 use lapiz_i18n::t;
@@ -15,15 +15,15 @@ use lapiz_image::{
     composite::{LayerPreviewOverriders, PixelPreviewOverrider},
     layer::{
         LayerId,
-        properties::{LayerTexelTypePropertyExt, LockedPropertyExt},
+        properties::builtin::{LayerTexelTypePropertyExt as _, LockedPropertyExt as _},
     },
     texel::TexelType,
-    tile::{DynamicLayerStorage, GpuTileStorage, TileStorageAppExt},
+    tile::{DynamicLayerStorage, GpuTileStorage, TileStorageAppExt as _},
 };
-use lapiz_render::render_context::RenderContextAppExt;
+use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{
     Services,
-    event::Event,
+    event::Event as _,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowView, WindowViewId},
 };
 use lapiz_shader_graph::graph::{
@@ -467,7 +467,7 @@ impl FilterPanel {
         self.preview_installed = false;
         let target_layers = std::mem::take(&mut self.target_layers);
 
-        let mut commands: Vec<TileReplaceCommand> = Vec::new();
+        let mut commands = Vec::<TileReplaceCommand>::new();
         {
             let tiles = services.tile_storage();
             for layer_id in &target_layers {

@@ -23,12 +23,11 @@ use lapiz_shader_graph::{
     save::{GraphDeserializeError, SerializableExternalVariable},
 };
 
-pub use crate::render::graph::{FILTER_GRAPH_NODES, FILTER_GRAPH_TYPES};
 use crate::{
     asset::{
         FilterGroupId, FilterPreset, FilterPresetMetadata, FilterSlotRef, SerializableFilterGroup,
     },
-    render::graph::FilterGraphData,
+    render::graph::{FILTER_GRAPH_NODES, FILTER_GRAPH_TYPES, FilterGraphData},
 };
 
 pub const EXTERNAL_VARIABLE_BASE_BINDING: u32 = 32;

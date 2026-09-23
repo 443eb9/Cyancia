@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use glam::Vec2;
 use lapiz_input::mouse::PressedMouseState;
-use ringbuffer::{AllocRingBuffer, RingBuffer};
+use ringbuffer::{AllocRingBuffer, RingBuffer as _};
 
 use crate::render::{ComputedPenInput, PenInput, Time};
 
@@ -146,14 +146,14 @@ impl GaussianStabilizer {
         let sigma = radius as f32 / 2.0;
         let center = radius as f32;
 
-        let mut kernel: Vec<f32> = (0..window)
+        let mut kernel = (0..window)
             .map(|i| {
                 let x = i as f32 - center;
                 (-x * x / (2.0 * sigma * sigma)).exp()
             })
-            .collect();
+            .collect::<Vec<f32>>();
 
-        let sum: f32 = kernel.iter().sum();
+        let sum = kernel.iter().sum::<f32>();
         kernel.iter_mut().for_each(|k| *k /= sum);
 
         Self { kernel }

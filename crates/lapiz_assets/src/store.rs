@@ -6,10 +6,10 @@ use std::{
 
 use chrono::Utc;
 use lapiz_runtime::service::Service;
-use path_clean::PathClean;
+use path_clean::PathClean as _;
 
 use crate::{
-    asset::{Asset, AssetHandle, AssetId, AssetMetadata, ErasedAsset, UntypedAssetId},
+    asset::{Asset, AssetHandle, AssetId, AssetMetadata, ErasedAsset as _, UntypedAssetId},
     bundle::{
         AssetBundle, AssetBundleCache, BundleId, BundleManifest, BundleSnapshot, ErasedAssetBundle,
         read_asset_tags_file, read_tag_file, scan_bundle_assets,
@@ -406,7 +406,7 @@ mod tests {
         );
 
         std::fs::remove_file(bundle_root.join("removed.tag"))?;
-        let bundle: Arc<dyn ErasedAssetBundle> = Arc::new(AssetDirectory::new(&bundle_root)?);
+        let bundle = Arc::new(AssetDirectory::new(&bundle_root)?) as Arc<dyn ErasedAssetBundle>;
         registry.add_erased_bundles([bundle])?;
 
         assert!(registry.index_db().get_tag(tag.id).is_err());
@@ -480,7 +480,7 @@ mod tests {
         let asset_id = handle.untyped_id();
         handle.delete()?;
 
-        let bundle: Arc<dyn ErasedAssetBundle> = Arc::new(AssetDirectory::new(&bundle_root)?);
+        let bundle = Arc::new(AssetDirectory::new(&bundle_root)?) as Arc<dyn ErasedAssetBundle>;
         registry.add_erased_bundles([bundle])?;
 
         assert!(registry.all_handles_of::<TestAsset>()?.is_empty());
@@ -511,7 +511,7 @@ mod tests {
         assert_eq!(registry.all_handles_of::<TestAsset>()?.len(), 2);
 
         std::fs::remove_file(bundle_root.join("removed.storetest"))?;
-        let bundle: Arc<dyn ErasedAssetBundle> = Arc::new(AssetDirectory::new(&bundle_root)?);
+        let bundle = Arc::new(AssetDirectory::new(&bundle_root)?) as Arc<dyn ErasedAssetBundle>;
         registry.add_erased_bundles([bundle])?;
 
         let active = registry

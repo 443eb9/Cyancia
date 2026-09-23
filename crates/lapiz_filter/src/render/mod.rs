@@ -10,24 +10,26 @@ use bevy_math::IRect;
 use futures::channel::oneshot;
 use glam::IVec2;
 use iced_runtime::Task;
-use lapiz_assets::{AssetAppExt, store::AssetRegistry};
-use lapiz_canvas::{CanvasAppExt, CanvasId};
+use lapiz_assets::{AssetAppExt as _, store::AssetRegistry};
+use lapiz_canvas::{CanvasAppExt as _, CanvasId};
 use lapiz_image::{
     layer::LayerId,
     scan_pixels::ScanPixelsPipeline,
     texel::TexelType,
-    tile::{DynamicLayerStorage, GpuLayerInfo, GpuTileStorage, LayerBinding, TileStorageAppExt},
+    tile::{
+        DynamicLayerStorage, GpuLayerInfo, GpuTileStorage, LayerBinding, TileStorageAppExt as _,
+    },
 };
 use lapiz_render::{
     buffer::DynamicBuffer,
     readback::{create_readback_buffer_and_schedule_copy_buffer, readback_buffer_on_submit_async},
-    render_context::RenderContextAppExt,
+    render_context::RenderContextAppExt as _,
     texture::GpuImage,
     texture_atlas::{TextureAtlas, TextureAtlasBuilder},
 };
 use lapiz_runtime::Services;
 use lapiz_shader_graph::graph::external::GraphExternalVariableStorage;
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 use parking_lot::Mutex;
 use uuid::Uuid;
 use wgpu::{
@@ -255,7 +257,7 @@ impl FilterRenderer {
             )));
         };
         let image_tile_rect = canvas.image.image_tile_rect();
-        let mut layer_data: Vec<(LayerId, LayerBinding, Vec<IVec2>)> = Vec::new();
+        let mut layer_data = Vec::<(LayerId, LayerBinding, Vec<IVec2>)>::new();
         for &layer_id in &layer_ids {
             let Some(binding) = tile_storage.get_layer_binding_or_empty(layer_id) else {
                 return Task::done(Err(anyhow!(

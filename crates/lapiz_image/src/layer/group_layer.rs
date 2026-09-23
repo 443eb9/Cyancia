@@ -26,10 +26,13 @@ use crate::{
     layer::{
         Layer, LayerId,
         properties::{
-            BlendFunctionProp, BlendFunctionPropertyExt, DisabledChannelsProp,
-            DisabledChannelsPropertyExt, EncodedLayerProperties, HasLayerProperties,
-            LayerPropertiesDeclaration, LayerTexelProp, LockedProp, NameProp, OpacityProp,
-            OpacityPropertyExt, TexelSource, VisibleProp, VisiblePropertyExt,
+            EncodedLayerProperties, HasLayerProperties, LayerPropertiesDeclaration,
+            builtin::{
+                BlendFunctionProp, BlendFunctionPropertyExt as _, DisabledChannelsProp,
+                DisabledChannelsPropertyExt as _, LayerTexelProp, LockedProp, NameProp,
+                OpacityProp, OpacityPropertyExt as _, TexelSource, VisibleProp,
+                VisiblePropertyExt as _,
+            },
         },
     },
     texel::TexelType,

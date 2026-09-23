@@ -1,7 +1,7 @@
 use std::{ffi::OsStr, path::PathBuf};
 
 use iced_runtime::Task;
-use lapiz_canvas::CanvasAppExt;
+use lapiz_canvas::CanvasAppExt as _;
 use lapiz_config::Config;
 use lapiz_i18n::t;
 use lapiz_image_exporter::{
@@ -13,7 +13,7 @@ use lapiz_runtime::{
     Services,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},
 };
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 use rfd::AsyncFileDialog;
 
 use crate::{ActionFunction, ActionId};

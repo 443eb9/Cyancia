@@ -3,15 +3,16 @@ use std::{any::TypeId, sync::Arc};
 use iced_core::clipboard::Content;
 use iced_runtime::{Task, clipboard};
 use lapiz_canvas::{
-    CanvasAppExt, CanvasToolProxyAppExt, CanvasUndoStackAppExt, command::InsertLayerCommand,
+    CanvasAppExt as _, CanvasToolProxyAppExt as _, CanvasUndoStackAppExt as _,
+    command::InsertLayerCommand,
 };
 use lapiz_image::{
     layer::{LayerPosition, pixel_layer::PixelLayer},
-    tile::TileStorageAppExt,
+    tile::TileStorageAppExt as _,
 };
 use lapiz_runtime::Services;
 use lapiz_undo::{BatchedUndoCommand, UndoStacks};
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 
 use crate::{ActionFunction, ActionId};
 

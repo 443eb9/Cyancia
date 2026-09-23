@@ -1,5 +1,7 @@
-pub use iced_core::widget::text::{Catalog, Ellipsis, Style, StyleFn, Wrapping};
-use iced_core::{Element, Font, Length, Pixels, Theme, alignment, font, text};
+use iced_core::{
+    Element, Font, Length, Pixels, Theme, alignment, font, text,
+    widget::text::{Ellipsis, Style, Wrapping},
+};
 use lapiz_runtime::Renderer;
 
 pub struct Label<'a> {

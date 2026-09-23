@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
 
 pub struct Cursor<'a> {
     input: &'a [u8],

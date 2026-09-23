@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use futures::StreamExt;
-use iced_futures::{Executor, backend::default};
+use futures::StreamExt as _;
+use iced_futures::{Executor as _, backend::default};
 use iced_runtime::{Action, Task, task::into_stream};
-use lapiz_assets::AssetAppExt;
+use lapiz_assets::AssetAppExt as _;
 use lapiz_render::texture::Image;
 use lapiz_runtime::{Application, plugin::Plugin};
 use lapiz_shader_graph::{
@@ -13,7 +13,7 @@ use lapiz_shader_graph::{
     },
     save::SerializableGraphFunction,
 };
-use lapiz_tools::ToolsAppExt;
+use lapiz_tools::ToolsAppExt as _;
 
 use crate::{
     asset::{BrushPreset, BrushPresetSerializer},

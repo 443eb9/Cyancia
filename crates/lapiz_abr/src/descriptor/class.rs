@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use lapiz_abr_derive::{AbrClass, AbrEnum, AbrIntegerEnum, AbrObject};
 use uuid::Uuid;
 
-use crate::{Cursor, UnitFloat};
+use crate::{cursor::Cursor, descriptor::UnitFloat};
 
 #[derive(Debug, AbrClass)]
 #[abr(class = "null")]

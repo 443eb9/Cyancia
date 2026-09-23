@@ -9,7 +9,7 @@ use std::{
 use anyhow::Result;
 use iced_core::Element;
 use iced_runtime::Task;
-use lapiz_canvas::{CCanvas, CanvasAppExt};
+use lapiz_canvas::{CCanvas, CanvasAppExt as _};
 use lapiz_config::Config;
 use lapiz_image::CImage;
 use lapiz_lazuli::LazuliArchive;
@@ -19,11 +19,19 @@ use lapiz_runtime::{
     service::Service,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},
 };
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 
 use crate::{
     config::ImageImporterConfig,
     import_dialog::{IMPORT_DIALOG_VIEW_ID, ImportDialogView},
+    importer::{
+        lazuli::LazuliImporter,
+        simple::{
+            AvifImporter, BmpImporter, FarbfeldImporter, GifImporter, HdrImporter, IcoImporter,
+            JpgImporter, OpenExrImporter, PngImporter, PnmImporter, QoiImporter, TgaImporter,
+            TiffImporter, WebPImporter,
+        },
+    },
 };
 
 lapiz_i18n::define_i18n!("image_importer");
@@ -45,7 +53,6 @@ impl Plugin for ImageImporterPlugin {
             .register_view::<ImportDialogView>();
 
         let services = runtime.services_mut();
-        use importer::*;
         services
             .service_mut::<ImageImporterRegistry>()
             .register::<PngImporter>()
@@ -94,12 +101,18 @@ pub trait ImageFormatImporter: 'static {
         services: &mut Services,
     ) -> Task<Self::DialogMessage>;
 
-    #[allow(async_fn_in_trait)]
+    #[allow(
+        async_fn_in_trait,
+        reason = "callers await this method directly; the erased trait boxes the future"
+    )]
     async fn import(&self, services: &Services, path: &Path) -> Result<LazuliArchive>;
 
     fn to_toml(&self) -> Result<toml::Value>;
 
-    #[allow(clippy::wrong_self_convention)]
+    #[allow(
+        clippy::wrong_self_convention,
+        reason = "pairs with to_toml and fills an existing importer instead of converting from a value"
+    )]
     fn from_toml(&mut self, value: toml::Value) -> Result<()>;
 }
 
@@ -127,7 +140,10 @@ pub trait ErasedImageFormatImporter: Send + Sync + 'static {
 
     fn to_toml(&self) -> Result<toml::Value>;
 
-    #[allow(clippy::wrong_self_convention)]
+    #[allow(
+        clippy::wrong_self_convention,
+        reason = "pairs with to_toml and fills an existing importer instead of converting from a value"
+    )]
     fn from_toml(&mut self, value: toml::Value) -> Result<()>;
 }
 

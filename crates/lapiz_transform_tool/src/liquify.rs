@@ -13,7 +13,7 @@ use iced_widget::{
     column, row, space,
 };
 use lapiz_canvas::{
-    CanvasAppExt, CanvasId, CanvasUndoStackAppExt,
+    CanvasAppExt as _, CanvasId, CanvasUndoStackAppExt as _,
     command::TileReplaceCommand,
     control::CanvasTransform,
     event::{CanvasActiveLayerChanged, CanvasUpdated},
@@ -26,7 +26,7 @@ use lapiz_image::{
     texel::TexelType,
     tile::{
         DynamicLayerStorage, GpuLayerInfo, GpuTileInfo, GpuTileStorage, LayerBinding,
-        TileStorageAppExt,
+        TileStorageAppExt as _,
     },
 };
 use lapiz_input::{
@@ -37,13 +37,13 @@ use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
     bind_group_layout_entries::{DynamicBindGroupLayoutEntries, binding_types},
     buffer::DynamicBuffer,
-    render_context::RenderContextAppExt,
+    render_context::RenderContextAppExt as _,
     wesl_jit,
 };
-use lapiz_runtime::{Renderer, Services, event::Event};
+use lapiz_runtime::{Renderer, Services, event::Event as _};
 use lapiz_tools::{ChangesTracker, ToolFunction, ToolId};
 use lapiz_undo::BatchedUndoCommand;
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
     button::Button, combo_box::ComboBox, form::Form, icon, label::Label, panel::Panel,
     spin_slider::SpinSlider,

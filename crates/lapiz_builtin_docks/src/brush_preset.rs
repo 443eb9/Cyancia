@@ -1,8 +1,10 @@
 use std::sync::LazyLock;
 
 use iced::{Element, Length, Task, Theme, window};
-use lapiz_assets::AssetAppExt;
-use lapiz_brush::{asset::BrushPreset, tool::BrushServicesExt, widget::BrushPresetListDelegate};
+use lapiz_assets::AssetAppExt as _;
+use lapiz_brush::{
+    asset::BrushPreset, tool::BrushServicesExt as _, widget::BrushPresetListDelegate,
+};
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_runtime::{Renderer, Services};
 use lapiz_widgets::{button::Button, flex::Flex, label::Label, scrollable::Scrollable};

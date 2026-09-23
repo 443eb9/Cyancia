@@ -5,7 +5,7 @@ use iced_core::{Element, Length, keyboard, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
 use iced_widget::{column, row, text};
-use lapiz_assets::{AssetAppExt, asset::AssetHandle};
+use lapiz_assets::{AssetAppExt as _, asset::AssetHandle};
 use lapiz_i18n::t;
 use lapiz_runtime::{
     Services,
@@ -28,7 +28,7 @@ use lapiz_shader_graph::{
     save::{SerializableGraph, SerializableGraphFunction},
 };
 use lapiz_widgets::{
-    button::Button, combo_box::ComboBox, fluent_builder::When, label::Label, panel::Panel,
+    button::Button, combo_box::ComboBox, fluent_builder::When as _, label::Label, panel::Panel,
     scrollable::Scrollable, text_input::TextInput,
 };
 use uuid::Uuid;
@@ -36,7 +36,7 @@ use uuid::Uuid;
 use crate::{
     asset::{BrushPreset, BrushPresetMetadata},
     instance::{BRUSH_GRAPH_TYPES, BrushPresetInstance, GraphFunctionInstance},
-    tool::BrushServicesExt,
+    tool::BrushServicesExt as _,
     widget::{BrushFunctionListDelegate, BrushPresetListDelegate},
 };
 
@@ -73,7 +73,10 @@ pub struct SelectedFunction {
 }
 
 // TODO In the future function editor will be split into another editor.
-#[allow(clippy::large_enum_variant)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "selected brush and function state are stored by value in the editor"
+)]
 pub enum Selected {
     Brush(SelectedBrush),
     Function(SelectedFunction),
@@ -375,22 +378,20 @@ impl BrushEditor {
         ]
         .spacing(6);
 
-        let graph: Element<'_, GraphEditorMessage, GraphTheme, GraphRenderer> =
-            match brush.viewing_graph {
-                BrushPresetGraph::RequiredSpacing => GraphEditor::new(
-                    brush.instance.required_spacing_graph(),
-                    &self.graph_editor_state,
-                )
-                .into(),
-                BrushPresetGraph::Main => {
-                    GraphEditor::new(brush.instance.main_graph(), &self.graph_editor_state).into()
-                }
-                BrushPresetGraph::StrokePostprocess { index } => GraphEditor::new(
-                    brush.instance.stroke_postprocess_graph(index).unwrap(),
-                    &self.graph_editor_state,
-                )
-                .into(),
-            };
+        let graph = match brush.viewing_graph {
+            BrushPresetGraph::RequiredSpacing => Element::from(GraphEditor::new(
+                brush.instance.required_spacing_graph(),
+                &self.graph_editor_state,
+            )),
+            BrushPresetGraph::Main => Element::from(GraphEditor::new(
+                brush.instance.main_graph(),
+                &self.graph_editor_state,
+            )),
+            BrushPresetGraph::StrokePostprocess { index } => Element::from(GraphEditor::new(
+                brush.instance.stroke_postprocess_graph(index).unwrap(),
+                &self.graph_editor_state,
+            )),
+        };
 
         let mut graph_list = column![
             Button::new(Label::new(t!("required_spacing")))

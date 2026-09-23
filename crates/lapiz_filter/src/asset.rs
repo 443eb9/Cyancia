@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    io::{Cursor, Read, Write},
+    io::{Cursor, Read, Write as _},
 };
 
 use lapiz_assets::{asset::Asset, loader::AssetSerializer};
@@ -151,7 +151,7 @@ impl AssetSerializer for FilterPresetSerializer {
             .file_names()
             .map(ToString::to_string)
             .collect::<Vec<_>>();
-        let mut graphs: HashMap<FilterGroupId, SerializableGraph> = HashMap::new();
+        let mut graphs = HashMap::<FilterGroupId, SerializableGraph>::new();
         for file in files {
             if let Some(stem) = file.strip_suffix(".csg") {
                 let id = FilterGroupId::new(Uuid::parse_str(stem).map_err(|e| {

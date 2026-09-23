@@ -39,6 +39,7 @@ members = [
     "crates/lapiz_utils",
     "crates/lapiz_utils_derive",
     "crates/lapiz_widgets",
+    "xtask",
 ]
 default-members = ["crates/lapiz_app"]
 
@@ -198,8 +199,14 @@ xxhash-rust = { version = "0.8", features = ["xxh3"] }
 zip = "8"
 
 [workspace.lints.clippy]
+allow_attributes_without_reason = "deny"
+dbg_macro = "warn"
+pub_use = "deny"
 too_many_arguments = "allow"
 type_complexity = "allow"
+undocumented_unsafe_blocks = "deny"
+unused_trait_names = "warn"
+wildcard_imports = "warn"
 
 [patch.crates-io]
 iced = { git = "https://github.com/443eb9/iced.git", rev = "c014126fc1148e9020fa60d3a528e5731cc6df17" }

@@ -36,10 +36,10 @@ impl<'a, Message> Collapsible<'a, Message> {
 
 impl<'a, Message: 'a> From<Collapsible<'a, Message>> for Element<'a, Message, Theme, Renderer> {
     fn from(value: Collapsible<'a, Message>) -> Self {
-        let indicator: Element<'a, Message, Theme, Renderer> = if value.open {
-            icon::chevron_down().size(13).into()
+        let indicator = if value.open {
+            Element::from(icon::chevron_down().size(13))
         } else {
-            icon::chevron_right().size(13).into()
+            Element::from(icon::chevron_right().size(13))
         };
         let header = Button::new(
             Flex::row([indicator, value.header])

@@ -1,5 +1,5 @@
 use std::{
-    any::{Any, TypeId},
+    any::{Any as _, TypeId},
     collections::HashMap,
 };
 
@@ -20,7 +20,7 @@ use crate::{
     layer::{
         group_layer::GroupLayer,
         pixel_layer::PixelLayer,
-        properties::{HasLayerPropertiesDyn, LayerProperties, NameProp},
+        properties::{HasLayerPropertiesDyn, LayerProperties, builtin::NameProp},
     },
     tile::{GpuTileStorage, LayerBinding},
 };

@@ -1,4 +1,4 @@
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Read, Write as _};
 
 use lapiz_assets::{asset::Asset, loader::AssetSerializer};
 use lapiz_render::texture::ImageSerializerError;

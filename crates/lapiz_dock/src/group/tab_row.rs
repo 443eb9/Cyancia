@@ -163,7 +163,7 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabRowWidget<'_, M
             state.labels.push(p);
         }
 
-        let total: f32 = natural_widths.iter().sum();
+        let total = natural_widths.iter().sum::<f32>();
         let overflow = total > available;
 
         let mut x = 0.0;

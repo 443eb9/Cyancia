@@ -8,7 +8,7 @@ use wgpu::{
     ShaderModuleDescriptor, ShaderSource, VertexState,
 };
 
-use crate::render_context::RenderContextAppExt;
+use crate::render_context::RenderContextAppExt as _;
 
 #[derive(Debug)]
 pub struct GlobalSamplers {

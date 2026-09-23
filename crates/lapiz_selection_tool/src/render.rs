@@ -11,19 +11,19 @@ use iced_wgpu::{Primitive, graphics::Viewport};
 use iced_widget::shader::Pipeline;
 use indexmap::IndexSet;
 use lapiz_anti_aliasing::fxaa::{FxaaParams, FxaaPipeline};
-use lapiz_canvas::{CanvasAppExt, command::TileReplaceCommand, control::CanvasTransform};
+use lapiz_canvas::{CanvasAppExt as _, command::TileReplaceCommand, control::CanvasTransform};
 use lapiz_image::{
     texel::TexelType,
     tile::{
         DynamicLayerStorage, GpuLayerInfo, GpuTileInfo, GpuTileStorage, LayerBinding,
-        TileStorageAppExt,
+        TileStorageAppExt as _,
     },
 };
 use lapiz_render::{
     bind_group_entries::BindGroupEntries,
     bind_group_layout_entries::{BindGroupLayoutEntries, binding_types},
     buffer::DynamicBuffer,
-    render_context::RenderContextAppExt,
+    render_context::RenderContextAppExt as _,
 };
 use lapiz_runtime::{Renderer, Services};
 use lyon::{
@@ -41,7 +41,7 @@ use wgpu::{
     RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages,
     StorageTextureAccess, StoreOp, TextureFormat, TextureView, VertexAttribute, VertexBufferLayout,
     VertexFormat, VertexState, VertexStepMode,
-    util::{BufferInitDescriptor, DeviceExt},
+    util::{BufferInitDescriptor, DeviceExt as _},
 };
 
 pub fn generate_cmd(
@@ -68,6 +68,7 @@ pub fn generate_cmd(
     let selection_layer_binding = selection_layer.binding_or_empty();
 
     let mut pipeline = SelectionPipeline::new(device, selection_layer_format);
+    // SAFETY: capture is started on this device and stopped after the selection draw below.
     unsafe {
         device.start_graphics_debugger_capture();
     };
@@ -81,6 +82,7 @@ pub fn generate_cmd(
         selection_layer_binding,
         selection_layer.iter_tiles().map(|(i, _, _)| i).collect(),
     )?;
+    // SAFETY: this stops the capture started on the same device before the selection draw.
     unsafe {
         device.stop_graphics_debugger_capture();
     };
