@@ -115,7 +115,7 @@ test-wgsl:
 
 setup-for-check: setup-rust setup-format setup-deny setup-reuse setup-linux
 
-check: check-fmt check-clippy check-deny check-reuse check-import-alias check-let-type-annotation
+check: check-fmt check-clippy check-import-alias check-let-type-annotation check-deny check-reuse
 
 check-fmt:
     cargo +{{ nightly }} fmt --all -- --check
