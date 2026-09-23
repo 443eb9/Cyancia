@@ -63,7 +63,7 @@ where
     node_id
 }
 
-fn add_texture_input_slot(state: &mut CustomExpressionNodeState, name: &str) {
+fn add_mask_input_slot(state: &mut CustomExpressionNodeState, name: &str) {
     state.add_input_non_default(
         name,
         TextureType {
@@ -369,7 +369,7 @@ fn required_spacing_effect(
     let input_nodes = inputs.add_nodes(&mut graph);
     let mut state = CustomExpressionNodeState::default();
     let input_offset = if sampled {
-        add_texture_input_slot(&mut state, MAIN_TIP_TEXTURE_INPUT);
+        add_mask_input_slot(&mut state, MAIN_TIP_TEXTURE_INPUT);
         1
     } else {
         0
@@ -450,12 +450,12 @@ fn build_main_effect(
     state.add_input::<Vec2FType>(MAIN_PEN_POSITION_INPUT);
     state.add_input::<ColorType>(MAIN_FOREGROUND_COLOR_INPUT);
     if tip_texture.is_some() {
-        add_texture_input_slot(&mut state, MAIN_TIP_TEXTURE_INPUT);
+        add_mask_input_slot(&mut state, MAIN_TIP_TEXTURE_INPUT);
     }
     state.add_input::<ColorType>(MAIN_BACKGROUND_COLOR_INPUT);
     state.add_input::<ColorType>(MAIN_CURRENT_COLOR_INPUT);
     if pattern_texture.is_some() {
-        add_texture_input_slot(&mut state, MAIN_PATTERN_TEXTURE_INPUT);
+        add_mask_input_slot(&mut state, MAIN_PATTERN_TEXTURE_INPUT);
     }
     add_dynamics_input_slots(&mut state);
     if stroke_distance.is_some() {
@@ -463,7 +463,7 @@ fn build_main_effect(
     }
     state.add_input::<F32Type>(STROKE_BEGIN_INPUT);
     if dual_texture.is_some() {
-        add_texture_input_slot(&mut state, DUAL_TIP_TEXTURE_INPUT);
+        add_mask_input_slot(&mut state, DUAL_TIP_TEXTURE_INPUT);
     }
     state.add_input::<F32Type>(USER_SIZE);
     state.add_input::<F32Type>(USER_FLOW);
