@@ -4,13 +4,13 @@ use anyhow::Result;
 use iced_core::{Element, Theme};
 use iced_runtime::Task;
 use image::{
-    ExtendedColorType, ImageEncoder,
+    ExtendedColorType, ImageEncoder as _,
     codecs::png::{CompressionType, FilterType, PngEncoder},
 };
 use lapiz_canvas::CCanvas;
 use lapiz_i18n::{Translated, t};
-use lapiz_image::tile::TileStorageAppExt;
-use lapiz_render::render_context::RenderContextAppExt;
+use lapiz_image::tile::TileStorageAppExt as _;
+use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{Renderer, Services};
 use lapiz_widgets::{checkbox::Checkbox, combo_box::ComboBox, form::Form};
 use parse_display::Display;

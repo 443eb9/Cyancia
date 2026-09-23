@@ -139,9 +139,11 @@ mod tests {
 
         archive.write_image_properties(&properties).unwrap();
 
-        let stored_profile: Vec<u8> = archive
+        let stored_profile = archive
             .conn()
-            .query_row("SELECT color_profile FROM image", [], |row| row.get(0))
+            .query_row("SELECT color_profile FROM image", [], |row| {
+                row.get::<_, Vec<u8>>(0)
+            })
             .unwrap();
         assert_eq!(stored_profile, properties.color_profile);
 
@@ -170,9 +172,9 @@ mod tests {
                 .unwrap();
         }
 
-        let row_count: u32 = archive
+        let row_count = archive
             .conn()
-            .query_row("SELECT COUNT(*) FROM image", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM image", [], |row| row.get::<_, u32>(0))
             .unwrap();
         assert_eq!(row_count, 1);
         assert_eq!(archive.read_image_properties().unwrap().width, 512);

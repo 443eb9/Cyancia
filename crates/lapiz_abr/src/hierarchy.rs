@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use lapiz_abr_derive::{AbrClass, AbrObject};
 use uuid::Uuid;
 
-use crate::{AbrObject as _, Cursor};
+use crate::{cursor::Cursor, descriptor::AbrObject as _};
 
 #[derive(Debug)]
 pub struct HierarchyNode {

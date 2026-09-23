@@ -38,13 +38,7 @@ CREATE INDEX layer_tree_parent ON layer_tree (parent_id, sort_order);
 
 impl LazuliArchive {
     pub fn read_layer_node(&self, layer_id: Uuid) -> Result<LayerNode> {
-        let (id, parent_id, sort_order, layer_type, properties): (
-            Vec<u8>,
-            Option<Vec<u8>>,
-            Option<i64>,
-            i64,
-            Vec<u8>,
-        ) = self.conn().query_row(
+        let (id, parent_id, sort_order, layer_type, properties) = self.conn().query_row(
             r#"
 SELECT id, parent_id, sort_order, layer_type, properties
 FROM layer_tree
@@ -53,11 +47,11 @@ WHERE id = ?1
             params![&layer_id.as_bytes()[..]],
             |row| {
                 Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
+                    row.get::<_, Vec<u8>>(0)?,
+                    row.get::<_, Option<Vec<u8>>>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Vec<u8>>(4)?,
                 ))
             },
         )?;

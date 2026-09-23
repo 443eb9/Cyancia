@@ -1,7 +1,8 @@
 use std::sync::LazyLock;
 
 use iced::{Element, Length, Task, Theme, window};
-use lapiz_canvas::CanvasToolProxyAppExt;
+use iced_widget::{svg, tooltip::Position};
+use lapiz_canvas::CanvasToolProxyAppExt as _;
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;
 use lapiz_runtime::{Renderer, Services};
@@ -9,13 +10,8 @@ use lapiz_tools::{
     ErasedToolFunctionMessage, ToolFunctionRegistry, ToolId, manifest::ToolBoxManifestConfig,
 };
 use lapiz_widgets::{
-    button::{self, Button},
-    divider::Divider,
-    flex::Flex,
-    icon,
-    label::Label,
-    scrollable::Scrollable,
-    tooltip::{Position, Tooltip},
+    button::Button, divider::Divider, flex::Flex, icon, label::Label, scrollable::Scrollable,
+    tooltip::Tooltip,
 };
 
 pub static TOOL_BOX_DOCK_ID: LazyLock<DockId> =
@@ -65,7 +61,7 @@ impl Dock for ToolBoxDock {
                 .size(12)
                 .style(move |theme, _| {
                     let p = theme.palette();
-                    icon::Style {
+                    svg::Style {
                         color: Some(if selected {
                             p.primary.base.text
                         } else {
@@ -79,9 +75,11 @@ impl Dock for ToolBoxDock {
                 .padding(8)
                 .style(move |theme, status| {
                     let p = theme.palette();
-                    let hovered =
-                        matches!(status, button::Status::Hovered | button::Status::Pressed);
-                    button::Style {
+                    let hovered = matches!(
+                        status,
+                        iced_widget::button::Status::Hovered | iced_widget::button::Status::Pressed
+                    );
+                    iced_widget::button::Style {
                         background: Some(
                             if selected {
                                 p.primary.base.color
@@ -120,7 +118,7 @@ impl Dock for ToolBoxDock {
             if !items.is_empty() {
                 items.push(separator());
             }
-            let buttons: Vec<_> = group.tools.iter().map(tool_button).collect();
+            let buttons = group.tools.iter().map(tool_button).collect::<Vec<_>>();
             items.push(
                 Flex::row(buttons)
                     .wrap()

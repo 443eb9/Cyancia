@@ -1,6 +1,6 @@
 use anyhow::Result;
 use image::{DynamicImage, ImageFormat, RgbaImage};
-use lapiz_abr::{Sample, SampleImage};
+use lapiz_abr::sample::{Sample, SampleImage};
 use lapiz_render::texture::{Image, ImageMetadata};
 
 pub fn parse_samp(sample: &Sample) -> Result<Image> {

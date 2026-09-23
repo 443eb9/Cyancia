@@ -1,5 +1,4 @@
 use iced_core::{Border, Color, Element, Length, Padding, Pixels, Shadow, Theme, Vector};
-pub use iced_widget::combo_box::Catalog;
 use iced_widget::{overlay::menu, pick_list, text_input};
 use lapiz_runtime::Renderer;
 

@@ -1,7 +1,7 @@
 use std::ops::RangeInclusive;
 
 use iced_core::{Background, Border, Element, Length, Theme};
-pub use iced_widget::progress_bar::{Catalog, Style, StyleFn};
+use iced_widget::progress_bar::{Catalog, Style};
 use lapiz_runtime::Renderer;
 
 pub struct ProgressBar<'a> {

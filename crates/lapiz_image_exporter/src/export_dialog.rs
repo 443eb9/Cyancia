@@ -4,16 +4,16 @@ use anyhow::Result;
 use iced_core::{Alignment, Element, Length, Size, Theme, window};
 use iced_runtime::Task;
 use iced_widget::{Space, column, row};
-use lapiz_canvas::{CanvasAppExt, CanvasId};
+use lapiz_canvas::{CanvasAppExt as _, CanvasId};
 use lapiz_config::Config;
 use lapiz_i18n::t;
 use lapiz_runtime::{
     Renderer, Services,
     windows::{WindowView, WindowViewId},
 };
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
-    button::Button, checkbox::Checkbox, fluent_builder::When, label::Label, panel::Panel,
+    button::Button, checkbox::Checkbox, fluent_builder::When as _, label::Label, panel::Panel,
 };
 
 use crate::{

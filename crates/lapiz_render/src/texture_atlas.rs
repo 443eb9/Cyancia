@@ -153,7 +153,7 @@ impl Skyline {
     }
 
     fn find_placement(&self, w: u32) -> Option<(u32, u32)> {
-        let mut best: Option<(u32, u32)> = None;
+        let mut best = None::<(u32, u32)>;
         for (i, &(sx, _)) in self.nodes.iter().enumerate() {
             if sx + w > self.width {
                 break;
@@ -207,13 +207,13 @@ fn skyline_pack(sizes: &[UVec2]) -> (UVec2, Vec<UVec2>) {
         return (UVec2::ZERO, vec![]);
     }
 
-    let total_area: u64 = sizes.iter().map(|s| s.x as u64 * s.y as u64).sum();
+    let total_area = sizes.iter().map(|s| s.x as u64 * s.y as u64).sum::<u64>();
     let max_w = sizes.iter().map(|s| s.x).max().unwrap_or(1);
 
     let est_side = (total_area as f64).sqrt() as u32;
     let atlas_width = est_side.max(max_w).next_power_of_two();
 
-    let mut order: Vec<usize> = (0..sizes.len()).collect();
+    let mut order = (0..sizes.len()).collect::<Vec<usize>>();
     order.sort_by(|&a, &b| {
         sizes[b]
             .y

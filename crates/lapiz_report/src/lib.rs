@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use chrono::{Local, Utc};
 use gfxinfo::active_gpu;
 use lapiz_dirs::panic_reports_dir;
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 use sysinfo::{System, get_current_pid};
 use wgpu::{AllocatorReport, Device};
 

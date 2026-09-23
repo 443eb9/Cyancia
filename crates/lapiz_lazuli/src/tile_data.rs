@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use glam::IVec2;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension as _, params};
 use uuid::Uuid;
 
 use crate::LazuliArchive;

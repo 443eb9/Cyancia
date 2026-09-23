@@ -3,7 +3,7 @@ use std::{
     error::Error,
     ffi::OsStr,
     fs::{File, create_dir_all, metadata},
-    io::Write,
+    io::Write as _,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use lapiz_utils::wrapper;
 use parking_lot::RwLock;
 use parse_display::Display;
-use path_clean::PathClean;
+use path_clean::PathClean as _;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

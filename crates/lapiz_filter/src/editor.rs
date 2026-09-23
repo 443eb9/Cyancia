@@ -5,7 +5,7 @@ use iced_core::{Element, Length, keyboard, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
 use iced_widget::{column, container, row, text};
-use lapiz_assets::{AssetAppExt, asset::AssetHandle};
+use lapiz_assets::{AssetAppExt as _, asset::AssetHandle};
 use lapiz_i18n::t;
 use lapiz_runtime::{
     Services,
@@ -21,7 +21,7 @@ use lapiz_shader_graph::{
     },
 };
 use lapiz_widgets::{
-    button::Button, combo_box::ComboBox, fluent_builder::When, label::Label, panel::Panel,
+    button::Button, combo_box::ComboBox, fluent_builder::When as _, label::Label, panel::Panel,
     scrollable::Scrollable, text_input::TextInput,
 };
 use uuid::Uuid;
@@ -734,8 +734,8 @@ pub fn validate_groups(groups: &[FilterGroup]) -> Result<(), String> {
     }
 
     // acyclic
-    let mut indegree: Vec<usize> = vec![0; groups.len()];
-    let mut outgoing: Vec<Vec<usize>> = vec![Vec::new(); groups.len()];
+    let mut indegree = vec![0usize; groups.len()];
+    let mut outgoing = vec![Vec::<usize>::new(); groups.len()];
     let mut edges_seen = BTreeSet::new();
     for (idx, group) in groups.iter().enumerate() {
         if let FilterSlotRef::Group(target) = group.output {
@@ -747,12 +747,12 @@ pub fn validate_groups(groups: &[FilterGroup]) -> Result<(), String> {
             }
         }
     }
-    let mut queue: Vec<usize> = groups
+    let mut queue = groups
         .iter()
         .enumerate()
         .filter(|(i, _)| indegree[*i] == 0)
         .map(|(i, _)| i)
-        .collect();
+        .collect::<Vec<usize>>();
     let mut visited = 0;
     while let Some(idx) = queue.pop() {
         visited += 1;

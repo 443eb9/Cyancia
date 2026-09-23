@@ -9,7 +9,7 @@ use iced_widget::container;
 use lapiz_runtime::Renderer;
 use taffy::prelude::{
     AlignItems, AvailableSpace, Dimension, Display, FlexDirection, FlexWrap, JustifyContent,
-    LengthPercentage, TaffyAuto, TaffyTree,
+    LengthPercentage, TaffyAuto as _, TaffyTree,
 };
 
 use crate::callback::{Callback, CallbackWith, publish, publish_with};

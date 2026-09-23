@@ -9,6 +9,7 @@ path = [
     ".github/**",
     "assets/**",
     "crates/**",
+    "xtask/**",
     "default_config/**",
     "docs/**",
 
@@ -18,6 +19,7 @@ path = [
     "about.toml",
     "Cargo.lock",
     "Cargo.toml",
+    "clippy.toml",
     "deny.toml",
     "justfile",
     "README.md",

@@ -6,7 +6,7 @@ use encase::{
 };
 use wgpu::{
     BindingResource, Buffer, BufferAddress, BufferBinding, BufferUsages, Device, Queue,
-    util::{BufferInitDescriptor, DeviceExt},
+    util::{BufferInitDescriptor, DeviceExt as _},
 };
 
 pub struct DynamicBuffer<T: ShaderType + WriteInto> {

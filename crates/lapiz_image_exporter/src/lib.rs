@@ -12,7 +12,20 @@ use iced_runtime::Task;
 use lapiz_canvas::{CCanvas, CanvasId};
 use lapiz_runtime::{Application, Renderer, Services, Theme, plugin::Plugin, service::Service};
 
-use crate::{config::ImageExporterConfig, export_dialog::ExportDialogView};
+use crate::{
+    adapter::{
+        avif::AvifExporter,
+        jpg::JpgExporter,
+        lazuli::LazuliExporter,
+        png::PngExporter,
+        simple::{
+            BmpExporter, FarbfeldExporter, GifExporter, HdrExporter, IcoExporter, OpenExrExporter,
+            PnmExporter, QoiExporter, TgaExporter, TiffExporter, WebPExporter,
+        },
+    },
+    config::ImageExporterConfig,
+    export_dialog::ExportDialogView,
+};
 
 lapiz_i18n::define_i18n!("image_exporter");
 
@@ -34,7 +47,6 @@ impl Plugin for ImageExporterPlugin {
             .register_view::<ExportDialogView>();
 
         let services = runtime.services_mut();
-        use adapter::*;
         services
             .service_mut::<ImageFormatAdapterRegistry>()
             .register::<PngExporter>()
@@ -87,12 +99,18 @@ pub trait ImageFormatExporter: 'static {
         services: &mut Services,
     ) -> Task<Self::DialogMessage>;
 
-    #[allow(async_fn_in_trait)]
+    #[allow(
+        async_fn_in_trait,
+        reason = "callers await this method directly; the erased trait boxes the future"
+    )]
     async fn export(&self, services: &Services, canvas: &CCanvas, path: &Path) -> Result<()>;
 
     fn to_toml(&self) -> Result<toml::Value>;
 
-    #[allow(clippy::wrong_self_convention)]
+    #[allow(
+        clippy::wrong_self_convention,
+        reason = "pairs with to_toml and fills an existing exporter instead of converting from a value"
+    )]
     fn from_toml(&mut self, value: toml::Value) -> Result<()>;
 }
 
@@ -123,7 +141,10 @@ pub trait ErasedImageFormatAdapter: Send + Sync + 'static {
 
     fn to_toml(&self) -> Result<toml::Value>;
 
-    #[allow(clippy::wrong_self_convention)]
+    #[allow(
+        clippy::wrong_self_convention,
+        reason = "pairs with to_toml and fills an existing exporter instead of converting from a value"
+    )]
     fn from_toml(&mut self, value: toml::Value) -> Result<()>;
 }
 

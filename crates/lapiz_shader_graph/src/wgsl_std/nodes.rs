@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::anyhow;
-use glam::{Vec2, Vec3, Vec3Swizzles};
+use glam::{Vec2, Vec3, Vec3Swizzles as _};
 use iced_core::{
     Event, Layout, Length, Rectangle, Shell, Size, Widget, layout,
     pointer::mouse,
@@ -22,8 +22,8 @@ use lapiz_math::curve::CubicCurve;
 use lapiz_shader_graph_derive::stateless;
 use lapiz_utils::{random_oklch_hue_chroma, wrapper};
 use lapiz_widgets::{
-    button::Button, combo_box::ComboBox, curve_edit::CurveEdit, fluent_builder::When, label::Label,
-    popover::Popover,
+    button::Button, combo_box::ComboBox, curve_edit::CurveEdit, fluent_builder::When as _,
+    label::Label, popover::Popover,
 };
 use parking_lot::Mutex;
 use parse_display::Display;

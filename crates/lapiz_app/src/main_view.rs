@@ -19,7 +19,7 @@ use lapiz_builtin_docks::{
     tool_options::TOOL_OPTIONS_DOCK_ID,
 };
 use lapiz_canvas::{
-    CanvasAppExt, CanvasToolProxyAppExt,
+    CanvasAppExt as _, CanvasToolProxyAppExt as _,
     event::{CanvasCreated, CanvasRemoved},
     recent::RecentFiles,
     tools::PanTool,
@@ -33,20 +33,20 @@ use lapiz_dock::{
 use lapiz_i18n::{config::LanguageConfig, t};
 use lapiz_image::{
     texel::TexelType,
-    tile::{GpuLayerInfo, TileStorageAppExt},
+    tile::{GpuLayerInfo, TileStorageAppExt as _},
 };
 use lapiz_input::key::KeyboardState;
 use lapiz_runtime::{
     ApplicationTheme, Renderer, Services,
-    event::Event,
+    event::Event as _,
     windows::{WindowView, WindowViewId},
 };
 use lapiz_tools::{
-    ErasedToolFunctionMessage, GlobalToolBindings, ToolFunction, ToolFunctionRegistry, ToolProxies,
-    ToolProxy,
+    ErasedToolFunctionMessage, GlobalToolBindings, ToolFunction as _, ToolFunctionRegistry,
+    ToolProxies, ToolProxy,
 };
 use lapiz_undo::{UndoStack, UndoStacks};
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
     bar::StatusBar,
     divider::Divider,
@@ -358,8 +358,7 @@ impl WindowView for MainView {
             .and_then(|handle| handle.0.get().ok())
             .map(|preset| preset.metadata.name.clone())
             .unwrap_or_else(|| String::from("NO PRESET"));
-        let mut status_cells: Vec<Element<'_, MainViewMessage, Theme, Renderer>> =
-            vec![Self::status_cell(icon::brush(), preset_name)];
+        let mut status_cells = vec![Self::status_cell(icon::brush(), preset_name)];
         if let Some(canvas) = services.current_canvas() {
             let size = canvas.image.size();
             status_cells.extend([
@@ -401,11 +400,11 @@ impl WindowView for MainView {
         }
         let status = StatusBar::new(status_cells);
 
-        let content: Element<'a, MainViewMessage, Theme, Renderer> =
+        let content = Element::from(
             Flex::column([title.into(), dock, status.into()])
                 .width(Length::Fill)
-                .height(Length::Fill)
-                .into();
+                .height(Length::Fill),
+        );
         Some(content)
     }
 

@@ -2,7 +2,7 @@ use std::{cell::RefCell, sync::LazyLock};
 
 use iced::{Element, Length, Size, Subscription, Task, Theme, window};
 use lapiz_color::{
-    BackgroundColorChanged, Color, ForegroundBackgroundColorExt, ForegroundColorChanged,
+    BackgroundColorChanged, Color, ForegroundBackgroundColorExt as _, ForegroundColorChanged,
     model::rgb::Rgb,
 };
 use lapiz_color_selector::{
@@ -14,8 +14,8 @@ use lapiz_color_selector::{
 use lapiz_config::Config;
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;
-use lapiz_runtime::{Renderer, Services, event::Event};
-use lapiz_utils::log_err::LogErr;
+use lapiz_runtime::{Renderer, Services, event::Event as _};
+use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
     button::Button, flex::Flex, label::Label, panel::Panel, scrollable::Scrollable,
 };
@@ -194,8 +194,6 @@ impl Dock for ColorSelectorDock {
                 if !self.is_foreground_color {
                     return Task::none();
                 }
-
-                dbg!(event.new);
                 self.last_color = event.new;
                 self.selector
                     .set_color(event.new, services)
@@ -205,8 +203,6 @@ impl Dock for ColorSelectorDock {
                 if self.is_foreground_color {
                     return Task::none();
                 }
-
-                dbg!(event.new);
                 self.last_color = event.new;
                 self.selector
                     .set_color(event.new, services)

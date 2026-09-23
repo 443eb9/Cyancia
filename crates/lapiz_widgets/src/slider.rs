@@ -1,7 +1,7 @@
 use std::ops::RangeInclusive;
 
 use iced_core::{Background, Border, Element, Length, Pixels, Theme};
-pub use iced_widget::slider::{Catalog, Handle, HandleShape, Rail, Status, Style, StyleFn};
+use iced_widget::slider::{Catalog, Handle, HandleShape, Rail, Status, Style};
 use lapiz_runtime::Renderer;
 use num_traits::FromPrimitive;
 

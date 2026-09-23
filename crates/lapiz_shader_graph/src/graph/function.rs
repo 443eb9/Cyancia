@@ -5,7 +5,7 @@ use std::{
 
 use arc_swap::ArcSwap;
 use lapiz_assets::asset::{AssetHandle, AssetId};
-use lapiz_utils::{log_err::LogErr, wrapper};
+use lapiz_utils::{log_err::LogErr as _, wrapper};
 use log::error;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};

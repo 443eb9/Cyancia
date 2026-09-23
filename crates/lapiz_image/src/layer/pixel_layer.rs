@@ -28,11 +28,14 @@ use crate::{
     layer::{
         Layer, LayerId, LayerStackNode,
         properties::{
-            BlendFunctionProp, BlendFunctionPropertyExt, DisabledChannelsProp,
-            DisabledChannelsPropertyExt, EncodedLayerProperties, HasLayerProperties,
-            LayerProperties, LayerPropertiesDeclaration, LayerTexelProp, LockedChannelsProp,
-            LockedProp, NameProp, NamePropertyExt, OpacityProp, OpacityPropertyExt, TexelSource,
-            VisibleProp, VisiblePropertyExt,
+            EncodedLayerProperties, HasLayerProperties, LayerProperties,
+            LayerPropertiesDeclaration,
+            builtin::{
+                BlendFunctionProp, BlendFunctionPropertyExt as _, DisabledChannelsProp,
+                DisabledChannelsPropertyExt as _, LayerTexelProp, LockedChannelsProp, LockedProp,
+                NameProp, NamePropertyExt as _, OpacityProp, OpacityPropertyExt as _, TexelSource,
+                VisibleProp, VisiblePropertyExt as _,
+            },
         },
     },
     texel::TexelType,

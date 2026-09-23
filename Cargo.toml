@@ -51,6 +51,7 @@ publish = false
 
 [workspace.lints.clippy]
 type_complexity = "allow"
+too_many_arguments = "allow"
 pub_use = "deny"
 unused_trait_names = "warn"
 dbg_macro = "warn"

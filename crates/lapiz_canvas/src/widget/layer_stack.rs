@@ -6,7 +6,7 @@ use iced_core::{
     renderer,
     widget::Tree,
 };
-use iced_widget::{button, column, row, stack};
+use iced_widget::{button, column, container, row, stack};
 use indexmap::IndexMap;
 use lapiz_i18n::Translated;
 use lapiz_image::{
@@ -14,9 +14,12 @@ use lapiz_image::{
     layer::{
         LayerId, LayerPosition,
         properties::{
-            BlendFunctionPropertyExt, DisabledChannelsPropertyExt, LayerProperties,
-            LockedChannelsPropertyExt, LockedPropertyExt, NamePropertyExt, OpacityPropertyExt,
-            VisiblePropertyExt,
+            LayerProperties,
+            builtin::{
+                BlendFunctionPropertyExt as _, DisabledChannelsPropertyExt as _,
+                LockedChannelsPropertyExt as _, LockedPropertyExt as _, NamePropertyExt as _,
+                OpacityPropertyExt as _, VisiblePropertyExt as _,
+            },
         },
     },
     tile::GpuTileStorage,
@@ -29,7 +32,7 @@ use lapiz_widgets::{
     icon,
     label::Label,
     menu::{ContextMenu, Menu},
-    panel::{self, Panel},
+    panel::Panel,
     spin_slider::SpinSlider,
     text_input::TextInput,
 };
@@ -398,8 +401,10 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
             .map(|(node, _)| *node.id())
             .collect::<Vec<_>>();
 
-        let mut rows: Vec<Element<'a, Message, iced_core::Theme, lapiz_runtime::Renderer>> =
-            Vec::with_capacity(layer_nodes.len());
+        let mut rows =
+            Vec::<Element<'a, Message, iced_core::Theme, lapiz_runtime::Renderer>>::with_capacity(
+                layer_nodes.len(),
+            );
 
         for (node, depth) in &layer_nodes {
             let layer_id = *node.id();
@@ -412,8 +417,8 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
             let is_active = canvas.active_layer_id() == layer_id;
             let is_renaming = view.renaming_layer == Some(layer_id);
 
-            let mut children: Vec<Element<'_, Message, iced_core::Theme, lapiz_runtime::Renderer>> =
-                vec![];
+            let mut children =
+                Vec::<Element<'_, Message, iced_core::Theme, lapiz_runtime::Renderer>>::new();
 
             if let Some(visible) = properties.get_visible() {
                 children.push(
@@ -535,7 +540,7 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
                     .height(30),
             )
             .width(Length::Fill)
-            .style(move |theme: &iced_core::Theme| panel::Style {
+            .style(move |theme: &iced_core::Theme| container::Style {
                 background: if is_selected {
                     Some(theme.palette().primary.weak.color.into())
                 } else {
@@ -587,8 +592,8 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
             .height(Length::Fill);
         let active_layer = canvas.active_layer_node().properties();
         let active_id = canvas.active_layer_id();
-        let mut params: Vec<Element<'_, Message, iced_core::Theme, lapiz_runtime::Renderer>> =
-            vec![];
+        let mut params =
+            Vec::<Element<'_, Message, iced_core::Theme, lapiz_runtime::Renderer>>::new();
 
         if let Some(blend) = active_layer.get_blend_function() {
             let all = view
@@ -625,15 +630,15 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
             );
         }
 
-        let params: Element<'_, Message, iced_core::Theme, lapiz_runtime::Renderer> =
-            if params.is_empty() {
+        let params = if params.is_empty() {
+            Element::from(
                 iced_widget::Space::new()
                     .width(Length::Fill)
-                    .height(Length::Shrink)
-                    .into()
-            } else {
-                Panel::new(column(params).spacing(4.0)).padding(6.0).into()
-            };
+                    .height(Length::Shrink),
+            )
+        } else {
+            Element::from(Panel::new(column(params).spacing(4.0)).padding(6.0))
+        };
 
         column![params, list_with_overlay]
             .spacing(8.0)

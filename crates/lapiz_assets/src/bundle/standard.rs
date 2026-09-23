@@ -1,6 +1,6 @@
 use std::{
     fs::{File, metadata},
-    io::{Cursor, Read, read_to_string},
+    io::{Cursor, Read as _, read_to_string},
     path::{Path, PathBuf},
     sync::Arc,
 };

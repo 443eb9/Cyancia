@@ -8,7 +8,7 @@ use iced::{
     window,
 };
 use lapiz_canvas::{
-    CanvasAppExt, CanvasUndoStackAppExt,
+    CanvasAppExt as _, CanvasUndoStackAppExt as _,
     command::{LayerPropertyChangeCommand, MoveLayersCommand},
     widget::layer_stack::{DropInfo, LayerStackMessage, LayerStackView},
 };
@@ -17,13 +17,13 @@ use lapiz_image::{
     composite::BlendFunctionRegistry,
     layer::{
         LayerId,
-        properties::{LayerProperties, NamePropertyExt},
+        properties::{LayerProperties, builtin::NamePropertyExt as _},
     },
-    tile::TileStorageAppExt,
+    tile::TileStorageAppExt as _,
 };
 use lapiz_input::key::KeyboardState;
 use lapiz_runtime::{Renderer, Services};
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 
 pub static LAYER_DOCK_ID: LazyLock<DockId> = LazyLock::new(|| DockId::new("layer_dock".into()));
 

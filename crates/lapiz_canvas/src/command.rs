@@ -7,20 +7,20 @@ use indexmap::IndexSet;
 use lapiz_image::{
     layer::{
         LayerId, LayerPosition, LayerStackNode,
-        properties::{LayerProperties, LayerTexelTypePropertyExt},
+        properties::{LayerProperties, builtin::LayerTexelTypePropertyExt as _},
     },
-    tile::{DynamicLayerStorage, GpuLayerInfo, GpuTileStorage, TileStorageAppExt},
+    tile::{DynamicLayerStorage, GpuLayerInfo, GpuTileStorage, TileStorageAppExt as _},
 };
-use lapiz_render::render_context::RenderContextAppExt;
-use lapiz_runtime::{Services, event::Event};
+use lapiz_render::render_context::RenderContextAppExt as _;
+use lapiz_runtime::{Services, event::Event as _};
 use lapiz_undo::UndoCommand;
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 use wgpu::{
     Device, Extent3d, ImageSubresourceRange, Origin3d, Queue, TexelCopyTextureInfo, Texture,
     TextureAspect, TextureDescriptor, TextureDimension, TextureUsages,
 };
 
-use crate::{CCanvas, CanvasAppExt, CanvasId, event::CanvasUpdated};
+use crate::{CCanvas, CanvasAppExt as _, CanvasId, event::CanvasUpdated};
 
 pub struct TileReplaceCommand {
     pub reason: Cow<'static, str>,

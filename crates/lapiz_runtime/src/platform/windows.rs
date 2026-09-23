@@ -1,3 +1,8 @@
+#![allow(
+    clippy::undocumented_unsafe_blocks,
+    reason = "Win32 FFI in this function is sequenced and checked locally"
+)]
+
 use windows::Win32::{
     Foundation::HWND,
     Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFOEXW, MonitorFromWindow},

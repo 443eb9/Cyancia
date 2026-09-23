@@ -68,6 +68,10 @@ mod imp {
 }
 
 #[cfg(target_os = "windows")]
+#[allow(
+    clippy::undocumented_unsafe_blocks,
+    reason = "Win32 FFI in this function is sequenced and checked locally"
+)]
 mod imp {
     use std::{cell::Cell, ffi::c_void, rc::Rc};
 
@@ -126,12 +130,12 @@ mod imp {
             let x = lparam.0 as u16 as i16 as i32;
             let y = (lparam.0 >> 16) as u16 as i16 as i32;
 
-            if let Some(hit) = unsafe { resize_hit_test(window, x, y) } {
+            if let Some(hit) = resize_hit_test(window, x, y) {
                 return LRESULT(hit as isize);
             }
 
             let state = unsafe { &*(ref_data as *const HitTestState) };
-            if unsafe { is_caption(window, x, y, state) } {
+            if is_caption(window, x, y, state) {
                 return LRESULT(HTCAPTION as isize);
             }
         }
@@ -146,9 +150,10 @@ mod imp {
         unsafe { DefSubclassProc(window, message, wparam, lparam) }
     }
 
-    unsafe fn resize_hit_test(window: HWND, x: i32, y: i32) -> Option<u32> {
+    fn resize_hit_test(window: HWND, x: i32, y: i32) -> Option<u32> {
         let style = unsafe { GetWindowLongPtrW(window, GWL_STYLE) };
-        if style & WS_THICKFRAME.0 as isize == 0 || unsafe { IsZoomed(window).as_bool() } {
+        let zoomed = unsafe { IsZoomed(window).as_bool() };
+        if style & WS_THICKFRAME.0 as isize == 0 || zoomed {
             return None;
         }
 
@@ -157,10 +162,10 @@ mod imp {
 
         let dpi = unsafe { GetDpiForWindow(window) };
         let padded_border = unsafe { GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi) };
-        let horizontal_border =
-            unsafe { GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) } + padded_border;
-        let vertical_border =
-            unsafe { GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) } + padded_border;
+        let frame_x = unsafe { GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) };
+        let frame_y = unsafe { GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) };
+        let horizontal_border = frame_x + padded_border;
+        let vertical_border = frame_y + padded_border;
 
         let left = x < bounds.left + horizontal_border;
         let right = x >= bounds.right - horizontal_border;
@@ -180,9 +185,10 @@ mod imp {
         }
     }
 
-    unsafe fn is_caption(window: HWND, x: i32, y: i32, state: &HitTestState) -> bool {
+    fn is_caption(window: HWND, x: i32, y: i32, state: &HitTestState) -> bool {
         let mut point = POINT { x, y };
-        if !unsafe { ScreenToClient(window, &mut point) }.as_bool() {
+        let converted = unsafe { ScreenToClient(window, &mut point) };
+        if !converted.as_bool() {
             return false;
         }
 

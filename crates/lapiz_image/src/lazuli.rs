@@ -1,15 +1,15 @@
 use std::{
     collections::HashMap,
-    io::{Read, Write},
+    io::{Read as _, Write as _},
 };
 
 use anyhow::{Result, anyhow, bail};
 use flate2::{Compression, read::DeflateDecoder, write::DeflateEncoder};
 use glam::{IVec2, UVec2};
-use imagers::{DynamicImage, GenericImageView};
+use imagers::{DynamicImage, GenericImageView as _};
 use lapiz_i18n::t;
-use lapiz_lazuli::{ImageProperties, LayerNode, LazuliArchive};
-use lapiz_render::render_context::RenderContextAppExt;
+use lapiz_lazuli::{LazuliArchive, image_props::ImageProperties, layer_tree::LayerNode};
+use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::Services;
 use moxcms::ColorProfile;
 use serde::Serialize;
@@ -22,12 +22,12 @@ use crate::{
         Layer, LayerId, LayerStack, LayerStackNode, LayerTypeRegistry, SpecialLayers,
         pixel_layer::PixelLayer,
         properties::{
-            EncodedLayerProperties, LayerProperties, LayerTexelTypePropertyExt, NamePropertyExt,
-            TexelSource,
+            EncodedLayerProperties, LayerProperties,
+            builtin::{LayerTexelTypePropertyExt as _, NamePropertyExt as _, TexelSource},
         },
     },
     texel::TexelType,
-    tile::{GpuLayerInfo, GpuTileStorage, TileStorageAppExt},
+    tile::{GpuLayerInfo, GpuTileStorage, TileStorageAppExt as _},
 };
 
 impl CImage {

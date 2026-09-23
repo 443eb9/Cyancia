@@ -2,12 +2,7 @@ use iced_core::{Background, Color, Element, Length, Pixels, Theme};
 use iced_widget::svg;
 use lapiz_runtime::Renderer;
 
-use crate::{
-    button::{self, Button},
-    flex::Flex,
-    icon::Icon,
-    label::Label,
-};
+use crate::{button::Button, flex::Flex, icon::Icon, label::Label};
 
 pub struct Radio<'a, Message> {
     label: String,
@@ -175,9 +170,9 @@ pub fn default(theme: &Theme, status: Status) -> Style {
     }
 }
 
-fn button_style(theme: &Theme, _status: button::Status) -> button::Style {
-    button::Style {
+fn button_style(theme: &Theme, _status: iced_widget::button::Status) -> iced_widget::button::Style {
+    iced_widget::button::Style {
         text_color: theme.palette().background.base.text,
-        ..button::Style::default()
+        ..iced_widget::button::Style::default()
     }
 }

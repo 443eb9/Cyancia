@@ -80,7 +80,7 @@ fn lab_f_inv(t: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use glam::FloatExt;
+    use glam::FloatExt as _;
 
     use crate::model::{lab::Lab, tests::roundtrip_test};
 

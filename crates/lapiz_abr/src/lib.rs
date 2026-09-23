@@ -23,27 +23,20 @@
 // Adobe Inc.
 
 use anyhow::{Result, bail};
-pub use cursor::Cursor;
-use descriptor::BrushDescriptorRoot;
-pub use descriptor::{
-    AbrClass, AbrEnum, AbrIntegerEnum, AbrObject, AbrValue, BlendMode, BrushGroup, BrushTip,
-    ComputedBrushTip, DBrushTip, Descriptor, DescriptorUnit, DualBrush, DynamicsControl,
-    EraserToolOptions, PaintToolOptions, PatternReference, PropertyDynamics, RgbColor,
-    SampledBrushTip, ShToolOptions, SmudgeToolOptions, ToolOptions, UnitFloat,
-};
-pub use header::AbrHeader;
-pub use hierarchy::HierarchyNode;
-pub use lapiz_abr_derive::{AbrClass, AbrEnum, AbrIntegerEnum, AbrObject};
-pub use pattern::{ColorMode, Pattern, PatternChannel};
-pub use sample::{Sample, SampleImage};
+use cursor::Cursor;
+use descriptor::class::{BrushDescriptorRoot, Descriptor};
+use header::AbrHeader;
+use hierarchy::HierarchyNode;
+use pattern::Pattern;
+use sample::Sample;
 
-mod cursor;
-mod descriptor;
-mod header;
-mod hierarchy;
-mod pattern;
+pub mod cursor;
+pub mod descriptor;
+pub mod header;
+pub mod hierarchy;
+pub mod pattern;
 mod rle;
-mod sample;
+pub mod sample;
 
 #[derive(Debug)]
 pub struct Abr {
@@ -102,5 +95,10 @@ impl Abr {
 
 #[doc(hidden)]
 pub mod __private {
+    #![expect(
+        clippy::pub_use,
+        reason = "Abr derive expansions resolve these types through lapiz_abr::__private"
+    )]
+
     pub use anyhow::{Error, Result};
 }

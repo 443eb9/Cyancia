@@ -1,11 +1,9 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
 use uuid::Uuid;
 
-use crate::Cursor;
+use crate::cursor::Cursor;
 
-mod class;
-
-pub use class::*;
+pub mod class;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DescriptorUnit {

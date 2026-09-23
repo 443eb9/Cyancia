@@ -5,7 +5,7 @@ use iced_core::{
     renderer,
     widget::{Operation, Tree, tree},
 };
-pub use iced_widget::button::{Catalog, Status, Style, StyleFn};
+use iced_widget::button::{Catalog, Status, Style};
 use lapiz_runtime::Renderer;
 
 use crate::callback::{Callback, publish};

@@ -28,7 +28,7 @@ impl GraphTypeRegistry {
         let to = T::ToType::default();
         let from_name = <T::FromType as GraphValueType>::name(&from);
         let to_name = <T::ToType as GraphValueType>::name(&to);
-        let caster: Box<dyn ErasedGraphVariableCaster> = Box::new(T::default());
+        let caster = Box::new(T::default()) as Box<dyn ErasedGraphVariableCaster>;
         self.casters
             .entry(from_name)
             .or_default()
@@ -135,14 +135,20 @@ impl GraphLiteral {
         }
     }
 
-    #[allow(clippy::should_implement_trait)]
+    #[allow(
+        clippy::should_implement_trait,
+        reason = "downcasts to a caller-chosen type instead of implementing AsRef"
+    )]
     pub fn as_ref<T: GraphLiteralValue>(&self) -> &T {
         self.value
             .downcast_ref::<T>()
             .expect("Failed to downcast Literal")
     }
 
-    #[allow(clippy::should_implement_trait)]
+    #[allow(
+        clippy::should_implement_trait,
+        reason = "downcasts to a caller-chosen type instead of implementing AsMut"
+    )]
     pub fn as_mut<T: GraphLiteralValue>(&mut self) -> &mut T {
         self.value
             .downcast_mut::<T>()

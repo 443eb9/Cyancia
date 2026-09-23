@@ -18,14 +18,14 @@ use lapiz_render::{
     readback::{
         create_readback_buffer_and_schedule_copy_texture, readback_buffer_raw_on_submit_async,
     },
-    render_context::RenderContextAppExt,
-    util::DevicePollExt,
+    render_context::RenderContextAppExt as _,
+    util::DevicePollExt as _,
 };
 use lapiz_runtime::Services;
 use lapiz_shader_graph::graph::{
     function::ASSET_GRAPH_FUNCTION_STORAGE, texture::ASSET_GRAPH_TEXTURE_STORAGE,
 };
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 use tracing::info;
 use wesl::include_wesl;
 use wgpu::{

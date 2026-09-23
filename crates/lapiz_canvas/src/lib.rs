@@ -7,8 +7,8 @@ use lapiz_image::{
     layer::{LayerId, LayerStackNode},
 };
 use lapiz_lazuli::LazuliArchive;
-use lapiz_runtime::{Application, Services, event::Event, plugin::Plugin, service::Service};
-use lapiz_tools::{ToolProxies, ToolProxy, ToolsAppExt};
+use lapiz_runtime::{Application, Services, event::Event as _, plugin::Plugin, service::Service};
+use lapiz_tools::{ToolProxies, ToolProxy, ToolsAppExt as _};
 use lapiz_undo::{QueuedUndoCommand, UndoCommand, UndoStack, UndoStacks};
 use lapiz_utils::wrapper;
 use parse_display::Display;

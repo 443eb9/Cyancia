@@ -7,7 +7,7 @@ use iced_core::{
     renderer,
     widget::Tree,
 };
-use iced_wgpu::primitive::Renderer;
+use iced_wgpu::primitive::Renderer as _;
 use lapiz_image::{texel::TexelType, tile::GpuTileStorage};
 use moxcms::ColorProfile;
 

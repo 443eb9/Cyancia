@@ -4,9 +4,7 @@ use anyhow::{Result, anyhow};
 use downcast_rs::Downcast;
 use dyn_clone::DynClone;
 
-mod builtin;
-
-pub use builtin::*;
+pub mod builtin;
 
 use crate::layer::Layer;
 

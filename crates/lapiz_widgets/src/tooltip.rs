@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use iced_core::{Border, Color, Element, Pixels, Shadow, Theme, Vector};
-use iced_widget::container;
-pub use iced_widget::{
-    container::{Catalog, Style, StyleFn},
+use iced_widget::{
+    container,
+    container::{Catalog, Style},
     tooltip::Position,
 };
 use lapiz_runtime::Renderer;

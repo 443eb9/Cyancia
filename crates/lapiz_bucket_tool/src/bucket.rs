@@ -13,7 +13,7 @@ use lapiz_render::{
     bind_group_layout_entries::{BindGroupLayoutEntries, binding_types},
     buffer::DynamicBuffer,
     readback::{create_readback_buffer_and_schedule_copy_buffer, readback_buffer_on_submit_async},
-    util::DevicePollExt,
+    util::DevicePollExt as _,
     wesl_jit,
 };
 use tracing::{error, info};
@@ -475,6 +475,7 @@ impl Bucket {
             return None;
         };
 
+        // SAFETY: capture is started on this device and stopped after the mask dispatch below.
         unsafe { device.start_graphics_debugger_capture() };
 
         let BucketResultInternal {
@@ -488,6 +489,7 @@ impl Bucket {
             ref_layer_tile_info,
         )?;
 
+        // SAFETY: this stops the capture started on the same device before the mask dispatch.
         unsafe { device.stop_graphics_debugger_capture() };
 
         let output_tile_indices = self.scan_pixels_pipeline.scan(device, queue, &mask);
@@ -1092,7 +1094,6 @@ impl Bucket {
             }
         };
 
-        dbg!();
         Some(BucketResultInternal {
             bucket_params_buffer,
             mask,

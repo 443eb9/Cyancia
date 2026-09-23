@@ -108,7 +108,7 @@ where
 
     pub fn precision(mut self, precision: usize) -> Self {
         self.precision = precision;
-        let step: T = 10.0_f64.powi(-(precision as i32)).as_();
+        let step = AsPrimitive::<T>::as_(10.0_f64.powi(-(precision as i32)));
         if step > 0.0_f64.as_() {
             self.step = step;
         }
@@ -219,9 +219,9 @@ where
     }
 
     fn snap_f64(&self, value: f64) -> T {
-        let start: f64 = (*self.range.start()).as_();
-        let end: f64 = (*self.range.end()).as_();
-        let step: f64 = self.step.as_();
+        let start = AsPrimitive::<f64>::as_(*self.range.start());
+        let end = AsPrimitive::<f64>::as_(*self.range.end());
+        let step = AsPrimitive::<f64>::as_(self.step);
         let steps = ((value - start) / step).round();
         let val = start + steps * step;
         if self.allow_beyond_range {
@@ -233,9 +233,9 @@ where
     }
 
     fn value_to_percentage(&self, value: T) -> f32 {
-        let value: f64 = value.as_();
-        let start: f64 = (*self.range.start()).as_();
-        let end: f64 = (*self.range.end()).as_();
+        let value = AsPrimitive::<f64>::as_(value);
+        let start = AsPrimitive::<f64>::as_(*self.range.start());
+        let end = AsPrimitive::<f64>::as_(*self.range.end());
         let percentage = match self.scale {
             SliderScale::Linear => (value - start) / (end - start),
             SliderScale::Logarithmic => (value / start).ln() / (end / start).ln(),
@@ -245,14 +245,14 @@ where
 
     fn percentage_to_value(&self, percentage: f32) -> T {
         let percentage = percentage.clamp(0.0, 1.0) as f64;
-        let start: f64 = (*self.range.start()).as_();
-        let end: f64 = (*self.range.end()).as_();
+        let start = AsPrimitive::<f64>::as_(*self.range.start());
+        let end = AsPrimitive::<f64>::as_(*self.range.end());
         let value = match self.scale {
             SliderScale::Linear => start + (end - start) * percentage,
             SliderScale::Logarithmic => (end / start).powf(percentage) * start,
         };
 
-        let step: f64 = self.step.as_();
+        let step = AsPrimitive::<f64>::as_(self.step);
         let steps = ((value - start) / step).round();
         (start + steps * step).clamp(start, end).as_()
     }

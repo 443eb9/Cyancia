@@ -1,5 +1,6 @@
 use glam::Vec2;
 use iced::{Element, Length, Padding, Theme};
+use iced_widget::tooltip::Position;
 use lapiz_math::curve::CubicCurve;
 use lapiz_widgets::{
     bar::StatusBar,
@@ -29,7 +30,7 @@ use lapiz_widgets::{
     tabs::TabBar,
     tag::{Tag, Tone},
     text_input::TextInput,
-    tooltip::{Position, Tooltip},
+    tooltip::Tooltip,
 };
 
 #[derive(Debug, Clone)]

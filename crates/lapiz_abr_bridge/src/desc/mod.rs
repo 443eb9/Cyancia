@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
-use anyhow::{Context, Result, bail, ensure};
-use lapiz_abr::{BrushTip, Descriptor, DynamicsControl, PropertyDynamics, ToolOptions, UnitFloat};
+use anyhow::{Context as _, Result, bail, ensure};
+use lapiz_abr::descriptor::{
+    UnitFloat,
+    class::{self, BrushTip, Descriptor, DynamicsControl, PropertyDynamics, ToolOptions},
+};
 use lapiz_assets::asset::AssetId;
 use lapiz_brush::asset::{BrushPreset, BrushPresetMetadata};
 use lapiz_image::blend_modes::BlendMode;
@@ -17,40 +20,40 @@ use crate::desc::{
 pub mod graph;
 pub mod wgsl;
 
-fn parse_blend_mode(mode: lapiz_abr::BlendMode) -> BlendMode {
+fn parse_blend_mode(mode: class::BlendMode) -> BlendMode {
     match mode {
-        lapiz_abr::BlendMode::Normal => BlendMode::Normal,
-        lapiz_abr::BlendMode::Dissolve => BlendMode::Dissolve,
-        lapiz_abr::BlendMode::Behind => BlendMode::Behind,
-        lapiz_abr::BlendMode::Clear => BlendMode::Clear,
-        lapiz_abr::BlendMode::Darken => BlendMode::Darken,
-        lapiz_abr::BlendMode::Multiply => BlendMode::Multiply,
-        lapiz_abr::BlendMode::ColorBurn => BlendMode::ColorBurn,
-        lapiz_abr::BlendMode::LinearBurn => BlendMode::LinearBurn,
-        lapiz_abr::BlendMode::DarkerColor => BlendMode::DarkerColor,
-        lapiz_abr::BlendMode::Lighten => BlendMode::Lighten,
-        lapiz_abr::BlendMode::Screen => BlendMode::Screen,
-        lapiz_abr::BlendMode::ColorDodge => BlendMode::ColorDodge,
-        lapiz_abr::BlendMode::LinearDodge => BlendMode::LinearDodge,
-        lapiz_abr::BlendMode::LighterColor => BlendMode::LighterColor,
-        lapiz_abr::BlendMode::Overlay => BlendMode::Overlay,
-        lapiz_abr::BlendMode::SoftLight => BlendMode::SoftLight,
-        lapiz_abr::BlendMode::HardLight => BlendMode::HardLight,
-        lapiz_abr::BlendMode::VividLight => BlendMode::VividLight,
-        lapiz_abr::BlendMode::LinearLight => BlendMode::LinearLight,
-        lapiz_abr::BlendMode::PinLight => BlendMode::PinLight,
-        lapiz_abr::BlendMode::HardMix => BlendMode::HardMix,
-        lapiz_abr::BlendMode::Difference => BlendMode::Difference,
-        lapiz_abr::BlendMode::Exclusion => BlendMode::Exclusion,
-        lapiz_abr::BlendMode::Subtract => BlendMode::Subtract,
-        lapiz_abr::BlendMode::SubtractTexture => BlendMode::Subtractive,
-        lapiz_abr::BlendMode::Divide => BlendMode::Divide,
-        lapiz_abr::BlendMode::Hue => BlendMode::Hue,
-        lapiz_abr::BlendMode::Saturation => BlendMode::Saturation,
-        lapiz_abr::BlendMode::Color => BlendMode::Color,
-        lapiz_abr::BlendMode::Luminosity => BlendMode::Luminosity,
-        lapiz_abr::BlendMode::Height => BlendMode::Height,
-        lapiz_abr::BlendMode::LinearHeight => BlendMode::LinearHeight,
+        class::BlendMode::Normal => BlendMode::Normal,
+        class::BlendMode::Dissolve => BlendMode::Dissolve,
+        class::BlendMode::Behind => BlendMode::Behind,
+        class::BlendMode::Clear => BlendMode::Clear,
+        class::BlendMode::Darken => BlendMode::Darken,
+        class::BlendMode::Multiply => BlendMode::Multiply,
+        class::BlendMode::ColorBurn => BlendMode::ColorBurn,
+        class::BlendMode::LinearBurn => BlendMode::LinearBurn,
+        class::BlendMode::DarkerColor => BlendMode::DarkerColor,
+        class::BlendMode::Lighten => BlendMode::Lighten,
+        class::BlendMode::Screen => BlendMode::Screen,
+        class::BlendMode::ColorDodge => BlendMode::ColorDodge,
+        class::BlendMode::LinearDodge => BlendMode::LinearDodge,
+        class::BlendMode::LighterColor => BlendMode::LighterColor,
+        class::BlendMode::Overlay => BlendMode::Overlay,
+        class::BlendMode::SoftLight => BlendMode::SoftLight,
+        class::BlendMode::HardLight => BlendMode::HardLight,
+        class::BlendMode::VividLight => BlendMode::VividLight,
+        class::BlendMode::LinearLight => BlendMode::LinearLight,
+        class::BlendMode::PinLight => BlendMode::PinLight,
+        class::BlendMode::HardMix => BlendMode::HardMix,
+        class::BlendMode::Difference => BlendMode::Difference,
+        class::BlendMode::Exclusion => BlendMode::Exclusion,
+        class::BlendMode::Subtract => BlendMode::Subtract,
+        class::BlendMode::SubtractTexture => BlendMode::Subtractive,
+        class::BlendMode::Divide => BlendMode::Divide,
+        class::BlendMode::Hue => BlendMode::Hue,
+        class::BlendMode::Saturation => BlendMode::Saturation,
+        class::BlendMode::Color => BlendMode::Color,
+        class::BlendMode::Luminosity => BlendMode::Luminosity,
+        class::BlendMode::Height => BlendMode::Height,
+        class::BlendMode::LinearHeight => BlendMode::LinearHeight,
     }
 }
 
@@ -135,7 +138,7 @@ fn parse_dual_brush(
         Some(DualBrush {
             tip,
             flip: dual.flip,
-            blend_mode: parse_blend_mode(dual.blend_mode.unwrap_or(lapiz_abr::BlendMode::Multiply)),
+            blend_mode: parse_blend_mode(dual.blend_mode.unwrap_or(class::BlendMode::Multiply)),
             spacing,
             scatter,
         }),
@@ -464,7 +467,7 @@ pub fn parse_desc(
                 blend_mode: parse_blend_mode(
                     brush
                         .texture_blend_mode
-                        .unwrap_or(lapiz_abr::BlendMode::Multiply),
+                        .unwrap_or(class::BlendMode::Multiply),
                 ),
                 brightness,
                 contrast,

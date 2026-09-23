@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use proc_macro::TokenStream;
 use proc_macro_crate::{FoundCrate, crate_name};
-use proc_macro2::{Span, TokenStream as TokenStream2};
+use proc_macro2::Span;
 use quote::{format_ident, quote};
 use syn::{
     Attribute, Data, DataEnum, DataStruct, DeriveInput, Error, Expr, Fields, GenericArgument, Lit,
@@ -48,7 +48,7 @@ enum DeriveKind {
     IntegerEnum,
 }
 
-fn expand(input: DeriveInput, kind: DeriveKind) -> syn::Result<TokenStream2> {
+fn expand(input: DeriveInput, kind: DeriveKind) -> syn::Result<proc_macro2::TokenStream> {
     if !input.generics.params.is_empty() {
         return Err(Error::new_spanned(
             input.generics,
@@ -105,8 +105,8 @@ fn expand_class(
     name: syn::Ident,
     data: DataStruct,
     attrs: AbrAttributes,
-    crate_path: &TokenStream2,
-) -> syn::Result<TokenStream2> {
+    crate_path: &proc_macro2::TokenStream,
+) -> syn::Result<proc_macro2::TokenStream> {
     let class_id = attrs.class.ok_or_else(|| {
         Error::new_spanned(&name, "descriptor struct requires #[abr(class = \"...\")]")
     })?;
@@ -190,13 +190,13 @@ fn expand_class(
                         ::std::format!(
                             "duplicate field {:?} in ABR descriptor class {:?} at desc offset {}",
                             #key,
-                            <Self as #crate_path::AbrClass>::CLASS_ID,
+                            <Self as #crate_path::descriptor::AbrClass>::CLASS_ID,
                             offset,
                         )
                     ));
                 }
                 #variable = ::core::option::Option::Some(
-                    <#value_type as #crate_path::AbrValue>::parse_value(
+                    <#value_type as #crate_path::descriptor::AbrValue>::parse_value(
                         cursor,
                         value_type,
                         offset,
@@ -217,7 +217,7 @@ fn expand_class(
                     ::std::format!(
                         "missing field {:?} in ABR descriptor class {:?}",
                         #key,
-                        <Self as #crate_path::AbrClass>::CLASS_ID,
+                        <Self as #crate_path::descriptor::AbrClass>::CLASS_ID,
                     )
                 ))?
             });
@@ -225,22 +225,22 @@ fn expand_class(
     }
 
     Ok(quote! {
-        impl #crate_path::AbrClass for #name {
+        impl #crate_path::descriptor::AbrClass for #name {
             const CLASS_ID: &'static str = #class_id;
         }
 
-        impl #crate_path::AbrObject for #name {
+        impl #crate_path::descriptor::AbrObject for #name {
             fn parse_with_header(
-                cursor: &mut #crate_path::Cursor<'_>,
+                cursor: &mut #crate_path::cursor::Cursor<'_>,
                 class_id: ::std::string::String,
                 entry_count: usize,
                 header_offset: usize,
             ) -> #crate_path::__private::Result<Self> {
-                if class_id != <Self as #crate_path::AbrClass>::CLASS_ID {
+                if class_id != <Self as #crate_path::descriptor::AbrClass>::CLASS_ID {
                     return ::core::result::Result::Err(#crate_path::__private::Error::msg(
                         ::std::format!(
                             "expected ABR descriptor class {:?}, found {:?} at desc offset {}",
-                            <Self as #crate_path::AbrClass>::CLASS_ID,
+                            <Self as #crate_path::descriptor::AbrClass>::CLASS_ID,
                             class_id,
                             header_offset,
                         )
@@ -254,7 +254,7 @@ fn expand_class(
                     let value_type = cursor.read_ostype()?;
                     match key.as_str() {
                         #(#match_arms)*
-                        _ => <Self as #crate_path::AbrObject>::skip_value(
+                        _ => <Self as #crate_path::descriptor::AbrObject>::skip_value(
                             cursor,
                             value_type,
                             offset,
@@ -274,8 +274,8 @@ fn expand_object(
     name: syn::Ident,
     data: DataEnum,
     attrs: AbrAttributes,
-    crate_path: &TokenStream2,
-) -> syn::Result<TokenStream2> {
+    crate_path: &proc_macro2::TokenStream,
+) -> syn::Result<proc_macro2::TokenStream> {
     if attrs.class.is_some()
         || attrs.enum_type.is_some()
         || attrs.key.is_some()
@@ -327,11 +327,11 @@ fn expand_object(
 
         let variant_name = variant.ident;
         let inner = &fields.unnamed[0].ty;
-        class_ids.push(quote! { <#inner as #crate_path::AbrClass>::CLASS_ID });
+        class_ids.push(quote! { <#inner as #crate_path::descriptor::AbrClass>::CLASS_ID });
         dispatch.push(quote! {
-            if class_id == <#inner as #crate_path::AbrClass>::CLASS_ID {
+            if class_id == <#inner as #crate_path::descriptor::AbrClass>::CLASS_ID {
                 return ::core::result::Result::Ok(Self::#variant_name(
-                    <#inner as #crate_path::AbrObject>::parse_with_header(
+                    <#inner as #crate_path::descriptor::AbrObject>::parse_with_header(
                         cursor,
                         class_id,
                         entry_count,
@@ -343,9 +343,9 @@ fn expand_object(
     }
 
     Ok(quote! {
-        impl #crate_path::AbrObject for #name {
+        impl #crate_path::descriptor::AbrObject for #name {
             fn parse_with_header(
-                cursor: &mut #crate_path::Cursor<'_>,
+                cursor: &mut #crate_path::cursor::Cursor<'_>,
                 class_id: ::std::string::String,
                 entry_count: usize,
                 header_offset: usize,
@@ -381,8 +381,8 @@ fn expand_enum(
     name: syn::Ident,
     data: DataEnum,
     attrs: AbrAttributes,
-    crate_path: &TokenStream2,
-) -> syn::Result<TokenStream2> {
+    crate_path: &proc_macro2::TokenStream,
+) -> syn::Result<proc_macro2::TokenStream> {
     if attrs.class.is_some()
         || attrs.key.is_some()
         || attrs.string_value.is_some()
@@ -433,17 +433,17 @@ fn expand_enum(
     }
 
     Ok(quote! {
-        impl #crate_path::AbrValue for #name {
+        impl #crate_path::descriptor::AbrValue for #name {
             fn parse_value(
-                cursor: &mut #crate_path::Cursor<'_>,
+                cursor: &mut #crate_path::cursor::Cursor<'_>,
                 value_type: [u8; 4],
                 offset: usize,
             ) -> #crate_path::__private::Result<Self> {
-                <Self as #crate_path::AbrEnum>::parse_enum_value(cursor, value_type, offset)
+                <Self as #crate_path::descriptor::AbrEnum>::parse_enum_value(cursor, value_type, offset)
             }
         }
 
-        impl #crate_path::AbrEnum for #name {
+        impl #crate_path::descriptor::AbrEnum for #name {
             const TYPE_ID: &'static str = #enum_type;
 
             fn from_value_id(value_id: &str) -> ::core::option::Option<Self> {
@@ -460,8 +460,8 @@ fn expand_integer_enum(
     name: syn::Ident,
     data: DataEnum,
     attrs: AbrAttributes,
-    crate_path: &TokenStream2,
-) -> syn::Result<TokenStream2> {
+    crate_path: &proc_macro2::TokenStream,
+) -> syn::Result<proc_macro2::TokenStream> {
     if attrs.class.is_some()
         || attrs.enum_type.is_some()
         || attrs.key.is_some()
@@ -511,17 +511,17 @@ fn expand_integer_enum(
     }
 
     Ok(quote! {
-        impl #crate_path::AbrValue for #name {
+        impl #crate_path::descriptor::AbrValue for #name {
             fn parse_value(
-                cursor: &mut #crate_path::Cursor<'_>,
+                cursor: &mut #crate_path::cursor::Cursor<'_>,
                 value_type: [u8; 4],
                 offset: usize,
             ) -> #crate_path::__private::Result<Self> {
-                <Self as #crate_path::AbrIntegerEnum>::parse_integer_value(cursor, value_type, offset)
+                <Self as #crate_path::descriptor::AbrIntegerEnum>::parse_integer_value(cursor, value_type, offset)
             }
         }
 
-        impl #crate_path::AbrIntegerEnum for #name {
+        impl #crate_path::descriptor::AbrIntegerEnum for #name {
             fn from_i32(value: i32) -> ::core::option::Option<Self> {
                 match value {
                     #(#arms,)*
@@ -564,7 +564,7 @@ impl AbrAttributes {
                     if result.string_value.is_some() || result.integer_value.is_some() {
                         return Err(meta.error("duplicate abr value attribute"));
                     }
-                    let literal: Lit = meta.value()?.parse()?;
+                    let literal = meta.value()?.parse::<Lit>()?;
                     match literal {
                         Lit::Str(value) => result.string_value = Some(value),
                         Lit::Int(value) => result.integer_value = Some(value),

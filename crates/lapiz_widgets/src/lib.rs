@@ -36,5 +36,10 @@ pub mod tooltip;
 pub mod window_decorations;
 
 pub mod __private {
+    #![expect(
+        clippy::pub_use,
+        reason = "exported widget macros resolve paste through $crate"
+    )]
+
     pub use paste::paste;
 }

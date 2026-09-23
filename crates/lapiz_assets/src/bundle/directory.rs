@@ -1,7 +1,7 @@
 use std::{
     ffi::OsStr,
     fs::{File, create_dir_all, metadata, read_to_string},
-    io::Write,
+    io::Write as _,
     path::{Path, PathBuf},
     sync::Arc,
 };

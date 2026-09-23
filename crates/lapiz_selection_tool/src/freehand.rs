@@ -5,7 +5,7 @@ use glam::Vec2;
 use iced_core::{Element, Length, Theme};
 use iced_runtime::Task;
 use iced_widget::space;
-use lapiz_canvas::{CanvasAppExt, CanvasUndoStackAppExt};
+use lapiz_canvas::{CanvasAppExt as _, CanvasUndoStackAppExt as _};
 use lapiz_i18n::t;
 use lapiz_input::{
     key::KeyboardState,
@@ -13,7 +13,7 @@ use lapiz_input::{
 };
 use lapiz_runtime::{Renderer, Services};
 use lapiz_tools::{ToolFunction, ToolId};
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
     form::Form, icon, label::Label, panel::Panel, segmented_control::SegmentedControl,
 };

@@ -5,20 +5,21 @@ use iced_runtime::Task;
 use iced_widget::column;
 use lapiz_assets::asset::AssetHandle;
 use lapiz_canvas::{
-    CanvasAppExt, CanvasUndoStackAppExt, command::TileReplaceCommand, event::CanvasUpdated,
+    CanvasAppExt as _, CanvasUndoStackAppExt as _, command::TileReplaceCommand,
+    event::CanvasUpdated,
 };
 use lapiz_i18n::t;
-use lapiz_image::{composite::LayerPreviewOverriders, tile::TileStorageAppExt};
+use lapiz_image::{composite::LayerPreviewOverriders, tile::TileStorageAppExt as _};
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
-use lapiz_render::render_context::RenderContextAppExt;
-use lapiz_runtime::{Renderer, Services, event::Event, service::Service};
+use lapiz_render::render_context::RenderContextAppExt as _;
+use lapiz_runtime::{Renderer, Services, event::Event as _, service::Service};
 use lapiz_shader_graph::graph::{
     external::ExternalVariableId, function::ASSET_GRAPH_FUNCTION_STORAGE,
     slot::ErasedGraphLiteralUpdateMessage, texture::ASSET_GRAPH_TEXTURE_STORAGE,
 };
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_undo::QueuedUndoCommand;
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{icon, label::Label, panel::Panel};
 use log::error;
 
@@ -81,8 +82,7 @@ pub struct BrushTool {
     preview_ongoing: bool,
 }
 
-// TODO
-#[allow(clippy::large_enum_variant)]
+#[allow(clippy::large_enum_variant, reason = "TODO: Avoid this")]
 pub enum BrushToolMessage {
     StrokePreview(Option<BrushStrokePreview>),
     StrokeResult(BrushStrokeResult),

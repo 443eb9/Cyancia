@@ -5,8 +5,8 @@ use iced_core::{Element, Theme};
 use iced_runtime::Task;
 use image::{DynamicImage, ImageFormat};
 use lapiz_canvas::CCanvas;
-use lapiz_image::tile::TileStorageAppExt;
-use lapiz_render::render_context::RenderContextAppExt;
+use lapiz_image::tile::TileStorageAppExt as _;
+use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{Renderer, Services};
 
 use super::pixels;

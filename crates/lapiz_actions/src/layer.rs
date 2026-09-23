@@ -2,7 +2,7 @@ use std::any::TypeId;
 
 use iced_runtime::Task;
 use lapiz_canvas::{
-    CanvasAppExt, CanvasUndoStackAppExt,
+    CanvasAppExt as _, CanvasUndoStackAppExt as _,
     command::{
         DeleteLayersCommand, GroupLayerCommand, InsertLayerCommand, LayerWithPosition,
         MoveLayersCommand,
@@ -13,10 +13,10 @@ use lapiz_image::layer::{
     LayerId, LayerPosition, LayerStackNode,
     group_layer::GroupLayer,
     pixel_layer::PixelLayer,
-    properties::{LayerProperties, NameProp},
+    properties::{LayerProperties, builtin::NameProp},
 };
 use lapiz_runtime::Services;
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 
 use crate::{ActionFunction, ActionId};
 

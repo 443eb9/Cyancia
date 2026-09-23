@@ -11,10 +11,7 @@ use iced_core::{
 use iced_widget::text_input;
 use lapiz_runtime::Renderer;
 
-use crate::{
-    callback::{CallbackWith, publish_with},
-    text_input as text_input_ops,
-};
+use crate::callback::{CallbackWith, publish_with};
 
 const STEPPER_WIDTH: f32 = 16.0;
 const DEFAULT_WIDTH: f32 = 80.0;
@@ -237,7 +234,7 @@ where
             Event::Keyboard(keyboard::Event::KeyPressed { key, text, .. }) => {
                 let is_focused = {
                     let probe = &mut self.content;
-                    text_input_ops::is_focused(|operation| {
+                    crate::text_input::is_focused(|operation| {
                         probe.operate(
                             &mut tree.children[0],
                             layout.children().next().expect("content layout"),
@@ -288,7 +285,7 @@ where
 
         {
             let probe = &mut self.content;
-            let is_focused = text_input_ops::is_focused(|operation| {
+            let is_focused = crate::text_input::is_focused(|operation| {
                 probe.operate(
                     &mut tree.children[0],
                     layout.children().next().expect("content layout"),

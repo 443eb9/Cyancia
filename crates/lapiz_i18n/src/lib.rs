@@ -1,9 +1,14 @@
+#![expect(
+    clippy::pub_use,
+    reason = "exported translation macros resolve dependencies through $crate"
+)]
+
 use std::{borrow::Cow, collections::BTreeMap};
 
 pub use fluent_bundle::{FluentArgs, FluentValue};
 pub use i18n_embed::fluent::FluentLanguageLoader;
 use i18n_embed::{
-    DefaultLocalizer, DesktopLanguageRequester, I18nAssets, LanguageLoader, Localizer,
+    DefaultLocalizer, DesktopLanguageRequester, I18nAssets, LanguageLoader as _, Localizer as _,
 };
 use parking_lot::RwLock;
 pub use rust_embed::RustEmbed;
@@ -256,11 +261,11 @@ mod tests {
         register(&TEST_LOADER, &*TEST_ASSETS);
         register(&LOOKUP_LOADER, &*LOOKUP_ASSETS);
 
-        let zh_cn: LanguageIdentifier = "zh-CN".parse().unwrap();
+        let zh_cn = "zh-CN".parse::<LanguageIdentifier>().unwrap();
         set_language(&zh_cn);
         assert_eq!(current_language(), zh_cn);
 
-        let en: LanguageIdentifier = "en".parse().unwrap();
+        let en = "en".parse::<LanguageIdentifier>().unwrap();
         set_language(&en);
         assert_eq!(current_language(), en);
 

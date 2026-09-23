@@ -12,9 +12,7 @@ pub mod image_props;
 pub mod layer_tree;
 pub mod metadata;
 pub mod tile_data;
-pub use image_props::ImageProperties;
-pub use layer_tree::LayerNode;
-pub use metadata::Metadata;
+use metadata::Metadata;
 
 pub const EXTENSION: &str = "lazuli";
 pub const VERSION: u32 = 0;
@@ -138,6 +136,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+    use crate::image_props::ImageProperties;
 
     #[test]
     fn set_path_saves_an_in_memory_archive_and_switches_to_the_disk_database() {

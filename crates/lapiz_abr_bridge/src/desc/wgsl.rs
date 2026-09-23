@@ -1,7 +1,11 @@
 use std::sync::LazyLock;
 
-use lapiz_abr::DynamicsControl;
+use lapiz_abr::descriptor::class::DynamicsControl;
 use lapiz_image::blend_modes::BlendMode;
+#[allow(
+    clippy::wildcard_imports,
+    reason = "wesl quote macros resolve syntax types from this prelude"
+)]
 use wesl::syntax::*;
 use wesl_quote::{quote_expression, quote_statement};
 
