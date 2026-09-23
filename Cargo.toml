@@ -49,16 +49,6 @@ rust-version = "1.96.0"
 license = "GPL-3.0-or-later"
 publish = false
 
-[workspace.lints.clippy]
-type_complexity = "allow"
-too_many_arguments = "allow"
-pub_use = "deny"
-unused_trait_names = "warn"
-dbg_macro = "warn"
-wildcard_imports = "warn"
-allow_attributes_without_reason = "deny"
-undocumented_unsafe_blocks = "deny"
-
 [workspace.dependencies]
 lapiz_abr = { path = "crates/lapiz_abr", version = "0.1.0" }
 lapiz_abr_bridge = { path = "crates/lapiz_abr_bridge", version = "0.1.0" }
@@ -209,8 +199,14 @@ xxhash-rust = { version = "0.8", features = ["xxh3"] }
 zip = "8"
 
 [workspace.lints.clippy]
+allow_attributes_without_reason = "deny"
+dbg_macro = "warn"
+pub_use = "deny"
 too_many_arguments = "allow"
 type_complexity = "allow"
+undocumented_unsafe_blocks = "deny"
+unused_trait_names = "warn"
+wildcard_imports = "warn"
 
 [patch.crates-io]
 iced = { git = "https://github.com/443eb9/iced.git", rev = "c014126fc1148e9020fa60d3a528e5731cc6df17" }
