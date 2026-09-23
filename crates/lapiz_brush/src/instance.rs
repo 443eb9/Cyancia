@@ -251,18 +251,21 @@ impl BrushPresetInstance {
         let (spacing, spacing_resource_layouts, spacing_parameters) =
             self.compile_spacing_pass(&spacing_builtin_types)?;
 
+        let shader_deps = &[&crate::brush::PACKAGE];
         let main_types = main_builtin_types(target_layer_format, selection_layer_format);
         let postprocess_types =
             postprocess_builtin_types(target_layer_format, selection_layer_format);
         let main = EffectRenderer::from_instance(
             &self.main_effect,
             main_types.into_iter().collect(),
+            shader_deps,
             device.clone(),
             queue.clone(),
         )?;
         let postprocess = EffectRenderer::from_instance(
             &self.postprocess_effect,
             postprocess_types.into_iter().collect(),
+            shader_deps,
             device.clone(),
             queue.clone(),
         )?;
@@ -318,7 +321,11 @@ impl BrushPresetInstance {
             bail!("Brush spacing effect must have exactly one pass");
         }
         let graph = &self.spacing_effect.passes.first().unwrap().1.graph;
-        let spacing_port = output_port_of(&self.spacing_effect, SPACING_OUTPUT)?;
+        let spacing_port = pass_output_port_of(
+            &self.spacing_effect,
+            named_output(&self.spacing_effect, SPACING_OUTPUT)
+                .context("Brush spacing effect has no 'spacing' output")?,
+        )?;
         let spacing_ty = self
             .spacing_effect
             .outputs
@@ -420,22 +427,21 @@ fn pass_input_port_of(
     bail!("Brush effect input {effect_input:?} is not bound by a pass input node")
 }
 
-fn output_port_of(
+fn pass_output_port_of(
     effect: &EffectInstance,
-    output_name: &str,
+    effect_output: EffectOutputSlotId,
 ) -> Result<lapiz_effect::asset::EffectPassOutputSlotId> {
-    let output_id = named_output(effect, output_name)?;
     for pass in effect.passes.values() {
         for node in pass.graph.iter_nodes() {
             let Some(state) = node.data.state::<PassOutputNode>() else {
                 continue;
             };
-            if matches!(state.output, Some(PassOutput::Effect(id)) if id == output_id) {
+            if matches!(state.output, Some(PassOutput::Effect(id)) if id == effect_output) {
                 return Ok(state.id);
             }
         }
     }
-    bail!("No pass output node is bound to effect output '{output_name}'")
+    bail!("Brush effect output {effect_output:?} is not bound by a pass output node")
 }
 
 pub static SPACING_GRAPH_NODES: LazyLock<Arc<GraphNodeRegistry>> =

@@ -509,9 +509,15 @@ impl BrushPresetRenderer {
         );
 
         let profile = Arc::new(Mutex::new(BrushStrokeProfile::default()));
-        let empty_accumulator =
-            prepare_empty_layer(self.resources.target_layer_format, device, queue)
-                .expect("failed to prepare brush accumulation layer");
+        let empty_accumulator = prepared_literal(
+            Arc::new(LayerType {
+                texel_type: self.resources.target_layer_format,
+            }),
+            &LayerReference,
+            device,
+            queue,
+        )
+        .expect("failed to prepare brush accumulation layer");
         let input_profiler = GpuProfiler::new(
             device,
             GpuProfilerSettings {
@@ -1007,24 +1013,15 @@ fn prepared_literal<T: GraphValueType>(
     Ok(GraphShaderLiteral::new_boxed(Box::new(prepared), ty))
 }
 
-fn prepare_empty_layer(
-    texel_type: TexelType,
-    device: &Device,
-    queue: &Queue,
-) -> Result<GraphShaderLiteral> {
-    let ty = Arc::new(LayerType { texel_type });
-    prepared_literal(ty, &LayerReference, device, queue)
-}
-
 #[derive(Clone, Debug, ShaderType)]
-struct PenInputBatch {
-    n_inputs: u32,
+pub struct PenInputBatch {
+    pub n_inputs: u32,
     #[shader(size(runtime))]
-    inputs: Vec<PenInput>,
+    pub inputs: Vec<PenInput>,
 }
 
 impl PenInputBatch {
-    fn new(inputs: &[PenInput]) -> Self {
+    pub fn new(inputs: &[PenInput]) -> Self {
         assert!(inputs.len() <= MAX_INPUTS_PER_SAMPLE_BATCH);
         let mut batch = inputs.to_vec();
         batch.resize(MAX_INPUTS_PER_SAMPLE_BATCH, PenInput::default());
@@ -1033,11 +1030,6 @@ impl PenInputBatch {
             inputs: batch,
         }
     }
-}
-
-fn output_samples_size(max_samples: usize) -> u64 {
-    assert!(max_samples > 0);
-    OutputSamples::min_size().get() + (max_samples as u64 - 1) * ComputedPenInput::SHADER_SIZE.get()
 }
 
 #[derive(ShaderType, Debug, Clone)]

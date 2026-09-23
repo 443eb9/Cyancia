@@ -146,21 +146,21 @@ pub enum MainTip {
     Sampled(SampledMainTip),
 }
 
-struct BrushInput {
-    id: EffectInputSlotId,
-    name: String,
-    ty: Arc<dyn ErasedGraphValueType>,
-    value: SerializableGraphLiteral,
+pub struct BrushInputSlot {
+    pub id: EffectInputSlotId,
+    pub name: String,
+    pub ty: Arc<dyn ErasedGraphValueType>,
+    pub value: SerializableGraphLiteral,
 }
 
 pub struct BrushInputs {
     pub size: EffectInputSlotId,
     pub opacity: EffectInputSlotId,
     pub flow: EffectInputSlotId,
-    tip_texture: Option<EffectInputSlotId>,
-    pattern_texture: Option<EffectInputSlotId>,
-    dual_tip_texture: Option<EffectInputSlotId>,
-    inputs: Vec<BrushInput>,
+    pub tip_texture: Option<EffectInputSlotId>,
+    pub pattern_texture: Option<EffectInputSlotId>,
+    pub dual_tip_texture: Option<EffectInputSlotId>,
+    pub slots: Vec<BrushInputSlot>,
 }
 
 impl BrushInputs {
@@ -181,21 +181,21 @@ impl BrushInputs {
         let tip_texture = tip_texture
             .map(|asset| {
                 let id = EffectInputSlotId::new(Uuid::new_v4());
-                inputs.push(texture_input(id, "Tip Texture", asset)?);
+                inputs.push(mask_input(id, "Tip Texture", asset)?);
                 Ok::<_, anyhow::Error>(id)
             })
             .transpose()?;
         let pattern_texture = pattern_texture
             .map(|asset| {
                 let id = EffectInputSlotId::new(Uuid::new_v4());
-                inputs.push(texture_input(id, "Pattern Texture", asset)?);
+                inputs.push(mask_input(id, "Pattern Texture", asset)?);
                 Ok::<_, anyhow::Error>(id)
             })
             .transpose()?;
         let dual_tip_texture = dual_tip_texture
             .map(|asset| {
                 let id = EffectInputSlotId::new(Uuid::new_v4());
-                inputs.push(texture_input(id, "Dual Tip Texture", asset)?);
+                inputs.push(mask_input(id, "Dual Tip Texture", asset)?);
                 Ok::<_, anyhow::Error>(id)
             })
             .transpose()?;
@@ -207,37 +207,12 @@ impl BrushInputs {
             tip_texture,
             pattern_texture,
             dual_tip_texture,
-            inputs,
+            slots: inputs,
         })
     }
 
-    pub fn serialized_parameters(
-        &self,
-    ) -> impl Iterator<Item = (EffectInputSlotId, SerializableBrushParameter)> + '_ {
-        self.inputs.iter().map(|input| {
-            (
-                input.id,
-                SerializableBrushParameter {
-                    name: input.name.clone(),
-                    value: input.value.clone(),
-                },
-            )
-        })
-    }
-
-    fn declarations(&self) -> Vec<SerializableEffectInputSlot> {
-        self.inputs
-            .iter()
-            .map(|input| SerializableEffectInputSlot {
-                name: input.name.clone(),
-                id: input.id,
-                ty: input.ty.id().id,
-            })
-            .collect()
-    }
-
-    fn add_nodes(&self, graph: &mut Graph) -> HashMap<EffectInputSlotId, GraphNodeId> {
-        self.inputs
+    fn add_input_nodes_into(&self, graph: &mut Graph) -> HashMap<EffectInputSlotId, GraphNodeId> {
+        self.slots
             .iter()
             .enumerate()
             .map(|(index, input)| {
@@ -252,9 +227,9 @@ impl BrushInputs {
     }
 }
 
-fn f32_input(id: EffectInputSlotId, name: &str, value: f32) -> Result<BrushInput> {
+fn f32_input(id: EffectInputSlotId, name: &str, value: f32) -> Result<BrushInputSlot> {
     let ty: Arc<dyn ErasedGraphValueType> = Arc::new(F32Type);
-    Ok(BrushInput {
+    Ok(BrushInputSlot {
         id,
         name: name.into(),
         value: SerializableGraphLiteral {
@@ -265,13 +240,13 @@ fn f32_input(id: EffectInputSlotId, name: &str, value: f32) -> Result<BrushInput
     })
 }
 
-fn texture_input(id: EffectInputSlotId, name: &str, asset: AssetId<Image>) -> Result<BrushInput> {
+fn mask_input(id: EffectInputSlotId, name: &str, asset: AssetId<Image>) -> Result<BrushInputSlot> {
     let ty: Arc<dyn ErasedGraphValueType> = Arc::new(TextureType {
         texel_type: TexelType::A8,
     });
     let mut value = toml::map::Map::new();
     value.insert("asset".into(), toml::Value::try_from(asset)?);
-    Ok(BrushInput {
+    Ok(BrushInputSlot {
         id,
         name: name.into(),
         value: SerializableGraphLiteral {
@@ -319,7 +294,17 @@ fn effect_asset(
             graph,
             dispatch_strategy,
         }],
-        inputs: inputs.declarations(),
+        inputs: {
+            let this = &inputs;
+            this.slots
+                .iter()
+                .map(|input| SerializableEffectInputSlot {
+                    name: input.name.clone(),
+                    id: input.id,
+                    ty: input.ty.id().id,
+                })
+                .collect()
+        },
         outputs,
     }
 }
@@ -366,7 +351,7 @@ fn required_spacing_effect(
     let mut graph = Graph::new(spacing_effect_resources(
         AssetRegistryBuilder::default().build(),
     ));
-    let input_nodes = inputs.add_nodes(&mut graph);
+    let input_nodes = inputs.add_input_nodes_into(&mut graph);
     let mut state = CustomExpressionNodeState::default();
     let input_offset = if sampled {
         add_mask_input_slot(&mut state, MAIN_TIP_TEXTURE_INPUT);
@@ -431,7 +416,7 @@ fn build_main_effect(
     let mut graph = Graph::new(main_effect_resources(
         AssetRegistryBuilder::default().build(),
     ));
-    let input_nodes = inputs.add_nodes(&mut graph);
+    let input_nodes = inputs.add_input_nodes_into(&mut graph);
     let pixel_position = graph.add_node(Point::new(0.0, 0.0), PixelPositionNode);
     let pen_position = graph.add_node(Point::new(0.0, 100.0), PenPositionNode);
     let foreground_color = graph.add_node(Point::new(0.0, 200.0), ForegroundColorNode);
@@ -553,7 +538,7 @@ pub fn opacity_postprocess_effect(
     let mut graph = Graph::new(postprocess_effect_resources(
         AssetRegistryBuilder::default().build(),
     ));
-    let input_nodes = inputs.add_nodes(&mut graph);
+    let input_nodes = inputs.add_input_nodes_into(&mut graph);
     let pixel_position = graph.add_node(Point::new(0.0, 0.0), PixelPositionNode);
     let current_color = graph.add_node(Point::new(200.0, 0.0), CurrentPixelColorNode);
     let target_color = graph.add_node(Point::new(200.0, 75.0), LayerPixelColorNode);

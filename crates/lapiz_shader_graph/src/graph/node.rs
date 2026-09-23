@@ -608,11 +608,6 @@ pub struct GraphNodeCodeGenContext<'a> {
     pub resources: &'a GraphResources,
 }
 
-/// A plain identifier expression, as registered for freshly named outputs.
-pub fn ident_expression(ident: Ident) -> Expression {
-    Expression::TypeOrIdentifier(TypeExpression::from(ident))
-}
-
 impl GraphNodeCodeGenContext<'_> {
     pub fn get_input(&self, index: usize) -> Result<Expression, GraphNodeCodeGenError> {
         let slot_id = self
@@ -683,7 +678,7 @@ impl GraphNodeCodeGenContext<'_> {
             },
             Entry::Vacant(entry) => {
                 let ident = Ident::new(self.ident_generator.next_output());
-                entry.insert(ident_expression(ident.clone()));
+                entry.insert(ident.clone().into());
                 ident
             }
         })

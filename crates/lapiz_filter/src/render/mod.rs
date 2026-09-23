@@ -84,6 +84,7 @@ impl FilterRenderer {
         let renderer = EffectRenderer::from_instance(
             effect,
             std::collections::HashMap::new(),
+            &[],
             device.clone(),
             queue.clone(),
         )?;

@@ -41,7 +41,7 @@ fn graph_resources() -> GraphResources {
     GraphResources {
         type_registry: TYPE_REGISTRY.clone(),
         node_registry: NODE_REGISTRY.clone(),
-        assets: lapiz_assets::store::AssetRegistry::default(),
+        assets: lapiz_assets::store::AssetRegistry::new_in_memory(Arc::new(Default::default())),
     }
 }
 

@@ -42,7 +42,6 @@ use crate::{
             GraphNode, GraphNodeCodeGenContext, GraphNodeCodeGenError, GraphNodeCreateSlotsContext,
             GraphNodeDefaultStateContext, GraphNodeRegistry, GraphNodeUpdateContext,
             GraphNodeUpdateSignatureContext, GraphNodeViewContext, StatelessCommonGraphNode,
-            ident_expression,
         },
         slot::{
             ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphDefaultInputSlot,
@@ -272,7 +271,6 @@ impl GraphNode for ScalarMathNode {
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let a = ctx.get_input(0)?;
-        // Modes with fewer input slots than these must not force their Results.
         let b = ctx.get_input(1);
         let c = ctx.get_input(2);
 
@@ -626,7 +624,6 @@ impl GraphNode for VectorMathNode {
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
         let a = ctx.get_input(0)?;
-        // Modes with fewer input slots than these must not force their Results.
         let b = ctx.get_input(1);
         let c = ctx.get_input(2);
         let output = ctx.get_output(0)?;
@@ -1074,53 +1071,6 @@ impl StatelessCommonGraphNode for VectorSelectNode {
     }
 }
 
-// #[derive(Default, Clone)]
-// pub struct TimeNode;
-
-// pub struct GraphTimes {
-//     pub now: f32,
-//     pub stroke_begin: f32,
-// }
-
-// #[stateless]
-// impl StatelessCommonGraphNode for TimeNode {
-//     fn id(&self) -> &'static str {
-//         "time_node"
-//     }
-
-//     fn header_hue_chroma(&self) -> (f32, f32) {
-//         random_oklch_hue_chroma!(TimeNode)
-//     }
-
-//     fn create_inputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot> {
-//         vec![]
-//     }
-
-//     fn create_outputs(&self, _: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot> {
-//         vec![
-//             GraphDefaultOutputSlot::new::<F32Type>("now".into()),
-//             GraphDefaultOutputSlot::new::<F32Type>("stroke_begin".into()),
-//         ]
-//     }
-
-//     fn generate_code(
-//         &self,
-//         mut ctx: GraphNodeCodeGenContext<'_>,
-//     ) -> Result<String, GraphNodeCodeGenError> {
-//         let now = ctx.get_output(0)?;
-//         let stroke_begin = ctx.get_output(1)?;
-//         let accessor = Data::wgsl_variable();
-
-//         Ok(format!(
-//             "
-// let {} = {}.now;
-// let {} = {}.stroke_begin;
-//                 ",
-//             now, accessor, stroke_begin, accessor
-//         ))
-//     }
-// }
-
 #[derive(Default, Clone)]
 pub struct ClampNode;
 
@@ -1452,92 +1402,6 @@ impl StatelessCommonGraphNode for GetPixelColorNode {
     }
 }
 
-// #[derive(Default, Clone)]
-// pub struct TextureNode;
-
-// #[derive(Clone)]
-// pub enum TextureNodeMessage {
-//     TextureChanged(TextureId),
-//     LiteralUpdate(ErasedGraphLiteralUpdateMessage),
-// }
-
-// impl GraphNode for TextureNode {
-//     type State = TextureId;
-//     type Message = TextureNodeMessage;
-
-//     fn id(&self) -> &'static str {
-//         "texture_node"
-//     }
-
-//     fn default_state(&self, _: GraphNodeDefaultStateContext<'_>) -> Self::State {
-//         TextureId::NULL
-//     }
-
-//     fn header_hue_chroma(&self) -> (f32, f32) {
-//         random_oklch_hue_chroma!(TextureNode)
-//     }
-
-//     fn create_inputs(
-//         &self,
-//         _: &Self::State,
-//         _: GraphNodeCreateSlotsContext<'_>,
-//     ) -> Vec<GraphDefaultInputSlot> {
-//         vec![]
-//     }
-
-//     fn create_outputs(
-//         &self,
-//         _: &Self::State,
-//         _: GraphNodeCreateSlotsContext<'_>,
-//     ) -> Vec<GraphDefaultOutputSlot> {
-//         vec![GraphDefaultOutputSlot::new::<TextureType>("texture".into())]
-//     }
-
-//     fn view(
-//         &self,
-//         state: &Self::State,
-//         ctx: GraphNodeViewContext<'_>,
-//     ) -> GraphElement<'static, Self::Message> {
-//         let texture_storage = ctx.resources.textures.load();
-//         let textures = texture_storage.all().values().cloned().collect::<Vec<_>>();
-//         let selected = textures
-//             .iter()
-//             .find(|texture| Some(texture.external_id) == **state)
-//             .cloned();
-//         ctx.view_all_slots_with_header(
-//             ComboBox::new(textures, selected, |texture| {
-//                 TextureNodeMessage::TextureChanged(TextureId(Some(texture.external_id)))
-//             })
-//             .width(Length::Fill),
-//             TextureNodeMessage::LiteralUpdate,
-//         )
-//     }
-
-//     fn update(
-//         &self,
-//         state: &mut Self::State,
-//         message: Self::Message,
-//         mut ctx: GraphNodeUpdateContext<'_>,
-//     ) {
-//         match message {
-//             TextureNodeMessage::TextureChanged(id) => *state = id,
-//             TextureNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
-//         }
-//     }
-
-//     fn generate_code(
-//         &self,
-//         state: &Self::State,
-//         mut ctx: GraphNodeCodeGenContext<'_>,
-//     ) -> Result<String, GraphNodeCodeGenError> {
-//         // It's the external user's responsibility to generate the correct texture binding.
-//         // The binding should be a texture binding_array. The index of each used texture in graph
-//         // is corresponding to array index returned by TextureStorage::used_textures()
-//         let index = ctx.texture_usage.use_texture(*state);
-//         Ok(format!("let {} = {}u;\n", ctx.get_output(0)?, index))
-//     }
-// }
-
 // TODO: Mixing in different color spaces.
 #[derive(Default, Clone)]
 pub struct ColorMixNode;
@@ -1655,8 +1519,6 @@ pub enum GraphFunctionNodeMessage {
 }
 
 impl GraphFunctionNodeState {
-    /// Instantiates the function graph from the handle's asset; `None` when
-    /// the handle is unset or the asset is unavailable.
     fn instantiate(
         handle: &AssetHandle<SerializableGraphFunction>,
         assets: &lapiz_assets::store::AssetRegistry,
@@ -1680,8 +1542,6 @@ impl GraphFunctionNodeState {
     }
 }
 
-// The handle serializes as its asset id; deserialization resolves the id back
-// through the registry carried in the graph resources and instantiates.
 impl GraphSerializable for GraphFunctionNodeState {
     fn to_toml(&self) -> anyhow::Result<toml::Value> {
         #[derive(Serialize)]
@@ -2175,22 +2035,20 @@ impl GraphNode for CurveNode {
         let input_x = ctx.get_input(0)?;
         let capacity = CUBIC_CURVE_MAX_CONTROL_POINTS as i64;
         let derivative_capacity = (CUBIC_CURVE_MAX_CONTROL_POINTS + 1) as i64;
-        // The quote macros cannot splat a dynamic argument list, so the sample lists are
-        // pre-rendered as raw text and spliced (the final shader re-parses them).
-        let control_points_code = ident_expression(Ident::new(
+        let control_points_code = Ident::new(
             control_points
                 .iter()
                 .map(|p| format!("vec2({:.5}, {:.5})", p.x, p.y))
                 .collect::<Vec<_>>()
                 .join(", "),
-        ));
-        let derivatives_code = ident_expression(Ident::new(
+        );
+        let derivatives_code = Ident::new(
             derivatives
                 .iter()
                 .map(|d| format!("{:.5}", d))
                 .collect::<Vec<_>>()
                 .join(", "),
-        ));
+        );
 
         Ok(format!(
             "{}\n",
@@ -3080,7 +2938,7 @@ impl GraphNode for RepeatNode {
                 GraphNodeCodeGenError::Custom(anyhow!("Repeat body node is missing"))
             })?;
             if node.data.is::<RepeatIterationNode>() {
-                body_inputs.push(ident_expression(iteration.clone()));
+                body_inputs.push(iteration.clone().into());
                 continue;
             }
             let variable = node
@@ -3088,12 +2946,13 @@ impl GraphNode for RepeatNode {
                 .state::<RepeatInputNode>()
                 .and_then(|state| state.variable)
                 .ok_or_else(|| anyhow!("Repeat Input has an invalid variable"))?;
-            body_inputs.push(ident_expression(
+            body_inputs.push(
                 current
                     .get(&variable)
                     .cloned()
-                    .ok_or_else(|| anyhow!("Repeat variable {variable} is not a local"))?,
-            ));
+                    .ok_or_else(|| anyhow!("Repeat variable {variable} is not a local"))?
+                    .into(),
+            );
         }
 
         let mut next_slots = HashMap::with_capacity(locals.len());
@@ -3124,8 +2983,6 @@ impl GraphNode for RepeatNode {
             }
         }
 
-        // The loop body is a compiled-text seam; `quote_statement!` has no way to splice a
-        // statement *list*, so the loop shell wrapping it stays textual.
         code.push_str(&format!(
             "for (var {iteration} = 0i; {iteration} < {iterations}; {iteration}++) {{\n"
         ));
@@ -3184,7 +3041,7 @@ impl GraphNode for RepeatNode {
 
         for (slot_id, local) in ctx.outputs.iter().zip(locals.values()) {
             ctx.output_slot_idents
-                .insert(*slot_id, ident_expression(current[&local.id].clone()));
+                .insert(*slot_id, current[&local.id].clone().into());
         }
 
         Ok(code)
@@ -3923,7 +3780,7 @@ impl GraphNode for CustomExpressionNode {
             while names.contains(&output.to_string()) {
                 output = Ident::new(ctx.ident_generator.next_output());
                 ctx.output_slot_idents
-                    .insert(ctx.outputs[index], ident_expression(output.clone()));
+                    .insert(ctx.outputs[index], output.clone().into());
             }
             let ty = variable
                 .ty
@@ -3956,7 +3813,7 @@ impl GraphNode for CustomExpressionNode {
             code.push('\n');
         }
         for ((_, variable), output) in state.outputs.iter().zip(outputs) {
-            let name = ident_expression(Ident::new(variable.name.clone()));
+            let name = Ident::new(variable.name.clone());
             code.push_str(&quote_statement! { #output = #name; }.to_string());
             code.push('\n');
         }

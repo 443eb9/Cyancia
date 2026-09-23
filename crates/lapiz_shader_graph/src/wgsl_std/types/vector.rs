@@ -1,6 +1,7 @@
 use std::convert::identity;
 
 use anyhow::Result;
+use encase::ShaderType;
 use glam::{IVec2, IVec3, IVec4, UVec2, UVec3, UVec4, Vec2, Vec3, Vec4};
 use iced_core::Element;
 use iced_widget::Column;
@@ -64,7 +65,7 @@ macro_rules! vector_type {
                 Some($wgsl)
             }
             fn wgsl_array_element_stride(&self) -> Option<u64> {
-                Some(super::runtime_array_stride::<$literal>())
+                Some(<Vec<$literal> as ShaderType>::METADATA.stride().get())
             }
 
             fn push_shader_layout(

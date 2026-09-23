@@ -6,7 +6,6 @@ struct StrokeInfo {
     // In tiles
     accumulated_bound_min: vec2i,
     accumulated_bound_max: vec2i,
-
     total_dabs: u32,
 }
 

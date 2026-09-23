@@ -38,7 +38,7 @@ use super::{
 use crate::{
     GraphRenderer, GraphTheme,
     graph::{
-        node::{GraphNodeCodeGenContext, ident_expression},
+        node::GraphNodeCodeGenContext,
         slot::{
             ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphDefaultInputSlot,
             GraphDefaultOutputSlot, GraphInputSlotId, GraphShaderStage, GraphValueType,
@@ -48,7 +48,6 @@ use crate::{
     save::GraphValueTypeId,
 };
 
-/// ComboBox payload: an image asset handle plus its display name.
 #[derive(Clone)]
 pub struct TextureOption {
     pub name: String,
@@ -83,8 +82,6 @@ impl Default for TextureType {
     }
 }
 
-/// A texture literal: the image asset the shader samples. The NULL reference
-/// has no asset and prepares as an empty placeholder texture.
 #[derive(Clone, Default, PartialEq, Eq, Hash)]
 pub struct TextureReference {
     pub texture: Option<lapiz_assets::asset::AssetHandle<lapiz_render::texture::Image>>,
@@ -102,8 +99,6 @@ impl TextureReference {
     }
 }
 
-// Plain serde only sees the asset id; resolving it back to a handle needs the
-// asset registry, which `deserialize_literal` does.
 impl Serialize for TextureReference {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match &self.texture {
@@ -396,11 +391,9 @@ impl GraphValueType for LayerType {
         let color = ctx.get_output(base_index)?;
         let bounds = ctx.get_output(base_index + 1)?;
         ctx.output_slot_idents
-            .insert(ctx.outputs[base_index], ident_expression(color.clone()));
-        ctx.output_slot_idents.insert(
-            ctx.outputs[base_index + 1],
-            ident_expression(bounds.clone()),
-        );
+            .insert(ctx.outputs[base_index], color.clone().into());
+        ctx.output_slot_idents
+            .insert(ctx.outputs[base_index + 1], bounds.clone().into());
         let load = Ident::new(layer_load_ident(input_name));
         let input_bounds = Ident::new(layer_bounds_ident(input_name));
         let color_stmt = quote_statement! {

@@ -294,8 +294,6 @@ fn resync(instance: &mut EffectInstance) {
         .expect("sanitized instances always sync");
 }
 
-// Graph edits can delete port nodes, io edits can delete ports; drop bindings
-// that reference anything missing before sync recomputes the cached types.
 fn sanitize_bindings(instance: &mut EffectInstance) {
     let effect_inputs = instance.inputs.keys().copied().collect::<HashSet<_>>();
     let effect_outputs = instance.outputs.keys().copied().collect::<HashSet<_>>();

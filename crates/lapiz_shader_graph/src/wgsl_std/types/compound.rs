@@ -65,7 +65,7 @@ impl GraphValueType for ColorType {
     }
 
     fn wgsl_array_element_stride(&self) -> Option<u64> {
-        Some(super::runtime_array_stride::<Vec4>())
+        Some(<Vec<Vec4> as ShaderType>::METADATA.stride().get())
     }
 
     fn default_literal(&self) -> Self::AssociatedLiteralType {
@@ -102,6 +102,7 @@ impl GraphValueType for ColorType {
         prepare_uniform_storage(data, device, "graph vec4f literal")
     }
 
+    // TODO: Replace this with color selector component
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
@@ -183,7 +184,7 @@ impl GraphValueType for RectType {
     }
 
     fn wgsl_array_element_stride(&self) -> Option<u64> {
-        Some(super::runtime_array_stride::<Rect>())
+        Some(<Vec<Rect> as ShaderType>::METADATA.stride().get())
     }
 
     fn default_literal(&self) -> Self::AssociatedLiteralType {

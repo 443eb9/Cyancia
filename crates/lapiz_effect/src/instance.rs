@@ -26,7 +26,6 @@ pub type EffectOutputs = HashMap<EffectOutputSlotId, GraphShaderLiteral>;
 pub type EffectPassOutputs = HashMap<EffectPassOutputSlotId, GraphShaderLiteral>;
 pub type EffectPassOutputTypes = HashMap<EffectPassOutputSlotId, Arc<dyn ErasedGraphValueType>>;
 
-// Editor ui edits this instance and creates renderer or serializes into assets.
 pub struct EffectInstance {
     pub name: String,
     pub passes: IndexMap<EffectPassId, EffectPass>,
@@ -74,8 +73,6 @@ impl EffectInstance {
             .collect::<Result<IndexMap<_, _>>>()?;
 
         let mut passes = IndexMap::with_capacity(asset.passes.len());
-        // TODO(editor adapter): cached port types must eventually be injected before
-        // graph deserialization so slot reconciliation does not depend on serialized caches.
         for pass in &asset.passes {
             let (graph, errors) = Graph::from_serialized(
                 &pass.graph,

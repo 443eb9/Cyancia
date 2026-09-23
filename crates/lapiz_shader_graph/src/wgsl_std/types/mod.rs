@@ -41,6 +41,16 @@ pub fn layer_bounds_ident(name: &str) -> String {
     format!("{name}_bounds")
 }
 
+fn prepare_uniform_storage<T: ShaderType + WriteInto>(
+    literal: &T,
+    device: &Device,
+    label: &str,
+) -> Result<Buffer> {
+    let mut bytes = DynamicUniformBuffer::new(Vec::new());
+    bytes.write(literal)?;
+    write_storage_buffer(device, bytes.as_ref(), label)
+}
+
 fn write_storage_buffer(device: &Device, bytes: &[u8], label: &str) -> Result<Buffer> {
     let buffer = device.create_buffer(&BufferDescriptor {
         label: Some(label),
@@ -58,19 +68,6 @@ fn write_storage_buffer(device: &Device, bytes: &[u8], label: &str) -> Result<Bu
     Ok(buffer)
 }
 
-// The stride encase assigns to the elements of `array<T>` in a storage buffer.
-// WGSL rounds each element up to its alignment, so the stride can exceed the
-// element size (vec3f: size 12, stride 16); read encase's own layout instead
-// of restating the rule.
-fn runtime_array_stride<T>() -> u64
-where
-    T: ShaderType + ShaderSize,
-    Vec<T>: ShaderType<ExtraMetadata = ArrayMetadata>,
-{
-    <Vec<T> as ShaderType>::METADATA.stride().get()
-}
-
-// Inputs bind storage read-only; outputs bind read-write for both eval and main.
 fn push_storage_layout(
     stage: GraphShaderStage,
     wgsl_ty: &str,
@@ -107,16 +104,6 @@ fn push_buffer_binding<'a>(
 ) -> Result<(u32, DynamicBindGroupEntries<'a>)> {
     let bindings = bindings.extend_with_indices(((binding, value.as_entire_binding()),));
     Ok((binding + 1, bindings))
-}
-
-fn prepare_uniform_storage<T: ShaderType + WriteInto>(
-    literal: &T,
-    device: &Device,
-    label: &str,
-) -> Result<Buffer> {
-    let mut bytes = DynamicUniformBuffer::new(Vec::new());
-    bytes.write(literal)?;
-    write_storage_buffer(device, bytes.as_ref(), label)
 }
 
 #[cfg(test)]

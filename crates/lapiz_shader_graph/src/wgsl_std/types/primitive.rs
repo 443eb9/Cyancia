@@ -64,7 +64,7 @@ impl GraphValueType for F32Type {
         Some("f32")
     }
     fn wgsl_array_element_stride(&self) -> Option<u64> {
-        Some(super::runtime_array_stride::<f32>())
+        Some(<Vec<f32> as ShaderType>::METADATA.stride().get())
     }
 
     fn push_shader_layout(
@@ -154,7 +154,7 @@ impl GraphValueType for I32Type {
         Some("i32")
     }
     fn wgsl_array_element_stride(&self) -> Option<u64> {
-        Some(super::runtime_array_stride::<i32>())
+        Some(<Vec<i32> as ShaderType>::METADATA.stride().get())
     }
 
     fn push_shader_layout(
@@ -240,7 +240,7 @@ impl GraphValueType for U32Type {
         Some("u32")
     }
     fn wgsl_array_element_stride(&self) -> Option<u64> {
-        Some(super::runtime_array_stride::<u32>())
+        Some(<Vec<u32> as ShaderType>::METADATA.stride().get())
     }
 
     fn push_shader_layout(
@@ -328,7 +328,7 @@ impl GraphValueType for BoolType {
     }
     // Bools are host-shared as u32, so their array stride matches u32.
     fn wgsl_array_element_stride(&self) -> Option<u64> {
-        Some(super::runtime_array_stride::<u32>())
+        Some(<Vec<u32> as ShaderType>::METADATA.stride().get())
     }
 
     // FIXME This is not working is some expr references bool type,

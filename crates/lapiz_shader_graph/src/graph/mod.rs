@@ -23,8 +23,6 @@ use crate::graph::{
     variable::{GraphLiteral, GraphLiteralValue, GraphTypeRegistry, GraphVariable},
 };
 
-// External variables are replaced by effect inputs
-// pub mod external;
 pub mod function;
 pub mod layout;
 pub mod node;

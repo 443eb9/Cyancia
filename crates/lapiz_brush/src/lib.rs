@@ -20,6 +20,8 @@ pub mod render;
 pub mod tool;
 pub mod widget;
 
+wesl::wesl_pkg!(pub brush);
+
 lapiz_i18n::define_i18n!("brush");
 
 pub struct BrushPlugin;

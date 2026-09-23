@@ -1,4 +1,3 @@
-//! Node state is the source of truth for pass ports. Names are display-only.
 use std::sync::{Arc, LazyLock};
 
 use anyhow::{Context, Result};
@@ -571,8 +570,6 @@ impl PassOutputNodeState {
     }
 }
 
-// Outputs current dispatch strategy, for once, it outputs nothing, for every element in
-// buffer, it outputs u32 index, for layer pixels, it outputs pixel vec2i index
 #[derive(Default, Clone)]
 pub struct DispatchIndexNode;
 

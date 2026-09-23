@@ -33,7 +33,6 @@ wrapper! {
     pub EffectPassOutputSlotId : Uuid
 }
 
-// SerializableGraph does not implement Debug/Eq/Hash.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct EffectAsset {
     pub name: String,
@@ -104,11 +103,7 @@ pub struct SerializableEffectOutputSlot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EffectPassDispatchStrategy {
     Once,
-    /// The array exposed by a PassInputNode in this pass.
     EveryBufferElement(EffectPassInputSlotId),
-    /// A Layer defined by a PassOutputNode in this pass, after bounds evaluation.
-    /// This is an effect port ID, not the graph input carrying its color/bounds.
     EveryOutputLayerPixel(EffectPassOutputSlotId),
-    /// A Layer exposed by a PassInputNode in this pass.
     EveryInputLayerPixel(EffectPassInputSlotId),
 }

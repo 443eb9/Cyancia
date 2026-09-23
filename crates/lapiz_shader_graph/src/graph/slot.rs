@@ -118,8 +118,6 @@ pub struct GraphOutputSlotData {
     pub connected: HashSet<GraphInputSlotId>,
 }
 
-/// How a value participates in a shader: read as a pass input, or written as
-/// an output during bounds evaluation or the main run.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum GraphShaderStage {
     Input,
@@ -182,7 +180,7 @@ pub trait GraphValueType: Send + Sync + 'static + DynClone {
         ctx.get_output(base_index)?;
         ctx.output_slot_idents.insert(
             ctx.outputs[base_index],
-            crate::graph::node::ident_expression(Ident::new(input_name.to_string())),
+            Ident::new(input_name.to_string()).into(),
         );
         Ok(String::new())
     }
@@ -197,8 +195,6 @@ pub trait GraphValueType: Send + Sync + 'static + DynClone {
         Ok(quote_statement! { @if(!EVAL) { #output = #value; } }.to_string())
     }
 
-    // Runs on every pass output after bounds evaluation; resource types may
-    // read back and reallocate here. The async readback is TODO.
     fn requires_eval(&self) -> bool {
         false
     }

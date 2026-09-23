@@ -61,7 +61,8 @@ impl BrushInputSamplingPipeline {
         Self { layout, pipeline }
     }
 
-    pub(super) fn prepare(
+    #[must_use]
+    pub fn prepare(
         &self,
         device: &Device,
         input_batch: &DynamicBuffer<PenInputBatch>,

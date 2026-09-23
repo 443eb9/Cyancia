@@ -250,8 +250,6 @@ pub struct EffectIoEditorState {
     new_output_type: Option<TypeChoice>,
 }
 
-// What the component widgets emit: buffer edits are consumed internally, data
-// operations are forwarded through Apply for the host to apply.
 #[derive(Debug, Clone)]
 pub enum EffectIoEditorEvent {
     NewInputNameChanged(String),

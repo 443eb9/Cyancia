@@ -432,7 +432,7 @@ fn resources(histogram_type: ArrayAtomicU32Type) -> GraphResources {
     GraphResources {
         type_registry: Arc::new(types),
         node_registry: Arc::new(nodes),
-        assets: lapiz_assets::store::AssetRegistry::default(),
+        assets: lapiz_assets::store::AssetRegistry::new_in_memory(Arc::new(Default::default())),
     }
 }
 
@@ -953,6 +953,7 @@ fn effect_matches_cpu_reference() {
     let renderer = EffectRenderer::from_instance(
         &effect,
         HashMap::new(),
+        &[],
         context.device.clone(),
         context.queue.clone(),
     )

@@ -6,7 +6,7 @@ use lapiz_abr::descriptor::{
     class::{self, BrushTip, Descriptor, DynamicsControl, PropertyDynamics, ToolOptions},
 };
 use lapiz_assets::asset::AssetId;
-use lapiz_brush::asset::{BrushPreset, BrushPresetMetadata};
+use lapiz_brush::asset::{BrushPreset, BrushPresetMetadata, SerializableBrushParameter};
 use lapiz_image::blend_modes::BlendMode;
 use lapiz_render::texture::Image;
 use uuid::Uuid;
@@ -566,6 +566,18 @@ pub fn parse_desc(
         spacing_effect,
         main_effect,
         postprocess_effect,
-        parameters: inputs.serialized_parameters().collect(),
+        parameters: inputs
+            .slots
+            .iter()
+            .map(|input| {
+                (
+                    input.id,
+                    SerializableBrushParameter {
+                        name: input.name.clone(),
+                        value: input.value.clone(),
+                    },
+                )
+            })
+            .collect(),
     })
 }

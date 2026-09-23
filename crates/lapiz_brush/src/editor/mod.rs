@@ -39,7 +39,6 @@ use crate::{
     render::graph::{MAIN_DAB_BUFFER, SPACING_OUTPUT, STROKE_RESULT},
 };
 
-// The three effect slots a brush preset hosts; the editor edits one at a time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrushEffectSlot {
     Spacing,
@@ -80,8 +79,6 @@ struct SelectedBrush {
     instance: BrushPresetInstance,
 }
 
-// Each effect slot edits against its own graph registries, so each keeps its
-// own editor state.
 struct BrushEffectEditorStates {
     spacing: EffectEditorState,
     main: EffectEditorState,
@@ -274,8 +271,6 @@ impl WindowView for BrushEditor {
 type EditorElement<'a> = GraphElement<'a, BrushEditorMessage>;
 
 impl BrushEditor {
-    // Region 2: naming on top, the effect editor filling the rest, and the
-    // spacing/main/postprocess slot switcher at the bottom.
     fn view_selected<'a>(&'a self, selected: &'a SelectedBrush) -> EditorElement<'a> {
         let save_label = if self.dirty {
             t!("save_dirty")
@@ -524,8 +519,6 @@ fn effect_mut(instance: &mut BrushPresetInstance, slot: BrushEffectSlot) -> &mut
     }
 }
 
-// New brushes start with the conventional outputs the brush compiler wires into
-// its templates.
 fn conventional_effect(
     name: &str,
     outputs: impl IntoIterator<Item = (impl Into<String>, Arc<dyn ErasedGraphValueType>)>,

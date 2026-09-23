@@ -79,18 +79,8 @@ impl GraphValueType for ComputedPenInputValueType {
         if stage != GraphShaderStage::Input {
             bail!("computed pen input can only be a shader input");
         }
-        if !shader.contains("struct BrushComputedPenInput") {
-            shader.push_str(
-                "struct BrushTime { now: f32, stroke_begin: f32 }\n\
-                 struct BrushComputedPenInput {\n\
-                     position: vec2f, draw_direction_vec: vec2f, tilt: vec2f, angle: vec2f,\n\
-                     draw_direction_angle: f32, pressure: f32, dab_index: u32, stroke_distance: f32,\n\
-                     time: BrushTime\n\
-                 }\n",
-            );
-        }
         shader.push_str(&format!(
-            "@group({group}) @binding({binding}) var<storage, read> {name}: BrushComputedPenInput;\n"
+            "@group({group}) @binding({binding}) var<storage, read> {name}: brush::brush_types::ComputedPenInput;\n"
         ));
         let bindings = bindings.extend_with_indices(((
             binding,
@@ -1347,8 +1337,6 @@ pub fn postprocess_graph_nodes() -> GraphNodeRegistry {
     nodes
 }
 
-// The builtin literal types brush hosts inject, keyed by the original names
-// the compiled shaders reference.
 pub fn brush_builtin_types(
     target_layer_format: TexelType,
     selection_layer_format: TexelType,

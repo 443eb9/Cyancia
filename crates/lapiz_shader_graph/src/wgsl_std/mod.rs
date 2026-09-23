@@ -27,7 +27,6 @@ pub fn builtin_nodes() -> GraphNodeRegistry {
     nodes.register::<CombineColorComponentsNode>();
     nodes.register::<GetPixelColorNode>();
     nodes.register::<ColorMixNode>();
-    // nodes.register::<TextureNode>();
     nodes.register::<TextureSizeNode>();
     nodes.register::<GraphFunctionNode>();
     nodes.register::<CurveNode>();

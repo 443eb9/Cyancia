@@ -13,8 +13,10 @@ use lapiz_assets::loader::{AssetRegistryBuilder, AssetSerializer};
 use lapiz_brush::{
     asset::{BrushPreset, BrushPresetMetadata, BrushPresetSerializer, SerializableBrushParameter},
     instance::BrushPresetInstance,
-    render::graph::{MAIN_DAB_BUFFER, SPACING_OUTPUT, STROKE_RESULT},
-    render::stroke_preview::{create_stroke_preview_with, predefined_curve_samples},
+    render::{
+        graph::{MAIN_DAB_BUFFER, SPACING_OUTPUT, STROKE_RESULT},
+        stroke_preview::{create_stroke_preview_with, predefined_curve_samples},
+    },
 };
 use lapiz_effect::{
     asset::{

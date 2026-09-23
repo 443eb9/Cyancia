@@ -21,20 +21,12 @@ use crate::{
     tag::{AssetTags, Tag, TagId},
 };
 
-/// Shared, cheaply cloneable handle to the asset store. Every clone observes
-/// the same underlying bundles and index.
 #[derive(Clone)]
 pub struct AssetRegistry {
     inner: Arc<AssetRegistryInner>,
 }
 
 impl Service for AssetRegistry {}
-
-impl Default for AssetRegistry {
-    fn default() -> Self {
-        Self::new_in_memory(Arc::new(Default::default()))
-    }
-}
 
 pub struct AssetRegistryInner {
     root: PathBuf,

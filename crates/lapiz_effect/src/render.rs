@@ -23,7 +23,7 @@ use lapiz_shader_graph::{
     },
 };
 use parking_lot::Mutex;
-use wesl::syntax::*;
+use wesl::{CodegenPkg, VirtualResolver, Wesl, syntax::*};
 use wesl_quote::quote_statement;
 use wgpu::*;
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings, GpuTimerQueryResult};
@@ -47,7 +47,6 @@ pub struct EffectPassOutputSlotTarget {
     pub ty: Arc<dyn ErasedGraphValueType>,
 }
 
-/// Compiled passes are already in execution order. Editing creates a new renderer.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct EffectRunTiming {
     pub eval_cpu: Duration,
@@ -71,6 +70,7 @@ impl EffectRenderer {
     pub fn from_instance(
         instance: &EffectInstance,
         builtin_literals: HashMap<String, Arc<dyn ErasedGraphValueType>>,
+        shader_deps: &[&CodegenPkg],
         device: Device,
         queue: Queue,
     ) -> Result<Self> {
@@ -321,6 +321,7 @@ impl EffectRenderer {
                 &builtin_literals,
                 source.dispatch_strategy,
                 &source.graph,
+                shader_deps,
                 &device,
             )?);
         }
@@ -442,6 +443,7 @@ impl EffectRenderPassStage {
         builtin_literals: &HashMap<String, Arc<dyn ErasedGraphValueType>>,
         dispatch: EffectPassDispatchStrategy,
         is_eval: bool,
+        shader_deps: &[&CodegenPkg],
     ) -> Result<Self> {
         let mut declarations = String::new();
 
@@ -530,6 +532,7 @@ impl EffectRenderPassStage {
             builtin_literals,
             dispatch,
             is_eval,
+            shader_deps,
         )?;
         let input_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("effect inputs"),
@@ -660,7 +663,6 @@ impl EffectRenderPassStage {
         });
 
         let dispatch = if self.is_eval {
-            // Eval runs the graph once; the graph itself grows output bounds.
             [1, 1, 1]
         } else {
             match self.dispatch {
@@ -773,6 +775,7 @@ impl EffectRenderPass {
         builtin_literals: &HashMap<String, Arc<dyn ErasedGraphValueType>>,
         dispatch: EffectPassDispatchStrategy,
         graph: &Graph,
+        shader_deps: &[&CodegenPkg],
         device: &Device,
     ) -> Result<Self> {
         let requires_eval = pass_outputs_decl.values().any(|v| v.ty.requires_eval());
@@ -789,6 +792,7 @@ impl EffectRenderPass {
                     builtin_literals,
                     dispatch,
                     true,
+                    shader_deps,
                 )
             })
             .transpose()?;
@@ -802,6 +806,7 @@ impl EffectRenderPass {
             builtin_literals,
             dispatch,
             false,
+            shader_deps,
         )?;
 
         Ok(Self {
@@ -872,8 +877,6 @@ impl EffectRenderPass {
             drop(profiler);
             timing.eval_cpu += started.elapsed();
 
-            // Every output runs post evaluation; resource types read back and
-            // reallocate here while primitives no-op.
             let started = Instant::now();
             for id in self.outputs_decl.keys() {
                 let output = pass_outputs_global.get_mut(id).unwrap();
@@ -943,6 +946,7 @@ fn compile_shader(
     builtin_literals: &HashMap<String, Arc<dyn ErasedGraphValueType>>,
     dispatch: EffectPassDispatchStrategy,
     is_eval: bool,
+    dependencies: &[&CodegenPkg],
 ) -> Result<String> {
     let (_, _, graph_shader) = graph
         .compile(Vec::new(), GraphVarIdentGenerator::default())
@@ -993,27 +997,26 @@ fn compile_shader(
         .replace("//CODEGEN_FLAG_COMPILED_GRAPH", &graph_shader)
         .replace("//CODEGEN_FLAG_DISPATCH_SETUP", &setup);
 
-    wesl_jit::compile_wesl_with_config(
-        shader,
-        &[&lapiz_image::image::PACKAGE, &lapiz_render::render::PACKAGE],
-        |compiler| {
-            compiler.set_feature("EVAL", is_eval);
-            match dispatch {
-                EffectPassDispatchStrategy::Once => {
-                    compiler.set_feature("DISPATCH_ONCE", true);
-                }
-                EffectPassDispatchStrategy::EveryBufferElement(_) => {
-                    compiler.set_feature("DISPATCH_EVERY_BUFFER_ELEMENT", true);
-                }
-                EffectPassDispatchStrategy::EveryOutputLayerPixel(_) => {
-                    compiler.set_feature("DISPATCH_EVERY_OUTPUT_LAYER_PIXEL", true);
-                }
-                EffectPassDispatchStrategy::EveryInputLayerPixel(_) => {
-                    compiler.set_feature("DISPATCH_EVERY_INPUT_LAYER_PIXEL", true);
-                }
+    let mut deps = vec![&lapiz_image::image::PACKAGE, &lapiz_render::render::PACKAGE];
+    deps.extend_from_slice(dependencies);
+
+    wesl_jit::compile_wesl_with_config(shader, &deps, |compiler| {
+        compiler.set_feature("EVAL", is_eval);
+        match dispatch {
+            EffectPassDispatchStrategy::Once => {
+                compiler.set_feature("DISPATCH_ONCE", true);
             }
-        },
-    )
+            EffectPassDispatchStrategy::EveryBufferElement(_) => {
+                compiler.set_feature("DISPATCH_EVERY_BUFFER_ELEMENT", true);
+            }
+            EffectPassDispatchStrategy::EveryOutputLayerPixel(_) => {
+                compiler.set_feature("DISPATCH_EVERY_OUTPUT_LAYER_PIXEL", true);
+            }
+            EffectPassDispatchStrategy::EveryInputLayerPixel(_) => {
+                compiler.set_feature("DISPATCH_EVERY_INPUT_LAYER_PIXEL", true);
+            }
+        }
+    })
     .context("Effect WESL compilation failed")
 }
 

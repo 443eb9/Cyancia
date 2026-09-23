@@ -8,8 +8,8 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-bytemuck.workspace = true
 bevy_math.workspace = true
+bytemuck.workspace = true
 futures.workspace = true
 iced_core.workspace = true
 iced_futures.workspace = true

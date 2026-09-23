@@ -83,7 +83,7 @@ fn graph_resources() -> GraphResources {
     GraphResources {
         type_registry: Arc::new(builtin_types()),
         node_registry: Arc::new(nodes),
-        assets: lapiz_assets::store::AssetRegistry::default(),
+        assets: lapiz_assets::store::AssetRegistry::new_in_memory(Arc::new(Default::default())),
     }
 }
 
@@ -262,7 +262,7 @@ fn filter_round_trips_and_runs_on_layers() -> Result<()> {
 
     // Serialize -> deserialize round trip through the .lfp zip container;
     // the parameter value must survive it.
-    let assets = lapiz_assets::store::AssetRegistry::default();
+    let assets = lapiz_assets::store::AssetRegistry::new_in_memory(Arc::new(Default::default()));
     let serializer = FilterPresetSerializer;
     let mut encoded = Vec::new();
     serializer.write(&generated.as_asset(&assets)?, &mut encoded)?;
