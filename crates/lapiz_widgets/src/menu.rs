@@ -316,7 +316,11 @@ where
                 let Some(index) = root_at(layout, *position) else {
                     return;
                 };
-                state.open = vec![index];
+                if state.open.first() == Some(&index) {
+                    state.open.clear();
+                } else {
+                    state.open = vec![index];
+                }
                 shell.capture_event();
                 shell.invalidate_layout();
                 shell.request_redraw();
