@@ -91,11 +91,18 @@ impl Application {
         self.state = ApplicationState::Finished;
     }
 
-    pub fn run(self) -> Result<(), iced_winit::Error> {
+    pub fn run(
+        self,
+        #[cfg(target_os = "android")] android_app: winit::platform::android::activity::AndroidApp,
+    ) -> Result<(), iced_winit::Error> {
         if !matches!(self.state, ApplicationState::Finished) {
             panic!("Plugins must be built before running the application");
         }
 
+        #[cfg(target_os = "android")]
+        return iced_winit::run_android(self, android_app);
+
+        #[cfg(not(target_os = "android"))]
         iced_winit::run(self)
     }
 }

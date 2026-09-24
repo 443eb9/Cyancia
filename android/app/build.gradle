@@ -1,0 +1,90 @@
+plugins {
+    id "com.android.application"
+}
+
+def root = file("../..")
+def abi = providers.gradleProperty("androidAbi").getOrElse("x86_64")
+def rustTargets = ["x86_64": "x86_64-linux-android", "arm64-v8a": "aarch64-linux-android"]
+def rustTarget = rustTargets[abi]
+if (rustTarget == null) {
+    throw new GradleException("Unsupported androidAbi: ${abi}")
+}
+def generatedJni = layout.buildDirectory.dir("generated/jniLibs")
+def generatedAssets = layout.buildDirectory.dir("generated/assets")
+def cargo = System.getProperty("os.name").toLowerCase().contains("windows") ? "cargo.exe" : "cargo"
+
+android {
+    namespace "app.lapiz.dev"
+    compileSdk 36
+    buildToolsVersion "36.0.0"
+    ndkVersion "27.3.13750724"
+    ndkPath System.getenv("ANDROID_NDK_HOME")
+
+    defaultConfig {
+        applicationId "app.lapiz.dev"
+        minSdk 28
+        targetSdk 35
+        versionCode 1
+        versionName "0.1.0"
+        ndk {
+            abiFilters abi
+        }
+    }
+
+    flavorDimensions "channel"
+    productFlavors {
+        dev {
+            dimension "channel"
+            applicationId "dbg.lapiz.dev"
+        }
+        prod {
+            dimension "channel"
+            applicationId "app.lapiz.dev"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // TODO Use real certificate when I can finally afford it
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    sourceSets.main {
+        jniLibs.srcDir generatedJni
+        assets.srcDir generatedAssets
+    }
+}
+
+def syncAssets = tasks.register("syncAssets", Sync) {
+    from new File(root, "assets/builtin_assets")
+    into generatedAssets.map { it.dir("builtin_assets") }
+}
+tasks.named("preBuild") {
+    dependsOn syncAssets
+}
+
+androidComponents {
+    beforeVariants(selector().all()) { variant ->
+        variant.enable = (variant.buildType == "debug") == (variant.productFlavors[0].second == "dev")
+    }
+}
+
+["DevDebug", "ProdRelease"].each { variant ->
+    def profile = variant == "ProdRelease" ? "release" : "android-dev"
+    def buildRust = tasks.register("buildRust${variant}", Exec) {
+        workingDir root
+        def args = ["ndk", "-P", "28", "-t", abi, "build", "--locked", "-j", "2", "-p", "lapiz_app", "--lib"]
+        args.addAll(["--profile", profile])
+        commandLine([cargo] + args)
+    }
+    def syncRust = tasks.register("syncRust${variant}", Copy) {
+        dependsOn buildRust
+        from new File(root, "target/${rustTarget}/${profile}/liblapiz_app.so")
+        into generatedJni.map { it.dir(abi) }
+    }
+    tasks.matching { it.name == "pre${variant}Build" }.configureEach {
+        dependsOn syncRust
+    }
+}

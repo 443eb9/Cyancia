@@ -9,6 +9,7 @@ use std::{
 
 use anyhow::anyhow;
 use chrono::{Local, Utc};
+#[cfg(not(target_os = "android"))]
 use gfxinfo::active_gpu;
 use lapiz_dirs::panic_reports_dir;
 use lapiz_runtime::renderer::global_render_context;
@@ -31,6 +32,7 @@ pub fn setup_panic_hook() {
         };
 
         sysinfo_report(&mut report).log_err();
+        #[cfg(not(target_os = "android"))]
         wgpu_report(&mut report, &global_render_context().device).log_err();
 
         log::error!("{}", report);
@@ -121,15 +123,18 @@ fn sysinfo_report(w: &mut dyn Write) -> anyhow::Result<()> {
         FmtBytes(sys.total_swap())
     )?;
 
-    let gpu = active_gpu().map_err(|e| anyhow!("{}", e))?;
-    let gpu_info = gpu.info();
-    writeln!(w, "System GPU: {} {}%", gpu.model(), gpu_info.load_pct())?;
-    writeln!(
-        w,
-        "System VRAM: {} / {}",
-        FmtBytes(gpu_info.used_vram()),
-        FmtBytes(gpu_info.total_vram())
-    )?;
+    #[cfg(not(target_os = "android"))]
+    {
+        let gpu = active_gpu().map_err(|e| anyhow!("{}", e))?;
+        let gpu_info = gpu.info();
+        writeln!(w, "System GPU: {} {}%", gpu.model(), gpu_info.load_pct())?;
+        writeln!(
+            w,
+            "System VRAM: {} / {}",
+            FmtBytes(gpu_info.used_vram()),
+            FmtBytes(gpu_info.total_vram())
+        )?;
+    }
 
     let cur_pid = get_current_pid().map_err(|e| anyhow!("{}", e))?;
     let process = sys.process(cur_pid).unwrap();

@@ -30,11 +30,13 @@ lapiz_undo.workspace = true
 lapiz_utils.workspace = true
 log.workspace = true
 parse-display.workspace = true
-rfd.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+rfd.workspace = true
 
 [lints]
 workspace = true

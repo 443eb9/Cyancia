@@ -15,6 +15,7 @@ use lapiz_runtime::{
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},
 };
 use lapiz_utils::log_err::LogErr as _;
+#[cfg(not(target_os = "android"))]
 use rfd::AsyncFileDialog;
 
 use crate::{ActionFunction, ActionId};
@@ -35,28 +36,36 @@ impl ActionFunction for OpenFileAction {
     }
 
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        let mut dialog = AsyncFileDialog::new();
-        let formats = services
-            .service::<ImageImporterRegistry>()
-            .iter_formats()
-            .collect::<Vec<_>>();
-        let all_extensions = formats
-            .iter()
-            .flat_map(|format| iter::once(format.extension).chain(format.aliases.iter().copied()))
-            .collect::<Vec<_>>();
-        dialog = dialog.add_filter(t!("all_formats"), &all_extensions);
-        for format in formats {
-            let mut extensions = vec![format.extension];
-            extensions.extend(format.aliases);
-            dialog = dialog.add_filter(&format.description, &extensions);
+        #[cfg(target_os = "android")]
+        {
+            let _ = services;
+            Task::none()
         }
-        Task::future(async {
-            let Some(file) = dialog.pick_file().await else {
-                log::error!("Unable to get selected file path.");
-                return OpenFileMessage::Canceled;
-            };
-            OpenFileMessage::Opened(file.path().to_path_buf())
-        })
+        #[cfg(not(target_os = "android"))]
+        {
+            let mut dialog = AsyncFileDialog::new();
+            let formats = services
+                .service::<ImageImporterRegistry>()
+                .iter_formats()
+                .collect::<Vec<_>>();
+            let all_extensions = formats
+                .iter()
+                .flat_map(|format| iter::once(format.extension).chain(format.aliases.iter().copied()))
+                .collect::<Vec<_>>();
+            dialog = dialog.add_filter(t!("all_formats"), &all_extensions);
+            for format in formats {
+                let mut extensions = vec![format.extension];
+                extensions.extend(format.aliases);
+                dialog = dialog.add_filter(&format.description, &extensions);
+            }
+            Task::future(async {
+                let Some(file) = dialog.pick_file().await else {
+                    log::error!("Unable to get selected file path.");
+                    return OpenFileMessage::Canceled;
+                };
+                OpenFileMessage::Opened(file.path().to_path_buf())
+            })
+        }
     }
 
     fn handle_message(
@@ -117,35 +126,43 @@ impl ActionFunction for ExportFileAction {
     }
 
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        let Some(canvas) = services.current_canvas() else {
-            return Task::none();
-        };
-        let file_name = canvas
-            .file_path()
-            .file_stem()
-            .map(|stem| stem.to_string_lossy().into_owned());
-
-        let mut dialog = AsyncFileDialog::new();
-        for format in services
-            .service::<ImageFormatAdapterRegistry>()
-            .iter_formats()
+        #[cfg(target_os = "android")]
         {
-            let mut extensions = vec![format.extension];
-            extensions.extend(format.aliases);
-            dialog = dialog.add_filter(&format.description, &extensions);
+            let _ = services;
+            Task::none()
         }
-        if let Some(file_name) = file_name {
-            dialog = dialog.set_file_name(file_name);
-        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let Some(canvas) = services.current_canvas() else {
+                return Task::none();
+            };
+            let file_name = canvas
+                .file_path()
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned());
 
-        Task::future(async move {
-            ExportFileMessage::PathChosen(
-                dialog
-                    .save_file()
-                    .await
-                    .map(|file| file.path().to_path_buf()),
-            )
-        })
+            let mut dialog = AsyncFileDialog::new();
+            for format in services
+                .service::<ImageFormatAdapterRegistry>()
+                .iter_formats()
+            {
+                let mut extensions = vec![format.extension];
+                extensions.extend(format.aliases);
+                dialog = dialog.add_filter(&format.description, &extensions);
+            }
+            if let Some(file_name) = file_name {
+                dialog = dialog.set_file_name(file_name);
+            }
+
+            Task::future(async move {
+                ExportFileMessage::PathChosen(
+                    dialog
+                        .save_file()
+                        .await
+                        .map(|file| file.path().to_path_buf()),
+                )
+            })
+        }
     }
 
     fn handle_message(

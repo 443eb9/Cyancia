@@ -149,6 +149,40 @@ build profile:
         *) echo "profile must be dev or release" >&2; exit 2 ;;
     esac
 
+build-android profile:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ profile }}" in
+        dev)
+            variant=DevDebug
+            apk=android/app/build/outputs/apk/dev/debug/app-dev-debug.apk
+            ;;
+        release)
+            variant=ProdRelease
+            apk=android/app/build/outputs/apk/prod/release/app-prod-release.apk
+            ;;
+        *) echo "profile must be dev or release" >&2; exit 2 ;;
+    esac
+    sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-${LOCALAPPDATA:-}/Android/Sdk}}"
+    if command -v cygpath >/dev/null; then
+        export ANDROID_HOME="$(cygpath -w "$(cygpath -u "$sdk")")"
+    else
+        export ANDROID_HOME="$sdk"
+    fi
+    rm -f "$apk"
+    (cd android && ./gradlew ":app:assemble${variant}" --console=plain)
+
+sync-iced-winit iced-repo="../iced" ref="HEAD":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="$(tr -d '[:space:]' < vendor/iced_winit/.upstream-rev)"
+    upstream="$(cd "{{ iced-repo }}" && pwd)"
+    next="$(git -C "$upstream" rev-parse "{{ ref }}^{commit}")"
+    if [ "$base" = "$next" ]; then exit 0; fi
+    git fetch "$upstream" "$next"
+    git -C "$upstream" diff --binary "$base" "$next" -- winit | git apply --3way -p2 --directory=vendor/iced_winit
+    printf '%s\n' "$next" > vendor/iced_winit/.upstream-rev
+
 run profile:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -158,6 +192,48 @@ run profile:
         release) cargo run --release --locked ;;
         *) echo "profile must be dev, dev-local or release" >&2; exit 2 ;;
     esac
+
+run-android profile: (build profile)
+    #!/usr/bin/env bash
+    set -euo pipefail
+    sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-${LOCALAPPDATA:-}/Android/Sdk}}"
+    if command -v cygpath >/dev/null; then
+        sdk="$(cygpath -u "$sdk")"
+        export ANDROID_HOME="$(cygpath -w "$sdk")"
+    else
+        export ANDROID_HOME="$sdk"
+    fi
+    if [ "{{ os-name }}" = "windows" ]; then
+        adb="$sdk/platform-tools/adb.exe"
+        emulator="$sdk/emulator/emulator.exe"
+    else
+        adb="$sdk/platform-tools/adb"
+        emulator="$sdk/emulator/emulator"
+    fi
+    case "{{ profile }}" in
+        dev)
+            apk=android/app/build/outputs/apk/dev/debug/app-dev-debug.apk
+            application_id=dbg.lapiz.dev
+            ;;
+        release)
+            apk=android/app/build/outputs/apk/prod/release/app-prod-release.apk
+            application_id=app.lapiz.dev
+            ;;
+        *) echo "profile must be dev or release" >&2; exit 2 ;;
+    esac
+    if [ ! -f "$apk" ]; then
+        echo "Android APK not found; run 'just build-android {{ profile }}' first" >&2
+        exit 1
+    fi
+    if ! "$adb" devices | grep -Eq '^emulator-[0-9]+[[:space:]]+device'; then
+        "$emulator" -avd "${ANDROID_AVD:-Medium_Phone_API_36.0}" -gpu "${ANDROID_EMULATOR_GPU:-host}" -no-snapshot-load > /dev/null 2>&1 < /dev/null &
+    fi
+    "$adb" wait-for-device
+    until [ "$(MSYS_NO_PATHCONV=1 "$adb" shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; do sleep 2; done
+    "$adb" install -r "$apk"
+    "$adb" logcat -c
+    MSYS_NO_PATHCONV=1 "$adb" shell am start -n "$application_id/android.app.NativeActivity"
+    "$adb" logcat -v time -s RustStdoutStderr:V AndroidRuntime:E libc:F
 
 verify-release-tag tag:
     #!/usr/bin/env bash
