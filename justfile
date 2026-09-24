@@ -172,15 +172,18 @@ build-android profile:
     rm -f "$apk"
     (cd android && ./gradlew ":app:assemble${variant}" --console=plain)
 
-sync-iced-winit iced-repo="../iced" ref="HEAD":
+sync-iced-winit ref="HEAD":
     #!/usr/bin/env bash
     set -euo pipefail
+    upstream="https://github.com/443eb9/iced.git"
     base="$(tr -d '[:space:]' < vendor/iced_winit/.upstream-rev)"
-    upstream="$(cd "{{ iced-repo }}" && pwd)"
-    next="$(git -C "$upstream" rev-parse "{{ ref }}^{commit}")"
+    git fetch --no-tags "$upstream" "{{ ref }}"
+    next="$(git rev-parse 'FETCH_HEAD^{commit}')"
     if [ "$base" = "$next" ]; then exit 0; fi
-    git fetch "$upstream" "$next"
-    git -C "$upstream" diff --binary "$base" "$next" -- winit | git apply --3way -p2 --directory=vendor/iced_winit
+    if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+        git fetch --no-tags "$upstream" "$base"
+    fi
+    git diff --binary "$base" "$next" -- winit | git apply --3way -p2 --directory=vendor/iced_winit
     printf '%s\n' "$next" > vendor/iced_winit/.upstream-rev
 
 run profile:
