@@ -1,12 +1,19 @@
 use indexmap::IndexMap;
-use lapiz_assets::asset::{AssetHandle, AssetId};
+use lapiz_assets::{
+    asset::{AssetHandle, AssetId},
+    store::AssetRegistry,
+};
 use lapiz_effect::{asset::EffectInputSlotId, instance::EffectInstance};
 use lapiz_shader_graph::{
-    graph::{slot::ErasedGraphLiteralUpdateMessage, variable::GraphLiteral},
-    wgsl_std::types::LayerType,
+    graph::{GraphResources, slot::ErasedGraphLiteralUpdateMessage, variable::GraphLiteral},
+    save::SerializableGraphLiteral,
+    wgsl_std::types::handle::LayerType,
 };
 
-use crate::asset::{FilterPreset, FilterPresetMetadata, SerializableFilterParameter};
+use crate::{
+    asset::{FilterPreset, FilterPresetMetadata, SerializableFilterParameter},
+    render::graph::filter_graph_resources,
+};
 
 #[derive(Clone)]
 pub struct FilterParameter {
@@ -24,23 +31,17 @@ pub struct FilterInstance {
 impl FilterInstance {
     pub fn from_asset(
         handle: &AssetHandle<FilterPreset>,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> anyhow::Result<Self> {
         let preset = handle
             .get()
             .map_err(|e| anyhow::anyhow!("Filter preset asset is not loaded yet: {e}"))?;
-        let mut instance = Self::new(
-            &preset,
-            crate::render::graph::filter_graph_resources(assets.clone()),
-        )?;
+        let mut instance = Self::new(&preset, filter_graph_resources(assets.clone()))?;
         instance.filter_id = Some(handle.id());
         Ok(instance)
     }
 
-    pub fn new(
-        preset: &FilterPreset,
-        resources: lapiz_shader_graph::graph::GraphResources,
-    ) -> anyhow::Result<Self> {
+    pub fn new(preset: &FilterPreset, resources: GraphResources) -> anyhow::Result<Self> {
         let effect = EffectInstance::from_asset(&preset.effect, resources.clone())?;
 
         let mut parameters = IndexMap::new();
@@ -91,20 +92,14 @@ impl FilterInstance {
         })
     }
 
-    pub fn as_asset(
-        &self,
-        assets: &lapiz_assets::store::AssetRegistry,
-    ) -> anyhow::Result<FilterPreset> {
+    pub fn as_asset(&self, assets: &AssetRegistry) -> anyhow::Result<FilterPreset> {
         let mut parameters = IndexMap::new();
         for (id, parameter) in &self.parameters {
             parameters.insert(
                 *id,
                 SerializableFilterParameter {
                     name: parameter.name.clone(),
-                    value: lapiz_shader_graph::save::SerializableGraphLiteral::serialize(
-                        &parameter.value,
-                        assets,
-                    )?,
+                    value: SerializableGraphLiteral::serialize(&parameter.value, assets)?,
                 },
             );
         }

@@ -1,7 +1,7 @@
 use iced_core::{Border, Element, Length, Theme};
 use lapiz_runtime::Renderer;
 
-use crate::flex::{Flex, Status, Style};
+use crate::flex::{Catalog, Flex, Status, Style};
 
 pub struct StatusBar<'a, Message> {
     inner: Flex<'a, Message>,
@@ -24,7 +24,7 @@ impl<'a, Message> StatusBar<'a, Message> {
         self
     }
 
-    pub fn class(mut self, class: impl Into<<Theme as crate::flex::Catalog>::Class<'a>>) -> Self {
+    pub fn class(mut self, class: impl Into<<Theme as Catalog>::Class<'a>>) -> Self {
         self.inner = self.inner.class(class);
         self
     }

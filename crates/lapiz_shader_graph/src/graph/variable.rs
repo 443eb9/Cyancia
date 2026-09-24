@@ -12,7 +12,10 @@ use wgpu::{Device, Queue};
 use crate::{
     graph::slot::{ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphValueType},
     save::GraphValueTypeId,
-    wgsl_std::types::{ArrayAtomicI32Type, ArrayAtomicU32Type, ArrayType},
+    wgsl_std::types::{
+        atomic::{ArrayAtomicI32Type, ArrayAtomicU32Type},
+        handle::ArrayType,
+    },
 };
 
 #[derive(Default, Clone)]
@@ -308,14 +311,20 @@ impl GraphShaderLiteral {
         }
     }
 
-    #[allow(clippy::should_implement_trait)]
+    #[allow(
+        clippy::should_implement_trait,
+        reason = "downcasts to a caller-chosen type instead of implementing AsRef"
+    )]
     pub fn as_ref<T: GraphShaderLiteralValue>(&self) -> &T {
         self.value
             .downcast_ref::<T>()
             .expect("Failed to downcast Literal")
     }
 
-    #[allow(clippy::should_implement_trait)]
+    #[allow(
+        clippy::should_implement_trait,
+        reason = "downcasts to a caller-chosen type instead of implementing AsMut"
+    )]
     pub fn as_mut<T: GraphShaderLiteralValue>(&mut self) -> &mut T {
         self.value
             .downcast_mut::<T>()

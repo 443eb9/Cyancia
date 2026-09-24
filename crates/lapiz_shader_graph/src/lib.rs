@@ -2,6 +2,7 @@ use iced_core::{Element, Theme};
 use lapiz_assets::AssetAppExt as _;
 use lapiz_render::texture::Image;
 use lapiz_runtime::{Application, plugin::Plugin};
+use toml::{Serializer, de::Deserializer};
 
 use crate::{
     graph::texture::{ASSET_GRAPH_TEXTURE_STORAGE, GraphTextureStorage},
@@ -13,8 +14,8 @@ pub mod graph;
 pub mod save;
 pub mod wgsl_std;
 
-pub type GraphSerializer<'a> = toml::Serializer<'a>;
-pub type GraphDeserializer<'a> = toml::de::Deserializer<'a>;
+pub type GraphSerializer<'a> = Serializer<'a>;
+pub type GraphDeserializer<'a> = Deserializer<'a>;
 pub type GraphRenderer = lapiz_runtime::Renderer;
 pub type GraphTheme = Theme;
 pub type GraphElement<'a, Message> = Element<'a, Message, GraphTheme, GraphRenderer>;
@@ -22,14 +23,14 @@ pub type GraphElement<'a, Message> = Element<'a, Message, GraphTheme, GraphRende
 lapiz_i18n::define_i18n!("shader_graph");
 
 pub fn init_i18n() {
-    crate::i18n::init();
+    i18n::init();
 }
 
 pub struct ShaderGraphPlugin;
 
 impl Plugin for ShaderGraphPlugin {
     fn build(&self, app: &mut Application) {
-        crate::i18n::init();
+        i18n::init();
         app.runtime_mut()
             .services_mut()
             .add_asset_serializer::<SerializableGraphFunctionSerializer>();

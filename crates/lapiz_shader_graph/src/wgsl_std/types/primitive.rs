@@ -1,40 +1,28 @@
-use std::{convert::identity, sync::Arc};
+use std::convert::identity;
 
-use anyhow::{Context, Result, bail};
-use bevy_math::{IRect, IVec2, IVec4, Rect};
-use encase::{DynamicUniformBuffer, ShaderType, internal::WriteInto};
-use glam::{Vec2, Vec4};
+use anyhow::Result;
+use encase::ShaderType;
 use iced_core::Element;
-use iced_widget::{column, space};
-use lapiz_image::{
-    texel::TexelType,
-    tile::{DynamicLayerStorage, GpuLayerInfo},
-};
+use lapiz_assets::store::AssetRegistry;
 use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
-    bind_group_layout_entries::{DynamicBindGroupLayoutEntries, binding_types},
-    readback::{create_readback_buffer_and_schedule_copy_buffer, readback_buffer_on_submit_async},
-    util::DevicePollExt,
+    bind_group_layout_entries::DynamicBindGroupLayoutEntries,
 };
 use lapiz_utils::random_oklch_hue_chroma;
 use lapiz_widgets::{checkbox::Checkbox, spin_slider::SpinSlider};
-use serde::{Deserialize, Serialize};
-use wesl::syntax::*;
-use wesl_quote::quote_expression;
-use wgpu::{
-    Buffer, BufferDescriptor, BufferUsages, Device, Extent3d, Queue, TextureDescriptor,
-    TextureDimension, TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension,
+use serde::Deserialize as _;
+use wesl::syntax::{
+    BinaryExpression, BinaryOperator, Expression, Ident, LiteralExpression, Span, Spanned,
 };
+use wesl_quote::quote_expression;
+use wgpu::{Buffer, Device, Queue};
 
 use super::{prepare_uniform_storage, push_buffer_binding, push_storage_layout};
 use crate::{
     GraphRenderer, GraphTheme,
     graph::{
         node::GraphNodeCodeGenContext,
-        slot::{
-            ErasedGraphValueType, GraphDefaultInputSlot, GraphDefaultOutputSlot, GraphShaderStage,
-            GraphValueType,
-        },
+        slot::{GraphShaderStage, GraphValueType},
     },
     save::GraphValueTypeId,
 };
@@ -96,7 +84,7 @@ impl GraphValueType for F32Type {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         SpinSlider::new(0.0..=1.0, *data)
             .on_change(identity)
@@ -115,7 +103,7 @@ impl GraphValueType for F32Type {
     fn serialize_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<toml::Value> {
         Ok(toml::Value::try_from(data)?)
     }
@@ -123,7 +111,7 @@ impl GraphValueType for F32Type {
     fn deserialize_literal(
         &self,
         value: toml::Value,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<Self::AssociatedLiteralType> {
         Ok(Self::AssociatedLiteralType::deserialize(value)?)
     }
@@ -190,7 +178,7 @@ impl GraphValueType for I32Type {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         SpinSlider::new(-10..=10, *data).on_change(identity).into()
     }
@@ -202,7 +190,7 @@ impl GraphValueType for I32Type {
     fn serialize_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<toml::Value> {
         Ok(toml::Value::try_from(data)?)
     }
@@ -210,7 +198,7 @@ impl GraphValueType for I32Type {
     fn deserialize_literal(
         &self,
         value: toml::Value,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<Self::AssociatedLiteralType> {
         Ok(Self::AssociatedLiteralType::deserialize(value)?)
     }
@@ -276,7 +264,7 @@ impl GraphValueType for U32Type {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         SpinSlider::new(0..=10, *data).on_change(identity).into()
     }
@@ -288,7 +276,7 @@ impl GraphValueType for U32Type {
     fn serialize_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<toml::Value> {
         Ok(toml::Value::try_from(data)?)
     }
@@ -296,7 +284,7 @@ impl GraphValueType for U32Type {
     fn deserialize_literal(
         &self,
         value: toml::Value,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<Self::AssociatedLiteralType> {
         Ok(Self::AssociatedLiteralType::deserialize(value)?)
     }
@@ -391,11 +379,9 @@ impl GraphValueType for BoolType {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
-        Checkbox::new(*data)
-            .on_toggle(std::convert::identity)
-            .into()
+        Checkbox::new(*data).on_toggle(identity).into()
     }
 
     fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message) {
@@ -405,7 +391,7 @@ impl GraphValueType for BoolType {
     fn serialize_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<toml::Value> {
         Ok(toml::Value::try_from(data)?)
     }
@@ -413,7 +399,7 @@ impl GraphValueType for BoolType {
     fn deserialize_literal(
         &self,
         value: toml::Value,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<Self::AssociatedLiteralType> {
         Ok(Self::AssociatedLiteralType::deserialize(value)?)
     }

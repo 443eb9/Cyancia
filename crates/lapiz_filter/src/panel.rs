@@ -1,13 +1,17 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, mem, sync::Arc};
 
 use anyhow::Result;
-use iced_core::{Alignment, Length, Size, Theme, keyboard, window};
-use iced_futures::Subscription;
-use iced_runtime::Task;
+use iced_core::{Alignment, Event, Length, Size, Theme, keyboard, window};
+use iced_futures::{Subscription, subscription};
+use iced_runtime::{
+    Task,
+    window::{close, open},
+};
 use iced_widget::{Space, column, row};
-use lapiz_assets::{AssetAppExt, asset::AssetHandle};
+use indexmap::IndexMap;
+use lapiz_assets::{AssetAppExt as _, asset::AssetHandle};
 use lapiz_canvas::{
-    CCanvas, CanvasAppExt, CanvasId, CanvasUndoStackAppExt, command::TileReplaceCommand,
+    CCanvas, CanvasAppExt as _, CanvasId, CanvasUndoStackAppExt as _, command::TileReplaceCommand,
     event::CanvasUpdated,
 };
 use lapiz_effect::asset::EffectInputSlotId;
@@ -16,22 +20,26 @@ use lapiz_image::{
     composite::{LayerPreviewOverriders, PixelPreviewOverrider},
     layer::{
         LayerId,
-        properties::{LayerTexelTypePropertyExt, LockedPropertyExt},
+        properties::builtin::{LayerTexelTypePropertyExt as _, LockedPropertyExt as _},
     },
     texel::TexelType,
-    tile::{DynamicLayerStorage, GpuTileStorage, TileStorageAppExt},
+    tile::{DynamicLayerStorage, GpuTileStorage, TileStorageAppExt as _},
 };
-use lapiz_render::render_context::RenderContextAppExt;
+use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{
     Services,
-    event::Event,
+    event::Event as _,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowView, WindowViewId},
 };
-use lapiz_shader_graph::graph::slot::ErasedGraphLiteralUpdateMessage;
+use lapiz_shader_graph::graph::slot::{ErasedGraphLiteralUpdateMessage, GraphInputSlotId};
 use lapiz_undo::BatchedUndoCommand;
 use lapiz_widgets::{button::Button, label::Label, panel::Panel, scrollable::Scrollable};
 
-use crate::{asset::FilterPreset, instance::FilterInstance, render::FilterRenderer};
+use crate::{
+    asset::FilterPreset,
+    instance::{FilterInstance, FilterParameter},
+    render::FilterRenderer,
+};
 
 pub struct FilterPanel {
     windows: Arc<[window::Id]>,
@@ -102,7 +110,7 @@ impl WindowView for FilterPanel {
             let b_name = b.get().map(|f| f.metadata.name.clone()).unwrap_or_default();
             a_name.cmp(&b_name)
         });
-        let (main_window, open) = iced_runtime::window::open(window::Settings {
+        let (main_window, open) = open(window::Settings {
             size: Size {
                 width: 720.0,
                 height: 480.0,
@@ -174,7 +182,7 @@ impl WindowView for FilterPanel {
                             .value
                             .ty()
                             .view_literal(
-                                lapiz_shader_graph::graph::slot::GraphInputSlotId::new(id.0),
+                                GraphInputSlotId::new(id.0),
                                 parameter.value.value(),
                                 services.assets(),
                             )
@@ -252,37 +260,32 @@ impl WindowView for FilterPanel {
 
     fn subscription(&self, _services: &Services) -> Subscription<Self::Message> {
         let main_window = self.main_window;
-        iced_futures::subscription::filter_map(("filter_panel", main_window), move |event| {
-            match event {
-                iced_futures::subscription::Event::Interaction {
-                    window,
-                    event: iced_core::Event::Window(iced_core::window::Event::Closed),
-                    status: _,
-                } if window == main_window => Some(FilterPanelMessage::WindowClosed),
-                iced_futures::subscription::Event::Interaction {
-                    window,
-                    event:
-                        iced_core::Event::Keyboard(keyboard::Event::KeyPressed {
-                            key, modifiers, ..
-                        }),
-                    status: _,
-                } if window == main_window
-                    && modifiers.control()
-                    && matches!(
-                        &key,
-                        keyboard::Key::Character(character)
-                            if character.eq_ignore_ascii_case("w")
-                    ) =>
-                {
-                    Some(FilterPanelMessage::Cancel)
-                }
-                _ => None,
+        subscription::filter_map(("filter_panel", main_window), move |event| match event {
+            subscription::Event::Interaction {
+                window,
+                event: Event::Window(window::Event::Closed),
+                status: _,
+            } if window == main_window => Some(FilterPanelMessage::WindowClosed),
+            subscription::Event::Interaction {
+                window,
+                event: Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }),
+                status: _,
+            } if window == main_window
+                && modifiers.control()
+                && matches!(
+                    &key,
+                    keyboard::Key::Character(character)
+                        if character.eq_ignore_ascii_case("w")
+                ) =>
+            {
+                Some(FilterPanelMessage::Cancel)
             }
+            _ => None,
         })
     }
 
     fn close(self, _: &mut Services) -> Task<()> {
-        iced_runtime::window::close(self.main_window)
+        close(self.main_window)
     }
 
     fn windows(&self) -> Arc<[window::Id]> {
@@ -403,7 +406,7 @@ impl FilterPanel {
         &self,
         generation: u64,
         target_layers: Vec<LayerId>,
-        parameters: indexmap::IndexMap<EffectInputSlotId, crate::instance::FilterParameter>,
+        parameters: IndexMap<EffectInputSlotId, FilterParameter>,
         services: &mut Services,
     ) -> Task<FilterPanelMessage> {
         let Some(renderer) = self.renderer.as_ref() else {
@@ -468,12 +471,12 @@ impl FilterPanel {
         };
         let device = services.render_device().clone();
         let queue = services.render_queue().clone();
-        let results = std::mem::take(&mut self.results);
+        let results = mem::take(&mut self.results);
         self.remove_previews(services);
         self.preview_installed = false;
-        let target_layers = std::mem::take(&mut self.target_layers);
+        let target_layers = mem::take(&mut self.target_layers);
 
-        let mut commands: Vec<TileReplaceCommand> = Vec::new();
+        let mut commands = Vec::<TileReplaceCommand>::new();
         {
             let tiles = services.tile_storage();
             for layer_id in &target_layers {
@@ -506,7 +509,7 @@ impl FilterPanel {
             }
         }
         self.canvas_id = None;
-        iced_runtime::window::close(self.main_window)
+        close(self.main_window)
     }
 
     fn cancel(&mut self, services: &mut Services) -> Task<FilterPanelMessage> {
@@ -534,7 +537,7 @@ impl FilterPanel {
         self.results.clear();
         self.target_layers.clear();
         self.canvas_id = None;
-        iced_runtime::window::close(self.main_window)
+        close(self.main_window)
     }
 
     fn preview_dirty_tiles(&self, canvas: &CCanvas) -> bevy_math::IRect {

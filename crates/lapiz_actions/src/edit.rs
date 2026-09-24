@@ -1,6 +1,6 @@
 use std::{any::TypeId, sync::Arc};
 
-use iced_core::clipboard::Content;
+use iced_core::clipboard::{Content, Error, Kind};
 use iced_runtime::{Task, clipboard};
 use lapiz_canvas::{
     CanvasAppExt as _, CanvasToolProxyAppExt as _, CanvasUndoStackAppExt as _,
@@ -76,7 +76,7 @@ impl ActionFunction for RedoAction {
 pub struct PasteIntoNewLayerAction;
 
 pub enum PasteMessage {
-    Clipboard(Result<Arc<Content>, iced_core::clipboard::Error>),
+    Clipboard(Result<Arc<Content>, Error>),
 }
 
 impl ActionFunction for PasteIntoNewLayerAction {
@@ -87,7 +87,7 @@ impl ActionFunction for PasteIntoNewLayerAction {
     }
 
     fn trigger(&self, _services: &mut Services) -> Task<Self::Message> {
-        clipboard::read(iced_core::clipboard::Kind::Files).map(PasteMessage::Clipboard)
+        clipboard::read(Kind::Files).map(PasteMessage::Clipboard)
     }
 
     fn handle_message(

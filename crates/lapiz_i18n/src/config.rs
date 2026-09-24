@@ -1,7 +1,7 @@
 use std::str::FromStr as _;
 
 use lapiz_config::{Config, Configuration};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de};
 use unic_langid::LanguageIdentifier;
 
 pub type LanguageConfig = Config<Language>;
@@ -43,8 +43,7 @@ impl<'de> Deserialize<'de> for Language {
         if let Some(lang) = lang.lang {
             Ok(Language {
                 lang: Some(
-                    LanguageIdentifier::from_str(&lang)
-                        .map_err(<D::Error as serde::de::Error>::custom)?,
+                    LanguageIdentifier::from_str(&lang).map_err(<D::Error as de::Error>::custom)?,
                 ),
             })
         } else {

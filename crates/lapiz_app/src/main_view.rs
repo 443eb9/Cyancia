@@ -1,7 +1,9 @@
 use std::{any::Any, sync::Arc};
 
 use anyhow::Result;
-use iced::{Element, Length, Subscription, Task, Theme, keyboard::key, pointer, window};
+use iced::{
+    Element, Length, Subscription, Task, Theme, event::listen_with, keyboard::key, pointer, window,
+};
 use iced_core::keyboard;
 use iced_widget::pane_grid;
 use lapiz_actions::{
@@ -629,7 +631,7 @@ impl WindowView for MainView {
     }
 
     fn subscription(&self, services: &Services) -> Subscription<Self::Message> {
-        let external = iced::event::listen_with(|event, _status, window| match event {
+        let external = listen_with(|event, _status, window| match event {
             iced::Event::Window(e) => Some(MainViewMessage::WindowEvent(window, e)),
             iced::Event::Keyboard(e) => Some(MainViewMessage::KeyboardEvent(window, e)),
             iced::Event::Pointer(e) => Some(MainViewMessage::PointerEvent(window, e)),
@@ -646,7 +648,7 @@ impl WindowView for MainView {
         Subscription::batch([external, dock, canvas_create, canvas_remove])
     }
 
-    fn windows(&self) -> Arc<[iced_core::window::Id]> {
+    fn windows(&self) -> Arc<[window::Id]> {
         self.dock_manager
             .window_infos()
             .map(|i| i.id)
@@ -655,7 +657,7 @@ impl WindowView for MainView {
             .into()
     }
 
-    fn root_window(&self) -> Option<iced_core::window::Id> {
+    fn root_window(&self) -> Option<window::Id> {
         Some(self.dock_manager.main_window().id)
     }
 }

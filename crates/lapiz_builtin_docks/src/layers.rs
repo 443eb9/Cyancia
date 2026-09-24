@@ -1,4 +1,4 @@
-use std::sync::LazyLock;
+use std::{mem, sync::LazyLock};
 
 use iced::{
     Element, Subscription, Task, Theme,
@@ -217,7 +217,7 @@ impl Dock for LayersDock {
                 if self.renaming_layer != Some(layer_id) {
                     return Task::none();
                 }
-                let name = std::mem::take(&mut self.rename_value);
+                let name = mem::take(&mut self.rename_value);
                 self.renaming_layer = None;
                 Self::push_property_change(services, layer_id, move |props| {
                     props.set_name(name);

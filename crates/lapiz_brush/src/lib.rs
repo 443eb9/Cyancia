@@ -1,9 +1,9 @@
-use futures::StreamExt;
-use iced_futures::{Executor, backend::default};
+use futures::StreamExt as _;
+use iced_futures::{Executor as _, backend::default};
 use iced_runtime::{Action, Task, task::into_stream};
-use lapiz_assets::AssetAppExt;
+use lapiz_assets::AssetAppExt as _;
 use lapiz_runtime::{Application, plugin::Plugin};
-use lapiz_tools::ToolsAppExt;
+use lapiz_tools::ToolsAppExt as _;
 
 use crate::{
     asset::{BrushPreset, BrushPresetSerializer},
@@ -28,7 +28,7 @@ pub struct BrushPlugin;
 
 impl Plugin for BrushPlugin {
     fn build(&self, app: &mut Application) {
-        crate::i18n::init();
+        i18n::init();
         let mut runtime = app.runtime_mut();
         runtime.window_manager_mut().register_view::<BrushEditor>();
 

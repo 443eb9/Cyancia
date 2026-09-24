@@ -4,20 +4,19 @@ use anyhow::Result;
 use iced_core::Point;
 use lapiz_assets::{asset::AssetId, loader::AssetRegistryBuilder};
 use lapiz_brush::{
-    asset::SerializableBrushParameter,
     instance::{main_effect_resources, postprocess_effect_resources, spacing_effect_resources},
     render::graph::{
         BackgroundColorNode, CurrentPixelColorNode, DabIndexNode, DrawDirectionNode,
         ForegroundColorNode, InitialDrawDirectionNode, LayerPixelColorNode, MAIN_DAB_BUFFER,
         PenAngleNode, PenPositionNode, PenPressureNode, PenTiltNode, PixelPositionNode,
-        SPACING_OUTPUT, STROKE_RESULT, StrokeBoundsNode, StrokeDistanceNode,
+        SPACING_OUTPUT, STROKE_RESULT, StrokeBoundsNode, StrokeDistanceNode, TimeNode,
     },
 };
 use lapiz_effect::{
     asset::{
         EffectAsset, EffectInputSlotId, EffectOutputSlotId, EffectPassDispatchStrategy,
-        EffectPassId, SerializableEffectInputSlot, SerializableEffectOutputSlot,
-        SerializableEffectPass,
+        EffectPassId, EffectPassOutputSlotId, SerializableEffectInputSlot,
+        SerializableEffectOutputSlot, SerializableEffectPass,
     },
     nodes::{PassInput, PassInputNode, PassOutput, PassOutputNode},
 };
@@ -32,9 +31,15 @@ use lapiz_shader_graph::{
     save::{SerializableGraph, SerializableGraphLiteral},
     wgsl_std::{
         nodes::{CustomExpressionNode, CustomExpressionNodeState},
-        types::{ColorType, F32Type, I32Type, LayerType, RectType, TextureType, Vec2FType},
+        types::{
+            compound::{ColorType, RectType},
+            handle::{LayerType, TextureType},
+            primitive::{F32Type, I32Type},
+            vector::Vec2FType,
+        },
     },
 };
+use toml::map::Map;
 use uuid::Uuid;
 
 use crate::desc::wgsl::{
@@ -228,12 +233,12 @@ impl BrushInputs {
 }
 
 fn f32_input(id: EffectInputSlotId, name: &str, value: f32) -> Result<BrushInputSlot> {
-    let ty: Arc<dyn ErasedGraphValueType> = Arc::new(F32Type);
+    let ty = Arc::new(F32Type);
     Ok(BrushInputSlot {
         id,
         name: name.into(),
         value: SerializableGraphLiteral {
-            ty: ty.id().id,
+            ty: GraphValueType::id(ty.as_ref()).id,
             value: toml::Value::try_from(value)?,
         },
         ty,
@@ -241,16 +246,16 @@ fn f32_input(id: EffectInputSlotId, name: &str, value: f32) -> Result<BrushInput
 }
 
 fn mask_input(id: EffectInputSlotId, name: &str, asset: AssetId<Image>) -> Result<BrushInputSlot> {
-    let ty: Arc<dyn ErasedGraphValueType> = Arc::new(TextureType {
+    let ty = Arc::new(TextureType {
         texel_type: TexelType::A8,
     });
-    let mut value = toml::map::Map::new();
+    let mut value = Map::new();
     value.insert("asset".into(), toml::Value::try_from(asset)?);
     Ok(BrushInputSlot {
         id,
         name: name.into(),
         value: SerializableGraphLiteral {
-            ty: ty.id().id,
+            ty: GraphValueType::id(ty.as_ref()).id,
             value: toml::Value::Table(value),
         },
         ty,
@@ -262,7 +267,7 @@ fn add_effect_output_node(
     position: Point,
     output: EffectOutputSlotId,
     ty: Arc<dyn ErasedGraphValueType>,
-) -> (GraphNodeId, lapiz_effect::asset::EffectPassOutputSlotId) {
+) -> (GraphNodeId, EffectPassOutputSlotId) {
     let node = graph.add_node(position, PassOutputNode);
     let port = graph
         .get_node(&node)
@@ -427,7 +432,7 @@ fn build_main_effect(
     let stroke_distance = options
         .dual_brush
         .map(|_| graph.add_node(Point::new(0.0, 600.0), StrokeDistanceNode));
-    let stroke_time = graph.add_node(Point::new(0.0, 650.0), lapiz_brush::render::graph::TimeNode);
+    let stroke_time = graph.add_node(Point::new(0.0, 650.0), TimeNode);
     let dual_texture = inputs.dual_tip_texture.map(|id| input_nodes[&id]);
 
     let mut state = CustomExpressionNodeState::default();
@@ -466,7 +471,7 @@ fn build_main_effect(
         state,
     );
     let output_id = EffectOutputSlotId::new(Uuid::new_v4());
-    let layer_ty: Arc<dyn ErasedGraphValueType> = Arc::new(LayerType {
+    let layer_ty = Arc::new(LayerType {
         texel_type: TexelType::RGBA8,
     });
     let (output, output_port) = add_effect_output_node(
@@ -525,7 +530,7 @@ fn build_main_effect(
         vec![SerializableEffectOutputSlot {
             name: MAIN_DAB_BUFFER.into(),
             id: output_id,
-            ty: layer_ty.id().id,
+            ty: GraphValueType::id(layer_ty.as_ref()).id,
         }],
     ))
 }
@@ -567,7 +572,7 @@ pub fn opacity_postprocess_effect(
     graph.connect_slots_by_index(input_nodes[&inputs.opacity], 0, expression, 3);
 
     let output_id = EffectOutputSlotId::new(Uuid::new_v4());
-    let layer_ty: Arc<dyn ErasedGraphValueType> = Arc::new(LayerType {
+    let layer_ty = Arc::new(LayerType {
         texel_type: TexelType::RGBA8,
     });
     let (output, output_port) = add_effect_output_node(
@@ -588,7 +593,7 @@ pub fn opacity_postprocess_effect(
         vec![SerializableEffectOutputSlot {
             name: STROKE_RESULT.into(),
             id: output_id,
-            ty: layer_ty.id().id,
+            ty: GraphValueType::id(layer_ty.as_ref()).id,
         }],
     ))
 }

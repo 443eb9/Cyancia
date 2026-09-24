@@ -292,6 +292,7 @@ fn scan_asset_tags(
 mod tests {
     use std::{
         collections::BTreeSet,
+        env, fs,
         io::{self, Read, Write},
     };
 
@@ -343,21 +344,21 @@ mod tests {
         let root = temp_root("cross-bundle");
         let assets_root = root.join("assets-bundle");
         let tags_root = root.join("tags-bundle");
-        std::fs::create_dir_all(&assets_root)?;
-        std::fs::create_dir_all(&tags_root)?;
+        fs::create_dir_all(&assets_root)?;
+        fs::create_dir_all(&tags_root)?;
 
         let tag = TagFile::new(
             "Test tag".to_string(),
             Some(TestAsset::TYPE_NAME.to_string()),
         );
-        std::fs::write(assets_root.join("sample.storetest"), "42")?;
-        std::fs::write(
+        fs::write(assets_root.join("sample.storetest"), "42")?;
+        fs::write(
             assets_root.join("sample.storetest.tags"),
             toml::to_string(&AssetTags {
                 tags: BTreeSet::from([tag.id]),
             })?,
         )?;
-        std::fs::write(tags_root.join("test.tag"), toml::to_string(&tag)?)?;
+        fs::write(tags_root.join("test.tag"), toml::to_string(&tag)?)?;
 
         let assets_bundle = AssetDirectory::new(&assets_root)?;
         let assets_bundle_id = AssetBundle::metadata(&assets_bundle)
@@ -417,7 +418,7 @@ mod tests {
 
         drop(handles);
         drop(registry);
-        std::fs::remove_dir_all(root)?;
+        fs::remove_dir_all(root)?;
         Ok(())
     }
 
@@ -425,9 +426,9 @@ mod tests {
     fn bundle_sync_removes_tags_missing_from_disk() -> AssetResult<()> {
         let root = temp_root("missing-tag-sync");
         let bundle_root = root.join("tag-bundle");
-        std::fs::create_dir_all(&bundle_root)?;
+        fs::create_dir_all(&bundle_root)?;
         let tag = TagFile::new("Removed tag".to_string(), None);
-        std::fs::write(bundle_root.join("removed.tag"), toml::to_string(&tag)?)?;
+        fs::write(bundle_root.join("removed.tag"), toml::to_string(&tag)?)?;
 
         let mut builder = registry_builder(&root);
         builder.add_bundle(Arc::new(AssetDirectory::new(&bundle_root)?));
@@ -437,7 +438,7 @@ mod tests {
             "removed.tag"
         );
 
-        std::fs::remove_file(bundle_root.join("removed.tag"))?;
+        fs::remove_file(bundle_root.join("removed.tag"))?;
         let bundle = Arc::new(AssetDirectory::new(&bundle_root)?) as Arc<dyn ErasedAssetBundle>;
         registry.add_erased_bundles([bundle])?;
 
@@ -445,7 +446,7 @@ mod tests {
         assert!(registry.index_db().restore_tag(&tag.id).is_err());
 
         drop(registry);
-        std::fs::remove_dir_all(root)?;
+        fs::remove_dir_all(root)?;
         Ok(())
     }
 
@@ -454,19 +455,19 @@ mod tests {
         let root = temp_root("duplicate-tag-id");
         let first_root = root.join("first-tags");
         let second_root = root.join("second-tags");
-        std::fs::create_dir_all(&first_root)?;
-        std::fs::create_dir_all(&second_root)?;
+        fs::create_dir_all(&first_root)?;
+        fs::create_dir_all(&second_root)?;
         let tag = TagFile::new("Duplicate".to_string(), None);
         let serialized = toml::to_string(&tag)?;
-        std::fs::write(first_root.join("first.tag"), &serialized)?;
-        std::fs::write(second_root.join("second.tag"), serialized)?;
+        fs::write(first_root.join("first.tag"), &serialized)?;
+        fs::write(second_root.join("second.tag"), serialized)?;
 
         let mut builder = registry_builder(&root);
         builder.add_bundle(Arc::new(AssetDirectory::new(&first_root)?));
         builder.add_bundle(Arc::new(AssetDirectory::new(&second_root)?));
         assert!(builder.try_build().is_err());
 
-        std::fs::remove_dir_all(root)?;
+        fs::remove_dir_all(root)?;
         Ok(())
     }
 
@@ -474,9 +475,9 @@ mod tests {
     fn startup_removes_tags_from_unloaded_bundles() -> AssetResult<()> {
         let root = temp_root("unloaded-tag-bundle");
         let bundle_root = root.join("tag-bundle");
-        std::fs::create_dir_all(&bundle_root)?;
+        fs::create_dir_all(&bundle_root)?;
         let tag = TagFile::new("Unloaded tag".to_string(), None);
-        std::fs::write(bundle_root.join("unloaded.tag"), toml::to_string(&tag)?)?;
+        fs::write(bundle_root.join("unloaded.tag"), toml::to_string(&tag)?)?;
         let bundle = AssetDirectory::new(&bundle_root)?;
         let bundle_id = AssetBundle::metadata(&bundle)
             .map_err(|error| AssetErrorKind::BundleError(Box::new(error)))?
@@ -493,7 +494,7 @@ mod tests {
         assert!(registry.index_db().get_bundle(&bundle_id).is_err());
 
         drop(registry);
-        std::fs::remove_dir_all(root)?;
+        fs::remove_dir_all(root)?;
         Ok(())
     }
 
@@ -501,8 +502,8 @@ mod tests {
     fn bundle_sync_does_not_restore_deleted_assets() -> AssetResult<()> {
         let root = temp_root("deleted-asset-sync");
         let bundle_root = root.join("asset-bundle");
-        std::fs::create_dir_all(&bundle_root)?;
-        std::fs::write(bundle_root.join("sample.storetest"), "9")?;
+        fs::create_dir_all(&bundle_root)?;
+        fs::write(bundle_root.join("sample.storetest"), "9")?;
 
         let mut builder = registry_builder(&root);
         builder.add_bundle(Arc::new(AssetDirectory::new(&bundle_root)?));
@@ -525,7 +526,7 @@ mod tests {
 
         drop(handle);
         drop(registry);
-        std::fs::remove_dir_all(root)?;
+        fs::remove_dir_all(root)?;
         Ok(())
     }
 
@@ -533,16 +534,16 @@ mod tests {
     fn bundle_sync_keeps_active_assets_and_removes_missing_assets() -> AssetResult<()> {
         let root = temp_root("missing-asset-sync");
         let bundle_root = root.join("asset-bundle");
-        std::fs::create_dir_all(&bundle_root)?;
-        std::fs::write(bundle_root.join("retained.storetest"), "1")?;
-        std::fs::write(bundle_root.join("removed.storetest"), "2")?;
+        fs::create_dir_all(&bundle_root)?;
+        fs::write(bundle_root.join("retained.storetest"), "1")?;
+        fs::write(bundle_root.join("removed.storetest"), "2")?;
 
         let mut builder = registry_builder(&root);
         builder.add_bundle(Arc::new(AssetDirectory::new(&bundle_root)?));
         let registry = builder.try_build()?;
         assert_eq!(registry.all_handles_of::<TestAsset>()?.len(), 2);
 
-        std::fs::remove_file(bundle_root.join("removed.storetest"))?;
+        fs::remove_file(bundle_root.join("removed.storetest"))?;
         let bundle = Arc::new(AssetDirectory::new(&bundle_root)?) as Arc<dyn ErasedAssetBundle>;
         registry.add_erased_bundles([bundle])?;
 
@@ -559,7 +560,7 @@ mod tests {
         assert!(deleted.is_empty());
 
         drop(registry);
-        std::fs::remove_dir_all(root)?;
+        fs::remove_dir_all(root)?;
         Ok(())
     }
 
@@ -567,8 +568,8 @@ mod tests {
     fn corrupt_sidecar_does_not_advance_bundle_metadata() -> AssetResult<()> {
         let root = temp_root("corrupt-sidecar");
         let bundle_root = root.join("asset-bundle");
-        std::fs::create_dir_all(&bundle_root)?;
-        std::fs::write(bundle_root.join("sample.storetest"), "9")?;
+        fs::create_dir_all(&bundle_root)?;
+        fs::write(bundle_root.join("sample.storetest"), "9")?;
         let bundle = AssetDirectory::new(&bundle_root)?;
         let bundle_id = AssetBundle::metadata(&bundle)
             .map_err(|error| AssetErrorKind::BundleError(Box::new(error)))?
@@ -580,7 +581,7 @@ mod tests {
         let previous_metadata = registry.index_db().get_bundle(&bundle_id)?;
         drop(registry);
 
-        std::fs::write(bundle_root.join("sample.storetest.tags"), "tags = [")?;
+        fs::write(bundle_root.join("sample.storetest.tags"), "tags = [")?;
         let mut builder = registry_builder(&root);
         builder.add_bundle(Arc::new(AssetDirectory::new(&bundle_root)?));
         assert!(builder.try_build().is_err());
@@ -591,7 +592,7 @@ mod tests {
             previous_metadata.last_modified
         );
         drop(index);
-        std::fs::remove_dir_all(root)?;
+        fs::remove_dir_all(root)?;
         Ok(())
     }
 
@@ -603,8 +604,8 @@ mod tests {
     }
 
     fn temp_root(name: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!("lapiz-{name}-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&root).unwrap();
+        let root = env::temp_dir().join(format!("lapiz-{name}-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
         root
     }
 }

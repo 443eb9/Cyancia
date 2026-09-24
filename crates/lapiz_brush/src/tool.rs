@@ -5,16 +5,19 @@ use iced_runtime::Task;
 use iced_widget::column;
 use lapiz_assets::{AssetAppExt as _, asset::AssetHandle};
 use lapiz_canvas::{
-    CanvasAppExt, CanvasUndoStackAppExt, command::TileReplaceCommand, event::CanvasUpdated,
+    CanvasAppExt as _, CanvasUndoStackAppExt as _, command::TileReplaceCommand,
+    event::CanvasUpdated,
 };
+use lapiz_effect::asset::EffectInputSlotId;
 use lapiz_i18n::t;
-use lapiz_image::{composite::LayerPreviewOverriders, tile::TileStorageAppExt};
+use lapiz_image::{composite::LayerPreviewOverriders, tile::TileStorageAppExt as _};
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
-use lapiz_render::render_context::RenderContextAppExt;
-use lapiz_runtime::{Renderer, Services, event::Event, service::Service};
+use lapiz_render::render_context::RenderContextAppExt as _;
+use lapiz_runtime::{Renderer, Services, event::Event as _, service::Service};
+use lapiz_shader_graph::graph::slot::{ErasedGraphLiteralUpdateMessage, GraphInputSlotId};
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_undo::QueuedUndoCommand;
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{icon, label::Label, panel::Panel};
 use log::error;
 
@@ -73,13 +76,16 @@ pub struct BrushTool {
 }
 
 // TODO
-#[allow(clippy::large_enum_variant)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "stroke results own a DynamicLayerStorage and are matched by value"
+)]
 pub enum BrushToolMessage {
     StrokePreview(Option<BrushStrokePreview>),
     StrokeResult(BrushStrokeResult),
     UpdateParameter {
-        id: lapiz_effect::asset::EffectInputSlotId,
-        message: lapiz_shader_graph::graph::slot::ErasedGraphLiteralUpdateMessage,
+        id: EffectInputSlotId,
+        message: ErasedGraphLiteralUpdateMessage,
     },
 }
 
@@ -265,8 +271,7 @@ impl ToolFunction for BrushTool {
             .parameters()
             .iter()
             .map(|(id, parameter)| {
-                let slot_id =
-                    lapiz_shader_graph::graph::slot::GraphInputSlotId::new(id.into_inner());
+                let slot_id = GraphInputSlotId::new(id.into_inner());
                 column![
                     Label::new(parameter.name.clone()),
                     parameter

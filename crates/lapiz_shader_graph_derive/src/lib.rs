@@ -1,10 +1,12 @@
+use std::env;
+
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{ItemImpl, parse_macro_input};
 
 #[proc_macro_attribute]
 pub fn stateless(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let crate_path = if std::env::var("CARGO_PKG_NAME").as_deref() == Ok("lapiz_shader_graph") {
+    let crate_path = if env::var("CARGO_PKG_NAME").as_deref() == Ok("lapiz_shader_graph") {
         quote! { crate }
     } else {
         quote! { ::lapiz_shader_graph }

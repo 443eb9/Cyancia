@@ -1,10 +1,12 @@
 use std::{
     collections::HashMap,
     io::{Read as _, Write as _},
+    result,
 };
 
 use anyhow::{Result, anyhow, bail};
 use flate2::{Compression, read::DeflateDecoder, write::DeflateEncoder};
+use futures::future::join_all;
 use glam::{IVec2, UVec2};
 use imagers::{DynamicImage, GenericImageView as _};
 use lapiz_i18n::t;
@@ -12,7 +14,7 @@ use lapiz_lazuli::{LazuliArchive, image_props::ImageProperties, layer_tree::Laye
 use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::Services;
 use moxcms::ColorProfile;
-use serde::Serialize;
+use serde::{Serialize, Serializer, ser};
 use uuid::Uuid;
 use wgpu::{Device, Queue};
 
@@ -85,7 +87,7 @@ impl CImage {
         let render_context = services.render_context();
         let tile_storage = services.tile_storage();
 
-        let result = futures::future::join_all(
+        let result = join_all(
             self.layers
                 .iter_layers()
                 .filter(|layer| {
@@ -261,15 +263,15 @@ impl GpuTileStorage {
 }
 
 impl Serialize for LayerProperties {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> result::Result<S::Ok, S::Error>
     where
-        S: serde::Serializer,
+        S: Serializer,
     {
         let encoded = self
             .iter()
             .map(|(k, v)| Ok((k, v.encode()?)))
             .collect::<Result<HashMap<_, _>>>()
-            .map_err(<S::Error as serde::ser::Error>::custom)?;
+            .map_err(<S::Error as ser::Error>::custom)?;
         encoded.serialize(serializer)
     }
 }

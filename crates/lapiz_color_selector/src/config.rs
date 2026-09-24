@@ -1,4 +1,4 @@
-use std::f32::consts::TAU;
+use std::{f32::consts::TAU, fmt};
 
 use iced_core::{Alignment, Color, Length, Theme, text::IntoFragment};
 // TODO: Re-add the color picker once it is ported or vendored into `lapiz_widgets`.
@@ -122,8 +122,8 @@ struct ConfigItem {
     name: String,
 }
 
-impl std::fmt::Display for ConfigItem {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ConfigItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name)
     }
 }

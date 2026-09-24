@@ -1,6 +1,6 @@
 use wgpu::{
     BindGroupEntry, BindingResource, Buffer, BufferAddress, BufferBinding, BufferSize, Sampler,
-    SamplerBindingType, TextureView, TextureViewDimension,
+    TextureView,
 };
 
 #[derive(Clone, Debug)]

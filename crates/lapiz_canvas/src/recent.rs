@@ -4,6 +4,7 @@ use lapiz_config::Configuration;
 use lapiz_dirs::cache_dir;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use xxhash_rust::xxh3::xxh3_128;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct RecentFiles {
@@ -37,8 +38,6 @@ pub struct RecentFileRecord {
 pub fn recent_file_thumbnail_path(path: &Path) -> PathBuf {
     cache_dir().join("file_thumbnails").join(format!(
         "{}.png",
-        Uuid::from_u128(xxhash_rust::xxh3::xxh3_128(
-            path.as_os_str().as_encoded_bytes(),
-        ))
+        Uuid::from_u128(xxh3_128(path.as_os_str().as_encoded_bytes(),))
     ))
 }

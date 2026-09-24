@@ -1,11 +1,14 @@
-use std::{convert::identity, sync::Arc};
+use std::{fmt, sync::Arc};
 
-use anyhow::{Context, Result, bail};
-use bevy_math::{IRect, IVec2, IVec4, Rect};
-use encase::{DynamicUniformBuffer, ShaderType, StorageBuffer, internal::WriteInto};
-use glam::{Vec2, Vec4};
+use anyhow::{Context as _, Result, bail};
+use bevy_math::{IRect, IVec2, IVec4};
+use encase::{ShaderType as _, StorageBuffer};
 use iced_core::Element;
-use iced_widget::{Column, column, row, space};
+use iced_widget::{Column, row, space};
+use lapiz_assets::{
+    asset::{AssetHandle, AssetId},
+    store::AssetRegistry,
+};
 use lapiz_i18n::t;
 use lapiz_image::{
     texel::TexelType,
@@ -15,25 +18,34 @@ use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
     bind_group_layout_entries::{DynamicBindGroupLayoutEntries, binding_types},
     readback::{create_readback_buffer_and_schedule_copy_buffer, readback_buffer_on_submit_async},
-    util::DevicePollExt,
+    texture::{GpuImage, Image},
+    util::DevicePollExt as _,
 };
 use lapiz_utils::random_oklch_hue_chroma;
-use lapiz_widgets::{
-    checkbox::Checkbox, combo_box::ComboBox, label::Label, spin_slider::SpinSlider,
-};
+use lapiz_widgets::{combo_box::ComboBox, label::Label};
 use serde::{Deserialize, Serialize};
+use toml::map::Map;
 use uuid::Uuid;
-use wesl::syntax::*;
+use wesl::syntax::{
+    AccessMode, AddressSpace, AssignmentOperator, AssignmentStatement, Attribute, BinaryExpression,
+    BinaryOperator, BreakStatement, CompoundStatement, Declaration, DeclarationKind, Expression,
+    ForStatement, FormalParameter, Function, FunctionCall, FunctionCallStatement,
+    GlobalDeclaration, Ident, IfClause, IfStatement, IndexingExpression, LiteralExpression,
+    ModulePath, NamedComponentExpression, ParenthesizedExpression, PathOrigin, ReturnStatement,
+    Span, Spanned, Statement, TemplateArg, TypeExpression, UnaryExpression, UnaryOperator,
+};
 use wesl_quote::{quote_declaration, quote_expression, quote_statement};
 use wgpu::{
     Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Device, Extent3d, Queue,
-    TextureDescriptor, TextureDimension, TextureUsages, TextureView, TextureViewDescriptor,
+    TextureDescriptor, TextureDimension, TextureUsages, TextureViewDescriptor,
     TextureViewDimension, util::DeviceExt as _,
 };
 
 use super::{
-    ColorType, F32Type, I32Type, RectType, layer_bounds_ident, layer_load_ident, layer_store_ident,
-    layer_tile_info_ident, push_buffer_binding, push_storage_layout,
+    compound::{ColorType, RectType},
+    layer_bounds_ident, layer_load_ident, layer_store_ident, layer_tile_info_ident,
+    primitive::{F32Type, I32Type},
+    push_buffer_binding, push_storage_layout,
 };
 use crate::{
     GraphRenderer, GraphTheme,
@@ -51,11 +63,11 @@ use crate::{
 #[derive(Clone)]
 pub struct TextureOption {
     pub name: String,
-    pub handle: lapiz_assets::asset::AssetHandle<lapiz_render::texture::Image>,
+    pub handle: AssetHandle<Image>,
 }
 
-impl std::fmt::Display for TextureOption {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for TextureOption {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.name)
     }
 }
@@ -67,7 +79,7 @@ impl PartialEq for TextureOption {
 }
 
 #[derive(Clone)]
-pub struct TextureChanged(pub lapiz_assets::asset::AssetHandle<lapiz_render::texture::Image>);
+pub struct TextureChanged(pub AssetHandle<Image>);
 
 #[derive(Clone)]
 pub struct TextureType {
@@ -84,15 +96,13 @@ impl Default for TextureType {
 
 #[derive(Clone, Default, PartialEq, Eq, Hash)]
 pub struct TextureReference {
-    pub texture: Option<lapiz_assets::asset::AssetHandle<lapiz_render::texture::Image>>,
+    pub texture: Option<AssetHandle<Image>>,
 }
 
 impl TextureReference {
     pub const NULL: Self = Self { texture: None };
 
-    pub fn from_asset(
-        asset: lapiz_assets::asset::AssetHandle<lapiz_render::texture::Image>,
-    ) -> Self {
+    pub fn from_asset(asset: AssetHandle<Image>) -> Self {
         Self {
             texture: Some(asset),
         }
@@ -110,9 +120,7 @@ impl Serialize for TextureReference {
 
 impl<'de> Deserialize<'de> for TextureReference {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Option::<lapiz_assets::asset::AssetId<lapiz_render::texture::Image>>::deserialize(
-            deserializer,
-        )?;
+        Option::<AssetId<Image>>::deserialize(deserializer)?;
         Ok(Self::NULL)
     }
 }
@@ -186,12 +194,7 @@ impl GraphValueType for TextureType {
         //      We should prevent dismatch at UI level?
         if let Some(handle) = &data.texture {
             let image = handle.get().context("texture asset is not loaded")?;
-            let gpu = lapiz_render::texture::GpuImage::from_asset(
-                device,
-                queue,
-                &image,
-                TextureUsages::TEXTURE_BINDING,
-            );
+            let gpu = GpuImage::from_asset(device, queue, &image, TextureUsages::TEXTURE_BINDING);
             return Ok(gpu.texture.create_view(&TextureViewDescriptor::default()));
         }
         // The NULL reference still binds an empty placeholder.
@@ -215,9 +218,9 @@ impl GraphValueType for TextureType {
     fn serialize_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<toml::Value> {
-        let mut table = toml::map::Map::new();
+        let mut table = Map::new();
         if let Some(handle) = &data.texture {
             table.insert("asset".into(), toml::Value::try_from(handle.id())?);
         }
@@ -227,14 +230,12 @@ impl GraphValueType for TextureType {
     fn deserialize_literal(
         &self,
         deserializer: toml::Value,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> Result<Self::AssociatedLiteralType> {
         let Some(asset) = deserializer.get("asset") else {
             return Ok(TextureReference::NULL);
         };
-        let id = lapiz_assets::asset::AssetId::<lapiz_render::texture::Image>::deserialize(
-            asset.clone(),
-        )?;
+        let id = AssetId::<Image>::deserialize(asset.clone())?;
         let handle = assets
             .handle(id)
             .map_err(|e| anyhow::anyhow!("texture asset {id} is unavailable: {e:?}"))?;
@@ -254,10 +255,10 @@ impl GraphValueType for TextureType {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         let options = assets
-            .all_handles_of::<lapiz_render::texture::Image>()
+            .all_handles_of::<Image>()
             .unwrap_or_default()
             .into_iter()
             .map(|handle| TextureOption {
@@ -299,6 +300,10 @@ pub struct LayerType {
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct LayerReference;
 
+#[allow(
+    clippy::large_enum_variant,
+    reason = "callers move DynamicLayerStorage out of the writable variant"
+)]
 pub enum PreparedLayerPixels {
     ReadWrite {
         storage: DynamicLayerStorage,
@@ -644,14 +649,14 @@ impl GraphValueType for LayerType {
         Ok(())
     }
 
-    fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<Expression> {
+    fn literal_to_code(&self, _data: &Self::AssociatedLiteralType) -> Option<Expression> {
         None
     }
 
     fn serialize_literal(
         &self,
         _data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<toml::Value> {
         Ok(toml::Value::Table(Default::default()))
     }
@@ -659,7 +664,7 @@ impl GraphValueType for LayerType {
     fn deserialize_literal(
         &self,
         _deserializer: toml::Value,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<Self::AssociatedLiteralType> {
         Ok(LayerReference)
     }
@@ -755,7 +760,7 @@ impl GraphValueType for LayerType {
     fn view_literal(
         &self,
         _data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         Element::new(space())
     }
@@ -957,7 +962,7 @@ impl GraphValueType for ArrayType {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         let elements = data
             .elements
@@ -992,7 +997,7 @@ impl GraphValueType for ArrayType {
     fn serialize_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> Result<toml::Value> {
         if data.elements.len() != self.len as usize {
             bail!(
@@ -1020,7 +1025,7 @@ impl GraphValueType for ArrayType {
     fn deserialize_literal(
         &self,
         deserializer: toml::Value,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> Result<Self::AssociatedLiteralType> {
         let values = match deserializer {
             toml::Value::Array(values) => values,

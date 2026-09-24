@@ -15,7 +15,7 @@ pub struct FilterPlugin;
 
 impl Plugin for FilterPlugin {
     fn build(&self, app: &mut Application) {
-        crate::i18n::init();
+        i18n::init();
         let mut runtime = app.runtime_mut();
         runtime.window_manager_mut().register_view::<FilterPanel>();
         runtime.window_manager_mut().register_view::<FilterEditor>();

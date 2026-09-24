@@ -1,9 +1,17 @@
-use std::{collections::BTreeSet, hash::Hash, marker::PhantomData, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    fmt, fs,
+    hash::{Hash, Hasher},
+    marker::PhantomData,
+    ops::Deref,
+    sync::Arc,
+};
 
 use chrono::{DateTime, Utc};
 use downcast_rs::DowncastSync;
 use lapiz_utils::wrapper;
 use parse_display::Display;
+use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -26,14 +34,14 @@ impl UntypedAssetId {
     }
 }
 
-impl rusqlite::types::FromSql for UntypedAssetId {
-    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+impl FromSql for UntypedAssetId {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         Ok(Self(Uuid::column_result(value)?))
     }
 }
 
-impl rusqlite::types::ToSql for UntypedAssetId {
-    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+impl ToSql for UntypedAssetId {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         self.0.to_sql()
     }
 }
@@ -45,8 +53,8 @@ pub struct AssetId<T: Asset> {
     _marker: PhantomData<T>,
 }
 
-impl<T: Asset> std::fmt::Debug for AssetId<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T: Asset> fmt::Debug for AssetId<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("AssetId").field(&self.id).finish()
     }
 }
@@ -67,8 +75,8 @@ impl<T: Asset> PartialEq for AssetId<T> {
 
 impl<T: Asset> Eq for AssetId<T> {}
 
-impl<T: Asset> std::hash::Hash for AssetId<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl<T: Asset> Hash for AssetId<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
     }
 }
@@ -89,7 +97,7 @@ impl<'de, T: Asset> Deserialize<'de> for AssetId<T> {
     }
 }
 
-impl<T: Asset> std::ops::Deref for AssetId<T> {
+impl<T: Asset> Deref for AssetId<T> {
     type Target = Uuid;
 
     fn deref(&self) -> &Self::Target {
@@ -162,7 +170,7 @@ impl<T: Asset> PartialEq for AssetHandle<T> {
 impl<T: Asset> Eq for AssetHandle<T> {}
 
 impl<T: Asset> Hash for AssetHandle<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
     }
 }
@@ -224,7 +232,7 @@ impl<T: Asset> AssetHandle<T> {
             .bundle
             .write_asset(&self.untyped_id(), metadata.revision)?;
         let last_modified =
-            std::fs::metadata(self.bundle.absolute_modified_path(&new_path))?.modified()?;
+            fs::metadata(self.bundle.absolute_modified_path(&new_path))?.modified()?;
         self.index_db.write_asset(
             &self.untyped_id(),
             new_path.to_str().unwrap(),

@@ -3,11 +3,14 @@ use std::sync::Arc;
 use anyhow::Result;
 use iced_core::{Element, Length, Size, Theme, alignment::Vertical, window};
 use iced_futures::Subscription;
-use iced_runtime::Task;
+use iced_runtime::{
+    Task,
+    window::{close, open},
+};
 use iced_widget::{Column, column, component::component, row};
-use lapiz_assets::{AssetAppExt, asset::AssetHandle};
+use lapiz_assets::{AssetAppExt as _, asset::AssetHandle};
 use lapiz_effect::{
-    asset::EffectInputSlotId,
+    asset::{EffectInputSlotId, EffectOutputSlotId},
     editor::{EffectEditorMessage, EffectEditorState, EffectEditorView},
     instance::{EffectInputSlot, EffectInstance, EffectOutputSlot},
     nodes::{PassInput, PassInputNode},
@@ -21,8 +24,7 @@ use lapiz_runtime::{
 use lapiz_shader_graph::{
     GraphElement,
     editor::parameters::{ParametersEditor, ParametersEditorMessage},
-    graph::slot::ErasedGraphValueType,
-    wgsl_std::types::LayerType,
+    wgsl_std::types::handle::LayerType,
 };
 use lapiz_widgets::{
     button::Button, label::Label, panel::Panel, scrollable::Scrollable, text_input::TextInput,
@@ -79,7 +81,7 @@ impl WindowView for FilterEditor {
             .assets()
             .all_handles_of::<FilterPreset>()
             .expect("Failed to list filter presets");
-        let (main_window, open) = iced_runtime::window::open(window::Settings {
+        let (main_window, open) = open(window::Settings {
             size: Size {
                 width: 1280.0,
                 height: 800.0,
@@ -203,7 +205,7 @@ impl WindowView for FilterEditor {
     }
 
     fn close(self, _: &mut Services) -> Task<()> {
-        iced_runtime::window::close(self.main_window)
+        close(self.main_window)
     }
 
     fn windows(&self) -> Arc<[window::Id]> {
@@ -294,18 +296,19 @@ impl FilterEditor {
         .align_y(Vertical::Center)
         .height(Length::Shrink);
 
-        let naming: EditorElement<'a> = match self.validation_error.as_ref() {
+        let naming = match self.validation_error.as_ref() {
             Some(error) => {
-                let error_text: EditorElement<'a> = iced_widget::Text::new(error.clone())
-                    .color(iced_core::Color::from_rgb(1.0, 0.3, 0.3))
-                    .into();
+                let error_text = EditorElement::<'a>::from(
+                    iced_widget::Text::new(error.clone())
+                        .color(iced_core::Color::from_rgb(1.0, 0.3, 0.3)),
+                );
                 column![naming_row, error_text].spacing(2).into()
             }
             None => naming_row.into(),
         };
 
         // Region 2 bottom: the effect editor (passes and their graphs).
-        let effect_editor: EditorElement<'a> = GraphElement::from(EffectEditorView::new(
+        let effect_editor = GraphElement::from(EffectEditorView::new(
             selected.instance.effect(),
             &self.effect_editor_state,
         ))
@@ -353,11 +356,11 @@ impl FilterEditor {
     }
 
     fn new_filter(&mut self, services: &mut Services) -> Task<FilterEditorMessage> {
-        let layer_ty: Arc<dyn ErasedGraphValueType> = Arc::new(LayerType {
+        let layer_ty = Arc::new(LayerType {
             texel_type: TexelType::RGBA8,
         });
         let target = EffectInputSlotId::new(Uuid::new_v4());
-        let output = lapiz_effect::asset::EffectOutputSlotId::new(Uuid::new_v4());
+        let output = EffectOutputSlotId::new(Uuid::new_v4());
         let effect = EffectInstance {
             name: "Filter".into(),
             passes: Default::default(),

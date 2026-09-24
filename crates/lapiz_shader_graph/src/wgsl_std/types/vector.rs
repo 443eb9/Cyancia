@@ -1,5 +1,3 @@
-use std::convert::identity;
-
 use anyhow::Result;
 use encase::ShaderType;
 use glam::{IVec2, IVec3, IVec4, UVec2, UVec3, UVec4, Vec2, Vec3, Vec4};
@@ -11,9 +9,8 @@ use lapiz_render::{
 };
 use lapiz_utils::random_oklch_hue_chroma;
 use lapiz_widgets::spin_slider::SpinSlider;
-use serde::{Deserialize, Serialize};
-use wesl::syntax::*;
-use wesl_quote::quote_expression;
+use serde::Deserialize as _;
+use wesl::syntax::{Expression, ExpressionNode, FunctionCall, Ident, TypeExpression};
 use wgpu::{Buffer, Device, Queue};
 
 use super::{prepare_uniform_storage, push_buffer_binding, push_storage_layout};

@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    fmt, mem,
     sync::Arc,
     time::Instant,
 };
@@ -18,6 +19,7 @@ use iced_core::{
         mouse::{self, Interaction},
     },
     renderer::{self, Quad},
+    shell::Bus,
     theme::{Base as _, Mode},
     widget::{Operation, Tree, tree},
 };
@@ -262,8 +264,8 @@ pub struct NodeCreationMenuItem {
     pub node_title: &'static str,
 }
 
-impl std::fmt::Display for NodeCreationMenuItem {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for NodeCreationMenuItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&t!(self.node_title))
     }
 }
@@ -517,7 +519,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditorVi
             state.keyboard_modifiers = *modifiers;
         }
         state.slot_pins.clear();
-        let mut messages = iced_core::shell::Bus::new();
+        let mut messages = Bus::new();
         let mut children_shell = shell.local(&mut messages);
         for ((child, tree), layout) in self
             .graph
@@ -691,7 +693,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditorVi
             Event::Pointer(e @ pointer::Event::PointerReleased { .. })
                 if e.is_primary_release() =>
             {
-                match std::mem::take(&mut state.interaction) {
+                match mem::take(&mut state.interaction) {
                     InteractionState::NodeDragging {
                         cursor_origin,
                         node_origin,

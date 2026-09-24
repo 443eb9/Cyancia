@@ -1,6 +1,9 @@
-use std::sync::{Arc, LazyLock};
+use std::{
+    fmt,
+    sync::{Arc, LazyLock},
+};
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use iced_core::{Length, widget::Void};
 use iced_widget::{Column, column, row};
 use lapiz_i18n::t;
@@ -22,18 +25,23 @@ use lapiz_shader_graph::{
     save::GraphSerializable,
     wgsl_std::{
         builtin_nodes, builtin_types,
-        types::{U32Type, Vec2IType},
+        types::{primitive::U32Type, vector::Vec2IType},
     },
 };
 use lapiz_utils::random_oklch_hue_chroma;
 use lapiz_widgets::{combo_box::ComboBox, label::Label, text_input::TextInput};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use wesl::syntax::*;
+use wesl::syntax::{
+    Declaration, DeclarationKind, Expression, Ident, Span, Spanned, Statement, TypeExpression,
+};
 use wesl_quote::quote_statement;
 
 use crate::{
-    asset::*,
+    asset::{
+        EffectInputSlotId, EffectOutputSlotId, EffectPassDispatchStrategy, EffectPassInputSlotId,
+        EffectPassOutputSlotId,
+    },
     render::{pass_input_ident, pass_output_ident},
 };
 
@@ -52,16 +60,16 @@ pub struct PassInputChoice {
     pub input: Option<PassInput>,
 }
 
-impl std::fmt::Debug for PassInputChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for PassInputChoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PassInputChoice")
             .field("label", &self.label)
             .finish()
     }
 }
 
-impl std::fmt::Display for PassInputChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for PassInputChoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.label)
     }
 }
@@ -79,8 +87,8 @@ pub struct PassOutputChoice {
     pub target: PassOutputChoiceTarget,
 }
 
-impl std::fmt::Debug for PassOutputChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for PassOutputChoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PassOutputChoice")
             .field("label", &self.label)
             .field("target", &self.target)
@@ -88,8 +96,8 @@ impl std::fmt::Debug for PassOutputChoice {
     }
 }
 
-impl std::fmt::Display for PassOutputChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for PassOutputChoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.label)
     }
 }
@@ -100,8 +108,8 @@ pub struct TypeChoice {
     pub ty: Arc<dyn ErasedGraphValueType>,
 }
 
-impl std::fmt::Debug for TypeChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for TypeChoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TypeChoice")
             .field("label", &self.label)
             .finish()
@@ -114,8 +122,8 @@ impl PartialEq for TypeChoice {
     }
 }
 
-impl std::fmt::Display for TypeChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for TypeChoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.label)
     }
 }

@@ -1,5 +1,6 @@
-use std::{ffi::OsStr, path::PathBuf};
+use std::{ffi::OsStr, iter, path::PathBuf};
 
+use futures::executor::block_on;
 use iced_runtime::Task;
 use lapiz_canvas::CanvasAppExt as _;
 use lapiz_config::Config;
@@ -41,9 +42,7 @@ impl ActionFunction for OpenFileAction {
             .collect::<Vec<_>>();
         let all_extensions = formats
             .iter()
-            .flat_map(|format| {
-                std::iter::once(format.extension).chain(format.aliases.iter().copied())
-            })
+            .flat_map(|format| iter::once(format.extension).chain(format.aliases.iter().copied()))
             .collect::<Vec<_>>();
         dialog = dialog.add_filter(t!("all_formats"), &all_extensions);
         for format in formats {
@@ -201,6 +200,6 @@ fn start_export(services: &mut Services, allow_silent_export: bool, path: PathBu
             ));
     } else {
         // TODO nonononono use async
-        futures::executor::block_on(adapter.export(services, canvas, &path)).log_err();
+        block_on(adapter.export(services, canvas, &path)).log_err();
     }
 }

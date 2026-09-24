@@ -1,11 +1,14 @@
-use std::io::{Cursor, Read, Write};
+use std::io::{self, Cursor, Read, Write};
 
 use indexmap::IndexMap;
 use lapiz_assets::{asset::Asset, loader::AssetSerializer};
-use lapiz_effect::asset::{EffectAsset, EffectAssetSerializer, EffectInputSlotId};
+use lapiz_effect::asset::{
+    EffectAsset, EffectAssetSerializer, EffectAssetSerializerError, EffectInputSlotId,
+};
 use lapiz_shader_graph::save::SerializableGraphLiteral;
 use serde::{Deserialize, Serialize};
-use zip::ZipArchive;
+use toml::{de, ser};
+use zip::{ZipArchive, result::ZipError, write::FileOptions};
 
 pub struct FilterPreset {
     pub metadata: FilterPresetMetadata,
@@ -39,15 +42,15 @@ pub struct FilterPresetSerializer;
 #[derive(Debug, thiserror::Error)]
 pub enum FilterPresetSerializerError {
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error(transparent)]
-    Zip(#[from] zip::result::ZipError),
+    Zip(#[from] ZipError),
     #[error(transparent)]
-    TomlDe(#[from] toml::de::Error),
+    TomlDe(#[from] de::Error),
     #[error(transparent)]
-    TomlSer(#[from] toml::ser::Error),
+    TomlSer(#[from] ser::Error),
     #[error(transparent)]
-    Effect(#[from] lapiz_effect::asset::EffectAssetSerializerError),
+    Effect(#[from] EffectAssetSerializerError),
     #[error("Invalid filter preset: {0}")]
     Invalid(String),
 }
@@ -98,26 +101,22 @@ impl AssetSerializer for FilterPresetSerializer {
         })
     }
 
-    fn write(
-        &self,
-        asset: &Self::Asset,
-        writer: &mut dyn std::io::Write,
-    ) -> Result<(), Self::Error> {
+    fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<(), Self::Error> {
         let mut buf = Vec::new();
         {
             let mut zip = zip::ZipWriter::new(Cursor::new(&mut buf));
 
-            zip.start_file("filter.toml", zip::write::FileOptions::<()>::default())?;
+            zip.start_file("filter.toml", FileOptions::<()>::default())?;
             let toml_buffer = toml::to_string(&FilterToml {
                 name: asset.metadata.name.clone(),
             })?;
             zip.write_all(toml_buffer.as_bytes())?;
 
-            zip.start_file("effect.lef", zip::write::FileOptions::<()>::default())?;
+            zip.start_file("effect.lef", FileOptions::<()>::default())?;
             EffectAssetSerializer.write(&asset.effect, &mut zip)?;
 
             if !asset.parameters.is_empty() {
-                zip.start_file("parameters.toml", zip::write::FileOptions::<()>::default())?;
+                zip.start_file("parameters.toml", FileOptions::<()>::default())?;
                 let parameters_buffer = toml::to_string(&asset.parameters)?;
                 zip.write_all(parameters_buffer.as_bytes())?;
             }

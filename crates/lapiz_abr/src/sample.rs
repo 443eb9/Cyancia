@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
 
 use anyhow::{Context as _, Result, bail, ensure};
 use image::{DynamicImage, ImageBuffer, Luma};
@@ -32,7 +32,7 @@ pub struct Sample {
 }
 
 impl Debug for Sample {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Sample")
             .field("id", &self.id)
             .field("top", &self.top)

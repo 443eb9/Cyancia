@@ -10,6 +10,7 @@ use iced_core::{
     widget::{Operation, Tree},
 };
 use iced_widget::{row, text};
+use lapiz_assets::store::AssetRegistry;
 
 use crate::{
     GraphRenderer, GraphTheme,
@@ -162,7 +163,7 @@ pub fn input_slot<'a>(
     slot_id: GraphInputSlotId,
     slot_name: impl IntoFragment<'a>,
     slot: &GraphInputSlotData,
-    assets: &lapiz_assets::store::AssetRegistry,
+    assets: &AssetRegistry,
 ) -> Element<'a, ErasedGraphLiteralUpdateMessage, GraphTheme, GraphRenderer> {
     let (hue, chroma) = slot.data.ty().hue_chroma();
     match slot.connected {

@@ -3,9 +3,10 @@
     reason = "exported translation macros resolve dependencies through $crate"
 )]
 
-use std::{borrow::Cow, collections::BTreeMap};
+use std::{borrow::Cow, collections::BTreeMap, fmt, slice, str};
 
 pub use fluent_bundle::{FluentArgs, FluentValue};
+use fluent_syntax::{ast::Entry, parser};
 pub use i18n_embed::fluent::FluentLanguageLoader;
 use i18n_embed::{
     DefaultLocalizer, DesktopLanguageRequester, I18nAssets, LanguageLoader as _, Localizer as _,
@@ -33,13 +34,12 @@ pub fn assert_parity(loader: &FluentLanguageLoader, assets: &dyn I18nAssets) {
     fn message_ids(assets: &dyn I18nAssets, path: &str) -> Vec<String> {
         let mut ids = Vec::new();
         for file in assets.get_files(path) {
-            let source =
-                std::str::from_utf8(&file).unwrap_or_else(|error| panic!("{path}: {error}"));
-            let resource = fluent_syntax::parser::parse(source)
-                .unwrap_or_else(|(errors, _)| panic!("{path}: {errors:?}"));
+            let source = str::from_utf8(&file).unwrap_or_else(|error| panic!("{path}: {error}"));
+            let resource =
+                parser::parse(source).unwrap_or_else(|(errors, _)| panic!("{path}: {errors:?}"));
             ids.extend(resource.body.iter().filter_map(|entry| match entry {
-                fluent_syntax::ast::Entry::Message(message) => Some(message.id.name.to_string()),
-                fluent_syntax::ast::Entry::Term(term) => Some(format!("-{}", term.id.name)),
+                Entry::Message(message) => Some(message.id.name.to_string()),
+                Entry::Term(term) => Some(format!("-{}", term.id.name)),
                 _ => None,
             }));
         }
@@ -88,7 +88,7 @@ pub fn init() {
 }
 
 pub fn set_language(id: &LanguageIdentifier) {
-    select_all(std::slice::from_ref(id));
+    select_all(slice::from_ref(id));
 }
 
 pub fn current_language() -> LanguageIdentifier {
@@ -222,8 +222,8 @@ impl<T> Translated<T> {
     }
 }
 
-impl<T: ToString> std::fmt::Display for Translated<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T: ToString> fmt::Display for Translated<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&t!(&self.0.to_string()))
     }
 }

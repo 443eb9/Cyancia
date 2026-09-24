@@ -6,8 +6,9 @@ use encase::ShaderType;
 use glam::{IVec2, Mat3, UVec2, UVec3};
 use iced_core::Rectangle;
 use iced_widget::shader;
-use lapiz_color::shader::IccTransformShader;
+use lapiz_color::{platform::get_window_color_profile, shader::IccTransformShader};
 use lapiz_image::{
+    image::PACKAGE,
     layer::LayerId,
     texel::TexelType,
     tile::{GpuTileInfo, GpuTileStorage},
@@ -67,7 +68,7 @@ impl CanvasRenderer {
             return Ok(());
         }
 
-        let dst_pr = lapiz_color::platform::get_window_color_profile(window_id)?;
+        let dst_pr = get_window_color_profile(window_id)?;
         let icc_transform = IccTransformShader::new(
             ICC_TRANSFORM_SHADER_IDENT,
             src_pr,
@@ -315,11 +316,7 @@ impl CanvasRenderPipeline {
             .replace("//CODEGEN_FLAG_CALIBRATE_COLOR", &icc_transform.function);
         let shader_module = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("canvas shader"),
-            source: ShaderSource::Wgsl(
-                compile_wesl(shader, &[&lapiz_image::image::PACKAGE])
-                    .unwrap()
-                    .into(),
-            ),
+            source: ShaderSource::Wgsl(compile_wesl(shader, &[&PACKAGE]).unwrap().into()),
         });
         let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: Some("canvas pipeline"),

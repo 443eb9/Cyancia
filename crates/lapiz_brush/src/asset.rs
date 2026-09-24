@@ -1,11 +1,14 @@
-use std::io::{Cursor, Read, Write as _};
+use std::io::{self, Cursor, Read, Write};
 
 use indexmap::IndexMap;
 use lapiz_assets::{asset::Asset, loader::AssetSerializer};
-use lapiz_effect::asset::{EffectAsset, EffectAssetSerializer, EffectInputSlotId};
+use lapiz_effect::asset::{
+    EffectAsset, EffectAssetSerializer, EffectAssetSerializerError, EffectInputSlotId,
+};
 use lapiz_shader_graph::save::SerializableGraphLiteral;
 use serde::{Deserialize, Serialize};
-use zip::{ZipArchive, ZipWriter, write::FileOptions};
+use toml::{de, ser};
+use zip::{ZipArchive, ZipWriter, result::ZipError, write::FileOptions};
 
 pub struct BrushPreset {
     pub metadata: BrushPresetMetadata,
@@ -41,15 +44,15 @@ pub struct BrushPresetSerializer;
 #[derive(Debug, thiserror::Error)]
 pub enum BrushPresetSerializerError {
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error(transparent)]
-    Zip(#[from] zip::result::ZipError),
+    Zip(#[from] ZipError),
     #[error(transparent)]
-    TomlDe(#[from] toml::de::Error),
+    TomlDe(#[from] de::Error),
     #[error(transparent)]
-    TomlSer(#[from] toml::ser::Error),
+    TomlSer(#[from] ser::Error),
     #[error(transparent)]
-    Effect(#[from] lapiz_effect::asset::EffectAssetSerializerError),
+    Effect(#[from] EffectAssetSerializerError),
     #[error("Invalid brush preset: {0}")]
     Invalid(String),
 }
@@ -108,11 +111,7 @@ impl AssetSerializer for BrushPresetSerializer {
         })
     }
 
-    fn write(
-        &self,
-        asset: &Self::Asset,
-        writer: &mut dyn std::io::Write,
-    ) -> Result<(), Self::Error> {
+    fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<(), Self::Error> {
         let mut buf = Vec::new();
         {
             let mut zip = ZipWriter::new(Cursor::new(&mut buf));

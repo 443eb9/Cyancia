@@ -54,6 +54,8 @@ impl LazuliArchive {
 
 #[cfg(test)]
 mod tests {
+    use std::{env, fs};
+
     use uuid::Uuid;
 
     use super::*;
@@ -94,8 +96,7 @@ mod tests {
 
     #[test]
     fn opening_an_archive_with_an_unsupported_version_fails() {
-        let directory =
-            std::env::temp_dir().join(format!("lapiz_lazuli_metadata_{}", Uuid::new_v4()));
+        let directory = env::temp_dir().join(format!("lapiz_lazuli_metadata_{}", Uuid::new_v4()));
         let path = directory.join("archive.lazuli");
         let archive = LazuliArchive::new(&path).unwrap();
         archive
@@ -112,7 +113,7 @@ mod tests {
                 .contains("unsupported lazuli archive version")
         );
 
-        std::fs::remove_file(path).unwrap();
-        std::fs::remove_dir(directory).unwrap();
+        fs::remove_file(path).unwrap();
+        fs::remove_dir(directory).unwrap();
     }
 }

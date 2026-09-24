@@ -1,6 +1,8 @@
 use std::{
     cell::RefCell,
     collections::HashMap,
+    convert::identity,
+    fmt, iter,
     sync::{
         Arc,
         atomic::{AtomicU32, Ordering},
@@ -13,24 +15,34 @@ use iced_core::{
     Event, Layout, Length, Rectangle, Shell, Size, Widget, layout,
     pointer::mouse,
     renderer,
+    shell::Bus,
+    text::parser::PlainText,
     widget::{Operation, Tree, tree},
 };
 use iced_widget::{column, container, row, text, text_editor, text_input};
 use indexmap::IndexMap;
-use lapiz_assets::asset::AssetHandle;
+use lapiz_assets::{
+    asset::{AssetHandle, AssetId},
+    store::AssetRegistry,
+};
 use lapiz_i18n::{Translated, t};
 use lapiz_math::curve::CubicCurve;
 use lapiz_shader_graph_derive::stateless;
 use lapiz_utils::{random_oklch_hue_chroma, wrapper};
 use lapiz_widgets::{
     button::Button, combo_box::ComboBox, curve_edit::CurveEdit, fluent_builder::When as _,
-    label::Label, popover::Popover,
+    label::Label, popover::Popover, text_input::default,
 };
 use parking_lot::Mutex;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use wesl::syntax::*;
+use wesl::syntax::{
+    AssignmentOperator, AssignmentStatement, BinaryExpression, BinaryOperator, CompoundStatement,
+    Declaration, DeclarationKind, Expression, FunctionCall, Ident, IfClause, IfStatement,
+    IndexingExpression, LiteralExpression, ModulePath, NamedComponentExpression, PathOrigin, Span,
+    Spanned, Statement, TemplateArg, TypeExpression, UnaryExpression, UnaryOperator,
+};
 use wesl_quote::{quote_expression, quote_statement};
 
 use crate::{
@@ -47,10 +59,14 @@ use crate::{
             ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphDefaultInputSlot,
             GraphDefaultOutputSlot, GraphValueType,
         },
-        texture::TextureId,
     },
     save::{GraphSerializable, SerializableGraph, SerializableGraphFunction},
-    wgsl_std::types::{BoolType, ColorType, F32Type, I32Type, RectType, TextureType, Vec2FType},
+    wgsl_std::types::{
+        compound::{ColorType, RectType},
+        handle::TextureType,
+        primitive::{BoolType, F32Type, I32Type},
+        vector::Vec2FType,
+    },
 };
 
 #[derive(Default, Clone)]
@@ -833,7 +849,7 @@ impl GraphNode for RectMathNode {
             RectMathNodeMode::Inflate => {
                 let min = Ident::new(ctx.ident_generator.next_output());
                 let max = Ident::new(ctx.ident_generator.next_output());
-                vec![
+                [
                     quote_statement! { let #min = #a.min - #b; }.to_string(),
                     quote_statement! { let #max = #a.max + #b; }.to_string(),
                     quote_statement! { var #output = render::math::Rect(#min, #max); }.to_string(),
@@ -849,7 +865,7 @@ impl GraphNode for RectMathNode {
             RectMathNodeMode::Shrink => {
                 let min = Ident::new(ctx.ident_generator.next_output());
                 let max = Ident::new(ctx.ident_generator.next_output());
-                vec![
+                [
                     quote_statement! { let #min = #a.min + #b; }.to_string(),
                     quote_statement! { let #max = #a.max - #b; }.to_string(),
                     quote_statement! { var #output = render::math::Rect(#min, #max); }.to_string(),
@@ -1493,8 +1509,8 @@ pub struct GraphFunctionReference {
     pub name: String,
 }
 
-impl std::fmt::Display for GraphFunctionReference {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for GraphFunctionReference {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.name)
     }
 }
@@ -1521,7 +1537,7 @@ pub enum GraphFunctionNodeMessage {
 impl GraphFunctionNodeState {
     fn instantiate(
         handle: &AssetHandle<SerializableGraphFunction>,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> Option<Graph> {
         let function = handle.get().ok()?;
         let resources = GraphResources {
@@ -1546,7 +1562,7 @@ impl GraphSerializable for GraphFunctionNodeState {
     fn to_toml(&self) -> anyhow::Result<toml::Value> {
         #[derive(Serialize)]
         struct Serializable {
-            asset: Option<lapiz_assets::asset::AssetId<SerializableGraphFunction>>,
+            asset: Option<AssetId<SerializableGraphFunction>>,
         }
         Ok(toml::Value::try_from(Serializable {
             asset: self.handle.as_ref().map(|handle| handle.id()),
@@ -1556,7 +1572,7 @@ impl GraphSerializable for GraphFunctionNodeState {
     fn from_toml(value: toml::Value, resources: &GraphResources) -> anyhow::Result<Self> {
         #[derive(Deserialize)]
         struct Serializable {
-            asset: Option<lapiz_assets::asset::AssetId<SerializableGraphFunction>>,
+            asset: Option<AssetId<SerializableGraphFunction>>,
         }
         let serialized = Serializable::deserialize(value)?;
         let handle = serialized
@@ -1790,7 +1806,7 @@ impl GraphNode for GraphInputNode {
             column![
                 text_input(t!("name"), state.name.clone())
                     .size(12.0)
-                    .style(lapiz_widgets::text_input::default)
+                    .style(default)
                     .on_input(GraphInputNodeMessage::NameChanged),
                 ComboBox::new(types, state.ty.clone(), GraphInputNodeMessage::TypeChanged)
                     .width(Length::Fill),
@@ -1898,7 +1914,7 @@ impl GraphNode for GraphOutputNode {
             column![
                 text_input(t!("name"), state.name.clone())
                     .size(12.0)
-                    .style(lapiz_widgets::text_input::default)
+                    .style(default)
                     .on_input(GraphOutputNodeMessage::NameChanged),
                 ComboBox::new(types, state.ty.clone(), GraphOutputNodeMessage::TypeChanged)
                     .width(Length::Fill),
@@ -2610,8 +2626,8 @@ struct RepeatVariableReference {
     name: String,
 }
 
-impl std::fmt::Display for RepeatVariableReference {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for RepeatVariableReference {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.name.fmt(f)
     }
 }
@@ -2671,7 +2687,7 @@ fn repeat_schema_editor_view(
             column![
                 text_input(t!("variable_name"), local.name.clone())
                     .size(12.0)
-                    .style(lapiz_widgets::text_input::default)
+                    .style(default)
                     .on_input(move |name| { RepeatNodeMessage::EditorRenameLocal(id, name) }),
                 row![
                     ComboBox::new(
@@ -2783,7 +2799,7 @@ impl GraphNode for RepeatNode {
         state: &Self::State,
         _ctx: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultInputSlot> {
-        std::iter::once(GraphDefaultInputSlot::new::<I32Type>("iterations".into()))
+        iter::once(GraphDefaultInputSlot::new::<I32Type>("iterations".into()))
             .chain(state.locals.lock().values().map(|local| {
                 GraphDefaultInputSlot::new_boxed(format!("{} In", local.name), local.ty.clone())
             }))
@@ -3287,18 +3303,12 @@ struct CustomExpressionCodeEditorState {
 
 fn custom_expression_text_editor(
     content: &text_editor::Content<GraphRenderer>,
-) -> text_editor::TextEditor<
-    '_,
-    iced_core::text::parser::PlainText,
-    text_editor::Action,
-    GraphTheme,
-    GraphRenderer,
-> {
+) -> text_editor::TextEditor<'_, PlainText, text_editor::Action, GraphTheme, GraphRenderer> {
     text_editor(content)
         .placeholder("WGSL")
         .size(12.0)
         .height(Length::Fixed(140.0))
-        .on_action(std::convert::identity)
+        .on_action(identity)
 }
 
 impl Widget<CustomExpressionNodeMessage, GraphTheme, GraphRenderer>
@@ -3375,7 +3385,7 @@ impl Widget<CustomExpressionNodeMessage, GraphTheme, GraphRenderer>
         viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_ref::<CustomExpressionCodeEditorState>();
-        let mut actions = iced_core::shell::Bus::new();
+        let mut actions = Bus::new();
         let mut child_shell = shell.local(&mut actions);
         custom_expression_text_editor(&state.content.borrow()).update(
             &mut tree.children[0],
@@ -3484,13 +3494,13 @@ fn custom_expression_variable_rows(
                 row![
                     text_input("Slot Name", variable.display_name.clone())
                         .size(12.0)
-                        .style(lapiz_widgets::text_input::default)
+                        .style(default)
                         .on_input(move |name| {
                             CustomExpressionNodeMessage::ChangeDisplayName(kind, id, name)
                         }),
                     text_input("WGSL Name", variable.name.clone())
                         .size(12.0)
-                        .style(lapiz_widgets::text_input::default)
+                        .style(default)
                         .on_input(move |name| {
                             CustomExpressionNodeMessage::ChangeName(kind, id, name)
                         }),

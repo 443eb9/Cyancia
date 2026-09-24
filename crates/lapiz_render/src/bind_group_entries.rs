@@ -1,5 +1,7 @@
 // Stolen from bevy. This is sooo convenient.
 
+use std::ops::Deref;
+
 use variadics_please::all_tuples_with_size;
 use wgpu::{BindGroupEntry, BindingResource, BufferBinding, Sampler, TextureView};
 
@@ -128,7 +130,7 @@ impl<'b> BindGroupEntries<'b, 1> {
     }
 }
 
-impl<'b, const N: usize> core::ops::Deref for BindGroupEntries<'b, N> {
+impl<'b, const N: usize> Deref for BindGroupEntries<'b, N> {
     type Target = [BindGroupEntry<'b>];
 
     fn deref(&self) -> &[BindGroupEntry<'b>] {
@@ -303,7 +305,7 @@ impl<'b> DynamicBindGroupEntries<'b> {
     }
 }
 
-impl<'b> core::ops::Deref for DynamicBindGroupEntries<'b> {
+impl<'b> Deref for DynamicBindGroupEntries<'b> {
     type Target = [BindGroupEntry<'b>];
 
     fn deref(&self) -> &[BindGroupEntry<'b>] {

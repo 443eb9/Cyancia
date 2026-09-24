@@ -2,7 +2,10 @@ use anyhow::{Result, bail};
 use lapiz_abr_derive::{AbrClass, AbrEnum, AbrIntegerEnum, AbrObject};
 use uuid::Uuid;
 
-use crate::{cursor::Cursor, descriptor::UnitFloat};
+use crate::{
+    cursor::Cursor,
+    descriptor::{AbrObject, UnitFloat},
+};
 
 #[derive(Debug, AbrClass)]
 #[abr(class = "null")]
@@ -582,7 +585,7 @@ impl BrushDescriptorRoot {
             bail!("unsupported ABR descriptor version {version}");
         }
 
-        let root = <Self as crate::descriptor::AbrObject>::parse(cursor)?;
+        let root = <Self as AbrObject>::parse(cursor)?;
         if cursor.remaining() != 0 {
             bail!("unexpected trailing ABR descriptor data");
         }

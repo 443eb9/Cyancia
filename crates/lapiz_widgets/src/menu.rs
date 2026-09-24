@@ -1,3 +1,5 @@
+use std::slice;
+
 use iced_core::{
     Border, Color, Element, Event, Font, Layout, Length, Point, Radians, Rectangle, Renderer as _,
     Shadow, Shell, Size, Theme, Vector, Widget, alignment, keyboard, layout, overlay, pointer,
@@ -6,6 +8,7 @@ use iced_core::{
     svg::{self, Renderer as _},
     text,
     text::{Paragraph as _, Renderer as _},
+    theme::palette::Palette,
     widget::{Tree, tree},
 };
 use lapiz_runtime::Renderer;
@@ -720,7 +723,7 @@ where
 
 fn draw_entry(
     renderer: &mut Renderer,
-    p: &iced_core::theme::palette::Palette,
+    p: &Palette,
     panel_bounds: Rectangle,
     row: Rectangle,
     label: &str,
@@ -988,7 +991,7 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for ContextMenu<'_, Messag
 
         let origin = state.cursor_position;
         Some(overlay::Element::new(Box::new(MenuOverlay {
-            roots: std::slice::from_ref(&self.menu),
+            roots: slice::from_ref(&self.menu),
             open: &mut state.open,
             origin: origin + translation,
             root_height: 0.0,

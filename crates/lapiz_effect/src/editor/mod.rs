@@ -24,9 +24,7 @@ use crate::{
     nodes::{PassInput, PassInputNode, PassOutput, PassOutputNode},
 };
 
-mod io;
-
-pub use io::*;
+pub mod io;
 
 pub struct EffectEditorState {
     pub open_pass: Option<EffectPassId>,
@@ -118,7 +116,7 @@ pub enum EffectEditorMessage {
     OpenPass(EffectPassId),
     BackToPassList,
     Graph(GraphEditorMessage),
-    Io(EffectIoEditorMessage),
+    Io(io::EffectIoEditorMessage),
     PassRenamed(EffectPassId, String),
     PassRenameToggled(EffectPassId),
     PassMoveRequested { index: usize, up: bool },
@@ -195,23 +193,25 @@ fn pass_card<'a>(
     .spacing(8);
 
     let renaming = state.renaming_pass == Some(pass_id);
-    let content: GraphElement<'a, EffectEditorMessage> = if renaming {
-        row![
-            TextInput::new("", &pass.name)
-                .on_input(move |name| EffectEditorMessage::PassRenamed(pass_id, name))
-                .width(Length::Fill),
-            button::icon_button(icon::check().size(13))
-                .on_press(EffectEditorMessage::PassRenameToggled(pass_id)),
-        ]
-        .spacing(4)
-        .width(Length::Fill)
-        .into()
+    let content = if renaming {
+        GraphElement::from(
+            row![
+                TextInput::new("", &pass.name)
+                    .on_input(move |name| EffectEditorMessage::PassRenamed(pass_id, name))
+                    .width(Length::Fill),
+                button::icon_button(icon::check().size(13))
+                    .on_press(EffectEditorMessage::PassRenameToggled(pass_id)),
+            ]
+            .spacing(4)
+            .width(Length::Fill),
+        )
     } else {
-        Button::new(column![Label::new(pass.name.clone()).strong(), body].spacing(4))
-            .width(Length::Fill)
-            .height(Length::Shrink)
-            .on_press(EffectEditorMessage::OpenPass(pass_id))
-            .into()
+        GraphElement::from(
+            Button::new(column![Label::new(pass.name.clone()).strong(), body].spacing(4))
+                .width(Length::Fill)
+                .height(Length::Shrink)
+                .on_press(EffectEditorMessage::OpenPass(pass_id)),
+        )
     };
 
     let mut controls = Column::new().spacing(2).push(

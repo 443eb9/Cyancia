@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use iced_core::Length;
 use iced_widget::{Component, column, row};
@@ -11,7 +11,10 @@ use crate::{
         slot::{ErasedGraphValueType, GraphValueType},
         variable::GraphTypeRegistry,
     },
-    wgsl_std::types::{AtomicI32Type, AtomicU32Type, I32Type, U32Type},
+    wgsl_std::types::{
+        atomic::{AtomicI32Type, AtomicU32Type},
+        primitive::{I32Type, U32Type},
+    },
 };
 
 pub struct GraphTypeSelector<'a, Message> {
@@ -147,8 +150,8 @@ impl PartialEq for GraphTypeChoice {
     }
 }
 
-impl std::fmt::Display for GraphTypeChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for GraphTypeChoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.ty.id().id)
     }
 }

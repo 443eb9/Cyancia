@@ -1,42 +1,46 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
+    mem,
     sync::Arc,
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
 use bevy_math::IRect;
 use chrono::{DateTime, Utc};
-use encase::{ShaderSize, ShaderType, StorageBuffer};
+use encase::{ShaderSize as _, ShaderType, StorageBuffer};
 use futures::{
-    StreamExt,
+    StreamExt as _,
     channel::{mpsc, oneshot},
 };
 use glam::{IVec4, Vec2, Vec4};
 use iced_runtime::Task;
-use lapiz_canvas::{CanvasAppExt, CanvasId};
-use lapiz_color::ForegroundBackgroundColorExt;
+use lapiz_canvas::{CanvasAppExt as _, CanvasId};
+use lapiz_color::ForegroundBackgroundColorExt as _;
 use lapiz_effect::render::EffectRunTiming;
 use lapiz_image::{
     composite::PixelPreviewOverrider,
     layer::{
         LayerId,
-        properties::{LayerTexelTypePropertyExt, TexelSource},
+        properties::builtin::{LayerTexelTypePropertyExt as _, TexelSource},
     },
     layer_bounds::LayerBoundsPipeline,
     scan_pixels::ScanPixelsPipeline,
     texel::TexelType,
-    tile::{DynamicLayerStorage, LayerBinding, TileStorageAppExt},
+    tile::{DynamicLayerStorage, LayerBinding, TileStorageAppExt as _},
 };
 use lapiz_input::mouse::PressedMouseState;
-use lapiz_render::{buffer::DynamicBuffer, readback::readback_buffer_on_submit_async};
+use lapiz_render::{
+    bind_group_entries::DynamicBindGroupEntries, buffer::DynamicBuffer,
+    readback::readback_buffer_on_submit_async,
+};
 use lapiz_runtime::Services;
 use lapiz_shader_graph::{
     graph::{
-        slot::{ErasedGraphValueType, GraphValueType},
-        variable::GraphShaderLiteral,
+        slot::{ErasedGraphValueType, GraphShaderStage, GraphValueType},
+        variable::{GraphLiteral, GraphShaderLiteral, GraphShaderLiteralValue},
     },
-    wgsl_std::types::{LayerReference, LayerType, PreparedLayer, PreparedLayerPixels},
+    wgsl_std::types::handle::{LayerReference, LayerType, PreparedLayer, PreparedLayerPixels},
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -617,7 +621,7 @@ impl BrushStrokeWorker {
                 let work = {
                     let mut mailbox = mailbox.lock();
                     if !mailbox.inputs.is_empty() {
-                        Some(StrokeWork::Inputs(std::mem::take(&mut mailbox.inputs)))
+                        Some(StrokeWork::Inputs(mem::take(&mut mailbox.inputs)))
                     } else if let Some(request) = mailbox.preview_requests.pop_front() {
                         Some(StrokeWork::Preview(request))
                     } else {
@@ -817,9 +821,9 @@ impl BrushStrokeWorker {
         let accumulator = self.state.accumulator.as_ref()?;
         let ty = accumulator.ty().clone();
         let accumulator = accumulator.as_ref::<PreparedLayer>();
-        if !accumulator
+        if accumulator
             .pixel_bounds
-            .is_some_and(|bounds| !bounds.is_empty())
+            .is_none_or(|bounds| bounds.is_empty())
         {
             return None;
         }
@@ -983,21 +987,22 @@ fn base_builtins(state: &BrushEffectState) -> HashMap<String, GraphShaderLiteral
     let types = graph::brush_builtin_types(state.target_layer_format, state.selection_layer_format);
     let mut values = HashMap::new();
     for (name, ty) in types {
-        let value: Box<dyn lapiz_shader_graph::graph::variable::GraphShaderLiteralValue> =
-            match name.as_str() {
-                FOREGROUND_COLOR_BUILTIN => Box::new(state.foreground_color.clone()),
-                BACKGROUND_COLOR_BUILTIN => Box::new(state.background_color.clone()),
-                HAS_SELECTION_BUILTIN => Box::new(state.has_selection.clone()),
-                SELECTION_BUILTIN => Box::new(PreparedLayer::from_binding(
-                    state.selection_layer.clone(),
-                    state.selection_layer_bounds.clone(),
-                )),
-                TARGET_LAYER_BUILTIN => Box::new(PreparedLayer::from_binding(
-                    state.target_layer.clone(),
-                    state.target_layer_bounds.clone(),
-                )),
-                _ => unreachable!(),
-            };
+        let value = match name.as_str() {
+            FOREGROUND_COLOR_BUILTIN => {
+                Box::new(state.foreground_color.clone()) as Box<dyn GraphShaderLiteralValue>
+            }
+            BACKGROUND_COLOR_BUILTIN => Box::new(state.background_color.clone()),
+            HAS_SELECTION_BUILTIN => Box::new(state.has_selection.clone()),
+            SELECTION_BUILTIN => Box::new(PreparedLayer::from_binding(
+                state.selection_layer.clone(),
+                state.selection_layer_bounds.clone(),
+            )),
+            TARGET_LAYER_BUILTIN => Box::new(PreparedLayer::from_binding(
+                state.target_layer.clone(),
+                state.target_layer_bounds.clone(),
+            )),
+            _ => unreachable!(),
+        };
         values.insert(name, GraphShaderLiteral::new_boxed(value, ty));
     }
     values
@@ -1101,9 +1106,9 @@ pub struct BuiltinHostValues<'a> {
 
 pub struct StrokeResources {
     resource_layout: wgpu::BindGroupLayout,
-    builtin_types: std::collections::BTreeMap<String, Arc<dyn ErasedGraphValueType>>,
-    parameters: Arc<[lapiz_shader_graph::graph::variable::GraphLiteral]>,
-    prepared_parameters: Vec<Box<dyn lapiz_shader_graph::graph::variable::GraphShaderLiteralValue>>,
+    builtin_types: BTreeMap<String, Arc<dyn ErasedGraphValueType>>,
+    parameters: Arc<[GraphLiteral]>,
+    prepared_parameters: Vec<Box<dyn GraphShaderLiteralValue>>,
     foreground_color: Buffer,
     background_color: Buffer,
     target_layer_format: TexelType,
@@ -1153,21 +1158,22 @@ impl StrokeResources {
         let mut binding = 0;
         let mut entries = Vec::new();
         for (name, ty) in &self.builtin_types {
-            let value: &dyn lapiz_shader_graph::graph::variable::GraphShaderLiteralValue =
-                match name.as_str() {
-                    FOREGROUND_COLOR_BUILTIN => builtins.foreground_color,
-                    BACKGROUND_COLOR_BUILTIN => builtins.background_color,
-                    HAS_SELECTION_BUILTIN => builtins.has_selection,
-                    SELECTION_BUILTIN => builtins.selection,
-                    TARGET_LAYER_BUILTIN => builtins.target_layer,
-                    _ => unreachable!(),
-                };
+            let value = match name.as_str() {
+                FOREGROUND_COLOR_BUILTIN => {
+                    builtins.foreground_color as &dyn GraphShaderLiteralValue
+                }
+                BACKGROUND_COLOR_BUILTIN => builtins.background_color,
+                HAS_SELECTION_BUILTIN => builtins.has_selection,
+                SELECTION_BUILTIN => builtins.selection,
+                TARGET_LAYER_BUILTIN => builtins.target_layer,
+                _ => unreachable!(),
+            };
             let (next, bound) = ty
                 .push_shader_binding(
-                    lapiz_shader_graph::graph::slot::GraphShaderStage::Input,
+                    GraphShaderStage::Input,
                     value,
                     binding,
-                    lapiz_render::bind_group_entries::DynamicBindGroupEntries::new(),
+                    DynamicBindGroupEntries::new(),
                 )
                 .expect("failed to bind spacing builtin");
             binding = next;
@@ -1177,10 +1183,10 @@ impl StrokeResources {
             let (next, bound) = parameter
                 .ty()
                 .push_shader_binding(
-                    lapiz_shader_graph::graph::slot::GraphShaderStage::Input,
+                    GraphShaderStage::Input,
                     prepared.as_ref(),
                     binding,
-                    lapiz_render::bind_group_entries::DynamicBindGroupEntries::new(),
+                    DynamicBindGroupEntries::new(),
                 )
                 .expect("failed to bind spacing parameter");
             binding = next;

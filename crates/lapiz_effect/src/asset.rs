@@ -1,11 +1,12 @@
 //! Persistent effect definitions. Pass ports live in graph nodes, not in this asset.
 
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 
 use lapiz_assets::{asset::Asset, loader::AssetSerializer};
 use lapiz_shader_graph::save::SerializableGraph;
 use lapiz_utils::wrapper;
 use serde::{Deserialize, Serialize};
+use toml::{de, ser};
 use uuid::Uuid;
 
 wrapper! {
@@ -51,11 +52,11 @@ pub struct EffectAssetSerializer;
 #[derive(Debug, thiserror::Error)]
 pub enum EffectAssetSerializerError {
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error(transparent)]
-    TomlDe(#[from] toml::de::Error),
+    TomlDe(#[from] de::Error),
     #[error(transparent)]
-    TomlSer(#[from] toml::ser::Error),
+    TomlSer(#[from] ser::Error),
 }
 
 impl AssetSerializer for EffectAssetSerializer {

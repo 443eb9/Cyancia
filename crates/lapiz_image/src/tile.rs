@@ -1,12 +1,16 @@
 use std::{
     borrow::{Borrow, Cow},
     collections::HashMap,
+    fmt,
     sync::{Arc, OnceLock},
 };
 
 use anyhow::Result;
 use bevy_math::IRect;
-use dashmap::{DashMap, Entry};
+use dashmap::{
+    DashMap, Entry,
+    mapref::one::{Ref, RefMut},
+};
 use encase::ShaderType;
 use futures::{FutureExt as _, future::join_all};
 use glam::{IVec2, UVec2};
@@ -52,8 +56,8 @@ pub struct GpuTileStorage {
     inner: Arc<GpuTileStorageInner>,
 }
 
-impl std::fmt::Debug for GpuTileStorage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for GpuTileStorage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GpuTileStorage").finish()
     }
 }
@@ -229,17 +233,14 @@ impl GpuTileStorageInner {
             .map(|l| l.tiles.keys().cloned().collect())
     }
 
-    pub fn get_layer(
-        &self,
-        layer_id: LayerId,
-    ) -> Option<dashmap::mapref::one::Ref<'_, LayerId, DynamicLayerStorage>> {
+    pub fn get_layer(&self, layer_id: LayerId) -> Option<Ref<'_, LayerId, DynamicLayerStorage>> {
         self.layers.get(&layer_id)
     }
 
     pub fn get_layer_mut(
         &self,
         layer_id: LayerId,
-    ) -> Option<dashmap::mapref::one::RefMut<'_, LayerId, DynamicLayerStorage>> {
+    ) -> Option<RefMut<'_, LayerId, DynamicLayerStorage>> {
         self.layers.get_mut(&layer_id)
     }
 

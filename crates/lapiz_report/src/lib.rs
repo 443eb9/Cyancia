@@ -1,9 +1,17 @@
-use std::{backtrace::Backtrace, fmt::Write, fs, panic::Location, sync::LazyLock};
+use std::{
+    backtrace::Backtrace,
+    cmp::Reverse,
+    fmt::{self, Display, Write},
+    fs,
+    panic::{self, Location},
+    sync::LazyLock,
+};
 
 use anyhow::anyhow;
 use chrono::{Local, Utc};
 use gfxinfo::active_gpu;
 use lapiz_dirs::panic_reports_dir;
+use lapiz_runtime::renderer::global_render_context;
 use lapiz_utils::log_err::LogErr as _;
 use sysinfo::{System, get_current_pid};
 use wgpu::{AllocatorReport, Device};
@@ -12,7 +20,7 @@ static EMOTICONS_LIST: LazyLock<Vec<&'static str>> =
     LazyLock::new(|| include_str!("emoticons.txt").lines().collect());
 
 pub fn setup_panic_hook() {
-    std::panic::set_hook(Box::new(|info| {
+    panic::set_hook(Box::new(|info| {
         let Ok(mut report) = panic_report(
             info.payload_as_str(),
             info.location(),
@@ -23,11 +31,7 @@ pub fn setup_panic_hook() {
         };
 
         sysinfo_report(&mut report).log_err();
-        wgpu_report(
-            &mut report,
-            &lapiz_runtime::renderer::global_render_context().device,
-        )
-        .log_err();
+        wgpu_report(&mut report, &global_render_context().device).log_err();
 
         log::error!("{}", report);
         fs::write(
@@ -151,7 +155,7 @@ fn wgpu_report(w: &mut dyn Write, device: &Device) -> anyhow::Result<()> {
     };
     writeln!(w, "WGPU Report")?;
 
-    allocations.sort_by_key(|alloc| core::cmp::Reverse(alloc.size));
+    allocations.sort_by_key(|alloc| Reverse(alloc.size));
 
     writeln!(
         w,
@@ -172,8 +176,8 @@ fn wgpu_report(w: &mut dyn Write, device: &Device) -> anyhow::Result<()> {
 
 struct FmtBytes(u64);
 
-impl std::fmt::Display for FmtBytes {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for FmtBytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         const SUFFIX: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
         let mut idx = 0;
         let mut amount = self.0 as f64;

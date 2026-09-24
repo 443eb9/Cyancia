@@ -53,12 +53,12 @@ wgpu.workspace = true
 wgpu-profiler.workspace = true
 zip.workspace = true
 
+[dev-dependencies]
+futures.workspace = true
+
 [build-dependencies]
 lapiz_image.workspace = true
 wesl.workspace = true
-
-[dev-dependencies]
-futures.workspace = true
 
 [lints]
 workspace = true

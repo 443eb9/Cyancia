@@ -25,6 +25,7 @@ use crate::{
         LayerPreviewOverriders, PixelPreviewOverrider,
     },
     copy_layer::{CopyLayerPipeline, PreparedCopyLayerPipeline},
+    image,
     layer::{
         Layer, LayerId, LayerStackNode,
         properties::{
@@ -86,17 +87,14 @@ impl Layer for PixelLayer {
             &blend_func.wgsl_function_call("src", "dst"),
         );
 
-        let without_overrider_shader = wesl_jit::compile_wesl_with_config(
-            shader.clone(),
-            &[&crate::image::PACKAGE],
-            |compiler| {
+        let without_overrider_shader =
+            wesl_jit::compile_wesl_with_config(shader.clone(), &[&image::PACKAGE], |compiler| {
                 compiler.set_feature("OVERRIDER", false);
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
 
         let with_overrider_shader =
-            wesl_jit::compile_wesl_with_config(shader, &[&crate::image::PACKAGE], |compiler| {
+            wesl_jit::compile_wesl_with_config(shader, &[&image::PACKAGE], |compiler| {
                 compiler.set_feature("OVERRIDER", true);
             })
             .unwrap();

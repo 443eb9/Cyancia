@@ -23,6 +23,7 @@ use crate::{
     },
     copy_layer::{CopyLayerPipeline, PreparedCopyLayerPipeline},
     dynamic_intermediate_buffer::IntermediateBuffer,
+    image,
     layer::{
         Layer, LayerId,
         properties::{
@@ -101,7 +102,7 @@ impl Layer for GroupLayer {
                 "//CODEGEN_BLEND_FUNC",
                 &blend_func.wgsl_function_call("src", "dst"),
             ),
-            &[&crate::image::PACKAGE],
+            &[&image::PACKAGE],
         )
         .unwrap();
 

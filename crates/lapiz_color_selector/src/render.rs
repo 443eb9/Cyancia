@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    f32::consts::{SQRT_2, TAU},
+    sync::Arc,
+};
 
 use glam::{Mat2, Vec2};
 use iced_core::{Color, Point, Rectangle};
@@ -43,7 +47,7 @@ fn plane_scale(config: &GradientPlaneConfig, size: f32) -> f32 {
         (0.5 - antialias_width - (config.primary_channel_ring_width + GRADIENT_RING_GAP) / size)
             .max(0.0);
     let circumradius = match config.shape {
-        GradientPlaneShape::Square => std::f32::consts::SQRT_2,
+        GradientPlaneShape::Square => SQRT_2,
         GradientPlaneShape::Triangle => 1.0,
     };
     2.0 * inner_radius / circumradius
@@ -151,9 +155,9 @@ impl ColorSelectorState {
         let range = config.model.channel_ranges()[channel];
         let factor = ((channels[channel] - range.x) / (range.y - range.x)).clamp(0.0, 1.0);
         let angle = if config.reversed_ring {
-            -factor * std::f32::consts::TAU - config.ring_rotation
+            -factor * TAU - config.ring_rotation
         } else {
-            factor * std::f32::consts::TAU - config.ring_rotation
+            factor * TAU - config.ring_rotation
         };
         let antialias_width = 1.0 / size;
         let outer_radius = 0.5 - antialias_width;

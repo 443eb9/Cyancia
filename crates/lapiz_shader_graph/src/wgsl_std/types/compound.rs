@@ -1,41 +1,27 @@
-use std::{convert::identity, sync::Arc};
-
-use anyhow::{Context, Result, bail};
-use bevy_math::{IRect, IVec2, IVec4, Rect};
-use encase::{DynamicUniformBuffer, ShaderType, internal::WriteInto};
-use glam::{Vec2, Vec4};
+use anyhow::Result;
+use bevy_math::Rect;
+use encase::ShaderType;
+use glam::Vec4;
 use iced_core::Element;
-use iced_widget::{column, space};
-use lapiz_image::{
-    texel::TexelType,
-    tile::{DynamicLayerStorage, GpuLayerInfo},
-};
+use iced_widget::column;
+use lapiz_assets::store::AssetRegistry;
 use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
-    bind_group_layout_entries::{DynamicBindGroupLayoutEntries, binding_types},
-    readback::{create_readback_buffer_and_schedule_copy_buffer, readback_buffer_on_submit_async},
-    util::DevicePollExt,
+    bind_group_layout_entries::DynamicBindGroupLayoutEntries,
 };
 use lapiz_utils::random_oklch_hue_chroma;
-use lapiz_widgets::{checkbox::Checkbox, spin_slider::SpinSlider};
-use serde::{Deserialize, Serialize};
-use wesl::syntax::*;
-use wesl_quote::quote_expression;
-use wgpu::{
-    Buffer, BufferDescriptor, BufferUsages, Device, Extent3d, Queue, TextureDescriptor,
-    TextureDimension, TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension,
+use lapiz_widgets::spin_slider::SpinSlider;
+use serde::Deserialize as _;
+use wesl::syntax::{
+    Expression, FunctionCall, Ident, ModulePath, PathOrigin, Span, Spanned, TypeExpression,
 };
+use wesl_quote::quote_expression;
+use wgpu::{Buffer, Device, Queue};
 
 use super::{prepare_uniform_storage, push_buffer_binding, push_storage_layout};
 use crate::{
     GraphRenderer, GraphTheme,
-    graph::{
-        node::GraphNodeCodeGenContext,
-        slot::{
-            ErasedGraphValueType, GraphDefaultInputSlot, GraphDefaultOutputSlot, GraphShaderStage,
-            GraphValueType,
-        },
-    },
+    graph::slot::{GraphShaderStage, GraphValueType},
     save::GraphValueTypeId,
 };
 
@@ -106,7 +92,7 @@ impl GraphValueType for ColorType {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         column![
             SpinSlider::new(0.0..=1.0, data.x)
@@ -136,15 +122,19 @@ impl GraphValueType for ColorType {
     }
 
     fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<Expression> {
-        let (x, y, z, w): (Expression, Expression, Expression, Expression) =
-            (data.x.into(), data.y.into(), data.z.into(), data.w.into());
+        let (x, y, z, w) = (
+            Expression::from(data.x),
+            Expression::from(data.y),
+            Expression::from(data.z),
+            Expression::from(data.w),
+        );
         Some(quote_expression! { vec4f(#x, #y, #z, #w) })
     }
 
     fn serialize_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<toml::Value> {
         Ok(toml::Value::try_from(data)?)
     }
@@ -152,7 +142,7 @@ impl GraphValueType for ColorType {
     fn deserialize_literal(
         &self,
         value: toml::Value,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<Self::AssociatedLiteralType> {
         Ok(Self::AssociatedLiteralType::deserialize(value)?)
     }
@@ -232,7 +222,7 @@ impl GraphValueType for RectType {
     fn view_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         column![
             SpinSlider::new(0.0..=1.0, data.min.x).on_change(RectMessage::MinX),
@@ -254,11 +244,11 @@ impl GraphValueType for RectType {
     }
 
     fn literal_to_code(&self, data: &Self::AssociatedLiteralType) -> Option<Expression> {
-        let (min_x, min_y, max_x, max_y): (Expression, Expression, Expression, Expression) = (
-            data.min.x.into(),
-            data.min.y.into(),
-            data.max.x.into(),
-            data.max.y.into(),
+        let (min_x, min_y, max_x, max_y) = (
+            Expression::from(data.min.x),
+            Expression::from(data.min.y),
+            Expression::from(data.max.x),
+            Expression::from(data.max.y),
         );
         Some(quote_expression! {
             render::math::Rect(vec2f(#min_x, #min_y), vec2f(#max_x, #max_y))
@@ -268,7 +258,7 @@ impl GraphValueType for RectType {
     fn serialize_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<toml::Value> {
         Ok(toml::Value::try_from(data)?)
     }
@@ -276,7 +266,7 @@ impl GraphValueType for RectType {
     fn deserialize_literal(
         &self,
         value: toml::Value,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<Self::AssociatedLiteralType> {
         Ok(Self::AssociatedLiteralType::deserialize(value)?)
     }

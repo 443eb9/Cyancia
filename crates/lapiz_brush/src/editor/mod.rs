@@ -3,9 +3,12 @@ use std::sync::Arc;
 use anyhow::Result;
 use iced_core::{Element, Length, Size, Theme, alignment::Vertical, window};
 use iced_futures::Subscription;
-use iced_runtime::Task;
+use iced_runtime::{
+    Task,
+    window::{close, open},
+};
 use iced_widget::{Column, column, component::component, row};
-use lapiz_assets::{AssetAppExt, asset::AssetHandle, store::AssetRegistry};
+use lapiz_assets::{AssetAppExt as _, asset::AssetHandle, store::AssetRegistry};
 use lapiz_effect::{
     asset::{EffectInputSlotId, EffectOutputSlotId, EffectPassDispatchStrategy, EffectPassId},
     editor::{EffectEditorMessage, EffectEditorState, EffectEditorView},
@@ -22,7 +25,7 @@ use lapiz_shader_graph::{
     GraphElement,
     editor::parameters::{ParametersEditor, ParametersEditorMessage},
     graph::{Graph, slot::ErasedGraphValueType},
-    wgsl_std::types::{F32Type, LayerType},
+    wgsl_std::types::{handle::LayerType, primitive::F32Type},
 };
 use lapiz_widgets::{
     button::Button, label::Label, panel::Panel, scrollable::Scrollable, tabs::TabBar,
@@ -139,7 +142,7 @@ impl WindowView for BrushEditor {
             .assets()
             .all_handles_of::<BrushPreset>()
             .expect("Failed to list brush presets");
-        let (main_window, open) = iced_runtime::window::open(window::Settings {
+        let (main_window, open) = open(window::Settings {
             size: Size {
                 width: 1280.0,
                 height: 800.0,
@@ -256,7 +259,7 @@ impl WindowView for BrushEditor {
     }
 
     fn close(self, _: &mut Services) -> Task<()> {
-        iced_runtime::window::close(self.main_window)
+        close(self.main_window)
     }
 
     fn windows(&self) -> Arc<[window::Id]> {
@@ -354,8 +357,8 @@ impl BrushEditor {
 
     fn new_brush(&mut self, services: &mut Services) -> Task<BrushEditorMessage> {
         let assets = services.assets().clone();
-        let f32_ty: Arc<dyn ErasedGraphValueType> = Arc::new(F32Type);
-        let layer_ty: Arc<dyn ErasedGraphValueType> = Arc::new(LayerType {
+        let f32_ty = Arc::new(F32Type) as Arc<dyn ErasedGraphValueType>;
+        let layer_ty = Arc::new(LayerType {
             texel_type: TexelType::RGBA8,
         });
 
@@ -378,12 +381,15 @@ impl BrushEditor {
             spacing_effect: spacing
                 .as_asset()
                 .expect("freshly built effects always serialize"),
-            main_effect: conventional_effect("Main", [(MAIN_DAB_BUFFER, layer_ty.clone())])
+            main_effect: conventional_effect("Main", [(MAIN_DAB_BUFFER, layer_ty.clone() as _)])
                 .as_asset()
                 .expect("freshly built effects always serialize"),
-            postprocess_effect: conventional_effect("Postprocess", [(STROKE_RESULT, layer_ty)])
-                .as_asset()
-                .expect("freshly built effects always serialize"),
+            postprocess_effect: conventional_effect(
+                "Postprocess",
+                [(STROKE_RESULT, layer_ty as _)],
+            )
+            .as_asset()
+            .expect("freshly built effects always serialize"),
             parameters: Default::default(),
         };
         let Some(bundle) = services

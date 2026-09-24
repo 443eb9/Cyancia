@@ -13,6 +13,7 @@ use wgpu::{
 };
 
 use crate::{
+    image,
     scan_pixels::ScanPixelsPipeline,
     texel::TexelType,
     tile::{GpuTileInfo, GpuTileStorage, LayerBinding},
@@ -36,7 +37,7 @@ impl LayerBoundsPipeline {
     pub fn new(device: &Device, format: TexelType, with_selection: bool) -> Self {
         let shader = wesl_jit::compile_wesl_with_config(
             include_str!("layer_bounds.wesl").into(),
-            &[&crate::image::PACKAGE],
+            &[&image::PACKAGE],
             |compiler| {
                 compiler.set_feature(format.shader_def(), true);
                 compiler.set_feature("WITH_SELECTION", with_selection);

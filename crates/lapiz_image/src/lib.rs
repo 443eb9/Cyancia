@@ -45,7 +45,7 @@ pub struct ImagePlugin;
 
 impl Plugin for ImagePlugin {
     fn build(&self, app: &mut Application) {
-        crate::i18n::init();
+        i18n::init();
         app.add_service::<GpuTileStorage>()
             .add_service::<LayerPreviewOverriders>();
 

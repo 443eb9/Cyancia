@@ -1,9 +1,9 @@
 use iced_core::{Border, Element, Length, Theme};
-use iced_widget::container;
+use iced_widget::{button, container};
 use lapiz_runtime::Renderer;
 
 use crate::{
-    button::{self, Button},
+    button::{Button, transparent},
     callback::Callback,
     flex::{self, Flex},
     icon,
@@ -86,19 +86,15 @@ impl<'a, Message: 'a> From<TitleBar<'a, Message>> for Element<'a, Message, Theme
     }
 }
 
-fn close_button(theme: &Theme, status: iced_widget::button::Status) -> iced_widget::button::Style {
+fn close_button(theme: &Theme, status: button::Status) -> button::Style {
     let p = theme.palette();
     match status {
-        iced_widget::button::Status::Hovered | iced_widget::button::Status::Pressed => {
-            iced_widget::button::Style {
-                background: Some(p.danger.base.color.into()),
-                text_color: p.danger.base.text,
-                ..Default::default()
-            }
-        }
-        iced_widget::button::Status::Active | iced_widget::button::Status::Disabled => {
-            button::transparent(theme, status)
-        }
+        button::Status::Hovered | button::Status::Pressed => button::Style {
+            background: Some(p.danger.base.color.into()),
+            text_color: p.danger.base.text,
+            ..Default::default()
+        },
+        button::Status::Active | button::Status::Disabled => transparent(theme, status),
     }
 }
 

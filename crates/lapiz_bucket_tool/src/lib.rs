@@ -3,7 +3,7 @@ use iced_core::{
     Element, Length, Theme,
     keyboard::{self, key},
 };
-use iced_futures::Subscription;
+use iced_futures::{Subscription, keyboard::listen};
 use iced_runtime::Task;
 use iced_widget::row;
 use lapiz_canvas::{CanvasAppExt as _, CanvasUndoStackAppExt as _, command::TileReplaceCommand};
@@ -36,7 +36,7 @@ pub struct BucketPlugin;
 
 impl Plugin for BucketPlugin {
     fn build(&self, app: &mut Application) {
-        crate::i18n::init();
+        i18n::init();
         app.runtime_mut()
             .services_mut()
             .add_tool_function::<BucketTool>();
@@ -313,7 +313,7 @@ impl ToolFunction for BucketTool {
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
-        iced_futures::keyboard::listen().filter_map(|event| match event {
+        listen().filter_map(|event| match event {
             keyboard::Event::KeyPressed {
                 physical_key: key::Physical::Code(key::Code::ShiftLeft),
                 repeat: false,

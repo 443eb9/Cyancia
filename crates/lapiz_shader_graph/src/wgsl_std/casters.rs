@@ -1,9 +1,15 @@
-use wesl::syntax::*;
+use wesl::syntax::{
+    BinaryExpression, BinaryOperator, Expression, FunctionCall, Ident, LiteralExpression,
+    NamedComponentExpression, Span, Spanned, TypeExpression,
+};
 use wesl_quote::quote_expression;
 
 use crate::{
     graph::variable::GraphVariableCaster,
-    wgsl_std::types::{BoolType, F32Type, I32Type, Vec2FType},
+    wgsl_std::types::{
+        primitive::{BoolType, F32Type, I32Type},
+        vector::Vec2FType,
+    },
 };
 
 #[derive(Default, Clone)]

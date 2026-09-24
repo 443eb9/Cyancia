@@ -1,17 +1,19 @@
 use std::{
+    env, fmt,
+    fs::File,
     io::Write as _,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, LazyLock, Mutex},
     time::Instant,
 };
 
 use iced_core::{Element, Point};
 use indexmap::IndexMap;
-use lapiz_assets::loader::AssetSerializer;
+use lapiz_assets::{loader::AssetSerializer as _, store::AssetRegistry};
 use lapiz_effect::{
     asset::{
         EffectAssetSerializer, EffectInputSlotId, EffectOutputSlotId, EffectPassDispatchStrategy,
-        EffectPassId,
+        EffectPassId, EffectPassInputSlotId, EffectPassOutputSlotId,
     },
     editor::{EffectEditorMessage, EffectEditorState, EffectEditorView},
     instance::{EffectInputSlot, EffectInstance, EffectOutputSlot, EffectPass},
@@ -28,7 +30,7 @@ use lapiz_shader_graph::{
     wgsl_std::{
         builtin_types,
         nodes::{ScalarMathNode, ScalarMathNodeMode},
-        types::F32Type,
+        types::primitive::F32Type,
     },
 };
 use uuid::Uuid;
@@ -40,13 +42,12 @@ static NODE_REGISTRY: LazyLock<Arc<GraphNodeRegistry>> = LazyLock::new(|| Arc::n
 
 // Temporary diagnosis logging; remove once the io editor refresh bug is fixed.
 static DEBUG_START: LazyLock<Instant> = LazyLock::new(Instant::now);
-static DEBUG_LOG: Mutex<Option<std::fs::File>> = Mutex::new(None);
+static DEBUG_LOG: Mutex<Option<File>> = Mutex::new(None);
 
-fn debug_log(line: impl std::fmt::Display) {
+fn debug_log(line: impl fmt::Display) {
     let mut slot = DEBUG_LOG.lock().unwrap();
     let file = slot.get_or_insert_with(|| {
-        std::fs::File::create(std::env::temp_dir().join("editor_demo_debug.log"))
-            .expect("create debug log")
+        File::create(env::temp_dir().join("editor_demo_debug.log")).expect("create debug log")
     });
     let elapsed = DEBUG_START.elapsed().as_millis();
     let _ = writeln!(file, "[{elapsed:>7}ms] {line}");
@@ -58,7 +59,7 @@ fn graph_resources() -> GraphResources {
     GraphResources {
         type_registry: TYPE_REGISTRY.clone(),
         node_registry: NODE_REGISTRY.clone(),
-        assets: lapiz_assets::store::AssetRegistry::new_in_memory(Arc::new(Default::default())),
+        assets: AssetRegistry::new_in_memory(Arc::new(Default::default())),
     }
 }
 
@@ -70,7 +71,7 @@ struct DemoEditor {
 
 impl DemoEditor {
     fn new() -> Self {
-        let save_path = std::env::temp_dir().join("lapiz_effect_editor_demo.lef");
+        let save_path = env::temp_dir().join("lapiz_effect_editor_demo.lef");
         eprintln!("effect editor demo persists to {}", save_path.display());
         let loaded = load_instance(&save_path);
         debug_log(if loaded.is_some() {
@@ -99,7 +100,7 @@ impl DemoEditor {
                 return;
             }
         };
-        let Ok(mut file) = std::fs::File::create(&self.save_path) else {
+        let Ok(mut file) = File::create(&self.save_path) else {
             eprintln!("failed to create {}", self.save_path.display());
             return;
         };
@@ -114,8 +115,8 @@ impl DemoEditor {
     }
 }
 
-fn load_instance(path: &std::path::Path) -> Option<EffectInstance> {
-    let mut file = std::fs::File::open(path).ok()?;
+fn load_instance(path: &Path) -> Option<EffectInstance> {
+    let mut file = File::open(path).ok()?;
     let asset = EffectAssetSerializer.read(&mut file).ok()?;
     EffectInstance::from_asset(&asset, graph_resources()).ok()
 }
@@ -125,7 +126,7 @@ fn input_node(
     position: Point,
     source: PassInput,
     ty: Arc<dyn ErasedGraphValueType>,
-) -> (GraphNodeId, lapiz_effect::asset::EffectPassInputSlotId) {
+) -> (GraphNodeId, EffectPassInputSlotId) {
     let node = graph.add_node(position, PassInputNode);
     let id = graph
         .get_node(&node)
@@ -146,7 +147,7 @@ fn output_node(
     position: Point,
     output: PassOutput,
     ty: Arc<dyn ErasedGraphValueType>,
-) -> (GraphNodeId, lapiz_effect::asset::EffectPassOutputSlotId) {
+) -> (GraphNodeId, EffectPassOutputSlotId) {
     let node = graph.add_node(position, PassOutputNode);
     let id = graph
         .get_node(&node)
@@ -164,7 +165,7 @@ fn output_node(
 
 fn demo_effect() -> EffectInstance {
     let layer_ty = TYPE_REGISTRY.resolve_type("layer_rgba8").unwrap();
-    let f32_ty: Arc<dyn ErasedGraphValueType> = Arc::new(F32Type);
+    let f32_ty = Arc::new(F32Type);
 
     let canvas_input = EffectInputSlotId::new(Uuid::new_v4());
     let strength_input = EffectInputSlotId::new(Uuid::new_v4());

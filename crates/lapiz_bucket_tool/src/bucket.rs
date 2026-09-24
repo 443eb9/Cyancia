@@ -1,9 +1,12 @@
+use std::fmt;
+
 use encase::ShaderType;
 use glam::{IVec2, UVec2, Vec4};
 use indexmap::IndexSet;
 use lapiz_anti_aliasing::fxaa::{FxaaParams, FxaaPipeline};
 use lapiz_image::{
     composite::BlendFunction,
+    image,
     scan_pixels::ScanPixelsPipeline,
     texel::{TexelFormat, TexelType},
     tile::{DynamicLayerStorage, GpuLayerInfo, GpuTileInfo, GpuTileStorage, LayerBinding},
@@ -13,6 +16,7 @@ use lapiz_render::{
     bind_group_layout_entries::{BindGroupLayoutEntries, binding_types},
     buffer::DynamicBuffer,
     readback::{create_readback_buffer_and_schedule_copy_buffer, readback_buffer_on_submit_async},
+    render,
     util::DevicePollExt as _,
     wesl_jit,
 };
@@ -96,8 +100,8 @@ pub struct Bucket {
     mask_format: TexelType,
 }
 
-impl std::fmt::Debug for Bucket {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for Bucket {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Bucket").finish()
     }
 }
@@ -430,7 +434,7 @@ impl Bucket {
                 "//CODEGEN_FLAG_BLEND_FUNCTION",
                 &blend_function.wgsl_function_call("src", "dst"),
             ),
-            &[&lapiz_image::image::PACKAGE, &lapiz_render::render::PACKAGE],
+            &[&image::PACKAGE, &render::PACKAGE],
             |resolver| {
                 resolver.add_module(
                     "package::types".parse().unwrap(),

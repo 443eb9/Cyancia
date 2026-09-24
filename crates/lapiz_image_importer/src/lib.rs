@@ -2,11 +2,13 @@ use std::{
     any::Any,
     collections::HashMap,
     future::Future,
+    iter,
     path::{Path, PathBuf},
     pin::Pin,
 };
 
 use anyhow::Result;
+use futures::executor::block_on;
 use iced_core::Element;
 use iced_runtime::Task;
 use lapiz_canvas::{CCanvas, CanvasAppExt as _};
@@ -230,7 +232,7 @@ impl ImageImporterRegistry {
             construct: || Box::new(A::default()) as Box<dyn ErasedImageFormatImporter>,
         };
         let index = self.entries.len();
-        let keys = std::iter::once(entry.extension)
+        let keys = iter::once(entry.extension)
             .chain(entry.aliases.iter().copied())
             .map(str::to_ascii_lowercase)
             .collect::<Vec<_>>();
@@ -309,7 +311,7 @@ pub fn start_import(services: &mut Services, path: PathBuf) {
                 PendingImport { path },
             ));
     } else {
-        let archive = futures::executor::block_on(importer.import(services, &path)).logged_err();
+        let archive = block_on(importer.import(services, &path)).logged_err();
         if let Ok(archive) = archive
             && let Ok(image) = CImage::from_lazuli(&archive, services).logged_err()
         {

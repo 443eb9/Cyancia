@@ -1,4 +1,4 @@
-use std::{borrow::Cow, marker::PhantomData, num::NonZeroU64};
+use std::{borrow::Cow, fmt, iter, marker::PhantomData, num::NonZeroU64};
 
 use encase::{
     ShaderType,
@@ -31,8 +31,8 @@ impl<T: ShaderType + WriteInto> Default for DynamicBuffer<T> {
     }
 }
 
-impl<T: ShaderType + WriteInto> std::fmt::Debug for DynamicBuffer<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T: ShaderType + WriteInto> fmt::Debug for DynamicBuffer<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DynamicBuffer")
             .field("label", &self.label)
             .field("usage", &self.usage)
@@ -199,7 +199,7 @@ impl<T: ShaderType + WriteInto> BufferVec<T> {
         self.data.reserve(self.data.len() + element_size);
         // We can't optimize and push uninitialized data here (using e.g. spare_capacity_mut())
         // because write_into() does not initialize inner padding bytes in T's expansion
-        self.data.extend(std::iter::repeat_n(0, element_size));
+        self.data.extend(iter::repeat_n(0, element_size));
 
         // Take a slice of the new data for `write_into` to use. This is
         // important: it hoists the bounds check up here so that the compiler

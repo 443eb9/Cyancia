@@ -3,26 +3,38 @@
     reason = "Win32 FFI in this function is sequenced and checked locally"
 )]
 
+use std::{
+    ffi::c_void,
+    fs, mem,
+    path::{Path, PathBuf},
+};
+
 use anyhow::{Context as _, Result, anyhow, bail};
 use moxcms::ColorProfile;
-use windows::Win32::{
-    Devices::Display::{
-        DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_PATH_INFO,
-        DISPLAYCONFIG_PATH_SOURCE_INFO, DISPLAYCONFIG_SOURCE_DEVICE_NAME,
-        DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QDC_ONLY_ACTIVE_PATHS,
-        QDC_VIRTUAL_MODE_AWARE, QueryDisplayConfig,
+use windows::{
+    Win32::{
+        Devices::Display::{
+            DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_MODE_INFO,
+            DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_PATH_SOURCE_INFO,
+            DISPLAYCONFIG_SOURCE_DEVICE_NAME, DisplayConfigGetDeviceInfo,
+            GetDisplayConfigBufferSizes, QDC_ONLY_ACTIVE_PATHS, QDC_VIRTUAL_MODE_AWARE,
+            QueryDisplayConfig,
+        },
+        Foundation::{HLOCAL, HWND, LUID, LocalFree},
+        Graphics::Gdi::{
+            GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFOEXW, MonitorFromWindow,
+        },
+        UI::ColorSystem::{
+            CPST_STANDARD_DISPLAY_COLOR_MODE, CPT_ICC, ColorProfileGetDisplayDefault,
+            GetColorDirectoryW, WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
+        },
     },
-    Foundation::HWND,
-    Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFOEXW, MonitorFromWindow},
-    UI::ColorSystem::{
-        CPST_STANDARD_DISPLAY_COLOR_MODE, CPT_ICC, ColorProfileGetDisplayDefault,
-        GetColorDirectoryW, WCS_PROFILE_MANAGEMENT_SCOPE_CURRENT_USER,
-    },
+    core::{HRESULT, PWSTR},
 };
 
 pub fn get_window_color_profile(raw_window_id: u64) -> Result<ColorProfile> {
     // winit's raw window id on Windows is the `HWND` value.
-    let hwnd = HWND(raw_window_id as *mut core::ffi::c_void);
+    let hwnd = HWND(raw_window_id as *mut c_void);
 
     let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
     if monitor.is_invalid() {
@@ -30,7 +42,7 @@ pub fn get_window_color_profile(raw_window_id: u64) -> Result<ColorProfile> {
     }
 
     let mut info = MONITORINFOEXW::default();
-    info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+    info.monitorInfo.cbSize = mem::size_of::<MONITORINFOEXW>() as u32;
     let ok = unsafe { GetMonitorInfoW(monitor, &mut info as *mut _ as *mut _) };
     if !ok.as_bool() {
         bail!("GetMonitorInfoW failed")
@@ -51,7 +63,7 @@ pub fn get_window_color_profile(raw_window_id: u64) -> Result<ColorProfile> {
     let profile_path = match profile_path {
         Ok(p) => p,
         // HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)
-        Err(e) if e.code() == windows::core::HRESULT(0x80070002_u32 as i32) => {
+        Err(e) if e.code() == HRESULT(0x80070002_u32 as i32) => {
             // The monitor has no associated color profile.
             return Ok(ColorProfile::new_srgb());
         }
@@ -66,28 +78,25 @@ pub fn get_window_color_profile(raw_window_id: u64) -> Result<ColorProfile> {
         // https://learn.microsoft.com/en-us/windows/win32/api/icm/nf-icm-colorprofilegetdisplaydefault#parameters
         // Receives a pointer to the default color profile name, which must be freed with LocalFree.
         unsafe {
-            windows::Win32::Foundation::LocalFree(Some(std::mem::transmute::<
-                *mut u16,
-                windows::Win32::Foundation::HLOCAL,
-            >(profile_path.as_ptr())));
+            LocalFree(Some(mem::transmute::<*mut u16, HLOCAL>(
+                profile_path.as_ptr(),
+            )));
         }
     }
 
     let resolved_path = resolve_profile_path(&path_string?)?;
 
-    Ok(ColorProfile::new_from_slice(&std::fs::read(
-        &resolved_path,
-    )?)?)
+    Ok(ColorProfile::new_from_slice(&fs::read(&resolved_path)?)?)
 }
 
-fn resolve_profile_path(path: &str) -> Result<std::path::PathBuf> {
-    let p = std::path::Path::new(path);
+fn resolve_profile_path(path: &str) -> Result<PathBuf> {
+    let p = Path::new(path);
     if p.is_absolute() {
         return Ok(p.to_path_buf());
     }
 
     let dir = get_color_directory()?;
-    Ok(std::path::Path::new(&dir).join(path))
+    Ok(Path::new(&dir).join(path))
 }
 
 fn get_color_directory() -> Result<String> {
@@ -100,13 +109,7 @@ fn get_color_directory() -> Result<String> {
     }
 
     let mut buf = vec![0u16; size as usize];
-    let ok = unsafe {
-        GetColorDirectoryW(
-            None,
-            Some(windows::core::PWSTR(buf.as_mut_ptr())),
-            &mut size,
-        )
-    };
+    let ok = unsafe { GetColorDirectoryW(None, Some(PWSTR(buf.as_mut_ptr())), &mut size) };
     if !ok.as_bool() {
         bail!("GetColorDirectoryW failed")
     }
@@ -114,9 +117,7 @@ fn get_color_directory() -> Result<String> {
     Ok(String::from_utf16(&buf)?.trim_matches('\0').to_string())
 }
 
-fn find_path_for_device(
-    device_name: &[u16; 32],
-) -> Result<(windows::Win32::Foundation::LUID, u32)> {
+fn find_path_for_device(device_name: &[u16; 32]) -> Result<(LUID, u32)> {
     let flags = QDC_ONLY_ACTIVE_PATHS | QDC_VIRTUAL_MODE_AWARE;
 
     let mut path_count = 0u32;
@@ -124,10 +125,7 @@ fn find_path_for_device(
     unsafe { GetDisplayConfigBufferSizes(flags, &mut path_count, &mut mode_count) }.ok()?;
 
     let mut paths = vec![DISPLAYCONFIG_PATH_INFO::default(); path_count as usize];
-    let mut modes = vec![
-        windows::Win32::Devices::Display::DISPLAYCONFIG_MODE_INFO::default();
-        mode_count as usize
-    ];
+    let mut modes = vec![DISPLAYCONFIG_MODE_INFO::default(); mode_count as usize];
 
     unsafe {
         QueryDisplayConfig(
@@ -152,7 +150,7 @@ fn find_path_for_device(
 fn query_source_device_name(info: &DISPLAYCONFIG_PATH_SOURCE_INFO) -> Result<[u16; 32]> {
     let mut name = DISPLAYCONFIG_SOURCE_DEVICE_NAME::default();
     name.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
-    name.header.size = std::mem::size_of::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>() as u32;
+    name.header.size = mem::size_of::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>() as u32;
     name.header.adapterId = info.adapterId;
     name.header.id = info.id;
 

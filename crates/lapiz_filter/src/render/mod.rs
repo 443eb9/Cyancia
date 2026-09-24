@@ -1,13 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context as _, Result, bail, ensure};
 use bevy_math::IRect;
 use futures::channel::oneshot;
 use iced_runtime::Task;
 use indexmap::IndexMap;
 use lapiz_effect::{
     asset::{EffectInputSlotId, EffectOutputSlotId},
-    instance::EffectInputs,
+    instance::{EffectInputSlot, EffectInputs},
     render::EffectRenderer,
 };
 use lapiz_image::{
@@ -15,11 +15,11 @@ use lapiz_image::{
     texel::TexelType,
     tile::{DynamicLayerStorage, GpuTileStorage},
 };
-use lapiz_render::render_context::RenderContextAppExt;
+use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::Services;
 use lapiz_shader_graph::{
-    graph::{slot::GraphValueType, variable::GraphShaderLiteral},
-    wgsl_std::types::{LayerReference, LayerType, PreparedLayer, PreparedLayerPixels},
+    graph::{slot::GraphValueType as _, variable::GraphShaderLiteral},
+    wgsl_std::types::handle::{LayerReference, LayerType, PreparedLayer, PreparedLayerPixels},
 };
 use parking_lot::Mutex;
 use wgpu::{Device, Queue};
@@ -83,7 +83,7 @@ impl FilterRenderer {
 
         let renderer = EffectRenderer::from_instance(
             effect,
-            std::collections::HashMap::new(),
+            HashMap::new(),
             &[],
             device.clone(),
             queue.clone(),
@@ -217,7 +217,7 @@ impl FilterRendererInner {
             parameters.insert(self.target_input, input);
             let mut outputs = self
                 .renderer
-                .run(&parameters, &std::collections::HashMap::new())
+                .run(&parameters, &HashMap::new())
                 .context("Filter effect run failed")?;
             parameters.remove(&self.target_input);
 
@@ -235,8 +235,8 @@ impl FilterRendererInner {
 }
 
 fn layer_outputs<'a>(
-    mut inputs: impl Iterator<Item = &'a lapiz_effect::instance::EffectInputSlot>,
-) -> Option<&'a lapiz_effect::instance::EffectInputSlot> {
+    mut inputs: impl Iterator<Item = &'a EffectInputSlot>,
+) -> Option<&'a EffectInputSlot> {
     inputs.next()
 }
 

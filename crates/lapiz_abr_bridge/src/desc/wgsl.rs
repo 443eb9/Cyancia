@@ -1,4 +1,7 @@
-use std::sync::LazyLock;
+use std::{
+    f32::consts::{FRAC_1_SQRT_2, FRAC_PI_4},
+    sync::LazyLock,
+};
 
 use lapiz_abr::descriptor::class::DynamicsControl;
 use lapiz_image::blend_modes::BlendMode;
@@ -701,7 +704,7 @@ fn texture_mask_statement(
     } else {
         let b = texture.brightness / 2.0;
         let c = texture.contrast;
-        let slant = ((c + 1.0) * std::f32::consts::FRAC_PI_4).tan();
+        let slant = ((c + 1.0) * FRAC_PI_4).tan();
         let brightness_adjusted = if b < 0.0 {
             quote_expression!(#base_value * (1.0 + #b))
         } else {
@@ -782,7 +785,7 @@ fn dual_mask_statement(dual: Option<DualBrush>, pose: BrushPose, main_diameter: 
         .and_then(|scatter| scatter.scatter_dynamics)
         .map(|dynamics| dynamics.jitter * 0.5)
         .unwrap_or(0.0);
-    let dual_support_factor = std::f32::consts::FRAC_1_SQRT_2 + along_stroke_scatter;
+    let dual_support_factor = FRAC_1_SQRT_2 + along_stroke_scatter;
     let random_flip = if dual.flip {
         let random = dual_copy_random(281.917);
         quote_expression!(select(1.0, -1.0, #random < 0.5))

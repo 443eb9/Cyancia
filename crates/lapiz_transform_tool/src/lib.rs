@@ -15,7 +15,7 @@ pub struct FreeTransformPlugin;
 
 impl Plugin for FreeTransformPlugin {
     fn build(&self, app: &mut Application) {
-        crate::i18n::init();
+        i18n::init();
         app.runtime_mut()
             .services_mut()
             .add_tool_function::<FreeTransformTool>()

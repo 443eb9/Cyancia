@@ -1,3 +1,5 @@
+use std::slice;
+
 use iced_core::{
     Alignment, Background, Border, Color, Element, Event, Layout, Length, Padding, Rectangle,
     Renderer as _, Shadow, Shell, Size, Theme, Vector, Widget, layout, overlay, pointer,
@@ -118,7 +120,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Button<'_, Message> {
     }
 
     fn diff(&mut self, tree: &mut Tree) {
-        tree.diff_children(std::slice::from_mut(&mut self.content));
+        tree.diff_children(slice::from_mut(&mut self.content));
         self.width = self.width.stack(self.content.as_widget().size().width);
     }
 

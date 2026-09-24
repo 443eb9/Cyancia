@@ -5,6 +5,7 @@ use std::{
 
 use iced_core::Point;
 use indexmap::IndexMap;
+use lapiz_assets::store::AssetRegistry;
 use parking_lot::RwLock;
 use uuid::Uuid;
 use wesl::syntax::Expression;
@@ -684,7 +685,7 @@ fn delete_all_outputs(slots: &mut GraphSlots, output_slot_ids: &[GraphOutputSlot
 pub struct GraphResources {
     pub type_registry: Arc<GraphTypeRegistry>,
     pub node_registry: Arc<GraphNodeRegistry>,
-    pub assets: lapiz_assets::store::AssetRegistry,
+    pub assets: AssetRegistry,
 }
 
 impl Clone for GraphResources {

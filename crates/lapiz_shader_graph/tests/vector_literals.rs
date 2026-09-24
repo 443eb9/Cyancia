@@ -1,7 +1,7 @@
 use glam::{IVec3, Vec2};
 use lapiz_shader_graph::{
-    graph::slot::GraphValueType,
-    wgsl_std::types::{Vec2FType, Vec3IType},
+    graph::slot::GraphValueType as _,
+    wgsl_std::types::vector::{Vec2FType, Vec3IType},
 };
 
 #[test]

@@ -4,12 +4,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context as _, Result, bail, ensure};
 use indexmap::IndexMap;
-use lapiz_image::tile::DynamicLayerStorage;
+use lapiz_image::{image, tile::DynamicLayerStorage};
 use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
-    bind_group_layout_entries::DynamicBindGroupLayoutEntries, wesl_jit,
+    bind_group_layout_entries::DynamicBindGroupLayoutEntries, render, wesl_jit,
 };
 use lapiz_shader_graph::{
     graph::{
@@ -18,17 +18,41 @@ use lapiz_shader_graph::{
         variable::GraphShaderLiteral,
     },
     wgsl_std::types::{
-        ArrayAtomicI32Type, ArrayAtomicU32Type, ArrayType, LayerType, PreparedArray,
-        PreparedAtomicArray, PreparedLayer, PreparedLayerPixels, layer_tile_info_ident,
+        atomic::{ArrayAtomicI32Type, ArrayAtomicU32Type, PreparedAtomicArray},
+        handle::{ArrayType, LayerType, PreparedArray, PreparedLayer, PreparedLayerPixels},
+        layer_tile_info_ident,
     },
 };
 use parking_lot::Mutex;
-use wesl::{CodegenPkg, VirtualResolver, Wesl, syntax::*};
+use wesl::{
+    CodegenPkg,
+    syntax::{
+        BinaryExpression, BinaryOperator, CompoundStatement, Declaration, DeclarationKind,
+        Expression, FunctionCall, Ident, IfClause, IfStatement, IndexingExpression,
+        LiteralExpression, NamedComponentExpression, ReturnStatement, Span, Spanned, Statement,
+        TypeExpression, UnaryExpression, UnaryOperator,
+    },
+};
 use wesl_quote::quote_statement;
-use wgpu::*;
+use wgpu::{
+    BindGroup, BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor, CommandEncoder,
+    ComputePassDescriptor, ComputePassTimestampWrites, ComputePipeline, ComputePipelineDescriptor,
+    Device, Features, PipelineLayoutDescriptor, PollType, Queue, ShaderModuleDescriptor,
+    ShaderSource, ShaderStages,
+};
 use wgpu_profiler::{GpuProfiler, GpuProfilerSettings, GpuTimerQueryResult};
 
-use crate::{asset::*, instance::*, nodes::*};
+use crate::{
+    asset::{
+        EffectInputSlotId, EffectOutputSlotId, EffectPassDispatchStrategy, EffectPassInputSlotId,
+        EffectPassOutputSlotId,
+    },
+    instance::{
+        EffectInputSlot, EffectInputs, EffectInputsDecl, EffectInstance, EffectOutputs,
+        EffectPassInputsDecl, EffectPassOutputTypes, EffectPassOutputs, EffectPassOutputsDecl,
+    },
+    nodes::{PassInput, PassInputNode, PassOutput, PassOutputNode},
+};
 
 pub fn pass_input_ident(slot: EffectPassInputSlotId) -> String {
     format!("pass_input_{}", slot.to_string().replace('-', "_"))
@@ -74,16 +98,16 @@ impl EffectRenderer {
         device: Device,
         queue: Queue,
     ) -> Result<Self> {
-        let inputs: HashMap<_, _> = instance
+        let inputs = instance
             .inputs
             .iter()
             .map(|(id, slot)| (*id, slot))
-            .collect();
-        let outputs: HashMap<_, _> = instance
+            .collect::<HashMap<_, _>>();
+        let outputs = instance
             .outputs
             .iter()
             .map(|(id, slot)| (*id, slot))
-            .collect();
+            .collect::<HashMap<_, _>>();
         ensure!(
             inputs.len() == instance.inputs.len(),
             "Duplicate effect input"
@@ -997,7 +1021,7 @@ fn compile_shader(
         .replace("//CODEGEN_FLAG_COMPILED_GRAPH", &graph_shader)
         .replace("//CODEGEN_FLAG_DISPATCH_SETUP", &setup);
 
-    let mut deps = vec![&lapiz_image::image::PACKAGE, &lapiz_render::render::PACKAGE];
+    let mut deps = vec![&image::PACKAGE, &render::PACKAGE];
     deps.extend_from_slice(dependencies);
 
     wesl_jit::compile_wesl_with_config(shader, &deps, |compiler| {

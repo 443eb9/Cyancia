@@ -1,6 +1,7 @@
 use std::{
     borrow::Borrow,
     collections::{HashMap, HashSet, hash_map::Entry},
+    io::{self, Read, Write},
     sync::Arc,
 };
 
@@ -9,8 +10,10 @@ use iced_core::Point;
 use lapiz_assets::{
     asset::{Asset, AssetId},
     loader::AssetSerializer,
+    store::AssetRegistry,
 };
 use serde::{Deserialize, Serialize};
+use toml::{de, ser};
 
 use crate::graph::{
     Graph, GraphResources,
@@ -74,7 +77,7 @@ pub enum GraphDeserializeError {
     #[error("Failed to deserialize node state: {0}")]
     NodeStateDeserializeError(anyhow::Error),
     #[error("Deserialization error: {0}")]
-    DeserializerError(toml::de::Error),
+    DeserializerError(de::Error),
 }
 
 impl Graph {
@@ -393,7 +396,7 @@ pub struct SerializableGraphLiteral {
 impl SerializableGraphLiteral {
     pub fn serialize(
         literal: &GraphLiteral,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> Result<SerializableGraphLiteral> {
         Ok(SerializableGraphLiteral {
             ty: literal.ty().id().id,
@@ -404,7 +407,7 @@ impl SerializableGraphLiteral {
     pub fn deserialize(
         &self,
         type_registry: &GraphTypeRegistry,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> Result<GraphLiteral, SerializableGraphLiteralError> {
         let ty = type_registry
             .resolve_type(&self.ty)
@@ -435,7 +438,7 @@ impl SerializableGraphFunction {
     pub fn deserialize_func(
         &self,
         asset_id: Option<AssetId<SerializableGraphFunction>>,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> (Option<GraphFunction>, Vec<GraphDeserializeError>) {
         let resources = GraphResources {
             type_registry: GRAPH_FUNCTION_TYPE_REGISTRY.clone(),
@@ -466,11 +469,11 @@ pub struct SerializableGraphFunctionSerializer;
 #[derive(Debug, thiserror::Error)]
 pub enum SerializableGraphFunctionSerializerError {
     #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
+    IoError(#[from] io::Error),
     #[error("Serialization error: {0}")]
-    TomlSer(#[from] toml::ser::Error),
+    TomlSer(#[from] ser::Error),
     #[error("Deserialization error: {0}")]
-    TomlDe(#[from] toml::de::Error),
+    TomlDe(#[from] de::Error),
 }
 
 impl AssetSerializer for SerializableGraphFunctionSerializer {
@@ -482,17 +485,13 @@ impl AssetSerializer for SerializableGraphFunctionSerializer {
         "lsf"
     }
 
-    fn read(&self, reader: &mut dyn std::io::Read) -> Result<Self::Asset, Self::Error> {
+    fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset, Self::Error> {
         let mut buf = String::new();
         reader.read_to_string(&mut buf)?;
         Ok(toml::from_str(&buf)?)
     }
 
-    fn write(
-        &self,
-        asset: &Self::Asset,
-        writer: &mut dyn std::io::Write,
-    ) -> Result<(), Self::Error> {
+    fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<(), Self::Error> {
         let serialized = toml::to_string(asset)?;
         writer.write_all(serialized.as_bytes())?;
         Ok(())

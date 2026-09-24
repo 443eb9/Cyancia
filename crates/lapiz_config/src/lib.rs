@@ -1,8 +1,9 @@
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
+    fs,
     hash::Hash as _,
-    io::Write as _,
+    io::{self, Write as _},
     marker::PhantomData,
     sync::{Arc, LazyLock},
 };
@@ -73,7 +74,7 @@ impl<T: Configuration> Config<T> {
             .ok_or_else(|| anyhow!("config path has no parent: {}", path.display()))?;
         let content = value.unparse()?;
 
-        std::fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent)?;
         let mut temp = tempfile::NamedTempFile::new_in(parent)?;
         temp.write_all(content.as_bytes())?;
         temp.as_file().sync_all()?;
@@ -92,9 +93,9 @@ impl<T: Configuration> Config<T> {
         }
 
         let path = config_dir().join(T::NAME);
-        let value = match std::fs::read_to_string(&path) {
+        let value = match fs::read_to_string(&path) {
             Ok(content) => T::parse(&content)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 let value = T::parse(T::DEFAULT)?;
                 Self::persist(&value)?;
                 value

@@ -7,7 +7,7 @@ use iced_core::{
     Element, Length, Rectangle, Size, Widget, keyboard::Modifiers, layout, pointer::mouse,
     renderer, widget,
 };
-use iced_wgpu::{Primitive, graphics::Viewport};
+use iced_wgpu::{Primitive, graphics::Viewport, primitive};
 use iced_widget::shader::Pipeline;
 use indexmap::IndexSet;
 use lapiz_anti_aliasing::fxaa::{FxaaParams, FxaaPipeline};
@@ -27,6 +27,7 @@ use lapiz_render::{
 };
 use lapiz_runtime::{Renderer, Services};
 use lyon::{
+    geom::point,
     path::Path,
     tessellation::{
         BuffersBuilder, FillOptions, FillRule, FillTessellator, FillVertex, VertexBuffers,
@@ -565,7 +566,7 @@ impl<'a, Message, Theme> Widget<Message, Theme, Renderer> for SelectionPreviewLa
         _cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        iced_wgpu::primitive::Renderer::draw_primitive(
+        primitive::Renderer::draw_primitive(
             renderer,
             *viewport,
             SelectionPreviewPrimitive {
@@ -751,9 +752,9 @@ pub(crate) fn indices_from_vertices(
     fill_rule: FillRule,
 ) -> VertexBuffers<Vec2, u32> {
     let mut builder = Path::builder();
-    builder.begin(lyon::geom::point(vertices[0].x, vertices[0].y));
+    builder.begin(point(vertices[0].x, vertices[0].y));
     for v in &vertices[1..] {
-        builder.line_to(lyon::geom::point(v.x, v.y));
+        builder.line_to(point(v.x, v.y));
     }
     builder.end(true);
     let path = builder.build();

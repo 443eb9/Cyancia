@@ -1,5 +1,5 @@
 use std::{
-    fs::{File, create_dir_all},
+    fs::{self, File, create_dir_all},
     io::Write as _,
     path::PathBuf,
 };
@@ -21,7 +21,7 @@ struct Args {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let bytes = std::fs::read(&args.input)?;
+    let bytes = fs::read(&args.input)?;
     let abr = lapiz_abr::Abr::parse(&bytes)?;
 
     if let Some(output_dir) = &args.output {

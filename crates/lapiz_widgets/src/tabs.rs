@@ -1,4 +1,5 @@
 use iced_core::{Border, Element, Length, Shadow, Theme, Vector};
+use iced_widget::button::{Status, Style};
 use lapiz_runtime::Renderer;
 
 use crate::{
@@ -110,12 +111,7 @@ impl<'a, Message: 'a> From<TabBar<'a, Message>> for Element<'a, Message, Theme, 
     }
 }
 
-fn style(
-    theme: &Theme,
-    status: iced_widget::button::Status,
-    variant: Variant,
-    selected: bool,
-) -> iced_widget::button::Style {
+fn style(theme: &Theme, status: Status, variant: Variant, selected: bool) -> Style {
     if variant == Variant::Block && selected {
         return activated_style(theme, status);
     }

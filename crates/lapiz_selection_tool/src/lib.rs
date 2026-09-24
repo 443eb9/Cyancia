@@ -18,7 +18,7 @@ pub struct SelectionPlugin;
 
 impl Plugin for SelectionPlugin {
     fn build(&self, app: &mut Application) {
-        crate::i18n::init();
+        i18n::init();
         app.runtime_mut()
             .services_mut()
             .add_tool_function::<RectangularSelectionTool>()

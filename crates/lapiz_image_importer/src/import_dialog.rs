@@ -1,8 +1,12 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Result;
+use futures::executor::block_on;
 use iced_core::{Alignment, Element, Length, Size, Theme, window};
-use iced_runtime::Task;
+use iced_runtime::{
+    Task,
+    window::{close, open},
+};
 use iced_widget::{Space, column, row};
 use lapiz_canvas::{CCanvas, CanvasAppExt as _};
 use lapiz_config::Config;
@@ -59,7 +63,7 @@ impl WindowView for ImportDialogView {
         let importer = registry
             .create_with_saved_settings(extension, &config.get())
             .expect("Import dialog opened for a path without a registered format");
-        let (window, open) = iced_runtime::window::open(window::Settings {
+        let (window, open) = open(window::Settings {
             size: Size {
                 width: 420.0,
                 height: 300.0,
@@ -124,9 +128,7 @@ impl WindowView for ImportDialogView {
                 .dialog_update(message, services)
                 .map(ImportDialogMessage::Importer),
             ImportDialogMessage::Confirm => {
-                let archive =
-                    futures::executor::block_on(self.importer.import(services, &self.path))
-                        .logged_err();
+                let archive = block_on(self.importer.import(services, &self.path)).logged_err();
                 if let Ok(archive) = archive
                     && let Ok(image) = CImage::from_lazuli(&archive, services).logged_err()
                 {
@@ -141,14 +143,14 @@ impl WindowView for ImportDialogView {
                         Err(error) => log::error!("Failed to serialize import settings: {error}"),
                     })
                     .log_err();
-                iced_runtime::window::close(self.window)
+                close(self.window)
             }
-            ImportDialogMessage::Cancel => iced_runtime::window::close(self.window),
+            ImportDialogMessage::Cancel => close(self.window),
         }
     }
 
     fn close(self, _: &mut Services) -> Task<()> {
-        iced_runtime::window::close(self.window)
+        close(self.window)
     }
 
     fn windows(&self) -> Arc<[window::Id]> {

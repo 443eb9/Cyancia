@@ -1,4 +1,5 @@
 use std::{
+    array::from_fn,
     f32::consts::TAU,
     fs::{self, File},
 };
@@ -7,7 +8,7 @@ use anyhow::{Result, anyhow, ensure};
 use glam::{IVec4, Vec2, Vec4};
 use iced_runtime::Task;
 use image::{ImageFormat, RgbaImage};
-use lapiz_assets::asset::AssetHandle;
+use lapiz_assets::{asset::AssetHandle, store::AssetRegistry};
 use lapiz_dirs::cache_dir;
 use lapiz_image::{
     layer_bounds::LayerBoundsPipeline,
@@ -21,11 +22,11 @@ use lapiz_render::{
     readback::{
         create_readback_buffer_and_schedule_copy_texture, readback_buffer_raw_on_submit_async,
     },
-    render_context::RenderContextAppExt,
-    util::DevicePollExt,
+    render_context::RenderContextAppExt as _,
+    util::DevicePollExt as _,
 };
 use lapiz_runtime::Services;
-use lapiz_utils::log_err::LogErr;
+use lapiz_utils::log_err::LogErr as _;
 use tracing::info;
 use wesl::include_wesl;
 use wgpu::{
@@ -47,7 +48,7 @@ pub const CACHED_STROKE_PREVIEW_SIZE: (u32, u32) = (512, 256);
 
 pub fn load_cached_stroke_preview_or_generate(
     brush: &AssetHandle<BrushPreset>,
-    assets: &lapiz_assets::store::AssetRegistry,
+    assets: &AssetRegistry,
     services: &Services,
 ) -> Result<Task<Result<RgbaImage>>> {
     let cache_path = cache_dir()
@@ -124,7 +125,7 @@ fn readback_preview(device: Device, queue: Queue, texture: Texture) -> Task<Resu
 }
 
 pub fn predefined_curve_samples(width: u32, height: u32) -> [RawPenInput; 32] {
-    std::array::from_fn(|i| {
+    from_fn(|i| {
         let t = i as f32 / 31.0;
         let azimuth = t * TAU;
         let altitude = (30.0 + 30.0 * t).to_radians();
@@ -284,8 +285,8 @@ pub fn create_stroke_preview_on_target_with(
 
     // Ensure both layers have at least a null tile so binding() works without
     // the app-global empty-layer bindings.
-    target_layer.get_tile_or_allocate(lapiz_image::tile::GpuTileInfo::NULL.index);
-    selection_layer.get_tile_or_allocate(lapiz_image::tile::GpuTileInfo::NULL.index);
+    target_layer.get_tile_or_allocate(GpuTileInfo::NULL.index);
+    selection_layer.get_tile_or_allocate(GpuTileInfo::NULL.index);
 
     let worker = renderer.begin(
         device,

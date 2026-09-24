@@ -1,13 +1,20 @@
-use std::sync::{Arc, LazyLock};
+use std::{
+    collections::BTreeMap,
+    fmt,
+    sync::{Arc, LazyLock},
+};
 
 use anyhow::{Result, bail};
 use glam::Vec4;
 use iced_core::widget::Void;
+use lapiz_assets::store::AssetRegistry;
 use lapiz_effect::nodes::effect_nodes;
 use lapiz_image::{blend_modes::BlendMode, texel::TexelType};
 use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
-    bind_group_layout_entries::DynamicBindGroupLayoutEntries,
+    bind_group_layout_entries::{
+        DynamicBindGroupLayoutEntries, binding_types::storage_buffer_read_only_sized,
+    },
 };
 use lapiz_shader_graph::{
     GraphElement,
@@ -25,16 +32,29 @@ use lapiz_shader_graph::{
         variable::GraphTypeRegistry,
     },
     save::GraphValueTypeId,
-    wgsl_std::types::{
-        ColorType, F32Type, I32Type, LayerType, RectType, Vec2FType, layer_load_ident,
+    wgsl_std::{
+        builtin_types,
+        types::{
+            compound::{ColorType, RectType},
+            handle::LayerType,
+            layer_load_ident,
+            primitive::{F32Type, I32Type, U32Type},
+            vector::Vec2FType,
+        },
     },
 };
 use lapiz_utils::random_oklch_hue_chroma;
 use lapiz_widgets::combo_box::ComboBox;
 use serde::{Deserialize, Serialize};
-use wesl::syntax::*;
+use wesl::syntax::{
+    BinaryExpression, BinaryOperator, Declaration, DeclarationKind, Expression, FunctionCall,
+    Ident, ModulePath, NamedComponentExpression, PathOrigin, Span, Spanned, Statement,
+    TypeExpression,
+};
 use wesl_quote::quote_statement;
-use wgpu::util::DeviceExt as _;
+use wgpu::{Buffer, Device, Queue, util::DeviceExt as _};
+
+use super::ComputedPenInput;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct CanvasResources {
@@ -59,8 +79,8 @@ pub const MAIN_ACCUMULATE_BUFFER: &str = "main_accumulate";
 pub struct ComputedPenInputValueType;
 
 impl GraphValueType for ComputedPenInputValueType {
-    type AssociatedLiteralType = crate::render::ComputedPenInput;
-    type PreparedShaderType = wgpu::Buffer;
+    type AssociatedLiteralType = ComputedPenInput;
+    type PreparedShaderType = Buffer;
     type Message = ();
 
     fn id(&self) -> GraphValueTypeId {
@@ -82,12 +102,8 @@ impl GraphValueType for ComputedPenInputValueType {
         shader.push_str(&format!(
             "@group({group}) @binding({binding}) var<storage, read> {name}: brush::brush_types::ComputedPenInput;\n"
         ));
-        let bindings = bindings.extend_with_indices(((
-            binding,
-            lapiz_render::bind_group_layout_entries::binding_types::storage_buffer_read_only_sized(
-                false, None,
-            ),
-        ),));
+        let bindings =
+            bindings.extend_with_indices(((binding, storage_buffer_read_only_sized(false, None)),));
         Ok((binding + 1, bindings, shader))
     }
 
@@ -106,10 +122,10 @@ impl GraphValueType for ComputedPenInputValueType {
 
     fn prepare_to_shader(
         &self,
-        data: &crate::render::ComputedPenInput,
-        device: &wgpu::Device,
-        _queue: &wgpu::Queue,
-    ) -> Result<wgpu::Buffer> {
+        data: &ComputedPenInput,
+        device: &Device,
+        _queue: &Queue,
+    ) -> Result<Buffer> {
         let mut storage = encase::StorageBuffer::new(Vec::new());
         storage.write(data)?;
         Ok(
@@ -121,8 +137,8 @@ impl GraphValueType for ComputedPenInputValueType {
         )
     }
 
-    fn default_literal(&self) -> crate::render::ComputedPenInput {
-        crate::render::ComputedPenInput::default()
+    fn default_literal(&self) -> ComputedPenInput {
+        ComputedPenInput::default()
     }
 
     fn wgsl_type_name(&self) -> Option<&'static str> {
@@ -133,20 +149,20 @@ impl GraphValueType for ComputedPenInputValueType {
     }
     fn view_literal(
         &self,
-        _: &crate::render::ComputedPenInput,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _: &ComputedPenInput,
+        _assets: &AssetRegistry,
     ) -> GraphElement<'static, ()> {
         Void.into()
     }
-    fn update_literal(&self, _: &mut crate::render::ComputedPenInput, _: ()) {}
-    fn literal_to_code(&self, _: &crate::render::ComputedPenInput) -> Option<Expression> {
+    fn update_literal(&self, _: &mut ComputedPenInput, _: ()) {}
+    fn literal_to_code(&self, _: &ComputedPenInput) -> Option<Expression> {
         None
     }
 
     fn serialize_literal(
         &self,
         data: &Self::AssociatedLiteralType,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<toml::Value> {
         Ok(toml::Value::try_from(data)?)
     }
@@ -154,7 +170,7 @@ impl GraphValueType for ComputedPenInputValueType {
     fn deserialize_literal(
         &self,
         value: toml::Value,
-        _assets: &lapiz_assets::store::AssetRegistry,
+        _assets: &AssetRegistry,
     ) -> Result<Self::AssociatedLiteralType> {
         Ok(Self::AssociatedLiteralType::deserialize(value)?)
     }
@@ -971,8 +987,8 @@ impl BlendModeOption {
     }
 }
 
-impl std::fmt::Display for BlendModeOption {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for BlendModeOption {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.0)
     }
 }
@@ -1265,7 +1281,7 @@ pub static BRUSH_GRAPH_TYPES: LazyLock<Arc<GraphTypeRegistry>> =
     LazyLock::new(|| Arc::new(brush_graph_types()));
 
 fn brush_graph_types() -> GraphTypeRegistry {
-    let mut types = lapiz_shader_graph::wgsl_std::builtin_types();
+    let mut types = builtin_types();
     types.register_type::<ComputedPenInputValueType>();
     types
 }
@@ -1340,35 +1356,25 @@ pub fn postprocess_graph_nodes() -> GraphNodeRegistry {
 pub fn brush_builtin_types(
     target_layer_format: TexelType,
     selection_layer_format: TexelType,
-) -> std::collections::BTreeMap<
-    String,
-    Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType>,
-> {
-    std::collections::BTreeMap::from([
+) -> BTreeMap<String, Arc<dyn ErasedGraphValueType>> {
+    BTreeMap::from([
         (
             FOREGROUND_COLOR_BUILTIN.to_string(),
-            Arc::new(ColorType) as Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType>,
+            Arc::new(ColorType) as Arc<dyn ErasedGraphValueType>,
         ),
-        (
-            BACKGROUND_COLOR_BUILTIN.to_string(),
-            Arc::new(ColorType) as Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType>,
-        ),
-        (
-            HAS_SELECTION_BUILTIN.to_string(),
-            Arc::new(lapiz_shader_graph::wgsl_std::types::U32Type)
-                as Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType>,
-        ),
+        (BACKGROUND_COLOR_BUILTIN.to_string(), Arc::new(ColorType)),
+        (HAS_SELECTION_BUILTIN.to_string(), Arc::new(U32Type)),
         (
             SELECTION_BUILTIN.to_string(),
             Arc::new(LayerType {
                 texel_type: selection_layer_format,
-            }) as Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType>,
+            }),
         ),
         (
             TARGET_LAYER_BUILTIN.to_string(),
             Arc::new(LayerType {
                 texel_type: target_layer_format,
-            }) as Arc<dyn lapiz_shader_graph::graph::slot::ErasedGraphValueType>,
+            }),
         ),
     ])
 }
@@ -1376,7 +1382,7 @@ pub fn brush_builtin_types(
 pub fn main_builtin_types(
     target_layer_format: TexelType,
     selection_layer_format: TexelType,
-) -> std::collections::BTreeMap<String, Arc<dyn ErasedGraphValueType>> {
+) -> BTreeMap<String, Arc<dyn ErasedGraphValueType>> {
     let mut types = brush_builtin_types(target_layer_format, selection_layer_format);
     types.insert(
         BRUSH_SAMPLE_BUILTIN.into(),
@@ -1388,7 +1394,7 @@ pub fn main_builtin_types(
     );
     types.insert(
         MAIN_ACCUMULATE_BUFFER.into(),
-        Arc::new(lapiz_shader_graph::wgsl_std::types::LayerType {
+        Arc::new(LayerType {
             texel_type: target_layer_format,
         }),
     );
@@ -1398,11 +1404,11 @@ pub fn main_builtin_types(
 pub fn postprocess_builtin_types(
     target_layer_format: TexelType,
     selection_layer_format: TexelType,
-) -> std::collections::BTreeMap<String, Arc<dyn ErasedGraphValueType>> {
+) -> BTreeMap<String, Arc<dyn ErasedGraphValueType>> {
     let mut types = brush_builtin_types(target_layer_format, selection_layer_format);
     types.insert(
         MAIN_ACCUMULATE_BUFFER.into(),
-        Arc::new(lapiz_shader_graph::wgsl_std::types::LayerType {
+        Arc::new(LayerType {
             texel_type: target_layer_format,
         }),
     );
@@ -1411,7 +1417,7 @@ pub fn postprocess_builtin_types(
 
 pub fn brush_graph_resources(
     registry: Arc<GraphNodeRegistry>,
-    assets: lapiz_assets::store::AssetRegistry,
+    assets: AssetRegistry,
 ) -> GraphResources {
     GraphResources {
         type_registry: BRUSH_GRAPH_TYPES.clone(),

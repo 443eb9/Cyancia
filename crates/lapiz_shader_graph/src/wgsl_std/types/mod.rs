@@ -1,29 +1,23 @@
 use anyhow::Result;
-use encase::{
-    DynamicUniformBuffer, ShaderSize, ShaderType, internal::WriteInto, private::ArrayMetadata,
-};
+use encase::{DynamicUniformBuffer, ShaderType, internal::WriteInto};
 use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
     bind_group_layout_entries::{DynamicBindGroupLayoutEntries, binding_types},
 };
-use serde::{Deserialize, Serialize};
-use wesl::syntax::*;
+use wesl::syntax::{
+    AccessMode, AddressSpace, Attribute, Declaration, DeclarationKind, GlobalDeclaration, Ident,
+    Span, Spanned, TypeExpression,
+};
 use wesl_quote::quote_declaration;
 use wgpu::{Buffer, BufferDescriptor, BufferUsages, Device};
 
 use crate::graph::slot::GraphShaderStage;
 
-mod atomic;
-mod compound;
-mod handle;
-mod primitive;
-mod vector;
-
-pub use atomic::*;
-pub use compound::*;
-pub use handle::*;
-pub use primitive::*;
-pub use vector::*;
+pub mod atomic;
+pub mod compound;
+pub mod handle;
+pub mod primitive;
+pub mod vector;
 
 pub fn layer_load_ident(name: &str) -> String {
     format!("{name}_load")
@@ -112,7 +106,15 @@ mod tests {
 
     use lapiz_image::texel::TexelType;
 
-    use super::*;
+    use super::{
+        compound::{ColorType, RectType},
+        handle::{ArrayType, LayerType, TextureType},
+        primitive::{BoolType, F32Type, I32Type, U32Type},
+        vector::{
+            Vec2FType, Vec2IType, Vec2UType, Vec3FType, Vec3IType, Vec3UType, Vec4FType, Vec4IType,
+            Vec4UType,
+        },
+    };
     use crate::graph::slot::ErasedGraphValueType;
 
     // Runtime-sized array strides follow WGSL alignment rules, which round an
@@ -120,22 +122,74 @@ mod tests {
     // 16-byte slot.
     #[test]
     fn array_strides_match_wgsl_layout_rules() {
-        let cases: Vec<(&str, Arc<dyn ErasedGraphValueType>, u64)> = vec![
-            ("f32", Arc::new(F32Type), 4),
-            ("i32", Arc::new(I32Type), 4),
-            ("u32", Arc::new(U32Type), 4),
-            ("bool", Arc::new(BoolType), 4),
-            ("vec2f", Arc::new(Vec2FType), 8),
-            ("vec3f", Arc::new(Vec3FType), 16),
-            ("vec4f", Arc::new(Vec4FType), 16),
-            ("vec2i", Arc::new(Vec2IType), 8),
-            ("vec3i", Arc::new(Vec3IType), 16),
-            ("vec4i", Arc::new(Vec4IType), 16),
-            ("vec2u", Arc::new(Vec2UType), 8),
-            ("vec3u", Arc::new(Vec3UType), 16),
-            ("vec4u", Arc::new(Vec4UType), 16),
-            ("color", Arc::new(ColorType), 16),
-            ("rect", Arc::new(RectType), 16),
+        let cases = vec![
+            (
+                "f32",
+                Arc::new(F32Type) as Arc<dyn ErasedGraphValueType>,
+                4u64,
+            ),
+            ("i32", Arc::new(I32Type) as Arc<dyn ErasedGraphValueType>, 4),
+            ("u32", Arc::new(U32Type) as Arc<dyn ErasedGraphValueType>, 4),
+            (
+                "bool",
+                Arc::new(BoolType) as Arc<dyn ErasedGraphValueType>,
+                4,
+            ),
+            (
+                "vec2f",
+                Arc::new(Vec2FType) as Arc<dyn ErasedGraphValueType>,
+                8,
+            ),
+            (
+                "vec3f",
+                Arc::new(Vec3FType) as Arc<dyn ErasedGraphValueType>,
+                16,
+            ),
+            (
+                "vec4f",
+                Arc::new(Vec4FType) as Arc<dyn ErasedGraphValueType>,
+                16,
+            ),
+            (
+                "vec2i",
+                Arc::new(Vec2IType) as Arc<dyn ErasedGraphValueType>,
+                8,
+            ),
+            (
+                "vec3i",
+                Arc::new(Vec3IType) as Arc<dyn ErasedGraphValueType>,
+                16,
+            ),
+            (
+                "vec4i",
+                Arc::new(Vec4IType) as Arc<dyn ErasedGraphValueType>,
+                16,
+            ),
+            (
+                "vec2u",
+                Arc::new(Vec2UType) as Arc<dyn ErasedGraphValueType>,
+                8,
+            ),
+            (
+                "vec3u",
+                Arc::new(Vec3UType) as Arc<dyn ErasedGraphValueType>,
+                16,
+            ),
+            (
+                "vec4u",
+                Arc::new(Vec4UType) as Arc<dyn ErasedGraphValueType>,
+                16,
+            ),
+            (
+                "color",
+                Arc::new(ColorType) as Arc<dyn ErasedGraphValueType>,
+                16,
+            ),
+            (
+                "rect",
+                Arc::new(RectType) as Arc<dyn ErasedGraphValueType>,
+                16,
+            ),
         ];
         for (name, ty, expected) in cases {
             assert_eq!(

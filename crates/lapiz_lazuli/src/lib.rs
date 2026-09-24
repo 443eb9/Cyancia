@@ -1,5 +1,6 @@
 use std::{
-    fs::File,
+    fmt,
+    fs::{self, File},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -26,8 +27,8 @@ pub struct LazuliArchive {
     inner: Arc<Mutex<Inner>>,
 }
 
-impl std::fmt::Debug for LazuliArchive {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for LazuliArchive {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LazuliArchive").finish()
     }
 }
@@ -39,7 +40,7 @@ impl LazuliArchive {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
         {
-            std::fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent)?;
         }
 
         File::create_new(path)?;
@@ -96,7 +97,7 @@ impl LazuliArchive {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
         {
-            std::fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent)?;
         }
 
         let mut inner = self.inner.lock();
@@ -133,6 +134,8 @@ impl LazuliArchive {
 
 #[cfg(test)]
 mod tests {
+    use std::{env, fs};
+
     use uuid::Uuid;
 
     use super::*;
@@ -140,8 +143,7 @@ mod tests {
 
     #[test]
     fn set_path_saves_an_in_memory_archive_and_switches_to_the_disk_database() {
-        let directory =
-            std::env::temp_dir().join(format!("lapiz_lazuli_set_path_{}", Uuid::new_v4()));
+        let directory = env::temp_dir().join(format!("lapiz_lazuli_set_path_{}", Uuid::new_v4()));
         let path = directory.join("archive.lazuli");
         let mut archive = LazuliArchive::new_in_memory().unwrap();
         let root_layer = Uuid::new_v4();
@@ -183,7 +185,7 @@ mod tests {
         assert_eq!(properties.texel_type, 10);
         drop(archive);
 
-        std::fs::remove_file(path).unwrap();
-        std::fs::remove_dir(directory).unwrap();
+        fs::remove_file(path).unwrap();
+        fs::remove_dir(directory).unwrap();
     }
 }

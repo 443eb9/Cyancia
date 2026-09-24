@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    fmt,
     sync::Arc,
 };
 
@@ -15,7 +16,10 @@ use lapiz_utils::wrapper;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use wesl::syntax::*;
+use wesl::syntax::{
+    AssignmentOperator, AssignmentStatement, Attribute, CompoundStatement, Expression, Ident, Span,
+    Spanned, Statement, TypeExpression, UnaryExpression, UnaryOperator,
+};
 use wesl_quote::quote_statement;
 use wgpu::{Device, Queue};
 
@@ -161,14 +165,14 @@ pub trait GraphValueType: Send + Sync + 'static + DynClone {
     where
         Self: Sized,
     {
-        let ty: Arc<Self> = Arc::from(dyn_clone::clone_box(self));
+        let ty = Arc::<Self>::from(dyn_clone::clone_box(self));
         vec![GraphDefaultInputSlot::new_boxed("value".into(), ty)]
     }
     fn push_output_slots(&self) -> Vec<GraphDefaultOutputSlot>
     where
         Self: Sized,
     {
-        let ty: Arc<Self> = Arc::from(dyn_clone::clone_box(self));
+        let ty = Arc::<Self>::from(dyn_clone::clone_box(self));
         vec![GraphDefaultOutputSlot::new_boxed("value".into(), ty)]
     }
     fn handle_input_values(
@@ -248,8 +252,8 @@ pub struct ErasedGraphLiteralUpdateMessage {
     pub id: GraphInputSlotId,
 }
 
-impl std::fmt::Debug for ErasedGraphLiteralUpdateMessage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for ErasedGraphLiteralUpdateMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ErasedGraphLiteralUpdateMessage")
             .field("id", &self.id)
             .finish()
@@ -340,7 +344,7 @@ pub trait ErasedGraphValueType: Send + Sync + 'static + DynClone + Downcast {
         &self,
         slot_id: GraphInputSlotId,
         data: &dyn GraphLiteralValue,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> GraphElement<'static, ErasedGraphLiteralUpdateMessage>;
     fn update_literal(
         &self,
@@ -351,12 +355,12 @@ pub trait ErasedGraphValueType: Send + Sync + 'static + DynClone + Downcast {
     fn serialize_literal(
         &self,
         data: &dyn GraphLiteralValue,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> Result<toml::Value>;
     fn deserialize_literal(
         &self,
         deserializer: toml::Value,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> Result<Box<dyn GraphLiteralValue>>;
 }
 
@@ -483,7 +487,7 @@ impl<T: GraphValueType> ErasedGraphValueType for T {
         &self,
         slot_id: GraphInputSlotId,
         data: &dyn GraphLiteralValue,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> GraphElement<'static, ErasedGraphLiteralUpdateMessage> {
         self.view_literal(
             data.downcast_ref::<T::AssociatedLiteralType>()
@@ -521,7 +525,7 @@ impl<T: GraphValueType> ErasedGraphValueType for T {
     fn serialize_literal(
         &self,
         data: &dyn GraphLiteralValue,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> Result<toml::Value> {
         self.serialize_literal(
             data.downcast_ref::<T::AssociatedLiteralType>()
@@ -533,7 +537,7 @@ impl<T: GraphValueType> ErasedGraphValueType for T {
     fn deserialize_literal(
         &self,
         deserializer: toml::Value,
-        assets: &lapiz_assets::store::AssetRegistry,
+        assets: &AssetRegistry,
     ) -> Result<Box<dyn GraphLiteralValue>> {
         Ok(Box::new(self.deserialize_literal(deserializer, assets)?))
     }

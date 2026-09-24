@@ -202,6 +202,7 @@ xxhash-rust = { version = "0.8", features = ["xxh3"] }
 zip = "8"
 
 [workspace.lints.clippy]
+absolute_paths = "warn"
 allow_attributes_without_reason = "deny"
 dbg_macro = "warn"
 pub_use = "deny"

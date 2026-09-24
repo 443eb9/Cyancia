@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{mem, sync::Arc};
 
 use iced_core::Length;
 use iced_widget::{Column, Component, column, row};
@@ -192,7 +192,7 @@ impl<'a> Component<'a, EffectIoEditorMessage, GraphTheme, GraphRenderer> for Eff
             }
             EffectIoEditorEvent::AddInputPressed => {
                 let ty = state.new_input_type.clone()?;
-                let name = std::mem::take(&mut state.new_input_name);
+                let name = mem::take(&mut state.new_input_name);
                 Some(EffectIoEditorMessage::AddInput { name, ty })
             }
             EffectIoEditorEvent::NewOutputNameChanged(name) => {
@@ -205,7 +205,7 @@ impl<'a> Component<'a, EffectIoEditorMessage, GraphTheme, GraphRenderer> for Eff
             }
             EffectIoEditorEvent::AddOutputPressed => {
                 let ty = state.new_output_type.clone()?;
-                let name = std::mem::take(&mut state.new_output_name);
+                let name = mem::take(&mut state.new_output_name);
                 Some(EffectIoEditorMessage::AddOutput { name, ty })
             }
             EffectIoEditorEvent::Apply(message) => Some(message),

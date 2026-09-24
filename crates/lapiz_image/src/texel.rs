@@ -1,8 +1,10 @@
+use std::result;
+
 use anyhow::Result;
 use imagers::DynamicImage;
 use moxcms::Layout;
 use num_enum::TryFromPrimitive;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de};
 use wgpu::{TextureFormat, TextureSampleType};
 
 pub const A8_FORMAT: TextureFormat = TextureFormat::R8Unorm;
@@ -143,7 +145,7 @@ impl TexelType {
 }
 
 impl Serialize for TexelType {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
@@ -153,12 +155,12 @@ impl Serialize for TexelType {
 }
 
 impl<'de> Deserialize<'de> for TexelType {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let value = u8::deserialize(deserializer)?;
-        Self::decode(value).map_err(|e| <D::Error as serde::de::Error>::custom(e.to_string()))
+        Self::decode(value).map_err(|e| <D::Error as de::Error>::custom(e.to_string()))
     }
 }
 

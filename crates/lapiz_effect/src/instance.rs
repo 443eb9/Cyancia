@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
 use indexmap::IndexMap;
 use lapiz_i18n::t;
 use lapiz_shader_graph::graph::{
@@ -8,7 +8,11 @@ use lapiz_shader_graph::graph::{
 };
 
 use crate::{
-    asset::*,
+    asset::{
+        EffectAsset, EffectInputSlotId, EffectOutputSlotId, EffectPassDispatchStrategy,
+        EffectPassId, EffectPassInputSlotId, EffectPassOutputSlotId, SerializableEffectInputSlot,
+        SerializableEffectOutputSlot, SerializableEffectPass,
+    },
     nodes::{
         DispatchIndexNode, PassInput, PassInputChoice, PassInputNode, PassOutput, PassOutputChoice,
         PassOutputChoiceTarget, PassOutputNode, TypeChoice,
@@ -211,7 +215,7 @@ impl EffectInstance {
             label: t!("local_buffer"),
             target: PassOutputChoiceTarget::LocalBuffer,
         });
-        let available_targets: Arc<[PassOutputChoice]> = target_choices.into();
+        let available_targets = Arc::<[PassOutputChoice]>::from(target_choices);
 
         for (pass_id, pass) in &mut self.passes {
             let sources = available_sources[pass_id].clone();

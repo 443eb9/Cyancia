@@ -1,5 +1,6 @@
 use std::sync::{Arc, LazyLock};
 
+use lapiz_assets::store::AssetRegistry;
 use lapiz_effect::nodes::effect_nodes;
 use lapiz_shader_graph::{
     graph::{
@@ -11,10 +12,12 @@ use lapiz_shader_graph::{
         slot::{GraphDefaultInputSlot, GraphDefaultOutputSlot},
         variable::GraphTypeRegistry,
     },
-    wgsl_std::{builtin_types, types::Vec2IType},
+    wgsl_std::{builtin_types, types::vector::Vec2IType},
 };
 use lapiz_utils::random_oklch_hue_chroma;
-use wesl::syntax::*;
+use wesl::syntax::{
+    Declaration, DeclarationKind, Expression, Ident, Span, Spanned, Statement, TypeExpression,
+};
 use wesl_quote::quote_statement;
 
 #[derive(Default, Clone)]
@@ -60,7 +63,7 @@ pub fn filter_graph_types() -> GraphTypeRegistry {
     builtin_types()
 }
 
-pub fn filter_graph_resources(assets: lapiz_assets::store::AssetRegistry) -> GraphResources {
+pub fn filter_graph_resources(assets: AssetRegistry) -> GraphResources {
     GraphResources {
         type_registry: FILTER_GRAPH_TYPES.clone(),
         node_registry: FILTER_GRAPH_NODES.clone(),

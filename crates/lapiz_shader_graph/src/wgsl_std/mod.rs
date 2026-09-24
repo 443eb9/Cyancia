@@ -7,7 +7,13 @@ pub mod nodes;
 pub mod types;
 
 pub fn builtin_nodes() -> GraphNodeRegistry {
-    use nodes::*;
+    use nodes::{
+        ClampNode, ColorMixNode, CombineColorComponentsNode, CombineComponentsNode, CompareNode,
+        CurveNode, CustomExpressionNode, GetPixelColorNode, GraphFunctionNode, RandomNode,
+        RectMathNode, RepeatNode, ScalarMathNode, ScalarSelectNode, SmoothStepNode,
+        SplitColorComponentsNode, SplitComponentsNode, StepNode, TextureSizeNode, VectorMathNode,
+        VectorSelectNode,
+    };
 
     let mut nodes = GraphNodeRegistry::with_capacity();
 
@@ -41,7 +47,16 @@ pub fn builtin_types() -> GraphTypeRegistry {
         BoolToI32Caster, F32ToI32Caster, F32ToVec2FCaster, I32ToBoolCaster, I32ToF32Caster,
         I32ToVec2FCaster, Vec2FToF32Caster, Vec2FToI32Caster,
     };
-    use types::{BoolType, ColorType, F32Type, I32Type, RectType, TextureType, Vec2FType};
+    use types::{
+        atomic::{AtomicI32Type, AtomicU32Type},
+        compound::{ColorType, RectType},
+        handle::{LayerType, TextureType},
+        primitive::{BoolType, F32Type, I32Type, U32Type},
+        vector::{
+            Vec2FType, Vec2IType, Vec2UType, Vec3FType, Vec3IType, Vec3UType, Vec4FType, Vec4IType,
+            Vec4UType,
+        },
+    };
 
     let mut types = GraphTypeRegistry::default();
 

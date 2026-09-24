@@ -7,12 +7,20 @@ use lapiz_render::{
     bind_group_layout_entries::{DynamicBindGroupLayoutEntries, binding_types},
 };
 use lapiz_utils::random_oklch_hue_chroma;
-use serde::{Deserialize, Serialize};
-use wesl::syntax::*;
+use serde::Deserialize as _;
+use wesl::syntax::{
+    AccessMode, AddressSpace, Attribute, CompoundStatement, Declaration, DeclarationKind,
+    Expression, FunctionCall, FunctionCallStatement, GlobalDeclaration, Ident, IndexingExpression,
+    Span, Spanned, Statement, TemplateArg, TypeExpression, UnaryExpression, UnaryOperator,
+};
 use wesl_quote::{quote_declaration, quote_expression, quote_statement};
 use wgpu::{Buffer, Device, Queue};
 
-use super::{I32Type, U32Type, prepare_uniform_storage, push_buffer_binding, write_storage_buffer};
+use super::{
+    prepare_uniform_storage,
+    primitive::{I32Type, U32Type},
+    push_buffer_binding, write_storage_buffer,
+};
 use crate::{
     GraphRenderer, GraphTheme,
     graph::{

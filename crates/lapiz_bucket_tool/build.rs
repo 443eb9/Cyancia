@@ -1,11 +1,13 @@
+use lapiz_image::image;
+use lapiz_render::render;
 use wesl::Wesl;
 
 fn main() {
     println!("cargo:rerun-if-changed=shaders");
 
     let mut compiler = Wesl::new("shaders");
-    compiler.add_package(&lapiz_image::image::PACKAGE);
-    compiler.add_package(&lapiz_render::render::PACKAGE);
+    compiler.add_package(&image::PACKAGE);
+    compiler.add_package(&render::PACKAGE);
 
     compiler.build_artifact(
         &"package::thresholding.wesl".parse().unwrap(),

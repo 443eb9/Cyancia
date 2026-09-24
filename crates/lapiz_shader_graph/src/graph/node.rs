@@ -6,6 +6,7 @@
 use std::{
     any::Any,
     collections::{BTreeMap, HashMap, hash_map::Entry},
+    fmt,
     sync::Arc,
 };
 
@@ -19,7 +20,7 @@ pub use lapiz_shader_graph_derive::stateless;
 use lapiz_utils::{cloneable_any::ClonableAnySync, wrapper};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use wesl::syntax::{Expression, Ident, TypeExpression};
+use wesl::syntax::{Expression, Ident};
 
 use crate::{
     GraphElement,
@@ -31,7 +32,6 @@ use crate::{
             GraphInputSlotData, GraphInputSlotId, GraphOutputSlotData, GraphOutputSlotId,
             GraphSlots,
         },
-        texture::GraphTextureUsageRecorder,
         variable::{GraphLiteralValue, GraphVariable},
     },
     save::GraphSerializable,
@@ -100,8 +100,8 @@ pub struct ErasedGraphNodeMessage {
     pub id: GraphNodeId,
 }
 
-impl std::fmt::Debug for ErasedGraphNodeMessage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for ErasedGraphNodeMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ErasedGraphNodeMessage")
             .field("id", &self.id)
             .finish()
@@ -711,8 +711,8 @@ pub struct ContextualGraphNodeCodeGenError {
     pub code: String,
 }
 
-impl std::fmt::Display for ContextualGraphNodeCodeGenError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ContextualGraphNodeCodeGenError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "Error in node {:?} of type {}: {}\nCode already generated:\n{}",
@@ -721,16 +721,9 @@ impl std::fmt::Display for ContextualGraphNodeCodeGenError {
     }
 }
 
+#[derive(Default)]
 pub struct GraphNodeRegistry {
     nodes: BTreeMap<&'static str, Box<dyn ErasedGraphNode>>,
-}
-
-impl Default for GraphNodeRegistry {
-    fn default() -> Self {
-        Self {
-            nodes: Default::default(),
-        }
-    }
 }
 
 impl Clone for GraphNodeRegistry {

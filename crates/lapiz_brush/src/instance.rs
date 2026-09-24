@@ -3,22 +3,26 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
 use indexmap::IndexMap;
-use lapiz_assets::asset::{AssetHandle, AssetId};
+use lapiz_assets::{
+    asset::{AssetHandle, AssetId},
+    store::AssetRegistry,
+};
 use lapiz_effect::{
-    asset::{EffectInputSlotId, EffectOutputSlotId},
+    asset::{EffectInputSlotId, EffectOutputSlotId, EffectPassInputSlotId, EffectPassOutputSlotId},
     instance::{EffectInputs, EffectInstance},
     nodes::{PassInput, PassInputNode, PassOutput, PassOutputNode},
     render::{EffectRenderer, pass_input_ident, pass_output_ident},
 };
-use lapiz_image::texel::TexelType;
-use lapiz_render::{bind_group_layout_entries::DynamicBindGroupLayoutEntries, wesl_jit};
+use lapiz_image::{image, texel::TexelType};
+use lapiz_render::{bind_group_layout_entries::DynamicBindGroupLayoutEntries, render, wesl_jit};
 use lapiz_shader_graph::{
     graph::{
         GraphResources, GraphVarIdentGenerator,
+        function::GraphFunction,
         node::GraphNodeRegistry,
-        slot::{ErasedGraphValueType, GraphShaderStage},
+        slot::{ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphShaderStage},
         variable::{GraphLiteral, GraphShaderLiteral},
     },
     save::SerializableGraphLiteral,
@@ -27,10 +31,11 @@ use wgpu::{BindGroupLayoutEntry, Device, Queue, ShaderStages};
 
 use crate::{
     asset::{BrushPreset, BrushPresetMetadata, SerializableBrushParameter},
+    brush,
     render::graph::{
         BRUSH_GRAPH_TYPES, MAIN_DAB_BUFFER, SPACING_OUTPUT, STROKE_RESULT, brush_builtin_types,
-        main_builtin_types, main_graph_nodes, postprocess_builtin_types, postprocess_graph_nodes,
-        spacing_graph_nodes,
+        brush_graph_resources, main_builtin_types, main_graph_nodes, postprocess_builtin_types,
+        postprocess_graph_nodes, spacing_graph_nodes,
     },
 };
 
@@ -66,10 +71,7 @@ pub struct BrushPresetInstance {
 }
 
 impl BrushPresetInstance {
-    pub fn from_asset(
-        handle: &AssetHandle<BrushPreset>,
-        assets: lapiz_assets::store::AssetRegistry,
-    ) -> Result<Self> {
+    pub fn from_asset(handle: &AssetHandle<BrushPreset>, assets: AssetRegistry) -> Result<Self> {
         let preset = handle
             .get()
             .map_err(|error| anyhow::anyhow!("Brush preset asset is not loaded yet: {error}"))?;
@@ -78,7 +80,7 @@ impl BrushPresetInstance {
         Ok(instance)
     }
 
-    pub fn new(preset: &BrushPreset, assets: lapiz_assets::store::AssetRegistry) -> Result<Self> {
+    pub fn new(preset: &BrushPreset, assets: AssetRegistry) -> Result<Self> {
         let spacing_effect = EffectInstance::from_asset(
             &preset.spacing_effect,
             spacing_effect_resources(assets.clone()),
@@ -132,7 +134,7 @@ impl BrushPresetInstance {
         })
     }
 
-    pub fn as_asset(&self, assets: &lapiz_assets::store::AssetRegistry) -> Result<BrushPreset> {
+    pub fn as_asset(&self, assets: &AssetRegistry) -> Result<BrushPreset> {
         let parameters = self
             .parameters
             .iter()
@@ -203,7 +205,7 @@ impl BrushPresetInstance {
     pub fn update_parameter(
         &mut self,
         id: &EffectInputSlotId,
-        message: lapiz_shader_graph::graph::slot::ErasedGraphLiteralUpdateMessage,
+        message: ErasedGraphLiteralUpdateMessage,
     ) {
         if let Some(parameter) = self.parameters.get_mut(id) {
             parameter.value.update(message);
@@ -251,7 +253,7 @@ impl BrushPresetInstance {
         let (spacing, spacing_resource_layouts, spacing_parameters) =
             self.compile_spacing_pass(&spacing_builtin_types)?;
 
-        let shader_deps = &[&crate::brush::PACKAGE];
+        let shader_deps = &[&brush::PACKAGE];
         let main_types = main_builtin_types(target_layer_format, selection_layer_format);
         let postprocess_types =
             postprocess_builtin_types(target_layer_format, selection_layer_format);
@@ -386,7 +388,7 @@ impl BrushPresetInstance {
             .replace("//CODEGENFLAG_INJECTED_RESOURCES", &declarations);
         let shader = wesl_jit::compile_wesl_with_config_and_include(
             shader,
-            &[&lapiz_image::image::PACKAGE, &lapiz_render::render::PACKAGE],
+            &[&image::PACKAGE, &render::PACKAGE],
             |resolver| {
                 resolver.add_module(
                     "package::brush_types".parse().unwrap(),
@@ -413,7 +415,7 @@ fn named_output(effect: &EffectInstance, name: &str) -> Result<EffectOutputSlotI
 fn pass_input_port_of(
     effect: &EffectInstance,
     effect_input: EffectInputSlotId,
-) -> Result<lapiz_effect::asset::EffectPassInputSlotId> {
+) -> Result<EffectPassInputSlotId> {
     for pass in effect.passes.values() {
         for node in pass.graph.iter_nodes() {
             let Some(state) = node.data.state::<PassInputNode>() else {
@@ -430,7 +432,7 @@ fn pass_input_port_of(
 fn pass_output_port_of(
     effect: &EffectInstance,
     effect_output: EffectOutputSlotId,
-) -> Result<lapiz_effect::asset::EffectPassOutputSlotId> {
+) -> Result<EffectPassOutputSlotId> {
     for pass in effect.passes.values() {
         for node in pass.graph.iter_nodes() {
             let Some(state) = node.data.state::<PassOutputNode>() else {
@@ -451,34 +453,32 @@ pub static MAIN_GRAPH_NODES: LazyLock<Arc<GraphNodeRegistry>> =
 pub static POSTPROCESS_GRAPH_NODES: LazyLock<Arc<GraphNodeRegistry>> =
     LazyLock::new(|| Arc::new(postprocess_graph_nodes()));
 
-pub fn spacing_effect_resources(assets: lapiz_assets::store::AssetRegistry) -> GraphResources {
-    crate::render::graph::brush_graph_resources(SPACING_GRAPH_NODES.clone(), assets)
+pub fn spacing_effect_resources(assets: AssetRegistry) -> GraphResources {
+    brush_graph_resources(SPACING_GRAPH_NODES.clone(), assets)
 }
 
-pub fn main_effect_resources(assets: lapiz_assets::store::AssetRegistry) -> GraphResources {
-    crate::render::graph::brush_graph_resources(MAIN_GRAPH_NODES.clone(), assets)
+pub fn main_effect_resources(assets: AssetRegistry) -> GraphResources {
+    brush_graph_resources(MAIN_GRAPH_NODES.clone(), assets)
 }
 
-pub fn postprocess_effect_resources(assets: lapiz_assets::store::AssetRegistry) -> GraphResources {
-    crate::render::graph::brush_graph_resources(POSTPROCESS_GRAPH_NODES.clone(), assets)
+pub fn postprocess_effect_resources(assets: AssetRegistry) -> GraphResources {
+    brush_graph_resources(POSTPROCESS_GRAPH_NODES.clone(), assets)
 }
 
 pub struct GraphFunctionInstance {
-    graph_function: lapiz_shader_graph::graph::function::GraphFunction,
+    graph_function: GraphFunction,
 }
 
 impl GraphFunctionInstance {
-    pub fn new(graph_function: lapiz_shader_graph::graph::function::GraphFunction) -> Self {
+    pub fn new(graph_function: GraphFunction) -> Self {
         Self { graph_function }
     }
 
-    pub fn graph_function(&self) -> &lapiz_shader_graph::graph::function::GraphFunction {
+    pub fn graph_function(&self) -> &GraphFunction {
         &self.graph_function
     }
 
-    pub fn graph_function_mut(
-        &mut self,
-    ) -> &mut lapiz_shader_graph::graph::function::GraphFunction {
+    pub fn graph_function_mut(&mut self) -> &mut GraphFunction {
         &mut self.graph_function
     }
 }
