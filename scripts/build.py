@@ -49,7 +49,7 @@ def main() -> None:
             [
                 wrapper,
                 f":app:assemble{variant}",
-                f"-PandroidArch={arch}",
+                f"-PandroidArch={android.abi_for_arch(arch)}",
                 "--console=plain",
             ],
             cwd=REPO / "android",

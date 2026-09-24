@@ -39,8 +39,8 @@ HOST = (
     else "linux"
 )
 HOST_ARCH: str | None = {
-    "x86_64": "x64",
-    "AMD64": "x64",
+    "x86_64": "x86_64",
+    "AMD64": "x86_64",
     "aarch64": "aarch64",
     "arm64": "aarch64",
 }.get(platform.machine())
