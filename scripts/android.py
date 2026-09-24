@@ -137,6 +137,7 @@ def env_vars() -> dict[str, str]:
     env.update(
         JAVA_HOME=str(JAVA_HOME),
         ANDROID_HOME=str(SDK),
+        ANDROID_SDK_ROOT=str(SDK),
         ANDROID_NDK_HOME=str(SDK / "ndk" / TOOLCHAIN["ANDROID_NDK"]),
     )
     env["PATH"] = os.pathsep.join(
