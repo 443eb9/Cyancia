@@ -317,6 +317,11 @@ where
         }
 
         fn proxy_wake_up(&mut self, event_loop: &dyn winit::event_loop::ActiveEventLoop) {
+            #[cfg(target_os = "android")]
+            if !self.android_surface_ready {
+                return;
+            }
+
             while let Ok(action) = self.outbox.try_recv() {
                 self.process_event(
                     event_loop,
