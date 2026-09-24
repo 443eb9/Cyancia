@@ -193,7 +193,7 @@ run profile:
         *) echo "profile must be dev, dev-local or release" >&2; exit 2 ;;
     esac
 
-run-android profile: (build profile)
+run-android profile: (build-android profile)
     #!/usr/bin/env bash
     set -euo pipefail
     sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-${LOCALAPPDATA:-}/Android/Sdk}}"
@@ -232,7 +232,7 @@ run-android profile: (build profile)
     until [ "$(MSYS_NO_PATHCONV=1 "$adb" shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; do sleep 2; done
     "$adb" install -r "$apk"
     "$adb" logcat -c
-    MSYS_NO_PATHCONV=1 "$adb" shell am start -n "$application_id/android.app.NativeActivity"
+    MSYS_NO_PATHCONV=1 "$adb" shell am start -n "$application_id/app.lapiz.dev.LapizActivity"
     "$adb" logcat -v time -s RustStdoutStderr:V AndroidRuntime:E libc:F
 
 verify-release-tag tag:

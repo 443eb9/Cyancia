@@ -1,7 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:label="Lapiz" android:hasCode="false">
+    <application android:label="Lapiz">
         <activity
-            android:name="android.app.NativeActivity"
+            android:name="app.lapiz.dev.LapizActivity"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
             android:exported="true"
             android:configChanges="orientation|screenSize|keyboardHidden">
             <meta-data android:name="android.app.lib_name" android:value="lapiz_app" />
