@@ -41,7 +41,7 @@ Android toolchain versions are pinned in [`android/toolchain.properties`](androi
 ```bash
 just build android dev aarch64       # APK for ARM64 devices
 just package android release aarch64 # APK, native symbols, and checksums in target/package/
-just run android dev x86_64          # build, launch a matching emulator, and stream logs
+just run android dev                 # build, launch a matching emulator, and stream logs
 ```
 
 Android commands require `dev` or `release` and the architecture. `run` needs Android Emulator and Platform Tools installed separately; it uses a connected emulator whose primary ABI matches the build or starts an installed matching AVD (`ANDROID_AVD` can name one). To use an x86_64 AVD, select `x86_64` when building and running. The release APK uses a **debug key for local testing only**.

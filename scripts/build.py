@@ -28,12 +28,12 @@ def main() -> None:
             command.extend(("--features", "lapiz_dirs/dev_local"))
         subprocess.run([*command, "--locked"], check=True, cwd=REPO)
     elif args.platform == "android":
-        if not args.arch:
-            parser.error("android requires an architecture: aarch64 or x86_64")
+        arch = str(args.arch) if args.arch else android.HOST_ARCH
+        if not arch:
+            parser.error("unknown architecture")
         if args.profile == "dev-local":
             parser.error("Android profile must be dev or release")
 
-        android.abi_for_arch(args.arch)
         env = android.env_vars()
         variant = "DevDebug" if args.profile == "dev" else "ProdRelease"
         apk = REPO / (
@@ -49,7 +49,7 @@ def main() -> None:
             [
                 wrapper,
                 f":app:assemble{variant}",
-                f"-PandroidArch={args.arch}",
+                f"-PandroidArch={arch}",
                 "--console=plain",
             ],
             cwd=REPO / "android",

@@ -162,11 +162,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("platform", choices=("desktop", "android"))
     parser.add_argument("profile", choices=("dev", "dev-local", "release"))
-    parser.add_argument("arch", nargs="?")
     args = parser.parse_args()
+
     if args.platform == "desktop":
-        if args.arch:
-            parser.error("desktop does not accept an architecture")
         command = ["cargo", "run"]
         if args.profile == "release":
             command.append("--release")
@@ -175,11 +173,11 @@ def main() -> None:
             command.extend(("--features", "lapiz_dirs/dev_local"))
         subprocess.run(command, cwd=REPO, check=True)
     elif args.platform == "android":
-        if not args.arch:
-            parser.error("android requires an architecture: aarch64 or x86_64")
         if args.profile == "dev-local":
             parser.error("Android profile must be dev or release")
-        run_android(args.profile, args.arch)
+        if not android.HOST_ARCH:
+            parser.error("unknown architecture")
+        run_android(args.profile, android.HOST_ARCH)
     else:
         parser.error("platform must be desktop or android")
 

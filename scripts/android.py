@@ -38,7 +38,7 @@ HOST = (
     if sys.platform == "darwin"
     else "linux"
 )
-ARCH: str | None = {
+HOST_ARCH: str | None = {
     "x86_64": "x64",
     "AMD64": "x64",
     "aarch64": "aarch64",
@@ -182,7 +182,7 @@ def install_jdk() -> None:
     major = JDK_VERSION.split(".")[0]
     name = JDK_VERSION.replace("+", "_")
     extension = ".zip" if HOST == "windows" else ".tar.gz"
-    filename = f"OpenJDK{major}U-jdk_{ARCH}_{'windows' if HOST == 'windows' else 'mac' if HOST == 'mac' else 'linux'}_hotspot_{name}{extension}"
+    filename = f"OpenJDK{major}U-jdk_{HOST_ARCH}_{'windows' if HOST == 'windows' else 'mac' if HOST == 'mac' else 'linux'}_hotspot_{name}{extension}"
     url = f"https://github.com/adoptium/temurin{major}-binaries/releases/download/{JDK_RELEASE.replace('+', '%2B')}/{filename}"
 
     ROOT.mkdir(parents=True, exist_ok=True)
@@ -299,7 +299,7 @@ def install_cargo_ndk() -> None:
 
 
 def main() -> None:
-    if HOST not in ("windows", "mac", "linux") or ARCH is None:
+    if HOST not in ("windows", "mac", "linux") or HOST_ARCH is None:
         raise RuntimeError(
             f"Unsupported Android build host/architecture: {sys.platform}/{platform.machine()}"
         )

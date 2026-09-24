@@ -147,8 +147,8 @@ setup-for-build: setup-rust setup-linux
 build platform profile arch="":
     {{ python }} -m scripts.build "{{ platform }}" "{{ profile }}" "{{ arch }}"
 
-run platform profile arch="": (build platform profile arch)
-    {{ python }} -m scripts.run "{{ platform }}" "{{ profile }}" "{{ arch }}"
+run platform profile: (build platform profile)
+    {{ python }} -m scripts.run "{{ platform }}" "{{ profile }}"
 
 setup-for-package: setup-for-build setup-package
 
