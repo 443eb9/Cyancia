@@ -100,7 +100,18 @@ impl Application {
         }
 
         #[cfg(target_os = "android")]
-        return iced_winit::run_android(self, android_app);
+        {
+            let mut font_system = iced_graphics::text::font_system()
+                .write()
+                .expect("Font system");
+            let db = font_system.raw().db_mut();
+            db.load_fonts_dir("/system/fonts");
+            db.set_sans_serif_family("Roboto");
+            log::info!("Loaded {} Android font faces", db.len());
+            drop(font_system);
+
+            return iced_winit::run_android(self, android_app);
+        }
 
         #[cfg(not(target_os = "android"))]
         iced_winit::run(self)
