@@ -15,7 +15,7 @@ The name "Lapiz" means pencil in Spanish. It looks like the English word "Lapis"
 
 ## Development
 
-Lapiz uses [just](https://just.systems/) for local builds. Install it alongside Rustup, Bash (Git Bash on Windows), Node.js matching [`.node-version`](.node-version), npm, and pipx, then run `just setup`. It prepares the desktop tools and the pinned Android build toolchain; Android setup also needs `curl`, a network connection, and acceptance of the SDK licenses. Use `just setup-base` or `just setup-android` to prepare only one side.
+Lapiz uses [just](https://just.systems/) for local builds. Install it alongside Rustup, Python 3, Bash (Git Bash on Windows), Node.js matching [`.node-version`](.node-version), npm, and pipx, then run `just setup`. It prepares the desktop tools and the pinned Android build toolchain; Android setup also needs a network connection and acceptance of the SDK licenses. Use `just setup-base` or `just setup-android` to prepare only one side.
 
 ```bash
 just test  # unit, documentation, and WGSL tests
@@ -26,25 +26,25 @@ just fmt   # format code
 ### Desktop
 
 ```bash
-just build dev   # compile Lapiz
-just run dev     # build and launch
-just run dev-local # keep app data under target/ and use local assets
-just package dev # build a distributable archive
+just build desktop dev     # compile Lapiz
+just run desktop dev       # build and launch
+just run desktop dev-local # keep app data under target/ and use local assets
+just package desktop dev   # build a distributable archive
 ```
 
-`build`, `run`, and `package` also accept `release`. Desktop packages, checksums, and debug symbols are written to `target/package/`.
+Desktop commands also accept `release`; `dev-local` is available for `run` only. Packages, checksums, and debug symbols are written to `target/package/`.
 
 ### Android
 
 Android toolchain versions are pinned in [`android/toolchain.properties`](android/toolchain.properties) and installed under `target/android-toolchain/`. Specify a Rust architecture for every command: `aarch64` (Android ABI `arm64-v8a`) or `x86_64` (Android ABI `x86_64`).
 
 ```bash
-just build-android dev aarch64       # APK for ARM64 devices
-just package-android release aarch64 # APK, native symbols, and checksums in target/package/
-just run-android dev x86_64          # build, launch a matching emulator, and stream logs
+just build android dev aarch64       # APK for ARM64 devices
+just package android release aarch64 # APK, native symbols, and checksums in target/package/
+just run android dev x86_64          # build, launch a matching emulator, and stream logs
 ```
 
-All three commands accept `dev` or `release` followed by the architecture. `run-android` needs Android Emulator and Platform Tools installed separately; it uses a connected emulator of the corresponding Android ABI or starts an installed matching AVD (`ANDROID_AVD` can name one). The release APK uses a **debug key for local testing only**.
+Android commands require `dev` or `release` and the architecture. `run` needs Android Emulator and Platform Tools installed separately; it uses a connected emulator whose primary ABI matches the build or starts an installed matching AVD (`ANDROID_AVD` can name one). To use an x86_64 AVD, select `x86_64` when building and running. The release APK uses a **debug key for local testing only**.
 
 ## LLM Assisted Contributions
 

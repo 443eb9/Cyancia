@@ -5,6 +5,7 @@
 /android/local.properties
 *.sqlite3
 *.modified
+__pycache__/
 .vscode
 .zed
 .claude

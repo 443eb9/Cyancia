@@ -48,7 +48,7 @@ jobs:
 
       - run: just test
 
-      - run: just package dev
+      - run: just package desktop dev
 
       - uses: actions/upload-artifact@v7
         with:
@@ -81,7 +81,7 @@ jobs:
           shared-key: android-dev
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
-      - run: just package-android dev aarch64
+      - run: just package android dev aarch64
 
       - uses: actions/upload-artifact@v7
         with:

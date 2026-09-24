@@ -1,0 +1,67 @@
+"""Build desktop binaries or Android APKs."""
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+from . import android
+
+REPO = Path(__file__).resolve().parent.parent
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("platform", choices=("desktop", "android"))
+    parser.add_argument("profile", choices=("dev", "dev-local", "release"))
+    parser.add_argument("arch", nargs="?")
+    args = parser.parse_args()
+
+    if args.platform == "desktop":
+        if args.arch:
+            parser.error("desktop does not accept an architecture")
+
+        command = ["cargo", "build"]
+        if args.profile == "release":
+            command.append("--release")
+        if args.profile == "dev-local":
+            command.extend(("--features", "lapiz_dirs/dev_local"))
+        subprocess.run([*command, "--locked"], check=True, cwd=REPO)
+    elif args.platform == "android":
+        if not args.arch:
+            parser.error("android requires an architecture: aarch64 or x86_64")
+        if args.profile == "dev-local":
+            parser.error("Android profile must be dev or release")
+
+        android.abi_for_arch(args.arch)
+        env = android.env_vars()
+        variant = "DevDebug" if args.profile == "dev" else "ProdRelease"
+        apk = REPO / (
+            "android/app/build/outputs/apk/dev/debug/app-dev-debug.apk"
+            if args.profile == "dev"
+            else "android/app/build/outputs/apk/prod/release/app-prod-release.apk"
+        )
+        apk.unlink(missing_ok=True)
+        wrapper = (
+            REPO / "android" / ("gradlew.bat" if sys.platform == "win32" else "gradlew")
+        )
+        subprocess.run(
+            [
+                wrapper,
+                f":app:assemble{variant}",
+                f"-PandroidArch={args.arch}",
+                "--console=plain",
+            ],
+            cwd=REPO / "android",
+            env=env,
+            check=True,
+        )
+    else:
+        parser.error("platform must be desktop or android")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
+        sys.exit(str(error))

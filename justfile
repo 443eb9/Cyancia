@@ -6,9 +6,8 @@ cargo-about-version := "0.9.2"
 reuse-version := "6.2.0"
 
 version := `cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name == "lapiz_app") | .version'`
-sha := `git rev-parse HEAD | cut -c1-7`
-target := `rustc -vV | sed -n 's/^host: //p'`
 os-name := os()
+python := if os-name == "windows" { "python" } else { "python3" }
 
 default:
     @just --list
@@ -20,7 +19,7 @@ setup-base: setup-rust setup-node setup-format setup-package setup-deny setup-re
 setup-ci: setup-base setup-ci-vulkan
 
 setup-android:
-    bash android/toolchain.sh setup
+    {{ python }} scripts/android.py
 
 setup-rust:
     cargo --version
@@ -145,34 +144,16 @@ check-reuse:
 
 setup-for-build: setup-rust setup-linux
 
-build profile:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    case "{{ profile }}" in
-        dev) cargo build --locked ;;
-        release) cargo build --release --locked ;;
-        *) echo "profile must be dev or release" >&2; exit 2 ;;
-    esac
+build platform profile arch="":
+    {{ python }} -m scripts.build "{{ platform }}" "{{ profile }}" "{{ arch }}"
 
-build-android profile arch:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    case "{{ profile }}" in
-        dev)
-            variant=DevDebug
-            apk=android/app/build/outputs/apk/dev/debug/app-dev-debug.apk
-            ;;
-        release)
-            variant=ProdRelease
-            apk=android/app/build/outputs/apk/prod/release/app-prod-release.apk
-            ;;
-        *) echo "profile must be dev or release" >&2; exit 2 ;;
-    esac
-    source android/toolchain.sh
-    android_abi_for_arch "{{ arch }}" > /dev/null
-    use_toolchain
-    rm -f "$apk"
-    (cd android && ./gradlew ":app:assemble${variant}" -PandroidArch="{{ arch }}" --console=plain)
+run platform profile arch="": (build platform profile arch)
+    {{ python }} -m scripts.run "{{ platform }}" "{{ profile }}" "{{ arch }}"
+
+setup-for-package: setup-for-build setup-package
+
+package platform profile arch="": (build platform profile arch)
+    {{ python }} -m scripts.package "{{ platform }}" "{{ profile }}" "{{ arch }}"
 
 sync-iced-winit ref="HEAD":
     #!/usr/bin/env bash
@@ -188,153 +169,6 @@ sync-iced-winit ref="HEAD":
     git diff --binary "$base" "$next" -- winit | git apply --3way -p2 --directory=vendor/iced_winit
     printf '%s\n' "$next" > vendor/iced_winit/.upstream-rev
 
-run profile:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    case "{{ profile }}" in
-        dev) cargo run --locked ;;
-        dev-local) cargo run --locked --features lapiz_dirs/dev_local ;;
-        release) cargo run --release --locked ;;
-        *) echo "profile must be dev, dev-local or release" >&2; exit 2 ;;
-    esac
-
-package-android profile arch: (build-android profile arch)
-    #!/usr/bin/env bash
-    set -euo pipefail
-    source android/toolchain.sh
-    rust_target="$(rust_target_for_arch "{{ arch }}")"
-    case "{{ profile }}" in
-        dev)
-            apk=android/app/build/outputs/apk/dev/debug/app-dev-debug.apk
-            cargo_profile=android-dev
-            ver="{{ version }}-dev"
-            ;;
-        release)
-            apk=android/app/build/outputs/apk/prod/release/app-prod-release.apk
-            cargo_profile=release
-            ver="{{ version }}"
-            ;;
-        *) echo "profile must be dev or release" >&2; exit 2 ;;
-    esac
-
-    symbols="target/$rust_target/$cargo_profile/liblapiz_app.so"
-    name="lapiz-$ver-{{ sha }}-android-{{ arch }}"
-    archive="target/package/$name.apk"
-    debug_symbols="target/package/$name-liblapiz_app.so"
-    checksum="target/package/$name.sha256"
-    mkdir -p target/package
-    cp "$apk" "$archive"
-    cp "$symbols" "$debug_symbols"
-    if command -v sha256sum >/dev/null; then
-        (cd target/package && sha256sum "$name.apk" "$name-liblapiz_app.so" > "$name.sha256")
-    else
-        (cd target/package && shasum -a 256 "$name.apk" "$name-liblapiz_app.so" > "$name.sha256")
-    fi
-    echo "Packaged: $archive + $debug_symbols + $checksum"
-
-run-android profile arch: (build-android profile arch)
-    #!/usr/bin/env bash
-    set -euo pipefail
-    emulator_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-${LOCALAPPDATA:-}/Android/Sdk}}"
-    if command -v cygpath >/dev/null; then
-        emulator_sdk="$(cygpath -u "$emulator_sdk")"
-        export ANDROID_HOME="$(cygpath -w "$emulator_sdk")"
-    else
-        export ANDROID_HOME="$emulator_sdk"
-    fi
-    if [ "{{ os-name }}" = "windows" ]; then
-        adb="$emulator_sdk/platform-tools/adb.exe"
-        emulator="$emulator_sdk/emulator/emulator.exe"
-    else
-        adb="$emulator_sdk/platform-tools/adb"
-        emulator="$emulator_sdk/emulator/emulator"
-    fi
-    case "{{ profile }}" in
-        dev)
-            apk=android/app/build/outputs/apk/dev/debug/app-dev-debug.apk
-            application_id=dbg.lapiz.dev
-            ;;
-        release)
-            apk=android/app/build/outputs/apk/prod/release/app-prod-release.apk
-            application_id=app.lapiz.dev
-            ;;
-        *) echo "profile must be dev or release" >&2; exit 2 ;;
-    esac
-    if [ ! -f "$apk" ]; then
-        echo "Android APK not found; run 'just build-android {{ profile }} {{ arch }}' first" >&2
-        exit 1
-    fi
-    source android/toolchain.sh
-    android_abi="$(android_abi_for_arch "{{ arch }}")"
-
-    matching_emulator() {
-        local serial guest_abi
-        while read -r serial; do
-            guest_abi="$(MSYS_NO_PATHCONV=1 "$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r')"
-            if [ "$guest_abi" = "$android_abi" ]; then
-                printf '%s\n' "$serial"
-                return 0
-            fi
-        done < <("$adb" devices | awk '$1 ~ /^emulator-[0-9]+$/ {gsub(/\r/, "", $2); if ($2 == "device") print $1}')
-        return 1
-    }
-
-    serial="$(matching_emulator || true)"
-    if [ -z "$serial" ]; then
-        avd_home="${ANDROID_AVD_HOME:-${ANDROID_USER_HOME:-$HOME/.android}/avd}"
-        if command -v cygpath >/dev/null; then avd_home="$(cygpath -u "$avd_home")"; fi
-
-        avd_abi() {
-            local ini="$avd_home/$1.ini" path
-            [ -f "$ini" ] || return 1
-            path="$(awk -F= '$1 == "path" {sub(/\r$/, ""); print substr($0, 6); exit}' "$ini")"
-            [ -n "$path" ] || return 1
-            if command -v cygpath >/dev/null; then path="$(cygpath -u "$path")"; fi
-            [ -f "$path/config.ini" ] || return 1
-            awk -F= '$1 == "abi.type" {gsub(/\r/, "", $2); print $2; exit}' "$path/config.ini"
-        }
-
-        avd="${ANDROID_AVD:-}"
-        if [ -z "$avd" ]; then
-            while IFS= read -r candidate; do
-                candidate="${candidate%$'\r'}"
-                if [ "$(avd_abi "$candidate" || true)" = "$android_abi" ]; then
-                    avd="$candidate"
-                    break
-                fi
-            done < <("$emulator" -list-avds)
-        fi
-        if [ -z "$avd" ] || [ "$(avd_abi "$avd" || true)" != "$android_abi" ]; then
-            echo "No AVD for $android_abi found; create one or set ANDROID_AVD to a matching AVD" >&2
-            exit 1
-        fi
-        "$emulator" -avd "$avd" -gpu "${ANDROID_EMULATOR_GPU:-host}" -no-snapshot-load > /dev/null 2>&1 < /dev/null &
-        for ((attempt=0; attempt<120; attempt++)); do
-            serial="$(matching_emulator || true)"
-            [ -n "$serial" ] && break
-            sleep 2
-        done
-        if [ -z "$serial" ]; then
-            echo "Emulator for $android_abi did not become available" >&2
-            exit 1
-        fi
-    fi
-
-    booted=
-    for ((attempt=0; attempt<120; attempt++)); do
-        booted="$(MSYS_NO_PATHCONV=1 "$adb" -s "$serial" shell getprop sys.boot_completed | tr -d '\r')"
-        [ "$booted" = 1 ] && break
-        sleep 2
-    done
-    if [ "$booted" != 1 ]; then
-        echo "Emulator $serial did not finish booting" >&2
-        exit 1
-    fi
-    "$adb" -s "$serial" install -r "$apk"
-    "$adb" -s "$serial" logcat -c
-    MSYS_NO_PATHCONV=1 "$adb" -s "$serial" shell am start -n "$application_id/app.lapiz.dev.LapizActivity"
-    "$adb" -s "$serial" logcat -v time -s RustStdoutStderr:V AndroidRuntime:E libc:F
-
 verify-release-tag tag:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -343,124 +177,3 @@ verify-release-tag tag:
         echo "tag {{ tag }} does not match lapiz_app version $expected" >&2
         exit 1
     fi
-
-setup-for-package: setup-for-build setup-package
-
-package profile: (build profile)
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    case "{{ profile }}" in
-        dev)
-            bindir=target/debug
-            ver="{{ version }}-dev"
-            ;;
-        release)
-            bindir=target/release
-            ver="{{ version }}"
-            ;;
-        *)
-            echo "profile must be dev or release" >&2
-            exit 2
-            ;;
-    esac
-
-    host_target="{{ target }}"
-    case "$host_target" in
-        x86_64-*) arch=x86_64 ;;
-        aarch64-*) arch=arm64 ;;
-        *) arch="${host_target%%-*}" ;;
-    esac
-
-    if [ "{{ os-name }}" = "windows" ]; then
-        binary=lapiz_app.exe
-        ext=zip
-    else
-        binary=lapiz_app
-        ext=tar.gz
-    fi
-
-    name="lapiz-$ver-{{ sha }}-{{ os-name }}-$arch"
-    staging="target/package/$name"
-    archive="target/package/$name.$ext"
-    checksum="target/package/$name.sha256"
-    third_party="$staging/THIRD_PARTY_LICENSES.html"
-
-    case "$staging" in
-        target/package/lapiz-*) ;;
-        *) echo "unsafe staging path: $staging" >&2; exit 1 ;;
-    esac
-
-    mkdir -p target/package
-    if [ -e "$staging" ]; then
-        find "$staging" -depth -delete
-    fi
-    mkdir -p "$staging"
-
-    # TODO: We should embed everything inside the binary, including licenses, readme, and
-    #       builtin assets. The uploaded artifact should only contains the binary, checksum
-    #       and debug symbols.
-    cp "$bindir/$binary" "$staging/"
-    cp README.md LICENSE "$staging/"
-    cp LICENSES/MIT.txt "$staging/MIT.txt"
-
-    case "{{ os-name }}" in
-        linux)
-            debug_symbols="target/package/$name.debug"
-            objcopy --only-keep-debug "$staging/$binary" "$debug_symbols"
-            strip --strip-debug "$staging/$binary"
-            objcopy --add-gnu-debuglink="$debug_symbols" "$staging/$binary"
-            ;;
-        macos)
-            dsym="target/package/$name.dSYM"
-            debug_symbols="$dsym.tar.gz"
-            rm -rf "$dsym" "$debug_symbols"
-            dsymutil "$staging/$binary" -o "$dsym"
-            strip -S "$staging/$binary"
-            tar -C target/package -czf "$debug_symbols" "$name.dSYM"
-            rm -rf "$dsym"
-            ;;
-        windows)
-            debug_symbols="target/package/$name.pdb"
-            if [ ! -f "$bindir/lapiz_app.pdb" ]; then
-                echo "missing debug symbols: $bindir/lapiz_app.pdb" >&2
-                exit 1
-            fi
-            cp "$bindir/lapiz_app.pdb" "$debug_symbols"
-            ;;
-        *)
-            echo "unsupported packaging platform: {{ os-name }}" >&2
-            exit 1
-            ;;
-    esac
-
-    cargo about generate about.hbs --output-file "$third_party"
-
-    # Include only tracked assets that are not matched by .gitignore.
-    # During local development, we may introduce some external assets for testing
-    # like bundles created by someone else. They should not be included in the
-    # packaged output.
-    while IFS= read -r -d '' source; do
-        if git check-ignore --no-index -q -- "$source"; then
-            echo "Excluded ignored asset: $source"
-            continue
-        fi
-        destination="$staging/$source"
-        mkdir -p "$(dirname "$destination")"
-        cp "$source" "$destination"
-    done < <(git ls-files -z -- assets)
-
-    rm -f "$archive" "$checksum"
-    if [ "$ext" = zip ]; then
-        /c/Windows/System32/tar.exe -C target/package -caf "$archive" "$name"
-    else
-        tar -C target/package -czf "$archive" "$name"
-    fi
-
-    if command -v sha256sum >/dev/null; then
-        (cd target/package && sha256sum "$name.$ext" > "$name.sha256")
-    else
-        (cd target/package && shasum -a 256 "$name.$ext" > "$name.sha256")
-    fi
-
-    echo "Packaged: $archive + $checksum + $debug_symbols"
