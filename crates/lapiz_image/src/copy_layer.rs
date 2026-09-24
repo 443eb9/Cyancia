@@ -11,6 +11,7 @@ use wgpu::{
 };
 
 use crate::{
+    image,
     texel::TexelType,
     tile::{GpuTileInfo, GpuTileStorage, LayerBinding},
 };
@@ -29,7 +30,7 @@ impl CopyLayerPipeline {
     pub fn new(device: &Device, format: TexelType) -> Self {
         let shader = wesl_jit::compile_wesl_with_config(
             include_str!("copy_layer.wesl").into(),
-            &[&crate::image::PACKAGE],
+            &[&image::PACKAGE],
             |compiler| {
                 compiler.set_feature(format.shader_def(), true);
             },

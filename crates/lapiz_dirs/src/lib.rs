@@ -1,3 +1,5 @@
+#[cfg(not(feature = "dev_local"))]
+use std::env;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -13,11 +15,11 @@ static CONFIG_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     let path = PathBuf::new().join("target").join("configs");
 
     #[cfg(not(feature = "dev_local"))]
-    let path = if let Ok(dir) = std::env::var("CONFIG_DIR") {
+    let path = if let Ok(dir) = env::var("CONFIG_DIR") {
         PathBuf::from(dir)
     } else if let Some(dir) = BASE_DIRS.as_ref() {
         dir.config_local_dir().join("lapiz").join("configs")
-    } else if let Ok(dir) = std::env::current_exe() {
+    } else if let Ok(dir) = env::current_exe() {
         dir.parent().unwrap().join("configs")
     } else {
         PathBuf::from("configs")
@@ -36,11 +38,11 @@ static CACHE_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     let path = PathBuf::new().join("target").join("cache");
 
     #[cfg(not(feature = "dev_local"))]
-    let path = if let Ok(dir) = std::env::var("CACHE_DIR") {
+    let path = if let Ok(dir) = env::var("CACHE_DIR") {
         PathBuf::from(dir)
     } else if let Some(dir) = BASE_DIRS.as_ref() {
         dir.cache_dir().join("lapiz")
-    } else if let Ok(dir) = std::env::current_exe() {
+    } else if let Ok(dir) = env::current_exe() {
         dir.parent().unwrap().join("cache")
     } else {
         PathBuf::from("cache")
@@ -59,11 +61,11 @@ static PANIC_REPORTS_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     let path = PathBuf::new().join("target").join("panic_reports");
 
     #[cfg(not(feature = "dev_local"))]
-    let path = if let Ok(dir) = std::env::var("PANIC_REPORTS_DIR") {
+    let path = if let Ok(dir) = env::var("PANIC_REPORTS_DIR") {
         PathBuf::from(dir)
     } else if let Some(dir) = BASE_DIRS.as_ref() {
         dir.cache_dir().join("lapiz").join("panic_reports")
-    } else if let Ok(dir) = std::env::current_exe() {
+    } else if let Ok(dir) = env::current_exe() {
         dir.parent().unwrap().join("panic_reports")
     } else {
         PathBuf::from("panic_reports")
@@ -82,11 +84,11 @@ static REPORTS_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     let path = PathBuf::new().join("target").join("reports");
 
     #[cfg(not(feature = "dev_local"))]
-    let path = if let Ok(dir) = std::env::var("REPORTS_DIR") {
+    let path = if let Ok(dir) = env::var("REPORTS_DIR") {
         PathBuf::from(dir)
     } else if let Some(dir) = BASE_DIRS.as_ref() {
         dir.cache_dir().join("lapiz").join("reports")
-    } else if let Ok(dir) = std::env::current_exe() {
+    } else if let Ok(dir) = env::current_exe() {
         dir.parent().unwrap().join("reports")
     } else {
         PathBuf::from("reports")
@@ -105,11 +107,11 @@ static ASSETS_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     let path = PathBuf::from("assets");
 
     #[cfg(not(feature = "dev_local"))]
-    let path = if let Ok(dir) = std::env::var("ASSETS_DIR") {
+    let path = if let Ok(dir) = env::var("ASSETS_DIR") {
         PathBuf::from(dir)
     } else if let Some(dir) = BASE_DIRS.as_ref() {
         dir.data_dir().join("lapiz").join("assets")
-    } else if let Ok(dir) = std::env::current_exe() {
+    } else if let Ok(dir) = env::current_exe() {
         dir.parent().unwrap().join("assets")
     } else {
         PathBuf::from("assets")

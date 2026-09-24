@@ -1,7 +1,11 @@
 use std::sync::LazyLock;
 
 use iced::{Element, Length, Task, Theme, window};
-use iced_widget::{svg, tooltip::Position};
+use iced_widget::{
+    button::{Status, Style},
+    svg,
+    tooltip::Position,
+};
 use lapiz_canvas::CanvasToolProxyAppExt as _;
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;
@@ -75,11 +79,8 @@ impl Dock for ToolBoxDock {
                 .padding(8)
                 .style(move |theme, status| {
                     let p = theme.palette();
-                    let hovered = matches!(
-                        status,
-                        iced_widget::button::Status::Hovered | iced_widget::button::Status::Pressed
-                    );
-                    iced_widget::button::Style {
+                    let hovered = matches!(status, Status::Hovered | Status::Pressed);
+                    Style {
                         background: Some(
                             if selected {
                                 p.primary.base.color

@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use lapiz_utils::wrapper;
 use parse_display::Display;
+use rusqlite::types::{self, FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -13,14 +14,14 @@ wrapper! {
     pub TagId : Uuid
 }
 
-impl rusqlite::types::FromSql for TagId {
-    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+impl FromSql for TagId {
+    fn column_result(value: types::ValueRef<'_>) -> types::FromSqlResult<Self> {
         Ok(Self(Uuid::column_result(value)?))
     }
 }
 
-impl rusqlite::types::ToSql for TagId {
-    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+impl ToSql for TagId {
+    fn to_sql(&self) -> rusqlite::Result<types::ToSqlOutput<'_>> {
         self.0.to_sql()
     }
 }

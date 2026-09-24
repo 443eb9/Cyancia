@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{f32::consts::TAU, sync::Arc};
 
 use glam::Vec2;
 use iced_core::{
@@ -157,7 +157,7 @@ impl ColorSelectorState {
                 if config.reversed_ring {
                     angle = -angle;
                 }
-                let factor = (angle / std::f32::consts::TAU).rem_euclid(1.0);
+                let factor = (angle / TAU).rem_euclid(1.0);
                 let channel = self.plane_primary_channel(index, config) as usize;
                 let mut channels = config.model.channels(self.color, &self.profile);
                 let range = config.model.channel_ranges()[channel];

@@ -1,17 +1,27 @@
-use std::{fmt::Display, ops::RangeBounds, str::FromStr};
+use std::{
+    fmt::Display,
+    ops::{Bound, RangeBounds},
+    slice,
+    str::FromStr,
+};
 
 use iced_core::{
     Border, Element, Event, Layout, Length, Point, Radians, Rectangle, Renderer as _, Shell, Size,
     Theme, Widget, keyboard, layout, pointer,
     pointer::mouse,
-    renderer, svg,
+    renderer,
+    shell::Bus,
+    svg,
     svg::Renderer as _,
     widget::{Operation, Tree, tree},
 };
 use iced_widget::text_input;
 use lapiz_runtime::Renderer;
 
-use crate::callback::{CallbackWith, publish_with};
+use crate::{
+    callback::{CallbackWith, publish_with},
+    text_input::{default, is_focused},
+};
 
 const STEPPER_WIDTH: f32 = 16.0;
 const DEFAULT_WIDTH: f32 = 80.0;
@@ -42,9 +52,9 @@ where
         bounds: impl RangeBounds<T>,
         on_change: impl Fn(T) -> Message + 'a,
     ) -> Self {
-        let bound = |bound: std::ops::Bound<&T>| match bound {
-            std::ops::Bound::Included(value) | std::ops::Bound::Excluded(value) => Some(*value),
-            std::ops::Bound::Unbounded => None,
+        let bound = |bound: Bound<&T>| match bound {
+            Bound::Included(value) | Bound::Excluded(value) => Some(*value),
+            Bound::Unbounded => None,
         };
         let text = value.to_string();
         Self {
@@ -64,7 +74,7 @@ where
             .on_input(InternalMessage::Changed)
             .size(12.0)
             .padding([3.0, 6.0])
-            .style(crate::text_input::default)
+            .style(default)
     }
 
     pub fn step(mut self, step: T) -> Self {
@@ -171,7 +181,7 @@ where
 
     fn diff(&mut self, tree: &mut Tree) {
         tree.diff_children_custom(
-            std::slice::from_mut(&mut self.content),
+            slice::from_mut(&mut self.content),
             |tree, content| content.diff(tree),
             |content| Tree {
                 tag: content.tag(),
@@ -213,7 +223,7 @@ where
             .position()
             .and_then(|position| stepper_at(bounds, position));
 
-        let mut messages = iced_core::shell::Bus::new();
+        let mut messages = Bus::new();
         let mut sub_shell = shell.local(&mut messages);
 
         match event {
@@ -234,7 +244,7 @@ where
             Event::Keyboard(keyboard::Event::KeyPressed { key, text, .. }) => {
                 let is_focused = {
                     let probe = &mut self.content;
-                    crate::text_input::is_focused(|operation| {
+                    is_focused(|operation| {
                         probe.operate(
                             &mut tree.children[0],
                             layout.children().next().expect("content layout"),
@@ -285,7 +295,7 @@ where
 
         {
             let probe = &mut self.content;
-            let is_focused = crate::text_input::is_focused(|operation| {
+            let is_focused = is_focused(|operation| {
                 probe.operate(
                     &mut tree.children[0],
                     layout.children().next().expect("content layout"),

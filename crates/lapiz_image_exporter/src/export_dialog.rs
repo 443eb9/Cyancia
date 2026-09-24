@@ -1,8 +1,12 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Result;
+use futures::executor::block_on;
 use iced_core::{Alignment, Element, Length, Size, Theme, window};
-use iced_runtime::Task;
+use iced_runtime::{
+    Task,
+    window::{close, open},
+};
 use iced_widget::{Space, column, row};
 use lapiz_canvas::{CanvasAppExt as _, CanvasId};
 use lapiz_config::Config;
@@ -70,7 +74,7 @@ impl WindowView for ExportDialogView {
             .service::<SilentSaveCanvases>()
             .contains(pending.canvas_id);
 
-        let (window, open) = iced_runtime::window::open(window::Settings {
+        let (window, open) = open(window::Settings {
             size: Size {
                 width: 420.0,
                 height: 300.0,
@@ -157,8 +161,7 @@ impl WindowView for ExportDialogView {
                 };
 
                 // TODO use async
-                futures::executor::block_on(self.adapter.export(services, canvas, &self.path))
-                    .log_err();
+                block_on(self.adapter.export(services, canvas, &self.path)).log_err();
                 let silent_saves = services.service_mut::<SilentSaveCanvases>();
                 if self.dont_ask_again {
                     silent_saves.insert(self.canvas_id);
@@ -175,14 +178,14 @@ impl WindowView for ExportDialogView {
                         }
                     })
                     .log_err();
-                iced_runtime::window::close(self.window)
+                close(self.window)
             }
-            ExportDialogMessage::Cancel => iced_runtime::window::close(self.window),
+            ExportDialogMessage::Cancel => close(self.window),
         }
     }
 
     fn close(self, _: &mut Services) -> Task<()> {
-        iced_runtime::window::close(self.window)
+        close(self.window)
     }
 
     fn windows(&self) -> Arc<[window::Id]> {

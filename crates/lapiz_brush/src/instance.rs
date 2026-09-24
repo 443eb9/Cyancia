@@ -1,332 +1,161 @@
 use std::{
-    fmt::Display,
+    collections::BTreeMap,
     sync::{Arc, LazyLock},
 };
 
-use lapiz_assets::asset::{AssetHandle, AssetId};
-use lapiz_render::wesl_jit;
+use anyhow::{Context as _, Result, bail};
+use indexmap::IndexMap;
+use lapiz_assets::{
+    asset::{AssetHandle, AssetId},
+    store::AssetRegistry,
+};
+use lapiz_effect::{
+    asset::{EffectInputSlotId, EffectOutputSlotId, EffectPassInputSlotId, EffectPassOutputSlotId},
+    instance::{EffectInputs, EffectInstance},
+    nodes::{PassInput, PassInputNode, PassOutput, PassOutputNode},
+    render::{EffectRenderer, pass_input_ident, pass_output_ident},
+};
+use lapiz_image::{image, texel::TexelType};
+use lapiz_render::{bind_group_layout_entries::DynamicBindGroupLayoutEntries, render, wesl_jit};
 use lapiz_shader_graph::{
     graph::{
-        Graph, GraphResources,
-        external::{
-            ExternalVariable, ExternalVariableId, GraphExternalVariableStorage,
-            generate_external_variable_binding,
-        },
-        function::{GraphFunction, SharedGraphFunctionStorage},
+        GraphResources, GraphVarIdentGenerator,
+        function::GraphFunction,
         node::GraphNodeRegistry,
-        slot::ErasedGraphLiteralUpdateMessage,
-        texture::{GraphTextureUsageRecorder, SharedGraphTextureStorage, TextureId},
-        variable::GraphTypeRegistry,
+        slot::{ErasedGraphLiteralUpdateMessage, ErasedGraphValueType, GraphShaderStage},
+        variable::{GraphLiteral, GraphShaderLiteral},
     },
-    save::{GraphDeserializeError, SerializableExternalVariable},
-    wgsl_std::{builtin_nodes, builtin_types, nodes::TimeNode},
+    save::SerializableGraphLiteral,
 };
+use wgpu::{BindGroupLayoutEntry, Device, Queue, ShaderStages};
 
 use crate::{
-    asset::{BrushPreset, BrushPresetMetadata},
+    asset::{BrushPreset, BrushPresetMetadata, SerializableBrushParameter},
+    brush,
     render::graph::{
-        BackgroundColorNode, BlendColorNode, BlendWithInputNode, BlendWithLayerNode,
-        BrushMainGraphData, BrushRequiredSpacingGraphData, BrushStrokePostprocessGraphData,
-        CurrentPixelColorNode, DabIndexNode, DrawDirectionNode, EllipticalMaskNode,
-        FilterWithinBoundsNode, FilterWithinMaskNode, ForegroundColorNode,
-        InitialDrawDirectionNode, InitialPenAngleNode, InitialPenPositionNode,
-        InitialPenPressureNode, InitialPenTiltNode, LayerPixelColorNode, OutputBoundsNode,
-        OutputColorNode, OutputRequiredSpacingNode, PasteTextureNode, PenAngleNode,
-        PenPositionNode, PenPressureNode, PenTiltNode, PixelPositionNode, SelectionMaskNode,
-        StrokeBoundsNode, StrokeDistanceNode,
+        BRUSH_GRAPH_TYPES, MAIN_DAB_BUFFER, SPACING_OUTPUT, STROKE_RESULT, brush_builtin_types,
+        brush_graph_resources, main_builtin_types, main_graph_nodes, postprocess_builtin_types,
+        postprocess_graph_nodes, spacing_graph_nodes,
     },
 };
 
-pub struct CompiledGraph {
-    pub main: String,
-    pub bounds_eval: String,
+const SPACING_RESOURCE_GROUP: u32 = 1;
+
+#[derive(Clone)]
+pub struct BrushParameter {
+    pub name: String,
+    pub value: GraphLiteral,
 }
 
 pub struct CompiledBrushPreset {
-    pub input_sampling: String,
-    pub main_graph: CompiledGraph,
-    pub stroke_postprocess_graphs: Vec<CompiledGraph>,
-    pub texture_usage: Vec<TextureId>,
-    pub external_vars: Arc<GraphExternalVariableStorage>,
-}
-
-impl Display for CompiledBrushPreset {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "-------------- Compiled brush preset --------------")?;
-
-        writeln!(
-            f,
-            "-------------- Input sampling shader -------------- \n{}",
-            self.input_sampling
-        )?;
-
-        writeln!(
-            f,
-            "-------------- Main graph shader -------------- \n{}",
-            self.main_graph.main
-        )?;
-
-        writeln!(
-            f,
-            "-------------- Main graph bounds eval shader -------------- \n{}",
-            self.main_graph.bounds_eval
-        )?;
-
-        for (i, graph) in self.stroke_postprocess_graphs.iter().enumerate() {
-            writeln!(
-                f,
-                "-------------- Stroke postprocess graph shader {} -------------- \n{}",
-                i, graph.main
-            )?;
-
-            writeln!(
-                f,
-                "-------------- Stroke postprocess graph bounds eval shader {} -------------- \n{}",
-                i, graph.bounds_eval
-            )?;
-        }
-
-        writeln!(f, "-------------- Texture usages --------------")?;
-        for usage in &self.texture_usage {
-            writeln!(f, "  - {}", usage)?;
-        }
-        Ok(())
-    }
+    pub spacing: String,
+    pub spacing_resource_layouts: Vec<BindGroupLayoutEntry>,
+    pub spacing_builtin_types: BTreeMap<String, Arc<dyn ErasedGraphValueType>>,
+    pub spacing_parameters: Arc<[GraphLiteral]>,
+    pub main: EffectRenderer,
+    pub postprocess: EffectRenderer,
+    pub main_inputs: EffectInputs,
+    pub postprocess_inputs: EffectInputs,
+    pub main_dab_output: EffectOutputSlotId,
+    pub postprocess_output: EffectOutputSlotId,
 }
 
 pub struct BrushPresetInstance {
     brush_id: Option<AssetId<BrushPreset>>,
     metadata: BrushPresetMetadata,
 
-    textures: SharedGraphTextureStorage,
-    functions: SharedGraphFunctionStorage,
-    required_spacing_graph: Graph<BrushRequiredSpacingGraphData>,
-    main_graph: Graph<BrushMainGraphData>,
-    stroke_postprocess_graphs: Vec<Graph<BrushStrokePostprocessGraphData>>,
-    external_vars: Arc<GraphExternalVariableStorage>,
+    spacing_effect: EffectInstance,
+    main_effect: EffectInstance,
+    postprocess_effect: EffectInstance,
+    parameters: IndexMap<EffectInputSlotId, BrushParameter>,
 }
 
 impl BrushPresetInstance {
-    pub fn new(
-        preset: &BrushPreset,
-        textures: SharedGraphTextureStorage,
-        functions: SharedGraphFunctionStorage,
-    ) -> (Option<Self>, Vec<GraphDeserializeError>) {
-        let external_vars = preset
-            .external_vars
-            .iter()
-            .filter_map(|var| {
-                var.deserialize(BRUSH_GRAPH_TYPES.as_ref())
-                    .inspect_err(|err| {
-                        log::error!(
-                            "Error deserializing external variable '{}': {}",
-                            var.name,
-                            err
-                        );
+    pub fn from_asset(handle: &AssetHandle<BrushPreset>, assets: AssetRegistry) -> Result<Self> {
+        let preset = handle
+            .get()
+            .map_err(|error| anyhow::anyhow!("Brush preset asset is not loaded yet: {error}"))?;
+        let mut instance = Self::new(&preset, assets)?;
+        instance.brush_id = Some(handle.id());
+        Ok(instance)
+    }
+
+    pub fn new(preset: &BrushPreset, assets: AssetRegistry) -> Result<Self> {
+        let spacing_effect = EffectInstance::from_asset(
+            &preset.spacing_effect,
+            spacing_effect_resources(assets.clone()),
+        )?;
+        let main_effect =
+            EffectInstance::from_asset(&preset.main_effect, main_effect_resources(assets.clone()))?;
+        let postprocess_effect = EffectInstance::from_asset(
+            &preset.postprocess_effect,
+            postprocess_effect_resources(assets.clone()),
+        )?;
+
+        let mut parameters = IndexMap::new();
+        for effect in [&spacing_effect, &main_effect, &postprocess_effect] {
+            for (id, slot) in &effect.inputs {
+                let value = preset
+                    .parameters
+                    .get(id)
+                    .and_then(|persisted| {
+                        persisted
+                            .value
+                            .deserialize(BRUSH_GRAPH_TYPES.as_ref(), &assets)
+                            .map_err(|error| {
+                                log::warn!(
+                                    "Brush parameter '{}' failed to deserialize, using default: {error}",
+                                    slot.name
+                                );
+                                error
+                            })
+                            .ok()
                     })
-                    .ok()
+                    .unwrap_or_else(|| {
+                        GraphLiteral::new_boxed(slot.ty.default_literal(), slot.ty.clone())
+                    });
+                parameters.insert(
+                    *id,
+                    BrushParameter {
+                        name: slot.name.clone(),
+                        value,
+                    },
+                );
+            }
+        }
+
+        Ok(Self {
+            brush_id: None,
+            metadata: preset.metadata.clone(),
+            spacing_effect,
+            main_effect,
+            postprocess_effect,
+            parameters,
+        })
+    }
+
+    pub fn as_asset(&self, assets: &AssetRegistry) -> Result<BrushPreset> {
+        let parameters = self
+            .parameters
+            .iter()
+            .map(|(id, parameter)| {
+                Ok((
+                    *id,
+                    SerializableBrushParameter {
+                        name: parameter.name.clone(),
+                        value: SerializableGraphLiteral::serialize(&parameter.value, assets)?,
+                    },
+                ))
             })
-            .collect::<Vec<_>>();
-        let external_vars = Arc::new(GraphExternalVariableStorage::new(external_vars));
-
-        let mut errors = Vec::new();
-
-        let required_spacing_graph = {
-            let (g, e) = Graph::<BrushRequiredSpacingGraphData>::from_serialized(
-                &preset.required_spacing_graph,
-                GraphResources {
-                    type_registry: BRUSH_GRAPH_TYPES.clone(),
-                    node_registry: REQUIRED_SPACING_GRAPH_NODES.clone(),
-                    textures: textures.clone(),
-                    functions: functions.clone(),
-                    external_vars: external_vars.clone(),
-                },
-            );
-            errors.extend(e);
-            match g {
-                Some(g) => g,
-                None => return (None, errors),
-            }
-        };
-
-        let main_graph = {
-            let (g, e) = Graph::from_serialized(
-                &preset.main_graph,
-                GraphResources {
-                    type_registry: BRUSH_GRAPH_TYPES.clone(),
-                    node_registry: MAIN_GRAPH_NODES.clone(),
-                    textures: textures.clone(),
-                    functions: functions.clone(),
-                    external_vars: external_vars.clone(),
-                },
-            );
-            errors.extend(e);
-            match g {
-                Some(g) => g,
-                None => return (None, errors),
-            }
-        };
-
-        let mut stroke_postprocess_graphs =
-            Vec::with_capacity(preset.stroke_postprocess_graphs.len());
-        for serialized in &preset.stroke_postprocess_graphs {
-            let (g, e) = Graph::from_serialized(
-                serialized,
-                GraphResources {
-                    type_registry: BRUSH_GRAPH_TYPES.clone(),
-                    node_registry: STROKE_POSTPROCESS_GRAPH_NODES.clone(),
-                    textures: textures.clone(),
-                    functions: functions.clone(),
-                    external_vars: external_vars.clone(),
-                },
-            );
-            errors.extend(e);
-            match g {
-                Some(g) => stroke_postprocess_graphs.push(g),
-                None => return (None, errors),
-            }
-        }
-
-        (
-            Some(Self {
-                textures,
-                functions,
-                brush_id: None,
-                metadata: preset.metadata.clone(),
-                required_spacing_graph,
-                main_graph,
-                stroke_postprocess_graphs,
-                external_vars,
-            }),
-            errors,
-        )
-    }
-
-    pub fn from_asset(
-        handle: &AssetHandle<BrushPreset>,
-        textures: SharedGraphTextureStorage,
-        functions: SharedGraphFunctionStorage,
-    ) -> (Option<Self>, Vec<GraphDeserializeError>) {
-        let preset = handle.get().unwrap();
-        let (mut instance, errors) = Self::new(&preset, textures, functions);
-        if let Some(instance) = instance.as_mut() {
-            instance.brush_id = Some(handle.id());
-        }
-        (instance, errors)
-    }
-
-    pub fn as_asset(&self) -> anyhow::Result<BrushPreset> {
-        let required_spacing_graph = self.required_spacing_graph.as_serialized()?;
-        let main_graph = self.main_graph.as_serialized()?;
-        let stroke_postprocess_graphs = self
-            .stroke_postprocess_graphs
-            .iter()
-            .map(Graph::as_serialized)
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        let external_vars = self
-            .external_vars
-            .all()
-            .iter()
-            .map(|entry| SerializableExternalVariable::serialize(entry.value()))
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<_>>()?;
 
         Ok(BrushPreset {
             metadata: self.metadata.clone(),
-            required_spacing_graph,
-            main_graph,
-            stroke_postprocess_graphs,
-            external_vars,
+            spacing_effect: self.spacing_effect.as_asset()?,
+            main_effect: self.main_effect.as_asset()?,
+            postprocess_effect: self.postprocess_effect.as_asset()?,
+            parameters,
         })
-    }
-
-    #[tracing::instrument(skip_all, name = "compile_brush_preset")]
-    pub fn compile(&self, mut existing_binding_count: u32) -> anyhow::Result<CompiledBrushPreset> {
-        let mut external_variable_bindings = String::new();
-        for entry in self.external_vars.all().iter() {
-            external_variable_bindings.push_str(&generate_external_variable_binding(
-                0,
-                existing_binding_count,
-                entry.value(),
-            ));
-            existing_binding_count += 1;
-        }
-
-        let mut texture_usage = GraphTextureUsageRecorder::default();
-
-        let input_sampling = compile_template_input_sampling(
-            &self.required_spacing_graph,
-            &mut texture_usage,
-            &external_variable_bindings,
-        )?;
-
-        let main_graph = compile_template_main(
-            &self.main_graph,
-            &mut texture_usage,
-            &external_variable_bindings,
-        )?;
-
-        let stroke_postprocess_graphs = compile_template_stroke_postprocess(
-            self.stroke_postprocess_graphs.iter(),
-            &mut texture_usage,
-            &external_variable_bindings,
-        )?;
-
-        Ok(CompiledBrushPreset {
-            input_sampling,
-            main_graph,
-            stroke_postprocess_graphs,
-            texture_usage: texture_usage.used_textures_ordered(),
-            external_vars: self.external_vars.clone(),
-        })
-    }
-
-    pub fn new_stroke_postprocess_graph(&mut self) -> usize {
-        let graph = Graph::new(GraphResources {
-            type_registry: BRUSH_GRAPH_TYPES.clone(),
-            node_registry: STROKE_POSTPROCESS_GRAPH_NODES.clone(),
-            textures: self.textures.clone(),
-            functions: self.functions.clone(),
-            external_vars: self.external_vars.clone(),
-        });
-        self.stroke_postprocess_graphs.push(graph);
-        self.stroke_postprocess_graphs.len() - 1
-    }
-
-    pub fn remove_stroke_postprocess_graph(&mut self, index: usize) {
-        self.stroke_postprocess_graphs.remove(index);
-    }
-
-    pub fn required_spacing_graph(&self) -> &Graph<BrushRequiredSpacingGraphData> {
-        &self.required_spacing_graph
-    }
-
-    pub fn required_spacing_graph_mut(&mut self) -> &mut Graph<BrushRequiredSpacingGraphData> {
-        &mut self.required_spacing_graph
-    }
-
-    pub fn main_graph(&self) -> &Graph<BrushMainGraphData> {
-        &self.main_graph
-    }
-
-    pub fn main_graph_mut(&mut self) -> &mut Graph<BrushMainGraphData> {
-        &mut self.main_graph
-    }
-
-    pub fn stroke_postprocess_graphs(&self) -> &[Graph<BrushStrokePostprocessGraphData>] {
-        &self.stroke_postprocess_graphs
-    }
-
-    pub fn stroke_postprocess_graphs_mut(
-        &mut self,
-    ) -> &mut Vec<Graph<BrushStrokePostprocessGraphData>> {
-        &mut self.stroke_postprocess_graphs
-    }
-
-    pub fn stroke_postprocess_graph(
-        &self,
-        index: usize,
-    ) -> Option<&Graph<BrushStrokePostprocessGraphData>> {
-        self.stroke_postprocess_graphs.get(index)
     }
 
     pub fn asset_id(&self) -> Option<AssetId<BrushPreset>> {
@@ -341,235 +170,299 @@ impl BrushPresetInstance {
         &mut self.metadata
     }
 
-    pub fn iter_external_vars(
-        &self,
-    ) -> impl Iterator<Item = (ExternalVariableId, ExternalVariable)> + '_ {
-        self.external_vars.all().iter().map(|entry| {
-            let var = entry.value().clone();
-            (var.id, var)
-        })
+    pub fn spacing_effect(&self) -> &EffectInstance {
+        &self.spacing_effect
     }
 
-    pub fn insert_external_var(&mut self, var: ExternalVariable) {
-        self.external_vars.insert(var);
+    pub fn spacing_effect_mut(&mut self) -> &mut EffectInstance {
+        &mut self.spacing_effect
     }
 
-    pub fn rename_external_var(&mut self, id: &ExternalVariableId, new_name: String) {
-        self.external_vars.rename(id, new_name);
+    pub fn main_effect(&self) -> &EffectInstance {
+        &self.main_effect
     }
 
-    pub fn update_external_var(
-        &self,
-        id: &ExternalVariableId,
+    pub fn main_effect_mut(&mut self) -> &mut EffectInstance {
+        &mut self.main_effect
+    }
+
+    pub fn postprocess_effect(&self) -> &EffectInstance {
+        &self.postprocess_effect
+    }
+
+    pub fn postprocess_effect_mut(&mut self) -> &mut EffectInstance {
+        &mut self.postprocess_effect
+    }
+
+    pub fn parameters(&self) -> &IndexMap<EffectInputSlotId, BrushParameter> {
+        &self.parameters
+    }
+
+    pub fn parameters_mut(&mut self) -> &mut IndexMap<EffectInputSlotId, BrushParameter> {
+        &mut self.parameters
+    }
+
+    pub fn update_parameter(
+        &mut self,
+        id: &EffectInputSlotId,
         message: ErasedGraphLiteralUpdateMessage,
     ) {
-        self.external_vars.update(id, message);
+        if let Some(parameter) = self.parameters.get_mut(id) {
+            parameter.value.update(message);
+        }
     }
 
-    pub fn remove_external_var(&mut self, id: &ExternalVariableId) {
-        self.external_vars.remove(id);
+    pub fn resync_parameters(&mut self) {
+        self.parameters.retain(|id, _| {
+            [
+                &self.spacing_effect,
+                &self.main_effect,
+                &self.postprocess_effect,
+            ]
+            .iter()
+            .any(|effect| effect.inputs.contains_key(id))
+        });
+        for effect in [
+            &self.spacing_effect,
+            &self.main_effect,
+            &self.postprocess_effect,
+        ] {
+            for (id, slot) in &effect.inputs {
+                let parameter = self
+                    .parameters
+                    .entry(*id)
+                    .or_insert_with(|| BrushParameter {
+                        name: slot.name.clone(),
+                        value: GraphLiteral::new_boxed(slot.ty.default_literal(), slot.ty.clone()),
+                    });
+                parameter.name = slot.name.clone();
+            }
+        }
     }
-}
 
-fn compile_template(
-    shader: &str,
-    external_variable_bindings: &str,
-    postprocess: bool,
-    bounds_eval: bool,
-) -> anyhow::Result<String> {
-    let shader = include_str!("render/brush_template.wesl")
-        .replace("//CODEGENFLAG_COMPILED_GRAPH", shader)
-        .replace(
-            "//CODEGENFLAG_EXTERNAL_VARIABLE_BINDINGS",
-            external_variable_bindings,
-        );
+    #[tracing::instrument(skip_all, name = "compile_brush_preset")]
+    pub fn compile(
+        &self,
+        target_layer_format: TexelType,
+        selection_layer_format: TexelType,
+        device: &Device,
+        queue: &Queue,
+    ) -> Result<CompiledBrushPreset> {
+        let spacing_builtin_types =
+            brush_builtin_types(target_layer_format, selection_layer_format);
+        let (spacing, spacing_resource_layouts, spacing_parameters) =
+            self.compile_spacing_pass(&spacing_builtin_types)?;
 
-    let compiled_shader = wesl_jit::compile_wesl_with_config_and_include(
-        shader,
-        &[&lapiz_image::image::PACKAGE, &lapiz_render::render::PACKAGE],
-        |resolver| {
-            resolver.add_module(
-                "package::brush_types".parse().unwrap(),
-                include_str!("render/brush_types.wesl").into(),
-            );
-        },
-        |compiler| {
-            compiler.set_feature("POSTPROCESS", postprocess);
-            compiler.set_feature("BOUNDS_EVAL", bounds_eval);
-        },
-    )?;
+        let shader_deps = &[&brush::PACKAGE];
+        let main_types = main_builtin_types(target_layer_format, selection_layer_format);
+        let postprocess_types =
+            postprocess_builtin_types(target_layer_format, selection_layer_format);
+        let main = EffectRenderer::from_instance(
+            &self.main_effect,
+            main_types.into_iter().collect(),
+            shader_deps,
+            device.clone(),
+            queue.clone(),
+        )?;
+        let postprocess = EffectRenderer::from_instance(
+            &self.postprocess_effect,
+            postprocess_types.into_iter().collect(),
+            shader_deps,
+            device.clone(),
+            queue.clone(),
+        )?;
 
-    Ok(compiled_shader)
-}
-
-// TODO Graph validation. Some functions are not allowed to use during estimation stage. For example
-//      It is not allowed to use a pixel color sampled from previous input to determine the bounds.
-
-fn compile_template_input_sampling(
-    graph: &Graph<BrushRequiredSpacingGraphData>,
-    texture_usage: &mut GraphTextureUsageRecorder,
-    external_variable_bindings: &str,
-) -> anyhow::Result<String> {
-    let (_, _, shader) = graph.compile(Vec::new(), Default::default(), texture_usage)?;
-
-    let shader = include_str!("render/brush_sample.wesl")
-        .replace("//CODEGENFLAG_COMPUTED_GRAPH_REQUIRED_SPACING", &shader)
-        .replace(
-            "//CODEGENFLAG_EXTERNAL_VARIABLE_BINDINGS",
-            external_variable_bindings,
-        );
-
-    let compiled_shader = wesl_jit::compile_wesl_with_config_and_include(
-        shader,
-        &[&lapiz_image::image::PACKAGE, &lapiz_render::render::PACKAGE],
-        |resolver| {
-            resolver.add_module(
-                "package::brush_types".parse().unwrap(),
-                include_str!("render/brush_types.wesl").into(),
-            );
-        },
-        |_| {},
-    )?;
-
-    Ok(compiled_shader)
-}
-
-fn compile_template_main(
-    graph: &Graph<BrushMainGraphData>,
-    texture_usage: &mut GraphTextureUsageRecorder,
-    external_variable_bindings: &str,
-) -> anyhow::Result<CompiledGraph> {
-    let (_, _, shader) = graph.compile(Vec::new(), Default::default(), texture_usage)?;
-
-    Ok(CompiledGraph {
-        main: compile_template(&shader, external_variable_bindings, false, false)?,
-        bounds_eval: compile_template(&shader, external_variable_bindings, false, true)?,
-    })
-}
-
-fn compile_template_stroke_postprocess<'a>(
-    graphs: impl Iterator<Item = &'a Graph<BrushStrokePostprocessGraphData>>,
-    texture_usage: &mut GraphTextureUsageRecorder,
-    external_variable_bindings: &str,
-) -> anyhow::Result<Vec<CompiledGraph>> {
-    let compiled_graphs = graphs
-        .into_iter()
-        .map(|graph| graph.compile(Default::default(), Default::default(), texture_usage))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let compiled_brshes = compiled_graphs
-        .into_iter()
-        .map(|(_, _, shader)| {
-            Ok(CompiledGraph {
-                main: compile_template(&shader, external_variable_bindings, true, false)?,
-                bounds_eval: compile_template(&shader, external_variable_bindings, true, true)?,
-            })
+        Ok(CompiledBrushPreset {
+            spacing,
+            spacing_resource_layouts,
+            spacing_builtin_types,
+            spacing_parameters: spacing_parameters.into(),
+            main,
+            postprocess,
+            main_inputs: self.prepare_effect_inputs(&self.main_effect, device, queue)?,
+            postprocess_inputs: self.prepare_effect_inputs(
+                &self.postprocess_effect,
+                device,
+                queue,
+            )?,
+            main_dab_output: named_output(&self.main_effect, MAIN_DAB_BUFFER)?,
+            postprocess_output: named_output(&self.postprocess_effect, STROKE_RESULT)?,
         })
-        .collect::<anyhow::Result<Vec<CompiledGraph>>>()?;
-    Ok(compiled_brshes)
+    }
+
+    fn prepare_effect_inputs(
+        &self,
+        effect: &EffectInstance,
+        device: &Device,
+        queue: &Queue,
+    ) -> Result<EffectInputs> {
+        effect
+            .inputs
+            .iter()
+            .map(|(id, slot)| {
+                let parameter = self
+                    .parameters
+                    .get(id)
+                    .with_context(|| format!("Brush effect input {id:?} has no parameter"))?;
+                let prepared = slot
+                    .ty
+                    .prepare_to_shader(parameter.value.value(), device, queue)?;
+                Ok((
+                    *id,
+                    GraphShaderLiteral::new_boxed(prepared, slot.ty.clone()),
+                ))
+            })
+            .collect()
+    }
+
+    fn compile_spacing_pass(
+        &self,
+        builtin_types: &BTreeMap<String, Arc<dyn ErasedGraphValueType>>,
+    ) -> Result<(String, Vec<BindGroupLayoutEntry>, Vec<GraphLiteral>)> {
+        if self.spacing_effect.passes.len() != 1 {
+            bail!("Brush spacing effect must have exactly one pass");
+        }
+        let graph = &self.spacing_effect.passes.first().unwrap().1.graph;
+        let spacing_port = pass_output_port_of(
+            &self.spacing_effect,
+            named_output(&self.spacing_effect, SPACING_OUTPUT)
+                .context("Brush spacing effect has no 'spacing' output")?,
+        )?;
+        let spacing_ty = self
+            .spacing_effect
+            .outputs
+            .values()
+            .find(|slot| slot.name == SPACING_OUTPUT)
+            .map(|slot| slot.ty.clone())
+            .with_context(|| format!("Brush spacing effect has no '{SPACING_OUTPUT}' output"))?;
+
+        let mut declarations = String::new();
+        let mut layouts = Vec::new();
+        let mut binding = 0;
+        for (name, ty) in builtin_types {
+            let (next, entries, shader) = ty.push_shader_layout(
+                name,
+                GraphShaderStage::Input,
+                SPACING_RESOURCE_GROUP,
+                binding,
+                DynamicBindGroupLayoutEntries::new(ShaderStages::COMPUTE),
+                declarations,
+            )?;
+            binding = next;
+            layouts.extend(entries.to_vec());
+            declarations = shader;
+        }
+
+        let mut parameters = Vec::new();
+        for (id, slot) in &self.spacing_effect.inputs {
+            let parameter = self
+                .parameters
+                .get(id)
+                .with_context(|| format!("Brush effect input {id:?} has no parameter"))?;
+            let port = pass_input_port_of(&self.spacing_effect, *id)?;
+            let (next, entries, shader) = slot.ty.push_shader_layout(
+                &pass_input_ident(port),
+                GraphShaderStage::Input,
+                SPACING_RESOURCE_GROUP,
+                binding,
+                DynamicBindGroupLayoutEntries::new(ShaderStages::COMPUTE),
+                declarations,
+            )?;
+            binding = next;
+            layouts.extend(entries.to_vec());
+            declarations = shader;
+            parameters.push(parameter.value.clone());
+        }
+
+        let (_, _, code) = graph.compile(Vec::new(), GraphVarIdentGenerator::default())?;
+        let output = pass_output_ident(spacing_port);
+        let output_ty = spacing_ty.wgsl_type_name().with_context(|| {
+            format!(
+                "Brush spacing output must be a nameable value type, got '{}'",
+                spacing_ty.id().id
+            )
+        })?;
+        let body = format!("var {output}: {output_ty};\n{code}return {output};\n");
+        let shader = include_str!("render/brush_sample.wesl")
+            .replace("//CODEGENFLAG_COMPUTED_GRAPH_REQUIRED_SPACING", &body)
+            .replace("//CODEGENFLAG_INJECTED_RESOURCES", &declarations);
+        let shader = wesl_jit::compile_wesl_with_config_and_include(
+            shader,
+            &[&image::PACKAGE, &render::PACKAGE],
+            |resolver| {
+                resolver.add_module(
+                    "package::brush_types".parse().unwrap(),
+                    include_str!("render/brush_types.wesl").into(),
+                );
+            },
+            |_| {},
+        )
+        .context("Brush spacing WESL compilation failed")?;
+
+        Ok((shader, layouts, parameters))
+    }
 }
 
-pub static BRUSH_GRAPH_TYPES: LazyLock<Arc<GraphTypeRegistry>> =
-    LazyLock::new(|| Arc::new(brush_graph_types()));
-pub static REQUIRED_SPACING_GRAPH_NODES: LazyLock<
-    Arc<GraphNodeRegistry<BrushRequiredSpacingGraphData>>,
-> = LazyLock::new(|| Arc::new(required_spacing_graph_nodes()));
-pub static MAIN_GRAPH_NODES: LazyLock<Arc<GraphNodeRegistry<BrushMainGraphData>>> =
+fn named_output(effect: &EffectInstance, name: &str) -> Result<EffectOutputSlotId> {
+    effect
+        .outputs
+        .iter()
+        .find(|(_, output)| output.name == name)
+        .map(|(id, _)| *id)
+        .with_context(|| format!("Brush effect has no '{name}' output"))
+}
+
+fn pass_input_port_of(
+    effect: &EffectInstance,
+    effect_input: EffectInputSlotId,
+) -> Result<EffectPassInputSlotId> {
+    for pass in effect.passes.values() {
+        for node in pass.graph.iter_nodes() {
+            let Some(state) = node.data.state::<PassInputNode>() else {
+                continue;
+            };
+            if state.input == Some(PassInput::Effect(effect_input)) {
+                return Ok(state.id);
+            }
+        }
+    }
+    bail!("Brush effect input {effect_input:?} is not bound by a pass input node")
+}
+
+fn pass_output_port_of(
+    effect: &EffectInstance,
+    effect_output: EffectOutputSlotId,
+) -> Result<EffectPassOutputSlotId> {
+    for pass in effect.passes.values() {
+        for node in pass.graph.iter_nodes() {
+            let Some(state) = node.data.state::<PassOutputNode>() else {
+                continue;
+            };
+            if matches!(state.output, Some(PassOutput::Effect(id)) if id == effect_output) {
+                return Ok(state.id);
+            }
+        }
+    }
+    bail!("Brush effect output {effect_output:?} is not bound by a pass output node")
+}
+
+pub static SPACING_GRAPH_NODES: LazyLock<Arc<GraphNodeRegistry>> =
+    LazyLock::new(|| Arc::new(spacing_graph_nodes()));
+pub static MAIN_GRAPH_NODES: LazyLock<Arc<GraphNodeRegistry>> =
     LazyLock::new(|| Arc::new(main_graph_nodes()));
-pub static STROKE_POSTPROCESS_GRAPH_NODES: LazyLock<
-    Arc<GraphNodeRegistry<BrushStrokePostprocessGraphData>>,
-> = LazyLock::new(|| Arc::new(stroke_postprocess_graph_nodes()));
+pub static POSTPROCESS_GRAPH_NODES: LazyLock<Arc<GraphNodeRegistry>> =
+    LazyLock::new(|| Arc::new(postprocess_graph_nodes()));
 
-fn brush_graph_types() -> GraphTypeRegistry {
-    let mut types = GraphTypeRegistry::default();
-    types.merge(builtin_types());
-
-    types
+pub fn spacing_effect_resources(assets: AssetRegistry) -> GraphResources {
+    brush_graph_resources(SPACING_GRAPH_NODES.clone(), assets)
 }
 
-fn required_spacing_graph_nodes() -> GraphNodeRegistry<BrushRequiredSpacingGraphData> {
-    let mut nodes = GraphNodeRegistry::with_capacity();
-    nodes.merge(builtin_nodes());
-
-    nodes.register::<PenPositionNode>();
-    nodes.register::<PenPressureNode>();
-    nodes.register::<PenAngleNode>();
-    nodes.register::<PenTiltNode>();
-    nodes.register::<DrawDirectionNode>();
-    nodes.register::<DabIndexNode>();
-    nodes.register::<InitialPenPositionNode>();
-    nodes.register::<InitialPenPressureNode>();
-    nodes.register::<InitialPenAngleNode>();
-    nodes.register::<InitialPenTiltNode>();
-    nodes.register::<InitialDrawDirectionNode>();
-
-    nodes.register::<TimeNode>();
-    nodes.register::<OutputRequiredSpacingNode>();
-    nodes.register::<ForegroundColorNode>();
-    nodes.register::<BackgroundColorNode>();
-
-    nodes
+pub fn main_effect_resources(assets: AssetRegistry) -> GraphResources {
+    brush_graph_resources(MAIN_GRAPH_NODES.clone(), assets)
 }
 
-fn main_graph_nodes() -> GraphNodeRegistry<BrushMainGraphData> {
-    let mut nodes = GraphNodeRegistry::with_capacity();
-    nodes.merge(builtin_nodes());
-
-    nodes.register::<PenPositionNode>();
-    nodes.register::<PenPressureNode>();
-    nodes.register::<PenAngleNode>();
-    nodes.register::<PenTiltNode>();
-    nodes.register::<DrawDirectionNode>();
-    nodes.register::<DabIndexNode>();
-    nodes.register::<StrokeDistanceNode>();
-    nodes.register::<InitialPenPositionNode>();
-    nodes.register::<InitialPenPressureNode>();
-    nodes.register::<InitialPenAngleNode>();
-    nodes.register::<InitialPenTiltNode>();
-    nodes.register::<InitialDrawDirectionNode>();
-
-    nodes.register::<TimeNode>();
-    nodes.register::<PixelPositionNode>();
-    nodes.register::<FilterWithinMaskNode>();
-    nodes.register::<FilterWithinBoundsNode>();
-    nodes.register::<OutputColorNode>();
-    nodes.register::<OutputBoundsNode>();
-    nodes.register::<PasteTextureNode>();
-    nodes.register::<BlendColorNode>();
-    nodes.register::<LayerPixelColorNode>();
-    nodes.register::<CurrentPixelColorNode>();
-    nodes.register::<EllipticalMaskNode>();
-    nodes.register::<BlendWithInputNode>();
-    nodes.register::<BlendWithLayerNode>();
-    nodes.register::<SelectionMaskNode>();
-    nodes.register::<ForegroundColorNode>();
-    nodes.register::<BackgroundColorNode>();
-
-    nodes
-}
-
-fn stroke_postprocess_graph_nodes() -> GraphNodeRegistry<BrushStrokePostprocessGraphData> {
-    let mut nodes = GraphNodeRegistry::with_capacity();
-    nodes.merge(builtin_nodes());
-
-    nodes.register::<PixelPositionNode>();
-    nodes.register::<FilterWithinMaskNode>();
-    nodes.register::<FilterWithinBoundsNode>();
-    nodes.register::<OutputColorNode>();
-    nodes.register::<OutputBoundsNode>();
-    nodes.register::<PasteTextureNode>();
-    nodes.register::<BlendColorNode>();
-    nodes.register::<LayerPixelColorNode>();
-    nodes.register::<CurrentPixelColorNode>();
-    nodes.register::<StrokeBoundsNode>();
-    nodes.register::<EllipticalMaskNode>();
-    nodes.register::<BlendWithInputNode>();
-    nodes.register::<BlendWithLayerNode>();
-    nodes.register::<SelectionMaskNode>();
-    nodes.register::<ForegroundColorNode>();
-    nodes.register::<BackgroundColorNode>();
-
-    nodes
+pub fn postprocess_effect_resources(assets: AssetRegistry) -> GraphResources {
+    brush_graph_resources(POSTPROCESS_GRAPH_NODES.clone(), assets)
 }
 
 pub struct GraphFunctionInstance {

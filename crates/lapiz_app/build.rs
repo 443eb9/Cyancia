@@ -1,9 +1,14 @@
-use std::path::{Path, PathBuf};
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
+
+use fs_extra::dir::{self, CopyOptions};
 
 fn main() {
     println!("cargo:rerun-if-changed=../../assets");
 
-    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR must be set by Cargo"));
+    let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR must be set by Cargo"));
     let profile_dir = out_dir
         .parent()
         .and_then(Path::parent)
@@ -12,13 +17,13 @@ fn main() {
 
     let assets_dir = profile_dir.join("assets");
     if assets_dir.exists() {
-        fs_extra::dir::remove(&assets_dir).unwrap();
+        dir::remove(&assets_dir).unwrap();
     }
 
-    fs_extra::dir::copy(
+    dir::copy(
         "../../assets",
         profile_dir,
-        &fs_extra::dir::CopyOptions {
+        &CopyOptions {
             copy_inside: true,
             ..Default::default()
         },

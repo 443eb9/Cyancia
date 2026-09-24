@@ -1,3 +1,5 @@
+use std::iter;
+
 use anyhow::{Context as _, Result, ensure};
 
 use crate::cursor::Cursor;
@@ -54,7 +56,7 @@ pub(crate) fn decode(
                         decoded.len() - row_start + count <= row_bytes,
                         "PackBits repeat exceeds row {row}"
                     );
-                    decoded.extend(std::iter::repeat_n(compressed[offset], count));
+                    decoded.extend(iter::repeat_n(compressed[offset], count));
                     offset += 1;
                 }
                 -128 => {}

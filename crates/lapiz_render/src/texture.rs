@@ -1,14 +1,15 @@
-use std::io::{Cursor, Read};
+use std::io::{self, Cursor, Read, Write};
 
 use image::{DynamicImage, ImageFormat};
 use lapiz_assets::{asset::Asset, loader::AssetSerializer};
 use serde::{Deserialize, Serialize};
+use toml::de;
 use wgpu::{
     Device, Extent3d, Queue, Texture, TextureDimension, TextureFormat, TextureUsages,
     util::DeviceExt as _,
     wgt::{TextureDataOrder, TextureDescriptor},
 };
-use zip::ZipArchive;
+use zip::{ZipArchive, result::ZipError};
 
 pub struct Image {
     pub metadata: ImageMetadata,
@@ -43,13 +44,13 @@ pub struct ImageSerializer;
 #[derive(Debug, thiserror::Error)]
 pub enum ImageSerializerError {
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error(transparent)]
     Image(#[from] image::ImageError),
     #[error(transparent)]
-    Zip(#[from] zip::result::ZipError),
+    Zip(#[from] ZipError),
     #[error(transparent)]
-    Toml(#[from] toml::de::Error),
+    Toml(#[from] de::Error),
 }
 
 impl AssetSerializer for ImageSerializer {
@@ -87,7 +88,7 @@ impl AssetSerializer for ImageSerializer {
         })
     }
 
-    fn write(&self, _: &Self::Asset, _: &mut dyn std::io::Write) -> Result<(), Self::Error> {
+    fn write(&self, _: &Self::Asset, _: &mut dyn Write) -> Result<(), Self::Error> {
         todo!()
     }
 }

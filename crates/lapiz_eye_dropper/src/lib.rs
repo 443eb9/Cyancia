@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, result, sync::Arc};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -135,7 +135,7 @@ pub enum EyeDropperToolMessage {
     SampleModeChanged(EyeDropperSampleMode),
     RadiusChanged(u32),
     TargetModeChanged(EyeDropperTargetMode),
-    Sampled(std::result::Result<Color, String>),
+    Sampled(result::Result<Color, String>),
 }
 
 impl EyeDropperTool {

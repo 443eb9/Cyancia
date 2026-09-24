@@ -1,5 +1,5 @@
 use glam::Vec2;
-use iced::{Element, Length, Padding, Theme};
+use iced::{Element, Length, Padding, Theme, widget::svg::Handle};
 use iced_widget::tooltip::Position;
 use lapiz_math::curve::CubicCurve;
 use lapiz_widgets::{
@@ -318,7 +318,7 @@ impl Gallery {
         let icon_rows = icon::ALL.chunks(12).map(|icons| {
             let row = icons.iter().map(|(name, bytes)| {
                 Tooltip::new(
-                    Panel::new(Icon::new(iced::widget::svg::Handle::from_memory(*bytes)).size(17))
+                    Panel::new(Icon::new(Handle::from_memory(*bytes)).size(17))
                         .inset()
                         .padding(7),
                     Label::new(*name),

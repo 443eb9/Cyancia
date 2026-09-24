@@ -3184,11 +3184,13 @@ dependencies = [
  "lapiz_abr",
  "lapiz_assets",
  "lapiz_brush",
+ "lapiz_effect",
  "lapiz_image",
  "lapiz_render",
  "lapiz_shader_graph",
  "log",
  "thiserror 2.0.20",
+ "toml 1.1.6+spec-1.1.0",
  "uuid",
  "wesl",
  "wesl-quote",
@@ -3310,6 +3312,7 @@ name = "lapiz_assets"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "dashmap",
  "downcast-rs 2.0.2",
  "env_logger",
  "futures",
@@ -3351,6 +3354,7 @@ dependencies = [
  "lapiz_canvas",
  "lapiz_color",
  "lapiz_dirs",
+ "lapiz_effect",
  "lapiz_i18n",
  "lapiz_image",
  "lapiz_input",
@@ -3373,7 +3377,9 @@ dependencies = [
  "tracing",
  "uuid",
  "wesl",
+ "wesl-quote",
  "wgpu",
+ "wgpu-profiler",
  "zip",
 ]
 
@@ -3573,6 +3579,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "lapiz_effect"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bevy_math 0.18.1 (git+https://github.com/443eb9/bevy.git?branch=release-0.18.1)",
+ "bytemuck",
+ "dyn-clone",
+ "encase",
+ "futures",
+ "glam 0.30.10",
+ "iced",
+ "iced_core",
+ "iced_runtime",
+ "iced_widget",
+ "image",
+ "indexmap",
+ "lapiz_assets",
+ "lapiz_i18n",
+ "lapiz_image",
+ "lapiz_render",
+ "lapiz_runtime",
+ "lapiz_shader_graph",
+ "lapiz_utils",
+ "lapiz_widgets",
+ "log",
+ "parking_lot",
+ "rust-embed",
+ "serde",
+ "thiserror 2.0.20",
+ "toml 1.1.6+spec-1.1.0",
+ "uuid",
+ "wesl",
+ "wesl-quote",
+ "wgpu",
+ "wgpu-profiler",
+]
+
+[[package]]
 name = "lapiz_eye_dropper"
 version = "0.1.0"
 dependencies = [
@@ -3602,35 +3646,27 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bevy_math 0.18.1 (git+https://github.com/443eb9/bevy.git?branch=release-0.18.1)",
- "chrono",
- "dyn-clone",
- "encase",
+ "bytemuck",
  "futures",
- "glam 0.30.10",
  "iced_core",
  "iced_futures",
  "iced_runtime",
- "iced_wgpu",
  "iced_widget",
- "lapiz_actions",
+ "image",
+ "indexmap",
  "lapiz_assets",
  "lapiz_canvas",
- "lapiz_color",
+ "lapiz_effect",
  "lapiz_i18n",
  "lapiz_image",
- "lapiz_input",
- "lapiz_math",
  "lapiz_render",
  "lapiz_runtime",
  "lapiz_shader_graph",
- "lapiz_tools",
  "lapiz_undo",
  "lapiz_utils",
  "lapiz_widgets",
  "log",
  "parking_lot",
- "parse-display",
- "ringbuffer",
  "rust-embed",
  "serde",
  "thiserror 2.0.20",
@@ -3638,6 +3674,7 @@ dependencies = [
  "tracing",
  "uuid",
  "wesl",
+ "wesl-quote",
  "wgpu",
  "zip",
 ]
@@ -3679,7 +3716,6 @@ dependencies = [
  "lapiz_lazuli",
  "lapiz_render",
  "lapiz_runtime",
- "lapiz_shader_graph",
  "lapiz_utils",
  "lapiz_widgets",
  "log",
@@ -3917,6 +3953,7 @@ dependencies = [
  "downcast-rs 2.0.2",
  "dyn-clone",
  "encase",
+ "futures",
  "glam 0.30.10",
  "iced",
  "iced_core",
@@ -3927,6 +3964,7 @@ dependencies = [
  "indexmap",
  "lapiz_assets",
  "lapiz_i18n",
+ "lapiz_image",
  "lapiz_math",
  "lapiz_render",
  "lapiz_runtime",
@@ -3941,6 +3979,8 @@ dependencies = [
  "thiserror 2.0.20",
  "toml 1.1.6+spec-1.1.0",
  "uuid",
+ "wesl",
+ "wesl-quote",
  "wgpu",
 ]
 
@@ -7794,6 +7834,17 @@ checksum = "95226013f547544b223281cd16a4fb549aa9dcb562adbda0faae4c73ffbbc161"
 dependencies = [
  "naga",
  "wgpu-types 29.0.4",
+]
+
+[[package]]
+name = "wgpu-profiler"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "948e23cc220c021611e4de4072b20365192e861cde1f2d17437c1cdd7651bbc0"
+dependencies = [
+ "parking_lot",
+ "thiserror 2.0.20",
+ "wgpu",
 ]
 
 [[package]]

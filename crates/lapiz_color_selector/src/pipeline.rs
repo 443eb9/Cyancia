@@ -3,6 +3,7 @@ use bytemuck::{Pod, Zeroable};
 use encase::ShaderType;
 use glam::{UVec2, Vec2, Vec3, Vec4};
 use lapiz_color::{
+    color,
     model::rgb::Rgb,
     shader::{IccInputTransformShader, IccOutputTransformShader},
 };
@@ -48,7 +49,7 @@ fn compile_gradient_shader(
             .replace("//CODEGEN_FLAG_PICKER_TO_PCS", &input.function)
             .replace("//CODEGEN_FLAG_PCS_TO_IMAGE", &image.function)
             .replace("//CODEGEN_FLAG_PCS_TO_OUTPUT", &output.function),
-        &[&lapiz_color::color::PACKAGE],
+        &[&color::PACKAGE],
         |wesl| {
             wesl.set_feature("IS_SRGB_OUTPUT", srgb_output);
         },
@@ -63,7 +64,7 @@ fn compile_compute_bounds_shader(profile: &ColorProfile) -> Result<String> {
         include_str!("../shader/compute_bounds.wesl")
             .replace("//CODEGEN_FLAG_PICKER_TO_PCS", &input.function)
             .replace("//CODEGEN_FLAG_PCS_TO_IMAGE", &image.function),
-        &[&lapiz_color::color::PACKAGE],
+        &[&color::PACKAGE],
     )
 }
 

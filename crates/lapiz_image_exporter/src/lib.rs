@@ -1,7 +1,8 @@
 use std::{
     any::Any,
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     future::Future,
+    iter,
     path::{Path, PathBuf},
     pin::Pin,
 };
@@ -232,15 +233,15 @@ impl ImageFormatAdapterRegistry {
             construct: || Box::new(A::default()) as Box<dyn ErasedImageFormatAdapter>,
         };
         let index = self.entries.len();
-        for key in std::iter::once(entry.extension)
+        for key in iter::once(entry.extension)
             .chain(entry.aliases.iter().copied())
             .map(str::to_ascii_lowercase)
         {
             match self.lookup.entry(key) {
-                std::collections::hash_map::Entry::Vacant(vacant) => {
+                Entry::Vacant(vacant) => {
                     vacant.insert(index);
                 }
-                std::collections::hash_map::Entry::Occupied(_) => {
+                Entry::Occupied(_) => {
                     log::error!(
                         "Image format adapter '{}' is already registered",
                         entry.extension

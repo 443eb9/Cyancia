@@ -12,7 +12,7 @@ use wgpu::{
     ShaderModuleDescriptor, ShaderSource, ShaderStages, StorageTextureAccess, TextureView,
 };
 
-use crate::{texel::TexelType, tile::GpuTileStorage};
+use crate::{image, texel::TexelType, tile::GpuTileStorage};
 
 pub struct ColorProfileConvertPipeline {
     layout: BindGroupLayout,
@@ -53,7 +53,7 @@ impl ColorProfileConvertPipeline {
 
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("color_space_convert_shader"),
-            source: ShaderSource::Wgsl(compile_wesl(shader, &[&crate::image::PACKAGE])?.into()),
+            source: ShaderSource::Wgsl(compile_wesl(shader, &[&image::PACKAGE])?.into()),
         });
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {

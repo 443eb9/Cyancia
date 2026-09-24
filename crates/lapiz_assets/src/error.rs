@@ -1,9 +1,15 @@
 use std::{
     backtrace::Backtrace,
     error::Error,
-    fmt::{Debug, Display},
+    fmt::{self, Debug, Display},
+    io,
     path::{PathBuf, StripPrefixError},
+    result::Result,
 };
+
+use rusqlite;
+use toml::{de, ser};
+use zip::result::ZipError;
 
 use crate::{asset::UntypedAssetId, bundle::BundleId, tag::TagId};
 
@@ -60,9 +66,9 @@ pub enum AssetErrorKind {
         new_asset_ty: Option<String>,
     },
     #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error("Zip error: {0}")]
-    Zip(#[from] zip::result::ZipError),
+    Zip(#[from] ZipError),
     #[error("Missing extension for asset path: {0}")]
     MissingExtension(PathBuf),
     #[error("Failed to downcast asset into desired type: {0}")]
@@ -74,9 +80,9 @@ pub enum AssetErrorKind {
     #[error("Asset bundle error: {0}")]
     BundleError(Box<dyn Error + Send + Sync + 'static>),
     #[error("Failed to deserialize toml: {0}")]
-    TomlDeError(#[from] toml::de::Error),
+    TomlDeError(#[from] de::Error),
     #[error("Failed to serialize toml: {0}")]
-    TomlSerError(#[from] toml::ser::Error),
+    TomlSerError(#[from] ser::Error),
     #[error("Sqlite error: {0}")]
     SqliteError(#[from] rusqlite::Error),
 }
@@ -114,13 +120,13 @@ impl From<AssetErrorKind> for AssetError {
 }
 
 impl Display for AssetError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.kind, f)
     }
 }
 
 impl Debug for AssetError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}\nBacktrace:\n{}", self.kind, self.backtrace)
     }
 }
@@ -142,12 +148,6 @@ macro_rules! from_error {
         )*
     };
 }
-from_error!(
-    std::io::Error,
-    zip::result::ZipError,
-    toml::de::Error,
-    toml::ser::Error,
-    rusqlite::Error
-);
+from_error!(io::Error, ZipError, de::Error, ser::Error, rusqlite::Error);
 
-pub type AssetResult<T> = std::result::Result<T, AssetError>;
+pub type AssetResult<T> = Result<T, AssetError>;

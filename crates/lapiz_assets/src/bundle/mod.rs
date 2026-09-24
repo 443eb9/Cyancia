@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     error::Error,
     ffi::OsStr,
-    fs::{File, create_dir_all, metadata},
+    fs::{self, File, create_dir_all, metadata},
     io::Write as _,
     path::{Path, PathBuf},
     sync::Arc,
@@ -13,6 +13,7 @@ use lapiz_utils::wrapper;
 use parking_lot::RwLock;
 use parse_display::Display;
 use path_clean::PathClean as _;
+use rusqlite::types::{self, FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -32,14 +33,14 @@ wrapper! {
     pub BundleId: Uuid
 }
 
-impl rusqlite::types::FromSql for BundleId {
-    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+impl FromSql for BundleId {
+    fn column_result(value: types::ValueRef<'_>) -> types::FromSqlResult<Self> {
         Ok(Self(Uuid::column_result(value)?))
     }
 }
 
-impl rusqlite::types::ToSql for BundleId {
-    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+impl ToSql for BundleId {
+    fn to_sql(&self) -> rusqlite::Result<types::ToSqlOutput<'_>> {
         self.0.to_sql()
     }
 }
@@ -281,9 +282,7 @@ pub(crate) fn read_asset_tags_file(
         let modified_path = modified_bundle_absolute_path(assets_root, bundle_id)
             .join(asset_path.with_added_extension(ASSET_TAGS_EXT));
         if modified_path.exists() {
-            return Ok(Some(toml::from_str(&std::fs::read_to_string(
-                modified_path,
-            )?)?));
+            return Ok(Some(toml::from_str(&fs::read_to_string(modified_path)?)?));
         }
     }
 
@@ -638,7 +637,7 @@ impl<T: AssetBundle> ErasedAssetBundle for T {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeSet, io};
+    use std::{collections::BTreeSet, env, fs, io, slice};
 
     use super::*;
     use crate::tag::TagId;
@@ -705,7 +704,7 @@ mod tests {
 
     #[test]
     fn readonly_asset_tags_are_overridden_in_modified_directory() -> AssetResult<()> {
-        let root = std::env::temp_dir().join(format!("lapiz-readonly-tags-{}", Uuid::new_v4()));
+        let root = env::temp_dir().join(format!("lapiz-readonly-tags-{}", Uuid::new_v4()));
         let bundle_id = BundleId::new(Uuid::from_u128(1));
         let asset_id = UntypedAssetId::new(Uuid::from_u128(2));
         let asset_path = PathBuf::from("brushes/sample.lapiz");
@@ -744,7 +743,7 @@ mod tests {
             BTreeSet::from([base_tag])
         );
 
-        cache.write_asset_tags(&asset_id, std::slice::from_ref(&override_tag))?;
+        cache.write_asset_tags(&asset_id, slice::from_ref(&override_tag))?;
         assert_eq!(
             cache.read_asset_tags(&asset_id)?.tags,
             BTreeSet::from([override_tag])
@@ -769,7 +768,7 @@ mod tests {
                 .is_err()
         );
 
-        std::fs::remove_dir_all(root)?;
+        fs::remove_dir_all(root)?;
         Ok(())
     }
 }

@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
 
 use anyhow::{Context as _, Result, bail, ensure};
 use image::{DynamicImage, ImageBuffer, Luma, Rgb, Rgba};
@@ -13,7 +13,7 @@ pub enum ColorMode {
 }
 
 impl Debug for ColorMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Gray => write!(f, "Gray"),
             Self::Indexed { table } => f
@@ -51,7 +51,7 @@ pub struct PatternChannel {
 }
 
 impl Debug for PatternChannel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PatternChannel")
             .field("depth", &self.depth)
             .field("top", &self.top)

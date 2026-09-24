@@ -1,12 +1,16 @@
 use std::{
     borrow::{Borrow, Cow},
     collections::HashMap,
+    fmt,
     sync::{Arc, OnceLock},
 };
 
 use anyhow::Result;
 use bevy_math::IRect;
-use dashmap::{DashMap, Entry};
+use dashmap::{
+    DashMap, Entry,
+    mapref::one::{Ref, RefMut},
+};
 use encase::ShaderType;
 use futures::{FutureExt as _, future::join_all};
 use glam::{IVec2, UVec2};
@@ -52,8 +56,8 @@ pub struct GpuTileStorage {
     inner: Arc<GpuTileStorageInner>,
 }
 
-impl std::fmt::Debug for GpuTileStorage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for GpuTileStorage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GpuTileStorage").finish()
     }
 }
@@ -95,6 +99,9 @@ impl GpuTileStorage {
     }
 
     pub fn pixel_rect_to_tile(pixel_rect: IRect) -> IRect {
+        if pixel_rect.is_empty() {
+            return IRect::EMPTY;
+        }
         IRect {
             min: pixel_rect.min / IVec2::splat(Self::TILE_SIZE as i32),
             max: (pixel_rect.max - 1) / IVec2::splat(Self::TILE_SIZE as i32) + 1,
@@ -226,17 +233,14 @@ impl GpuTileStorageInner {
             .map(|l| l.tiles.keys().cloned().collect())
     }
 
-    pub fn get_layer(
-        &self,
-        layer_id: LayerId,
-    ) -> Option<dashmap::mapref::one::Ref<'_, LayerId, DynamicLayerStorage>> {
+    pub fn get_layer(&self, layer_id: LayerId) -> Option<Ref<'_, LayerId, DynamicLayerStorage>> {
         self.layers.get(&layer_id)
     }
 
     pub fn get_layer_mut(
         &self,
         layer_id: LayerId,
-    ) -> Option<dashmap::mapref::one::RefMut<'_, LayerId, DynamicLayerStorage>> {
+    ) -> Option<RefMut<'_, LayerId, DynamicLayerStorage>> {
         self.layers.get_mut(&layer_id)
     }
 
@@ -798,6 +802,61 @@ impl DynamicLayerStorage {
                 Extent3d {
                     width: Self::TILE_SIZE,
                     height: Self::TILE_SIZE,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        self.queue.submit([ec.finish()]);
+    }
+
+    pub fn copy_pixels_from(&mut self, src: &Self, pixel_rect: IRect) {
+        if pixel_rect.is_empty() {
+            return;
+        }
+        let tiles = src
+            .iter_tile_indices()
+            .filter(|tile| {
+                !GpuTileStorage::tile_to_pixel_rect(*tile)
+                    .intersect(pixel_rect)
+                    .is_empty()
+            })
+            .collect::<Vec<_>>();
+        if tiles.is_empty() {
+            return;
+        }
+
+        self.allocate_tiles_batch(tiles.iter().copied());
+
+        let mut ec = self.device.create_command_encoder(&Default::default());
+        for tile in tiles {
+            let tile_rect = GpuTileStorage::tile_to_pixel_rect(tile);
+            let copy_rect = tile_rect.intersect(pixel_rect);
+            let offset = (copy_rect.min - tile_rect.min).as_uvec2();
+            let size = copy_rect.size().as_uvec2();
+            ec.copy_texture_to_texture(
+                TexelCopyTextureInfo {
+                    texture: src.texture().unwrap(),
+                    mip_level: 0,
+                    origin: Origin3d {
+                        x: offset.x,
+                        y: offset.y,
+                        z: src.get_tile_layer(tile).unwrap(),
+                    },
+                    aspect: TextureAspect::All,
+                },
+                TexelCopyTextureInfo {
+                    texture: self.texture().unwrap(),
+                    mip_level: 0,
+                    origin: Origin3d {
+                        x: offset.x,
+                        y: offset.y,
+                        z: self.get_tile_layer(tile).unwrap(),
+                    },
+                    aspect: TextureAspect::All,
+                },
+                Extent3d {
+                    width: size.x,
+                    height: size.y,
                     depth_or_array_layers: 1,
                 },
             );

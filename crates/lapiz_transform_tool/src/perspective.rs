@@ -8,6 +8,7 @@ use iced_core::{
     Color, Element, Length, Point, Rectangle, Size, Theme, Vector, Widget, layout, pointer::mouse,
     renderer, widget,
 };
+use iced_graphics::geometry;
 use iced_runtime::{Task, futures::Subscription};
 use iced_widget::{
     canvas::{Frame, Path, Stroke},
@@ -22,6 +23,7 @@ use lapiz_canvas::{
 use lapiz_i18n::t;
 use lapiz_image::{
     composite::{LayerPreviewOverriders, PixelPreviewOverrider},
+    image,
     layer::LayerId,
     layer_bounds::LayerBoundsPipeline,
     texel::TexelType,
@@ -1029,7 +1031,7 @@ impl<'a> Widget<PerspectiveTransformToolMessage, Theme, Renderer>
         }
 
         iced_core::Renderer::with_layer(renderer, layout.bounds(), |renderer| {
-            iced_graphics::geometry::Renderer::draw_geometry(renderer, frame.into_geometry());
+            geometry::Renderer::draw_geometry(renderer, frame.into_geometry());
         });
     }
 
@@ -1083,7 +1085,7 @@ impl PerspectiveTransformPipeline {
     ) -> Self {
         let shader = wesl_jit::compile_wesl_with_config(
             include_str!("perspective.wesl").into(),
-            &[&lapiz_image::image::PACKAGE],
+            &[&image::PACKAGE],
             |compiler| {
                 compiler.set_feature(format.shader_def(), true);
                 compiler.set_feature("WITH_SELECTION", with_selection);
@@ -1227,7 +1229,7 @@ mod tests {
             for with_selection in [false, true] {
                 wesl_jit::compile_wesl_with_config(
                     include_str!("perspective.wesl").into(),
-                    &[&lapiz_image::image::PACKAGE],
+                    &[&image::PACKAGE],
                     |compiler| {
                         compiler.set_feature(format.shader_def(), true);
                         compiler.set_feature("WITH_SELECTION", with_selection);

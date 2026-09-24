@@ -1,6 +1,15 @@
+use wesl::syntax::{
+    BinaryExpression, BinaryOperator, Expression, FunctionCall, Ident, LiteralExpression,
+    NamedComponentExpression, Span, Spanned, TypeExpression,
+};
+use wesl_quote::quote_expression;
+
 use crate::{
     graph::variable::GraphVariableCaster,
-    wgsl_std::types::{BoolType, F32Type, I32Type, Vec2FType},
+    wgsl_std::types::{
+        primitive::{BoolType, F32Type, I32Type},
+        vector::Vec2FType,
+    },
 };
 
 #[derive(Default, Clone)]
@@ -11,8 +20,8 @@ impl GraphVariableCaster for F32ToVec2FCaster {
 
     type ToType = Vec2FType;
 
-    fn wgsl_cast(&self, variable: &str) -> String {
-        format!("vec2f({}, {})", variable, variable)
+    fn wgsl_cast(&self, variable: Expression) -> Expression {
+        quote_expression! { vec2f(#variable, #variable) }
     }
 }
 
@@ -24,8 +33,8 @@ impl GraphVariableCaster for Vec2FToF32Caster {
 
     type ToType = F32Type;
 
-    fn wgsl_cast(&self, variable: &str) -> String {
-        format!("{}.x", variable)
+    fn wgsl_cast(&self, variable: Expression) -> Expression {
+        quote_expression! { #variable.x }
     }
 }
 
@@ -37,8 +46,8 @@ impl GraphVariableCaster for F32ToI32Caster {
 
     type ToType = I32Type;
 
-    fn wgsl_cast(&self, variable: &str) -> String {
-        format!("i32({})", variable)
+    fn wgsl_cast(&self, variable: Expression) -> Expression {
+        quote_expression! { i32(#variable) }
     }
 }
 
@@ -50,8 +59,8 @@ impl GraphVariableCaster for I32ToF32Caster {
 
     type ToType = F32Type;
 
-    fn wgsl_cast(&self, variable: &str) -> String {
-        format!("f32({})", variable)
+    fn wgsl_cast(&self, variable: Expression) -> Expression {
+        quote_expression! { f32(#variable) }
     }
 }
 
@@ -63,8 +72,8 @@ impl GraphVariableCaster for BoolToI32Caster {
 
     type ToType = I32Type;
 
-    fn wgsl_cast(&self, variable: &str) -> String {
-        format!("select(0i, 1i, {})", variable)
+    fn wgsl_cast(&self, variable: Expression) -> Expression {
+        quote_expression! { select(0i, 1i, #variable) }
     }
 }
 
@@ -76,8 +85,8 @@ impl GraphVariableCaster for I32ToBoolCaster {
 
     type ToType = BoolType;
 
-    fn wgsl_cast(&self, variable: &str) -> String {
-        format!("({} == 1i)", variable)
+    fn wgsl_cast(&self, variable: Expression) -> Expression {
+        quote_expression! { #variable == 1i }
     }
 }
 
@@ -89,8 +98,8 @@ impl GraphVariableCaster for I32ToVec2FCaster {
 
     type ToType = Vec2FType;
 
-    fn wgsl_cast(&self, variable: &str) -> String {
-        format!("vec2f(f32({}))", variable)
+    fn wgsl_cast(&self, variable: Expression) -> Expression {
+        quote_expression! { vec2f(f32(#variable)) }
     }
 }
 
@@ -102,7 +111,7 @@ impl GraphVariableCaster for Vec2FToI32Caster {
 
     type ToType = I32Type;
 
-    fn wgsl_cast(&self, variable: &str) -> String {
-        format!("i32({}.x)", variable)
+    fn wgsl_cast(&self, variable: Expression) -> Expression {
+        quote_expression! { i32(#variable.x) }
     }
 }

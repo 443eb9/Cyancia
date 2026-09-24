@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{fs::File, path::Path};
 
 use anyhow::Result;
 use iced_core::{Element, Theme};
@@ -170,7 +170,7 @@ impl ImageFormatExporter for PngExporter {
             services.render_queue(),
         )
         .await?;
-        let file = std::fs::File::create(path)?;
+        let file = File::create(path)?;
         let mut encoder =
             PngEncoder::new_with_quality(file, self.compression.into(), self.filter.into());
         if self.embed_profile {

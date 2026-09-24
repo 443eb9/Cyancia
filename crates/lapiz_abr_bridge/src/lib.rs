@@ -25,6 +25,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     ffi::OsStr,
+    fs, io,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -63,7 +64,7 @@ pub enum AbrAssetBundleError {
     #[error("Tag not found at path: {0}")]
     TagNotFound(PathBuf),
     #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error("ABR parse error: {0}")]
     AbrParse(#[from] anyhow::Error),
 }
@@ -76,7 +77,7 @@ impl AbrAssetBundle {
             .map(|stem| stem.to_string_lossy().into_owned())
             .unwrap_or_default();
         let bundle_id = BundleId::new(Uuid::from_u128(xxh3_128(name.as_bytes())));
-        let last_modified = std::fs::metadata(&path)
+        let last_modified = fs::metadata(&path)
             .and_then(|metadata| metadata.modified())
             .map(DateTime::<Utc>::from)
             .unwrap_or_else(|_| Utc::now());
@@ -152,7 +153,7 @@ impl AbrAssetBundle {
 
     pub fn open(path: impl AsRef<Path>) -> Result<Self, AbrAssetBundleError> {
         let path = path.as_ref().to_path_buf();
-        let abr = Abr::parse(&std::fs::read(&path)?)?;
+        let abr = Abr::parse(&fs::read(&path)?)?;
         Ok(Self::parse(path, abr))
     }
 
@@ -173,7 +174,7 @@ fn scan_bundles_dfs(
     bundles: &mut Vec<AbrAssetBundle>,
     errors: &mut Vec<AbrAssetBundleError>,
 ) {
-    let entries = match std::fs::read_dir(root) {
+    let entries = match fs::read_dir(root) {
         Ok(entries) => entries,
         Err(error) => {
             errors.push(error.into());

@@ -2,7 +2,10 @@ use std::ops::RangeBounds;
 
 use anyhow::Result;
 use encase::{ShaderType, internal::CreateFrom};
-use futures::channel::oneshot::{Receiver, Sender};
+use futures::{
+    channel::oneshot::{self, Receiver, Sender},
+    executor,
+};
 use iced_runtime::Task;
 use lapiz_utils::{Deref, DerefMut};
 use wgpu::{
@@ -63,7 +66,7 @@ pub struct AsyncBufferReadback<T> {
 
 impl<T> AsyncBufferReadback<T> {
     pub fn block_on(self) -> anyhow::Result<T> {
-        futures::executor::block_on(self.rx)?
+        executor::block_on(self.rx)?
     }
 
     pub fn into_inner(self) -> Receiver<anyhow::Result<T>> {
@@ -90,7 +93,7 @@ pub fn readback_buffer_raw_on_submit_async<S>(
 where
     S: RangeBounds<BufferAddress> + Clone + Send + 'static,
 {
-    let (tx, rx) = futures::channel::oneshot::channel();
+    let (tx, rx) = oneshot::channel();
     ec.map_buffer_on_submit(
         buffer,
         MapMode::Read,
@@ -109,7 +112,7 @@ where
     T: ShaderType + CreateFrom + Send + 'static,
     S: RangeBounds<BufferAddress> + Clone + Send + 'static,
 {
-    let (tx, rx) = futures::channel::oneshot::channel();
+    let (tx, rx) = oneshot::channel();
     ec.map_buffer_on_submit(
         buffer,
         MapMode::Read,
@@ -124,7 +127,7 @@ where
     T: ShaderType + CreateFrom + Send + 'static,
     S: RangeBounds<BufferAddress> + Clone + Send + 'static,
 {
-    let (tx, rx) = futures::channel::oneshot::channel();
+    let (tx, rx) = oneshot::channel();
     buffer.map_async(
         MapMode::Read,
         bounds.clone(),

@@ -1,3 +1,5 @@
+use std::any;
+
 use anyhow::{Context as _, Result, bail};
 use uuid::Uuid;
 
@@ -169,7 +171,7 @@ pub trait AbrIntegerEnum: AbrValue {
         Self::from_i32(value).ok_or_else(|| {
             anyhow::anyhow!(
                 "unsupported ABR descriptor integer enum {} value {value} at desc offset {offset}",
-                std::any::type_name::<Self>(),
+                any::type_name::<Self>(),
             )
         })
     }

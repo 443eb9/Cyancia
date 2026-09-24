@@ -2,6 +2,7 @@ use std::{
     any::Any,
     collections::{HashMap, hash_map::Entry},
     sync::Arc,
+    time::Instant,
 };
 
 use bevy_math::IRect;
@@ -97,7 +98,7 @@ impl ImageCompositor {
         device: &Device,
         queue: &Queue,
     ) {
-        let now = std::time::Instant::now();
+        let now = Instant::now();
         let root_node = image
             .layer_stack()
             .get_layer(image.layer_stack().root_id())
@@ -134,7 +135,7 @@ impl ImageCompositor {
             .layer_stack()
             .get_layer(image.layer_stack().root_id())
             .unwrap();
-        let now = std::time::Instant::now();
+        let now = Instant::now();
         root_node.prepare_blend_cache(
             self,
             overriders,
@@ -147,7 +148,7 @@ impl ImageCompositor {
         );
         log::debug!("Blend cache prepared in {:?}", now.elapsed());
 
-        let now = std::time::Instant::now();
+        let now = Instant::now();
         // unsafe {
         //     device.start_graphics_debugger_capture();
         // }

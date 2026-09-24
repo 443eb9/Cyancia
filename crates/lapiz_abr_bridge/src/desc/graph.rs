@@ -1,66 +1,80 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use iced_core::Point;
-use lapiz_assets::asset::AssetId;
+use lapiz_assets::{asset::AssetId, loader::AssetRegistryBuilder};
 use lapiz_brush::{
-    instance::{
-        BRUSH_GRAPH_TYPES, MAIN_GRAPH_NODES, REQUIRED_SPACING_GRAPH_NODES,
-        STROKE_POSTPROCESS_GRAPH_NODES,
-    },
+    instance::{main_effect_resources, postprocess_effect_resources, spacing_effect_resources},
     render::graph::{
         BackgroundColorNode, CurrentPixelColorNode, DabIndexNode, DrawDirectionNode,
-        ForegroundColorNode, GraphDataWithInitialPenInput, GraphDataWithPenInput,
-        InitialDrawDirectionNode, OutputBoundsNode, OutputColorNode, OutputRequiredSpacingNode,
+        ForegroundColorNode, InitialDrawDirectionNode, LayerPixelColorNode, MAIN_DAB_BUFFER,
         PenAngleNode, PenPositionNode, PenPressureNode, PenTiltNode, PixelPositionNode,
-        StrokeBoundsNode, StrokeDistanceNode,
+        SPACING_OUTPUT, STROKE_RESULT, StrokeBoundsNode, StrokeDistanceNode, TimeNode,
     },
 };
-use lapiz_image::blend_modes::BlendMode;
+use lapiz_effect::{
+    asset::{
+        EffectAsset, EffectInputSlotId, EffectOutputSlotId, EffectPassDispatchStrategy,
+        EffectPassId, EffectPassOutputSlotId, SerializableEffectInputSlot,
+        SerializableEffectOutputSlot, SerializableEffectPass,
+    },
+    nodes::{PassInput, PassInputNode, PassOutput, PassOutputNode},
+};
+use lapiz_image::{blend_modes::BlendMode, texel::TexelType};
 use lapiz_render::texture::Image;
 use lapiz_shader_graph::{
     graph::{
-        Graph, GraphData, GraphResources,
-        external::{ExternalVariable, ExternalVariableId, GraphExternalVariableStorage},
-        node::{GraphNode, GraphNodeId, GraphNodeRegistry},
-        texture::TextureId,
-        variable::GraphLiteral,
+        Graph,
+        node::{GraphNode, GraphNodeId},
+        slot::{ErasedGraphValueType, GraphValueType},
     },
-    save::SerializableGraph,
+    save::{SerializableGraph, SerializableGraphLiteral},
     wgsl_std::{
-        nodes::{
-            CustomExpressionNode, CustomExpressionNodeState, ExternalVariableNode, TextureNode,
-            TimeNode,
+        nodes::{CustomExpressionNode, CustomExpressionNodeState},
+        types::{
+            compound::{ColorType, RectType},
+            handle::{LayerType, TextureType},
+            primitive::{F32Type, I32Type},
+            vector::Vec2FType,
         },
-        types::{ColorType, F32Type, I32Type, RectType, TextureType, Vec2FType},
     },
 };
+use toml::map::Map;
 use uuid::Uuid;
 
 use crate::desc::wgsl::{
     AZIMUTH_INPUT, BrushPose, BrushTexture, ColorAdjustment, DAB_INDEX_INPUT, DIRECTION_INPUT,
     DUAL_TIP_TEXTURE_INPUT, DualBrush, Dynamics, INITIAL_DIRECTION_INPUT,
-    MAIN_BACKGROUND_COLOR_INPUT, MAIN_BOUNDS_OUTPUT, MAIN_COLOR_OUTPUT,
+    MAIN_BACKGROUND_COLOR_INPUT, MAIN_BOUNDS_OUTPUT, MAIN_COLOR_OUTPUT, MAIN_CURRENT_COLOR_INPUT,
     MAIN_FOREGROUND_COLOR_INPUT, MAIN_PATTERN_TEXTURE_INPUT, MAIN_PEN_POSITION_INPUT,
     MAIN_PIXEL_POSITION_INPUT, MAIN_TIP_TEXTURE_INPUT, POSTPROCESS_INPUT_COLOR,
-    POSTPROCESS_STROKE_BOUNDS_INPUT, PRESSURE_INPUT, REQUIRED_SPACING_OUTPUT, STROKE_BEGIN_INPUT,
-    STROKE_DISTANCE_INPUT, Scatter, TILT_INPUT, USER_FLOW, USER_OPACITY, USER_SIZE, computed_main,
-    computed_required_spacing, opacity_postprocess, sampled_main, sampled_required_spacing,
+    POSTPROCESS_STROKE_BOUNDS_INPUT, POSTPROCESS_TARGET_COLOR_INPUT, PRESSURE_INPUT,
+    REQUIRED_SPACING_OUTPUT, STROKE_BEGIN_INPUT, STROKE_DISTANCE_INPUT, Scatter, TILT_INPUT,
+    USER_FLOW, USER_OPACITY, USER_SIZE, computed_main, computed_required_spacing,
+    opacity_postprocess, sampled_main, sampled_required_spacing,
 };
 
-pub fn add_stateful_node<Data, T>(
-    graph: &mut Graph<Data>,
+pub fn add_stateful_node<T>(
+    graph: &mut Graph,
     position: Point,
     node: T,
     state: T::State,
 ) -> GraphNodeId
 where
-    Data: GraphData,
-    T: GraphNode<Data>,
+    T: GraphNode,
 {
     let node_id = graph.add_node(position, node);
     graph.update_node_state::<T>(node_id, |current| *current = state);
     node_id
+}
+
+fn add_mask_input_slot(state: &mut CustomExpressionNodeState, name: &str) {
+    state.add_input_non_default(
+        name,
+        TextureType {
+            texel_type: TexelType::A8,
+        },
+    );
 }
 
 fn add_dynamics_input_slots(state: &mut CustomExpressionNodeState) {
@@ -72,13 +86,7 @@ fn add_dynamics_input_slots(state: &mut CustomExpressionNodeState) {
     state.add_input::<I32Type>(DAB_INDEX_INPUT);
 }
 
-fn connect_dynamics_input_nodes<Data>(
-    graph: &mut Graph<Data>,
-    expression: GraphNodeId,
-    input_offset: usize,
-) where
-    Data: GraphDataWithPenInput + GraphDataWithInitialPenInput,
-{
+fn connect_dynamics_input_nodes(graph: &mut Graph, expression: GraphNodeId, input_offset: usize) {
     let pressure = graph.add_node(Point::new(0.0, 350.0), PenPressureNode);
     let tilt = graph.add_node(Point::new(0.0, 400.0), PenTiltNode);
     let angle = graph.add_node(Point::new(0.0, 450.0), PenAngleNode);
@@ -143,60 +151,228 @@ pub enum MainTip {
     Sampled(SampledMainTip),
 }
 
+pub struct BrushInputSlot {
+    pub id: EffectInputSlotId,
+    pub name: String,
+    pub ty: Arc<dyn ErasedGraphValueType>,
+    pub value: SerializableGraphLiteral,
+}
+
+pub struct BrushInputs {
+    pub size: EffectInputSlotId,
+    pub opacity: EffectInputSlotId,
+    pub flow: EffectInputSlotId,
+    pub tip_texture: Option<EffectInputSlotId>,
+    pub pattern_texture: Option<EffectInputSlotId>,
+    pub dual_tip_texture: Option<EffectInputSlotId>,
+    pub slots: Vec<BrushInputSlot>,
+}
+
+impl BrushInputs {
+    pub fn new(
+        size: f32,
+        tip_texture: Option<AssetId<Image>>,
+        pattern_texture: Option<AssetId<Image>>,
+        dual_tip_texture: Option<AssetId<Image>>,
+    ) -> Result<Self> {
+        let size_id = EffectInputSlotId::new(Uuid::new_v4());
+        let opacity_id = EffectInputSlotId::new(Uuid::new_v4());
+        let flow_id = EffectInputSlotId::new(Uuid::new_v4());
+        let mut inputs = vec![
+            f32_input(size_id, "Size", size.clamp(0.1, 1000.0))?,
+            f32_input(opacity_id, "Opacity", 1.0)?,
+            f32_input(flow_id, "Flow", 1.0)?,
+        ];
+        let tip_texture = tip_texture
+            .map(|asset| {
+                let id = EffectInputSlotId::new(Uuid::new_v4());
+                inputs.push(mask_input(id, "Tip Texture", asset)?);
+                Ok::<_, anyhow::Error>(id)
+            })
+            .transpose()?;
+        let pattern_texture = pattern_texture
+            .map(|asset| {
+                let id = EffectInputSlotId::new(Uuid::new_v4());
+                inputs.push(mask_input(id, "Pattern Texture", asset)?);
+                Ok::<_, anyhow::Error>(id)
+            })
+            .transpose()?;
+        let dual_tip_texture = dual_tip_texture
+            .map(|asset| {
+                let id = EffectInputSlotId::new(Uuid::new_v4());
+                inputs.push(mask_input(id, "Dual Tip Texture", asset)?);
+                Ok::<_, anyhow::Error>(id)
+            })
+            .transpose()?;
+
+        Ok(Self {
+            size: size_id,
+            opacity: opacity_id,
+            flow: flow_id,
+            tip_texture,
+            pattern_texture,
+            dual_tip_texture,
+            slots: inputs,
+        })
+    }
+
+    fn add_input_nodes_into(&self, graph: &mut Graph) -> HashMap<EffectInputSlotId, GraphNodeId> {
+        self.slots
+            .iter()
+            .enumerate()
+            .map(|(index, input)| {
+                let node = graph.add_node(Point::new(-200.0, index as f32 * 50.0), PassInputNode);
+                graph.update_node_state::<PassInputNode>(node, |state| {
+                    state.input = Some(PassInput::Effect(input.id));
+                    state.cached_ty = Some(input.ty.clone());
+                });
+                (input.id, node)
+            })
+            .collect()
+    }
+}
+
+fn f32_input(id: EffectInputSlotId, name: &str, value: f32) -> Result<BrushInputSlot> {
+    let ty = Arc::new(F32Type);
+    Ok(BrushInputSlot {
+        id,
+        name: name.into(),
+        value: SerializableGraphLiteral {
+            ty: GraphValueType::id(ty.as_ref()).id,
+            value: toml::Value::try_from(value)?,
+        },
+        ty,
+    })
+}
+
+fn mask_input(id: EffectInputSlotId, name: &str, asset: AssetId<Image>) -> Result<BrushInputSlot> {
+    let ty = Arc::new(TextureType {
+        texel_type: TexelType::A8,
+    });
+    let mut value = Map::new();
+    value.insert("asset".into(), toml::Value::try_from(asset)?);
+    Ok(BrushInputSlot {
+        id,
+        name: name.into(),
+        value: SerializableGraphLiteral {
+            ty: GraphValueType::id(ty.as_ref()).id,
+            value: toml::Value::Table(value),
+        },
+        ty,
+    })
+}
+
+fn add_effect_output_node(
+    graph: &mut Graph,
+    position: Point,
+    output: EffectOutputSlotId,
+    ty: Arc<dyn ErasedGraphValueType>,
+) -> (GraphNodeId, EffectPassOutputSlotId) {
+    let node = graph.add_node(position, PassOutputNode);
+    let port = graph
+        .get_node(&node)
+        .expect("newly added output node exists")
+        .data
+        .state::<PassOutputNode>()
+        .expect("output node has output state")
+        .id;
+    graph.update_node_state::<PassOutputNode>(node, |state| {
+        state.output = Some(PassOutput::Effect(output));
+        state.cached_ty = Some(ty);
+    });
+    (node, port)
+}
+
+fn effect_asset(
+    name: &str,
+    pass_name: &str,
+    graph: SerializableGraph,
+    dispatch_strategy: EffectPassDispatchStrategy,
+    inputs: &BrushInputs,
+    outputs: Vec<SerializableEffectOutputSlot>,
+) -> EffectAsset {
+    EffectAsset {
+        name: name.into(),
+        passes: vec![SerializableEffectPass {
+            id: EffectPassId::new(Uuid::new_v4()),
+            name: pass_name.into(),
+            graph,
+            dispatch_strategy,
+        }],
+        inputs: {
+            let this = &inputs;
+            this.slots
+                .iter()
+                .map(|input| SerializableEffectInputSlot {
+                    name: input.name.clone(),
+                    id: input.id,
+                    ty: input.ty.id().id,
+                })
+                .collect()
+        },
+        outputs,
+    }
+}
+
 pub fn computed_graphs(
     tip: ComputedMainTip,
     options: MainGraphOptions,
-    external_vars: &ExternalVariables,
-) -> Result<(SerializableGraph, SerializableGraph)> {
-    let required_spacing_graph = required_spacing_graph(
-        external_vars,
+    inputs: &BrushInputs,
+) -> Result<(EffectAsset, EffectAsset)> {
+    let spacing_effect = required_spacing_effect(
+        inputs,
         tip.spacing,
         options.size_dynamics,
         options.pose,
-        None,
+        false,
     )?;
-    let main_graph = build_main_graph(MainTip::Computed(tip), options, external_vars)?;
-    Ok((required_spacing_graph, main_graph))
+    let main_effect = build_main_effect(MainTip::Computed(tip), options, inputs)?;
+    Ok((spacing_effect, main_effect))
 }
 
 pub fn sampled_graphs(
     tip: SampledMainTip,
     options: MainGraphOptions,
-    external_vars: &ExternalVariables,
-) -> Result<(SerializableGraph, SerializableGraph)> {
-    let required_spacing_graph = required_spacing_graph(
-        external_vars,
+    inputs: &BrushInputs,
+) -> Result<(EffectAsset, EffectAsset)> {
+    let spacing_effect = required_spacing_effect(
+        inputs,
         tip.spacing,
         options.size_dynamics,
         options.pose,
-        Some(tip.sample_asset),
+        true,
     )?;
-    let main_graph = build_main_graph(MainTip::Sampled(tip), options, external_vars)?;
-    Ok((required_spacing_graph, main_graph))
+    let main_effect = build_main_effect(MainTip::Sampled(tip), options, inputs)?;
+    Ok((spacing_effect, main_effect))
 }
 
-fn required_spacing_graph(
-    external_vars: &ExternalVariables,
+fn required_spacing_effect(
+    inputs: &BrushInputs,
     spacing: f32,
     size_dynamics: Option<Dynamics>,
     pose: BrushPose,
-    sample_asset: Option<AssetId<Image>>,
-) -> Result<SerializableGraph> {
-    let mut graph = Graph::new(graph_resources(
-        REQUIRED_SPACING_GRAPH_NODES.clone(),
-        external_vars.storage.clone(),
+    sampled: bool,
+) -> Result<EffectAsset> {
+    let mut graph = Graph::new(spacing_effect_resources(
+        AssetRegistryBuilder::default().build(),
     ));
+    let input_nodes = inputs.add_input_nodes_into(&mut graph);
     let mut state = CustomExpressionNodeState::default();
-    let input_offset = if sample_asset.is_some() {
-        state.add_input::<TextureType>(MAIN_TIP_TEXTURE_INPUT);
+    let input_offset = if sampled {
+        add_mask_input_slot(&mut state, MAIN_TIP_TEXTURE_INPUT);
         1
     } else {
         0
     };
-    add_dynamics_input_slots(&mut state);
+    state.add_input::<F32Type>(PRESSURE_INPUT);
+    state.add_input::<Vec2FType>(TILT_INPUT);
+    state.add_input::<F32Type>(AZIMUTH_INPUT);
+    state.add_input::<F32Type>(DIRECTION_INPUT);
+    state.add_input::<F32Type>(INITIAL_DIRECTION_INPUT);
+    state.add_input::<I32Type>(DAB_INDEX_INPUT);
     state.add_input::<F32Type>(USER_SIZE);
     state.add_output::<F32Type>(REQUIRED_SPACING_OUTPUT);
-    state.set_code(if sample_asset.is_some() {
+    state.set_code(if sampled {
         sampled_required_spacing(spacing, size_dynamics, pose)
     } else {
         computed_required_spacing(spacing, size_dynamics, pose)
@@ -208,88 +384,76 @@ fn required_spacing_graph(
         CustomExpressionNode,
         state,
     );
-    if let Some(sample_asset) = sample_asset {
-        let texture = add_stateful_node(
-            &mut graph,
-            Point::new(0.0, 300.0),
-            TextureNode,
-            TextureId(Some(sample_asset)),
-        );
-        graph.connect_slots_by_index(texture, 0, expression, 0);
+    if sampled {
+        graph.connect_slots_by_index(input_nodes[&inputs.tip_texture.unwrap()], 0, expression, 0);
     }
-    let user_size = add_stateful_node(
-        &mut graph,
-        Point::new(0.0, 650.0),
-        ExternalVariableNode,
-        Some(external_vars.size),
-    );
-    let output = graph.add_node(Point::new(300.0, 100.0), OutputRequiredSpacingNode);
-    graph.connect_slots_by_index(expression, 0, output, 0);
     connect_dynamics_input_nodes(&mut graph, expression, input_offset);
-    graph.connect_slots_by_index(user_size, 0, expression, input_offset + 6);
+    graph.connect_slots_by_index(input_nodes[&inputs.size], 0, expression, input_offset + 6);
 
-    graph.as_serialized()
+    let output_id = EffectOutputSlotId::new(Uuid::new_v4());
+    let (output, _) = add_effect_output_node(
+        &mut graph,
+        Point::new(300.0, 100.0),
+        output_id,
+        Arc::new(F32Type),
+    );
+    graph.connect_slots_by_index(expression, 0, output, 0);
+
+    Ok(effect_asset(
+        "Brush Spacing",
+        "Spacing",
+        graph.as_serialized()?,
+        EffectPassDispatchStrategy::Once,
+        inputs,
+        vec![SerializableEffectOutputSlot {
+            name: SPACING_OUTPUT.into(),
+            id: output_id,
+            ty: GraphValueType::id(&F32Type).id,
+        }],
+    ))
 }
 
-fn build_main_graph(
+fn build_main_effect(
     tip: MainTip,
     options: MainGraphOptions,
-    external_vars: &ExternalVariables,
-) -> Result<SerializableGraph> {
-    let mut graph = Graph::new(graph_resources(
-        MAIN_GRAPH_NODES.clone(),
-        external_vars.storage.clone(),
+    inputs: &BrushInputs,
+) -> Result<EffectAsset> {
+    let mut graph = Graph::new(main_effect_resources(
+        AssetRegistryBuilder::default().build(),
     ));
+    let input_nodes = inputs.add_input_nodes_into(&mut graph);
     let pixel_position = graph.add_node(Point::new(0.0, 0.0), PixelPositionNode);
     let pen_position = graph.add_node(Point::new(0.0, 100.0), PenPositionNode);
     let foreground_color = graph.add_node(Point::new(0.0, 200.0), ForegroundColorNode);
-    let tip_texture = match &tip {
-        MainTip::Sampled(tip) => Some(add_stateful_node(
-            &mut graph,
-            Point::new(0.0, 300.0),
-            TextureNode,
-            TextureId(Some(tip.sample_asset)),
-        )),
-        MainTip::Computed(_) => None,
-    };
-    let background_color = graph.add_node(Point::new(0.0, 400.0), BackgroundColorNode);
-    let pattern_texture = options.pattern_asset.map(|pattern_asset| {
-        add_stateful_node(
-            &mut graph,
-            Point::new(0.0, 450.0),
-            TextureNode,
-            TextureId(Some(pattern_asset)),
-        )
-    });
+    let tip_texture = inputs.tip_texture.map(|id| input_nodes[&id]);
+    let background_color = graph.add_node(Point::new(0.0, 350.0), BackgroundColorNode);
+    let current_color = graph.add_node(Point::new(0.0, 400.0), CurrentPixelColorNode);
+    let pattern_texture = inputs.pattern_texture.map(|id| input_nodes[&id]);
     let stroke_distance = options
         .dual_brush
         .map(|_| graph.add_node(Point::new(0.0, 600.0), StrokeDistanceNode));
     let stroke_time = graph.add_node(Point::new(0.0, 650.0), TimeNode);
-    let dual_texture = options.dual_sample_asset.map(|sample_asset| {
-        add_stateful_node(
-            &mut graph,
-            Point::new(0.0, 700.0),
-            TextureNode,
-            TextureId(Some(sample_asset)),
-        )
-    });
+    let dual_texture = inputs.dual_tip_texture.map(|id| input_nodes[&id]);
 
     let mut state = CustomExpressionNodeState::default();
     state.add_input::<Vec2FType>(MAIN_PIXEL_POSITION_INPUT);
     state.add_input::<Vec2FType>(MAIN_PEN_POSITION_INPUT);
     state.add_input::<ColorType>(MAIN_FOREGROUND_COLOR_INPUT);
     if tip_texture.is_some() {
-        state.add_input::<TextureType>(MAIN_TIP_TEXTURE_INPUT);
+        add_mask_input_slot(&mut state, MAIN_TIP_TEXTURE_INPUT);
     }
     state.add_input::<ColorType>(MAIN_BACKGROUND_COLOR_INPUT);
-    state.add_input::<TextureType>(MAIN_PATTERN_TEXTURE_INPUT);
+    state.add_input::<ColorType>(MAIN_CURRENT_COLOR_INPUT);
+    if pattern_texture.is_some() {
+        add_mask_input_slot(&mut state, MAIN_PATTERN_TEXTURE_INPUT);
+    }
     add_dynamics_input_slots(&mut state);
     if stroke_distance.is_some() {
         state.add_input::<F32Type>(STROKE_DISTANCE_INPUT);
     }
     state.add_input::<F32Type>(STROKE_BEGIN_INPUT);
     if dual_texture.is_some() {
-        state.add_input::<TextureType>(DUAL_TIP_TEXTURE_INPUT);
+        add_mask_input_slot(&mut state, DUAL_TIP_TEXTURE_INPUT);
     }
     state.add_input::<F32Type>(USER_SIZE);
     state.add_input::<F32Type>(USER_FLOW);
@@ -306,24 +470,22 @@ fn build_main_graph(
         CustomExpressionNode,
         state,
     );
-    let user_size = add_stateful_node(
+    let output_id = EffectOutputSlotId::new(Uuid::new_v4());
+    let layer_ty = Arc::new(LayerType {
+        texel_type: TexelType::RGBA8,
+    });
+    let (output, output_port) = add_effect_output_node(
         &mut graph,
-        Point::new(100.0, 800.0),
-        ExternalVariableNode,
-        Some(external_vars.size),
+        Point::new(550.0, 100.0),
+        output_id,
+        layer_ty.clone(),
     );
-    let user_flow = add_stateful_node(
-        &mut graph,
-        Point::new(100.0, 850.0),
-        ExternalVariableNode,
-        Some(external_vars.flow),
-    );
-    let output_color = graph.add_node(Point::new(550.0, 100.0), OutputColorNode);
-    let output_bounds = graph.add_node(Point::new(550.0, 200.0), OutputBoundsNode);
+
     let tip_input_offset = usize::from(tip_texture.is_some());
     let background_input = 3 + tip_input_offset;
-    let pattern_input = background_input + 1;
-    let dynamics_input = pattern_input + 1;
+    let current_color_input = background_input + 1;
+    let pattern_input = current_color_input + 1;
+    let dynamics_input = pattern_input + usize::from(pattern_texture.is_some());
     let stroke_distance_input = dynamics_input + 6;
     let stroke_time_input = stroke_distance_input + usize::from(stroke_distance.is_some());
     let user_size_input = stroke_time_input + 1 + usize::from(dual_texture.is_some());
@@ -335,6 +497,8 @@ fn build_main_graph(
         graph.connect_slots_by_index(tip_texture, 0, expression, 3);
     }
     graph.connect_slots_by_index(background_color, 0, expression, background_input);
+    graph.connect_slots_by_index(pixel_position, 0, current_color, 0);
+    graph.connect_slots_by_index(current_color, 0, expression, current_color_input);
     if let Some(pattern_texture) = pattern_texture {
         graph.connect_slots_by_index(pattern_texture, 0, expression, pattern_input);
     }
@@ -346,31 +510,49 @@ fn build_main_graph(
     if let Some(dual_texture) = dual_texture {
         graph.connect_slots_by_index(dual_texture, 0, expression, stroke_time_input + 1);
     }
-    graph.connect_slots_by_index(user_size, 0, expression, user_size_input);
-    graph.connect_slots_by_index(user_flow, 0, expression, user_size_input + 1);
+    graph.connect_slots_by_index(input_nodes[&inputs.size], 0, expression, user_size_input);
+    graph.connect_slots_by_index(
+        input_nodes[&inputs.flow],
+        0,
+        expression,
+        user_size_input + 1,
+    );
 
-    graph.connect_slots_by_index(expression, 0, output_color, 0);
-    graph.connect_slots_by_index(expression, 1, output_bounds, 0);
+    graph.connect_slots_by_index(expression, 0, output, 0);
+    graph.connect_slots_by_index(expression, 1, output, 1);
 
-    graph.as_serialized()
+    Ok(effect_asset(
+        "Brush Main",
+        "Dab",
+        graph.as_serialized()?,
+        EffectPassDispatchStrategy::EveryOutputLayerPixel(output_port),
+        inputs,
+        vec![SerializableEffectOutputSlot {
+            name: MAIN_DAB_BUFFER.into(),
+            id: output_id,
+            ty: GraphValueType::id(layer_ty.as_ref()).id,
+        }],
+    ))
 }
 
-pub fn opacity_postprocess_graph(
+pub fn opacity_postprocess_effect(
     opacity: f32,
     blend_mode: BlendMode,
-    external_vars: &ExternalVariables,
-) -> Result<SerializableGraph> {
-    let mut graph = Graph::new(graph_resources(
-        STROKE_POSTPROCESS_GRAPH_NODES.clone(),
-        external_vars.storage.clone(),
+    inputs: &BrushInputs,
+) -> Result<EffectAsset> {
+    let mut graph = Graph::new(postprocess_effect_resources(
+        AssetRegistryBuilder::default().build(),
     ));
+    let input_nodes = inputs.add_input_nodes_into(&mut graph);
     let pixel_position = graph.add_node(Point::new(0.0, 0.0), PixelPositionNode);
     let current_color = graph.add_node(Point::new(200.0, 0.0), CurrentPixelColorNode);
+    let target_color = graph.add_node(Point::new(200.0, 75.0), LayerPixelColorNode);
     let stroke_bounds = graph.add_node(Point::new(200.0, 150.0), StrokeBoundsNode);
 
     let mut state = CustomExpressionNodeState::default();
     state.add_input::<ColorType>(POSTPROCESS_INPUT_COLOR);
     state.add_input::<RectType>(POSTPROCESS_STROKE_BOUNDS_INPUT);
+    state.add_input::<ColorType>(POSTPROCESS_TARGET_COLOR_INPUT);
     state.add_input::<F32Type>(USER_OPACITY);
     state.add_output::<ColorType>(MAIN_COLOR_OUTPUT);
     state.add_output::<RectType>(MAIN_BOUNDS_OUTPUT);
@@ -382,71 +564,36 @@ pub fn opacity_postprocess_graph(
         CustomExpressionNode,
         state,
     );
-    let user_opacity = add_stateful_node(
-        &mut graph,
-        Point::new(200.0, 225.0),
-        ExternalVariableNode,
-        Some(external_vars.opacity),
-    );
-    let output_color = graph.add_node(Point::new(650.0, 25.0), OutputColorNode);
-    let output_bounds = graph.add_node(Point::new(650.0, 125.0), OutputBoundsNode);
-
     graph.connect_slots_by_index(pixel_position, 0, current_color, 0);
+    graph.connect_slots_by_index(pixel_position, 0, target_color, 0);
     graph.connect_slots_by_index(current_color, 0, expression, 0);
     graph.connect_slots_by_index(stroke_bounds, 0, expression, 1);
-    graph.connect_slots_by_index(user_opacity, 0, expression, 2);
-    graph.connect_slots_by_index(expression, 0, output_color, 0);
-    graph.connect_slots_by_index(expression, 1, output_bounds, 0);
+    graph.connect_slots_by_index(target_color, 0, expression, 2);
+    graph.connect_slots_by_index(input_nodes[&inputs.opacity], 0, expression, 3);
 
-    graph.as_serialized()
-}
-
-pub struct ExternalVariables {
-    pub size: ExternalVariableId,
-    pub opacity: ExternalVariableId,
-    pub flow: ExternalVariableId,
-    pub storage: Arc<GraphExternalVariableStorage>,
-}
-
-pub fn external_variables(size: f32) -> ExternalVariables {
-    let size_id = ExternalVariableId::new(Uuid::new_v4());
-    let opacity_id = ExternalVariableId::new(Uuid::new_v4());
-    let flow_id = ExternalVariableId::new(Uuid::new_v4());
-
-    let ext_vars = GraphExternalVariableStorage::default();
-    ext_vars.insert(ExternalVariable {
-        id: size_id,
-        name: "Size".to_string(),
-        value: GraphLiteral::new::<F32Type>(size.clamp(0.1, 1000.0)),
+    let output_id = EffectOutputSlotId::new(Uuid::new_v4());
+    let layer_ty = Arc::new(LayerType {
+        texel_type: TexelType::RGBA8,
     });
-    ext_vars.insert(ExternalVariable {
-        id: opacity_id,
-        name: "Opacity".to_string(),
-        value: GraphLiteral::new::<F32Type>(1.0),
-    });
-    ext_vars.insert(ExternalVariable {
-        id: flow_id,
-        name: "Flow".to_string(),
-        value: GraphLiteral::new::<F32Type>(1.0),
-    });
+    let (output, output_port) = add_effect_output_node(
+        &mut graph,
+        Point::new(650.0, 75.0),
+        output_id,
+        layer_ty.clone(),
+    );
+    graph.connect_slots_by_index(expression, 0, output, 0);
+    graph.connect_slots_by_index(expression, 1, output, 1);
 
-    ExternalVariables {
-        size: size_id,
-        opacity: opacity_id,
-        flow: flow_id,
-        storage: Arc::new(ext_vars),
-    }
-}
-
-fn graph_resources<Data: GraphData>(
-    node_registry: Arc<GraphNodeRegistry<Data>>,
-    external_vars: Arc<GraphExternalVariableStorage>,
-) -> GraphResources<Data> {
-    GraphResources {
-        type_registry: BRUSH_GRAPH_TYPES.clone(),
-        node_registry,
-        textures: lapiz_shader_graph::graph::texture::ASSET_GRAPH_TEXTURE_STORAGE.clone(),
-        functions: lapiz_shader_graph::graph::function::ASSET_GRAPH_FUNCTION_STORAGE.clone(),
-        external_vars,
-    }
+    Ok(effect_asset(
+        "Brush Postprocess",
+        "Opacity and Blend",
+        graph.as_serialized()?,
+        EffectPassDispatchStrategy::EveryOutputLayerPixel(output_port),
+        inputs,
+        vec![SerializableEffectOutputSlot {
+            name: STROKE_RESULT.into(),
+            id: output_id,
+            ty: GraphValueType::id(layer_ty.as_ref()).id,
+        }],
+    ))
 }

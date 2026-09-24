@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{fs::File, path::Path};
 
 use anyhow::Result;
 use iced_core::{Element, Theme};
@@ -89,7 +89,7 @@ impl ImageFormatExporter for JpgExporter {
         )
         .await?;
         let rgb = flatten_onto_white(&rgba);
-        let file = std::fs::File::create(path)?;
+        let file = File::create(path)?;
         let mut encoder = JpegEncoder::new_with_quality(file, self.quality);
         if self.embed_profile {
             encoder.set_icc_profile(canvas.image.profile().encode()?)?;

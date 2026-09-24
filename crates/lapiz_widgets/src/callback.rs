@@ -1,3 +1,5 @@
+use std::mem;
+
 #[derive(Default)]
 pub enum Callback<'a, Message> {
     #[default]
@@ -15,7 +17,7 @@ impl<'a, Message> Callback<'a, Message> {
 pub type CallbackWith<'a, Input, Message> = Option<Box<dyn Fn(Input) -> Message + 'a>>;
 
 pub fn publish<Message>(callback: &mut Callback<'_, Message>) -> Option<Message> {
-    match std::mem::replace(callback, Callback::Empty) {
+    match mem::replace(callback, Callback::Empty) {
         Callback::Empty => None,
         Callback::Value(message) => Some(message),
         Callback::Func(func) => {

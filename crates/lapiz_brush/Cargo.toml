@@ -25,6 +25,7 @@ lapiz_assets.workspace = true
 lapiz_canvas.workspace = true
 lapiz_color.workspace = true
 lapiz_dirs.workspace = true
+lapiz_effect.workspace = true
 lapiz_i18n.workspace = true
 lapiz_image.workspace = true
 lapiz_input.workspace = true
@@ -47,8 +48,13 @@ toml.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 wesl.workspace = true
+wesl-quote.workspace = true
 wgpu.workspace = true
+wgpu-profiler.workspace = true
 zip.workspace = true
+
+[dev-dependencies]
+futures.workspace = true
 
 [build-dependencies]
 lapiz_image.workspace = true

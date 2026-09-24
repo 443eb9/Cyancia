@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{env, sync::Arc};
 
 use crate::main_view::MainView;
 
@@ -25,7 +25,7 @@ use lapiz_image_exporter::ImageExporterPlugin;
 use lapiz_image_importer::ImageImporterPlugin;
 use lapiz_input::InputPlugin;
 use lapiz_render::RenderPlugin;
-use lapiz_runtime::{Application, windows::WindowCommandBuffer};
+use lapiz_runtime::{Application, renderer::global_render_context, windows::WindowCommandBuffer};
 use lapiz_selection_tool::SelectionPlugin;
 use lapiz_shader_graph::ShaderGraphPlugin;
 use lapiz_tools::ToolsPlugin;
@@ -41,7 +41,7 @@ fn main() {
 
     i18n::init();
 
-    log::info!("Running at {}", std::env::current_dir().unwrap().display());
+    log::info!("Running at {}", env::current_dir().unwrap().display());
 
     let mut app = Application::default();
     let mut asset_bundles = Vec::<Arc<dyn ErasedAssetBundle>>::new();
@@ -89,7 +89,7 @@ fn main() {
         );
     }
 
-    app.add_service_instance(lapiz_runtime::renderer::global_render_context())
+    app.add_service_instance(global_render_context())
         .add_service::<WindowCommandBuffer>()
         .add_plugin(AssetsPlugin {
             asset_root: assets_dir().into(),

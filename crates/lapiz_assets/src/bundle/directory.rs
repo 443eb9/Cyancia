@@ -1,7 +1,8 @@
 use std::{
+    error::Error,
     ffi::OsStr,
-    fs::{File, create_dir_all, metadata, read_to_string},
-    io::Write as _,
+    fs::{self, File, create_dir_all, metadata, read_to_string},
+    io::{self, Write as _},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -9,7 +10,9 @@ use std::{
 use chrono::DateTime;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use toml::{de, ser};
 use uuid::Uuid;
+use xxhash_rust::xxh3::xxh3_128;
 
 use crate::{
     asset::{ErasedAsset, UntypedAssetId},
@@ -68,13 +71,13 @@ impl AssetDirectory {
 #[derive(Debug, thiserror::Error)]
 pub enum DataDirectoryError {
     #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error("Serializer error: {0}")]
-    SerializerError(Box<dyn std::error::Error + Send + Sync + 'static>),
+    SerializerError(Box<dyn Error + Send + Sync + 'static>),
     #[error("Toml serialization error: {0}")]
-    TomlSerError(#[from] toml::ser::Error),
+    TomlSerError(#[from] ser::Error),
     #[error("Toml deserialization error: {0}")]
-    TomlDeError(#[from] toml::de::Error),
+    TomlDeError(#[from] de::Error),
 }
 
 impl AssetBundle for AssetDirectory {
@@ -118,7 +121,7 @@ impl AssetBundle for AssetDirectory {
         let path = path_clean::clean(path);
         let asset_path = self.root.join(&path);
         if let Some(parent) = asset_path.parent() {
-            std::fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent)?;
         }
         let mut file = File::create(&asset_path)?;
         serializer
@@ -172,7 +175,7 @@ fn scan_dir_dfs(
     bundle_id: &BundleId,
     manifest: &mut BundleManifest,
 ) -> AssetResult<()> {
-    let entries = std::fs::read_dir(current_path)?;
+    let entries = fs::read_dir(current_path)?;
     for entry in entries {
         let Ok(entry) = entry else {
             continue;
@@ -192,7 +195,7 @@ fn scan_dir_dfs(
             }
 
             if path.extension() == Some(OsStr::new(TAG_EXT)) {
-                let tag = toml::from_slice::<TagFile>(&std::fs::read(&path)?)?;
+                let tag = toml::from_slice::<TagFile>(&fs::read(&path)?)?;
                 manifest.tags.insert(tag.id, relative_path.into());
             } else {
                 let asset_id = asset_id_from_relative_path(bundle_id, relative_path);
@@ -216,12 +219,12 @@ fn asset_id_from_relative_path(bundle_id: &BundleId, path: &Path) -> UntypedAsse
     key.extend_from_slice(bundle_id.as_bytes());
     key.extend_from_slice(path_bytes);
 
-    UntypedAssetId::new(Uuid::from_u128(xxhash_rust::xxh3::xxh3_128(&key)))
+    UntypedAssetId::new(Uuid::from_u128(xxh3_128(&key)))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, env, error::Error, fs};
 
     use super::*;
     use crate::tag::TagId;
@@ -241,9 +244,9 @@ mod tests {
     }
 
     #[test]
-    fn asset_tags_are_read_written_and_overwritten() -> Result<(), Box<dyn std::error::Error>> {
-        let root = std::env::temp_dir().join(format!("lapiz-asset-tags-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&root)?;
+    fn asset_tags_are_read_written_and_overwritten() -> Result<(), Box<dyn Error>> {
+        let root = env::temp_dir().join(format!("lapiz-asset-tags-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root)?;
         let bundle = AssetDirectory::new(&root)?;
         let asset_path = Path::new("brushes/sample.lapiz");
         let first_tag = TagId::new(Uuid::from_u128(1));
@@ -280,7 +283,7 @@ mod tests {
         bundle.write_asset_tags(asset_path, &AssetTags::default())?;
         assert!(bundle.read_asset_tags(asset_path)?.unwrap().tags.is_empty());
 
-        std::fs::remove_dir_all(root)?;
+        fs::remove_dir_all(root)?;
         Ok(())
     }
 }

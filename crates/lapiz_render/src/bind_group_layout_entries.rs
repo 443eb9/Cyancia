@@ -1,6 +1,7 @@
 // Stolen from bevy. This is sooo convenient.
 
 use core::num::NonZero;
+use std::ops::Deref;
 
 use variadics_please::all_tuples_with_size;
 use wgpu::{BindGroupLayoutEntry, BindingType, ShaderStages};
@@ -201,7 +202,7 @@ impl BindGroupLayoutEntries<1> {
     }
 }
 
-impl<const N: usize> core::ops::Deref for BindGroupLayoutEntries<N> {
+impl<const N: usize> Deref for BindGroupLayoutEntries<N> {
     type Target = [BindGroupLayoutEntry];
     fn deref(&self) -> &[BindGroupLayoutEntry] {
         &self.entries
@@ -357,7 +358,7 @@ impl DynamicBindGroupLayoutEntries {
     }
 }
 
-impl core::ops::Deref for DynamicBindGroupLayoutEntries {
+impl Deref for DynamicBindGroupLayoutEntries {
     type Target = [BindGroupLayoutEntry];
 
     fn deref(&self) -> &[BindGroupLayoutEntry] {

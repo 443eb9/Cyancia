@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     collections::{HashMap, VecDeque},
+    fmt,
     time::Instant,
 };
 
@@ -195,8 +196,8 @@ impl UndoStack {
     }
 }
 
-impl std::fmt::Debug for UndoStack {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for UndoStack {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UndoStack")
             .field("cursor", &self.cursor)
             .field("len", &self.len())

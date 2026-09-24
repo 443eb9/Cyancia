@@ -1,6 +1,8 @@
 use std::{
+    any,
     any::{Any as _, TypeId},
     collections::HashMap,
+    fmt, iter,
 };
 
 use dyn_clone::DynClone;
@@ -469,7 +471,7 @@ impl LayerStack {
             .rev()
             .map(|child| (child, 0))
             .collect::<Vec<_>>();
-        std::iter::from_fn(move || {
+        iter::from_fn(move || {
             let (id, depth) = stack.pop()?;
             let node = self.layers.get(id)?;
             stack.extend(
@@ -494,7 +496,7 @@ impl LayerStack {
     /// In order from target to root, excluding the target itself.
     pub fn ancestors(&self, target: LayerId) -> impl Iterator<Item = LayerId> {
         let mut current = target;
-        std::iter::from_fn(move || {
+        iter::from_fn(move || {
             let parent = self.layers.get(&current).and_then(|n| n.parent())?;
             current = *parent;
             Some(current)
@@ -522,16 +524,13 @@ pub struct LayerStackNode {
     properties: LayerProperties,
 }
 
-impl std::fmt::Debug for LayerStackNode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for LayerStackNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LayerStackNode")
             .field("id", &self.id)
             .field("parent", &self.parent)
             .field("children", &self.children)
-            .field(
-                "instance",
-                &std::any::type_name_of_val(self.instance.as_ref()),
-            )
+            .field("instance", &any::type_name_of_val(self.instance.as_ref()))
             .field("properties", &self.properties)
             .finish()
     }

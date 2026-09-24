@@ -1,4 +1,7 @@
-use std::{cell::RefCell, fs::File};
+use std::{
+    cell::RefCell,
+    fs::{self, File},
+};
 
 use bevy_math::{IRect, Rect, UVec2};
 use iced::{Element, Subscription, Task, Theme, pointer, widget::Space, window};
@@ -22,7 +25,7 @@ use lapiz_input::{
     mouse::{HoverMouseState, PressedMouseState},
 };
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Renderer, Services, event::Event as _};
+use lapiz_runtime::{Renderer, Services, event::Event as _, platform::get_window_monitor_name};
 use lapiz_tools::ErasedToolFunctionMessage;
 use lapiz_utils::log_err::LogErr as _;
 
@@ -79,7 +82,7 @@ impl CanvasDock {
 
             let path = recent_file_thumbnail_path(file_path.as_path());
             if let Some(parent) = path.parent()
-                && std::fs::create_dir_all(parent).logged_err().is_err()
+                && fs::create_dir_all(parent).logged_err().is_err()
             {
                 return;
             }
@@ -293,7 +296,7 @@ impl Dock for CanvasDock {
                 .map(CanvasDockMessage::RawWindowIdUpdate),
             CanvasDockMessage::RawWindowIdUpdate(id) => {
                 self.raw_window_id = Some(id);
-                self.monitor_name = Some(lapiz_runtime::platform::get_window_monitor_name(id));
+                self.monitor_name = Some(get_window_monitor_name(id));
                 Task::none()
             }
         }

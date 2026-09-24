@@ -1,5 +1,8 @@
 use iced_core::{Background, Border, Element, Length, Pixels, Theme, text};
-use iced_widget::checkbox::{Catalog, Icon, Status, Style};
+use iced_widget::{
+    checkbox,
+    checkbox::{Catalog, Icon, Status, Style},
+};
 use lapiz_runtime::Renderer;
 
 pub struct Checkbox<'a, Message> {
@@ -78,14 +81,14 @@ impl<'a, Message> Checkbox<'a, Message> {
 
 impl<'a, Message: 'a> From<Checkbox<'a, Message>> for Element<'a, Message, Theme, Renderer> {
     fn from(value: Checkbox<'a, Message>) -> Self {
-        let mut inner = iced_widget::Checkbox::new(value.checked)
+        let mut inner = checkbox::Checkbox::new(value.checked)
             .size(value.size)
             .width(value.width)
             .spacing(value.spacing)
             .class(value.class);
         inner = inner.icon(Icon {
-            font: <Renderer as iced_core::text::Renderer>::ICON_FONT,
-            code_point: <Renderer as iced_core::text::Renderer>::CHECKMARK_ICON,
+            font: <Renderer as text::Renderer>::ICON_FONT,
+            code_point: <Renderer as text::Renderer>::CHECKMARK_ICON,
             size: Some(Pixels(value.size * 0.62)),
             line_height: text::LineHeight::Relative(1.0),
             shaping: text::Shaping::Basic,

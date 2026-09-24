@@ -10,7 +10,7 @@ pub fn compile_wesl(shader: String, dependencies: &[&CodegenPkg]) -> Result<Stri
 pub fn compile_wesl_with_config_and_include(
     shader: String,
     dependencies: &[&CodegenPkg],
-    include: impl FnOnce(&mut VirtualResolver),
+    include: impl Fn(&mut VirtualResolver),
     config: impl Fn(&mut Wesl<VirtualResolver>),
 ) -> Result<String> {
     let mut resolver = VirtualResolver::new();

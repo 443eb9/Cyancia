@@ -6,10 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
-[[example]]
-name = "editor_demo"
-path = "examples/editor_demo.rs"
-
 [dependencies]
 anyhow.workspace = true
 arc-swap.workspace = true
@@ -19,6 +15,7 @@ dashmap.workspace = true
 downcast-rs.workspace = true
 dyn-clone.workspace = true
 encase.workspace = true
+futures.workspace = true
 glam.workspace = true
 iced_core.workspace = true
 iced_graphics.workspace = true
@@ -28,6 +25,7 @@ iced_widget.workspace = true
 indexmap.workspace = true
 lapiz_assets.workspace = true
 lapiz_i18n.workspace = true
+lapiz_image.workspace = true
 lapiz_math.workspace = true
 lapiz_render.workspace = true
 lapiz_runtime.workspace = true
@@ -42,6 +40,8 @@ serde.workspace = true
 thiserror.workspace = true
 toml.workspace = true
 uuid.workspace = true
+wesl.workspace = true
+wesl-quote.workspace = true
 wgpu.workspace = true
 
 [dev-dependencies]

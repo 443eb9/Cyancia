@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{fs::File, path::Path};
 
 use anyhow::Result;
 use iced_core::{Element, Theme};
@@ -76,7 +76,7 @@ impl ImageFormatExporter for AvifExporter {
             services.render_queue(),
         )
         .await?;
-        let file = std::fs::File::create(path)?;
+        let file = File::create(path)?;
         AvifEncoder::new_with_speed_quality(file, AVIF_SPEED, self.quality).write_image(
             rgba.as_raw(),
             rgba.width(),

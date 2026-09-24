@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt,
     sync::{Arc, LazyLock},
 };
 
@@ -40,8 +41,8 @@ impl PartialEq for TextureObject {
     }
 }
 
-impl std::fmt::Display for TextureObject {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for TextureObject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.name)
     }
 }

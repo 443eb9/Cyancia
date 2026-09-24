@@ -102,7 +102,7 @@ mod imp {
 
     pub fn attach(window_decorations: &WindowDecorations, raw_window_id: u64) -> bool {
         let window = HWND(raw_window_id as *mut c_void);
-        let state = std::rc::Rc::into_raw(window_decorations.inner.clone()) as usize;
+        let state = Rc::into_raw(window_decorations.inner.clone()) as usize;
         let attached = unsafe { SetWindowSubclass(window, Some(window_proc), 1, state).as_bool() };
 
         if !attached {

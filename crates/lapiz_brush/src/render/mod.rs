@@ -1,58 +1,65 @@
-use std::{num::NonZeroU64, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap, VecDeque},
+    mem,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
-use anyhow::Result;
+use anyhow::{Context as _, Result, bail};
 use bevy_math::IRect;
 use chrono::{DateTime, Utc};
-use encase::ShaderType;
-use glam::{IVec2, Vec2, Vec4};
+use encase::{ShaderSize as _, ShaderType, StorageBuffer};
+use futures::{
+    StreamExt as _,
+    channel::{mpsc, oneshot},
+};
+use glam::{IVec4, Vec2, Vec4};
 use iced_runtime::Task;
-use indexmap::IndexSet;
-use lapiz_assets::{AssetAppExt as _, store::AssetRegistry};
 use lapiz_canvas::{CanvasAppExt as _, CanvasId};
 use lapiz_color::ForegroundBackgroundColorExt as _;
+use lapiz_effect::render::EffectRunTiming;
 use lapiz_image::{
     composite::PixelPreviewOverrider,
     layer::{
         LayerId,
         properties::builtin::{LayerTexelTypePropertyExt as _, TexelSource},
     },
+    layer_bounds::LayerBoundsPipeline,
     scan_pixels::ScanPixelsPipeline,
     texel::TexelType,
-    tile::{
-        DynamicLayerStorage, GpuLayerInfo, GpuTileStorage, LayerBinding, TileStorageAppExt as _,
-    },
+    tile::{DynamicLayerStorage, LayerBinding, TileStorageAppExt as _},
 };
 use lapiz_input::mouse::PressedMouseState;
 use lapiz_render::{
-    buffer::{BufferVec, DynamicBuffer},
-    readback::{
-        AsyncBufferReadback, create_readback_buffer_and_schedule_copy_buffer,
-        readback_buffer_on_submit_async,
-    },
-    render_context::RenderContextAppExt as _,
-    texture::GpuImage,
-    texture_atlas::{TextureAtlas, TextureAtlasBuilder},
+    bind_group_entries::DynamicBindGroupEntries, buffer::DynamicBuffer,
+    readback::readback_buffer_on_submit_async,
 };
 use lapiz_runtime::Services;
-use lapiz_shader_graph::graph::external::GraphExternalVariableStorage;
-use parking_lot::Mutex;
-use wgpu::{
-    BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
-    BufferDescriptor, BufferUsages, ComputePassDescriptor, Device, Extent3d, Queue, ShaderStages,
-    TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
+use lapiz_shader_graph::{
+    graph::{
+        slot::{ErasedGraphValueType, GraphShaderStage, GraphValueType},
+        variable::{GraphLiteral, GraphShaderLiteral, GraphShaderLiteralValue},
+    },
+    wgsl_std::types::handle::{LayerReference, LayerType, PreparedLayer, PreparedLayerPixels},
 };
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
+use wgpu::{
+    Buffer, BufferDescriptor, BufferUsages, ComputePassDescriptor, Device, Features, PollType,
+    Queue,
+};
+use wgpu_profiler::{GpuProfiler, GpuProfilerSettings, GpuTimerQueryResult};
 
 use crate::{
     input_processing::{InputProcessor, RawPenInput},
     instance::{BrushPresetInstance, CompiledBrushPreset},
     render::{
-        graph::CanvasResources,
-        pipeline::{
-            BrushInputSamplingPipeline, BrushMainBoundsEvalPipeline, BrushMainPipeline,
-            BrushPostProcessBoundsEvalPipeline, BrushPostProcessPipeline,
-            PreparedBrushMainBoundsEvalPipelineData, PreparedBrushMainPipelineData,
-            PreparedBrushPostProcessBoundsEvalPipelineData, PreparedInputSamplingPipelineData,
+        graph::{
+            BACKGROUND_COLOR_BUILTIN, BRUSH_SAMPLE_BUILTIN, ComputedPenInputValueType,
+            FOREGROUND_COLOR_BUILTIN, HAS_SELECTION_BUILTIN, INITIAL_PEN_INPUT_BUILTIN,
+            MAIN_ACCUMULATE_BUFFER, SELECTION_BUILTIN, TARGET_LAYER_BUILTIN,
         },
+        pipeline::{BrushInputSamplingPipeline, PreparedInputSamplingPipelineData},
     },
 };
 
@@ -60,8 +67,8 @@ pub mod graph;
 pub mod pipeline;
 pub mod stroke_preview;
 
-const EXTERNAL_VARIABLE_BASE_BINDING: u32 = 32;
-pub const MAX_DABS_PER_STROKE: u32 = 256;
+const MAX_DABS_PER_STROKE: u32 = 256;
+const MAX_INPUTS_PER_SAMPLE_BATCH: usize = 32;
 
 pub struct CanvasBrushStrokeSessionInfo {
     pub stroke_id: u64,
@@ -80,8 +87,8 @@ pub struct CanvasBrushPresetOperator {
     renderer: Option<BrushPresetRenderer>,
     session: Option<CanvasBrushStrokeSessionInfo>,
     input_processor: InputProcessor,
-    cached_brush: Option<CompiledBrushPreset>,
-    canvas_resources: DynamicBuffer<CanvasResources>,
+    foreground_color: DynamicBuffer<Vec4>,
+    background_color: DynamicBuffer<Vec4>,
 }
 
 impl CanvasBrushPresetOperator {
@@ -98,9 +105,12 @@ impl CanvasBrushPresetOperator {
             queue,
             session: None,
             input_processor,
-            cached_brush: None,
-            canvas_resources: DynamicBuffer::new(
-                Some("canvas_resources".into()),
+            foreground_color: DynamicBuffer::new(
+                Some("brush foreground color".into()),
+                BufferUsages::STORAGE,
+            ),
+            background_color: DynamicBuffer::new(
+                Some("brush background color".into()),
                 BufferUsages::STORAGE,
             ),
         }
@@ -111,7 +121,7 @@ impl CanvasBrushPresetOperator {
     }
 
     pub fn instance_mut(&mut self) -> &mut BrushPresetInstance {
-        self.cached_brush = None;
+        self.renderer = None;
         &mut self.instance
     }
 
@@ -134,27 +144,29 @@ impl CanvasBrushPresetOperator {
             .active_layer_node()
             .properties()
             .get_texel_prop()
-            .is_some_and(|p| p.source == TexelSource::DirectlyDefined)
+            .is_some_and(|property| property.source == TexelSource::DirectlyDefined)
         {
             log::warn!("Unable to paint to the active layer which cannot contain pixels.");
             return Task::none();
         }
 
-        // update canvas resources
         let xyz_to_rgb = canvas
             .image
             .profile()
             .rgb_to_xyz_matrix()
             .to_f32()
             .inverse();
-        let fg_color = services.foreground_color().get().into_rgb(xyz_to_rgb);
-        let bg_color = services.background_color().get().into_rgb(xyz_to_rgb);
-        self.canvas_resources.clear();
-        self.canvas_resources.push(&CanvasResources {
-            foreground_color: Vec4::new(fg_color.r, fg_color.g, fg_color.b, 1.0),
-            background_color: Vec4::new(bg_color.r, bg_color.g, bg_color.b, 1.0),
-        });
-        self.canvas_resources
+        let foreground = services.foreground_color().get().into_rgb(xyz_to_rgb);
+        let background = services.background_color().get().into_rgb(xyz_to_rgb);
+        self.foreground_color.clear();
+        self.foreground_color
+            .push(&Vec4::new(foreground.r, foreground.g, foreground.b, 1.0));
+        self.foreground_color
+            .write_buffer(&self.device, &self.queue);
+        self.background_color.clear();
+        self.background_color
+            .push(&Vec4::new(background.r, background.g, background.b, 1.0));
+        self.background_color
             .write_buffer(&self.device, &self.queue);
 
         let tiles = services.tile_storage();
@@ -173,28 +185,34 @@ impl CanvasBrushPresetOperator {
             target_layer_format: target_layer_info.texel_type,
             selection_layer_format: selection_layer_info.texel_type,
         };
-        if let Some(last_session) = self.session.as_ref()
-            && (last_session.target_layer_format != session.target_layer_format
-                || last_session.selection_layer_format != session.selection_layer_format)
-        {
+        if self.session.as_ref().is_some_and(|previous| {
+            previous.target_layer_format != session.target_layer_format
+                || previous.selection_layer_format != session.selection_layer_format
+        }) {
             self.renderer = None;
         }
 
-        let compiled_brush = self.cached_brush.get_or_insert_with(|| {
-            self.instance
-                .compile(EXTERNAL_VARIABLE_BASE_BINDING)
-                .expect("Failed to compile brush preset")
-        });
-        println!("Compiled brush:\n{}", compiled_brush);
-        let renderer = self.renderer.get_or_insert_with(|| {
-            BrushPresetRenderer::new(
-                compiled_brush,
+        if self.renderer.is_none() {
+            let compiled = self
+                .instance
+                .compile(
+                    session.target_layer_format,
+                    session.selection_layer_format,
+                    &self.device,
+                    &self.queue,
+                )
+                .expect("Failed to compile brush preset");
+            self.renderer = Some(BrushPresetRenderer::new(
+                compiled,
                 session.target_layer_format,
                 session.selection_layer_format,
-                services,
-                &self.canvas_resources,
-            )
-        });
+                &self.device,
+                &self.queue,
+                &self.foreground_color,
+                &self.background_color,
+            ));
+        }
+        let renderer = self.renderer.as_mut().unwrap();
 
         self.input_processor.reset();
         let tiles = services.tile_storage();
@@ -204,37 +222,35 @@ impl CanvasBrushPresetOperator {
         let selection_layer = tiles
             .get_layer_binding_or_empty(session.selection_layer_id)
             .expect("Failed to bind selection layer");
-        renderer.begin(&self.device, &self.queue, target_layer, selection_layer);
+        let worker = renderer.begin(&self.device, &self.queue, target_layer, selection_layer);
+        renderer.record_raw_inputs(1);
 
-        let sample =
+        if let Some(sample) =
             self.input_processor
-                .push(RawPenInput::new(position, session.stroke_begin, input));
-        let task = sample.map(|sample| renderer.update(&self.device, &self.queue, sample));
-
+                .push(RawPenInput::new(position, session.stroke_begin, input))
+        {
+            renderer.update(sample);
+        }
         self.session = Some(session);
-        task.unwrap_or_else(Task::none).discard()
+        worker
     }
 
     pub fn update_stroke(&mut self, input: &PressedMouseState, services: &Services) -> Task<()> {
-        let Some(renderer) = &mut self.renderer else {
+        let (Some(renderer), Some(session)) = (&mut self.renderer, &self.session) else {
             return Task::none();
         };
-        let Some(session) = self.session.as_ref() else {
-            return Task::none();
-        };
+        renderer.record_raw_inputs(1);
         let canvas = services.canvas(&session.canvas_id).unwrap();
         let position = canvas
             .transform
             .window_to_pixel(Vec2::new(input.position.x, input.position.y));
-
-        let Some(sample) =
+        if let Some(sample) =
             self.input_processor
                 .push(RawPenInput::new(position, session.stroke_begin, input))
-        else {
-            return Task::none();
-        };
-
-        renderer.update(&self.device, &self.queue, sample).discard()
+        {
+            renderer.update(sample);
+        }
+        Task::none()
     }
 
     pub fn end_stroke(
@@ -242,91 +258,111 @@ impl CanvasBrushPresetOperator {
         input: &PressedMouseState,
         services: &mut Services,
     ) -> Task<BrushStrokeResult> {
-        let Some(renderer) = self.renderer.as_mut() else {
+        let (Some(renderer), Some(session)) = (&mut self.renderer, self.session.take()) else {
             return Task::none();
         };
-        let Some(session) = self.session.take() else {
-            return Task::none();
-        };
+        renderer.record_raw_inputs(1);
         let canvas = services
             .canvas(&session.canvas_id)
             .expect("Stroke canvas should exist");
         let position = canvas
             .transform
             .window_to_pixel(Vec2::new(input.position.x, input.position.y));
-
-        let mut updates = Vec::new();
         for sample in
             self.input_processor
                 .flush(RawPenInput::new(position, session.stroke_begin, input))
         {
-            updates.push(renderer.update(&self.device, &self.queue, sample));
+            renderer.update(sample);
         }
-        let end_task = renderer.end(&self.device, &self.queue);
-
-        let updates = Task::batch(updates).discard();
-
-        let end = end_task.map({
-            move |result| BrushStrokeResult {
-                stroke_id: session.stroke_id,
-                canvas_id: session.canvas_id,
-                target_layer_id: session.target_layer_id,
-                result,
-            }
-        });
-
-        updates.chain(end)
+        renderer.end().map(move |result| BrushStrokeResult {
+            stroke_id: session.stroke_id,
+            canvas_id: session.canvas_id,
+            target_layer_id: session.target_layer_id,
+            result,
+        })
     }
 
     pub fn preview(&mut self) -> Task<Option<BrushStrokePreview>> {
-        let Some(renderer) = self.renderer.as_mut() else {
+        let (Some(renderer), Some(session)) = (&mut self.renderer, &self.session) else {
             return Task::done(None);
         };
-
-        let Some(session) = self.session.as_ref() else {
-            return Task::done(None);
-        };
-
         let stroke_id = session.stroke_id;
         let canvas_id = session.canvas_id;
         let target_layer_id = session.target_layer_id;
-
-        renderer
-            .generate_preview(&self.device, &self.queue)
-            .map(move |result| {
-                result.and_then(|result| {
-                    Some(BrushStrokePreview {
-                        stroke_id,
-                        canvas_id,
-                        target_layer_id,
-                        overrider: PixelPreviewOverrider {
-                            texture: result.texture_view()?.clone(),
-                            tile_info_buffer: result.tile_info_buffer()?.clone(),
-                        },
-                        dirty_tiles: result.compute_tile_bounds(),
-                    })
-                })
+        renderer.generate_preview().map(move |result| {
+            let result = result.filter(|result| !result.is_empty())?;
+            Some(BrushStrokePreview {
+                stroke_id,
+                canvas_id,
+                target_layer_id,
+                overrider: PixelPreviewOverrider::from_layer_storage(&result),
+                dirty_tiles: result.compute_tile_bounds(),
             })
+        })
     }
 }
 
-#[derive(Clone)]
-struct StrokePostprocessPipelines {
-    main: BrushPostProcessPipeline,
-    bounds_eval: BrushPostProcessBoundsEvalPipeline,
+#[derive(Default)]
+struct BrushStrokeProfile {
+    raw_inputs: u64,
+    input_batches: u64,
+    dabs: u64,
+    dab_tiles: u64,
+    input_readback: Duration,
+    effect_eval_cpu: Duration,
+    effect_readback: Duration,
+    effect_main_cpu: Duration,
+    preview_count: u64,
+    preview: Duration,
+}
+
+impl BrushStrokeProfile {
+    fn record_main_effect(&mut self, timing: EffectRunTiming) {
+        self.effect_eval_cpu += timing.eval_cpu;
+        self.effect_readback += timing.readback;
+        self.effect_main_cpu += timing.main_cpu;
+    }
+
+    fn log(&self) {
+        log::info!(
+            target: "lapiz_brush::profile",
+            "stroke raw_inputs={} input_batches={} dabs={} dab_tiles={} input_readback_ms={:.3} effect_eval_cpu_ms={:.3} effect_readback_ms={:.3} effect_main_cpu_ms={:.3} preview_count={} preview_ms={:.3}",
+            self.raw_inputs,
+            self.input_batches,
+            self.dabs,
+            self.dab_tiles,
+            self.input_readback.as_secs_f64() * 1_000.0,
+            self.effect_eval_cpu.as_secs_f64() * 1_000.0,
+            self.effect_readback.as_secs_f64() * 1_000.0,
+            self.effect_main_cpu.as_secs_f64() * 1_000.0,
+            self.preview_count,
+            self.preview.as_secs_f64() * 1_000.0,
+        );
+    }
+}
+
+#[derive(Default)]
+struct StrokeMailbox {
+    inputs: Vec<PenInput>,
+    preview_requests: VecDeque<oneshot::Sender<Option<DynamicLayerStorage>>>,
+    finish: Option<oneshot::Sender<DynamicLayerStorage>>,
 }
 
 struct StrokeSession {
-    shared: Arc<Mutex<SharedBrushRendererMainPassState>>,
-    stroke_pp_cache: Arc<futures::lock::Mutex<StrokePostprocessCache>>,
+    mailbox: Arc<Mutex<StrokeMailbox>>,
+    wake: mpsc::Sender<()>,
+    profile: Arc<Mutex<BrushStrokeProfile>>,
+}
 
-    pen_input: DynamicBuffer<PenInput>,
-    output_samples_packed: DynamicBuffer<OutputSamples>,
-    dab_infos_packed: BufferVec<DabInfo>,
-    main_bounds_eval_dispatch: Buffer,
-
+struct BrushStrokeWorker {
+    state: BrushEffectState,
+    input_sample: Arc<BrushInputSamplingPipeline>,
+    input_profiler: GpuProfiler,
+    profile: Arc<Mutex<BrushStrokeProfile>>,
+    resource_group: wgpu::BindGroup,
+    input_batch: DynamicBuffer<PenInputBatch>,
+    output_samples: DynamicBuffer<OutputSamples>,
     input_sample_prepared: PreparedInputSamplingPipelineData,
-    main_bounds_eval_prepared: PreparedBrushMainBoundsEvalPipelineData,
 }
 
 pub struct BrushStrokePreview {
@@ -345,79 +381,54 @@ pub struct BrushStrokeResult {
 }
 
 pub struct BrushPresetRenderer {
-    input_sample: BrushInputSamplingPipeline,
-    main: BrushMainPipeline,
-    main_bounds_eval: BrushMainBoundsEvalPipeline,
+    input_sample: Arc<BrushInputSamplingPipeline>,
     resources: StrokeResources,
     scan_pixels: ScanPixelsPipeline,
-    stroke_pp_pipelines: Arc<[StrokePostprocessPipelines]>,
-
-    input_sampler_buffer: DynamicBuffer<InputSampler>,
+    target_layer_bounds: Arc<LayerBoundsPipeline>,
+    selection_layer_bounds: Arc<LayerBoundsPipeline>,
+    compiled: Arc<CompiledBrushPreset>,
     session: Option<StrokeSession>,
 }
 
 impl BrushPresetRenderer {
-    #[tracing::instrument(skip_all, name = "new_renderer")]
     pub fn new(
-        brush: &CompiledBrushPreset,
+        brush: CompiledBrushPreset,
         target_layer_format: TexelType,
         selection_layer_format: TexelType,
-        services: &Services,
-        canvas_resources: &DynamicBuffer<CanvasResources>,
+        device: &Device,
+        queue: &Queue,
+        foreground_color: &DynamicBuffer<Vec4>,
+        background_color: &DynamicBuffer<Vec4>,
     ) -> Self {
-        let device = services.render_device();
-        let queue = services.render_queue();
-        let assets = services.assets();
-
         let resources = StrokeResources::new(
             device,
             queue,
-            brush,
+            &brush,
             target_layer_format,
             selection_layer_format,
-            assets,
-            canvas_resources,
+            foreground_color,
+            background_color,
         );
-        let scan_pixels = ScanPixelsPipeline::new(device, selection_layer_format);
-
         let input_sample = BrushInputSamplingPipeline::new(
             device,
-            &resources,
-            brush.input_sampling.clone().into(),
+            &resources.resource_layout,
+            brush.spacing.clone().into(),
         );
-
-        let main = BrushMainPipeline::new(device, &resources, brush.main_graph.main.clone().into());
-        let main_bounds_eval = BrushMainBoundsEvalPipeline::new(
-            device,
-            &resources,
-            brush.main_graph.bounds_eval.clone().into(),
-        );
-
-        let mut stroke_pp = Vec::new();
-        for graph in &brush.stroke_postprocess_graphs {
-            let main = BrushPostProcessPipeline::new(device, &resources, graph.main.clone().into());
-            let bounds_eval = BrushPostProcessBoundsEvalPipeline::new(
-                device,
-                &resources,
-                graph.bounds_eval.clone().into(),
-            );
-            stroke_pp.push(StrokePostprocessPipelines { main, bounds_eval });
-        }
-
-        let mut input_sampler_buffer =
-            DynamicBuffer::new(Some("input sampler buffer".into()), BufferUsages::STORAGE);
-        input_sampler_buffer.push(&InputSampler::default());
-        input_sampler_buffer.write_buffer(device, queue);
-
         Self {
-            input_sample,
-            main,
-            main_bounds_eval,
+            input_sample: Arc::new(input_sample),
             resources,
-            scan_pixels,
-
-            input_sampler_buffer,
-            stroke_pp_pipelines: stroke_pp.into(),
+            scan_pixels: ScanPixelsPipeline::new(device, selection_layer_format),
+            target_layer_bounds: Arc::new(LayerBoundsPipeline::new(
+                device,
+                target_layer_format,
+                false,
+            )),
+            selection_layer_bounds: Arc::new(LayerBoundsPipeline::new(
+                device,
+                selection_layer_format,
+                false,
+            )),
+            compiled: Arc::new(brush),
             session: None,
         }
     }
@@ -428,14 +439,15 @@ impl BrushPresetRenderer {
         queue: &Queue,
         target_layer: LayerBinding,
         selection_layer: LayerBinding,
-    ) {
-        self.input_sampler_buffer.clear();
-        self.input_sampler_buffer.push(&InputSampler::default());
-        self.input_sampler_buffer.write_buffer(device, queue);
+    ) -> Task<()> {
+        let mut input_sampler =
+            DynamicBuffer::new(Some("input sampler".into()), BufferUsages::STORAGE);
+        input_sampler.push(&InputSampler::default());
+        input_sampler.write_buffer(device, queue);
 
         let mut initial_pen_input = DynamicBuffer::new(
-            Some("initial pen input buffer".into()),
-            BufferUsages::STORAGE,
+            Some("initial pen input".into()),
+            BufferUsages::STORAGE | BufferUsages::COPY_DST,
         );
         initial_pen_input.push(&ComputedPenInput::default());
         initial_pen_input.write_buffer(device, queue);
@@ -443,617 +455,585 @@ impl BrushPresetRenderer {
         let has_selection = self
             .scan_pixels
             .scan_to_binary_buffer(device, queue, &selection_layer);
-
-        let mut pen_input_buffer =
-            DynamicBuffer::new(Some("pen input buffer".into()), BufferUsages::STORAGE);
-        pen_input_buffer.push(&PenInput::default());
-        pen_input_buffer.write_buffer(device, queue);
-
-        let main_bounds_eval_dispatch = device.create_buffer(&BufferDescriptor {
-            label: Some("bounds eval dispatch"),
-            size: std::mem::size_of::<u32>() as u64 * 4,
-            usage: BufferUsages::STORAGE | BufferUsages::INDIRECT,
-            mapped_at_creation: false,
-        });
-        let mut output_samples_packed = DynamicBuffer::new(
-            Some("output samples buffer".into()),
-            BufferUsages::COPY_SRC | BufferUsages::STORAGE,
-        );
-        // TODO Use uninit buffer
-        output_samples_packed.push(&OutputSamples::new(MAX_DABS_PER_STROKE));
-        output_samples_packed.write_buffer(device, queue);
-
-        let mut dab_infos_packed = BufferVec::new(
-            Some("dab info buffer".into()),
-            BufferUsages::COPY_SRC | BufferUsages::STORAGE,
-        );
-        // TODO Use uninit buffer
-        for _ in 0..MAX_DABS_PER_STROKE {
-            dab_infos_packed.push(&DabInfo::default());
-        }
-        dab_infos_packed.write_buffer(device, queue);
-
-        let mut output_samples_aligned =
-            DynamicBuffer::new(Some("samples buffer".into()), BufferUsages::STORAGE);
-        let mut samples_offsets = Vec::new();
-        for _ in 0..MAX_DABS_PER_STROKE {
-            samples_offsets.push(output_samples_aligned.push(&ComputedPenInput::default()) as u32);
-        }
-        output_samples_aligned.write_buffer(device, queue);
-
-        let mut dab_infos_aligned =
-            DynamicBuffer::new(Some("dab infos buffer".into()), BufferUsages::STORAGE);
-        let mut dab_info_offsets = Vec::new();
-        for _ in 0..MAX_DABS_PER_STROKE {
-            dab_info_offsets.push(dab_infos_aligned.push(&DabInfo::default()) as u32);
-        }
-        dab_infos_aligned.write_buffer(device, queue);
-
-        let intermediate_buffers = [
-            DynamicLayerStorage::new(
-                device.clone(),
-                queue.clone(),
-                GpuLayerInfo {
-                    texel_type: self.resources.target_layer_format,
-                },
-            ),
-            DynamicLayerStorage::new(
-                device.clone(),
-                queue.clone(),
-                GpuLayerInfo {
-                    texel_type: self.resources.target_layer_format,
-                },
-            ),
-        ];
-
-        let main_prepared = self.main.prepare(
+        let target_layer_bounds = self.target_layer_bounds.create_result_buffer_uninit(device);
+        let selection_layer_bounds = self
+            .selection_layer_bounds
+            .create_result_buffer_uninit(device);
+        let mut encoder = device.create_command_encoder(&Default::default());
+        self.target_layer_bounds.dispatch_to(
             device,
+            queue,
+            &mut encoder,
             &target_layer,
-            &has_selection,
-            &selection_layer,
-            &output_samples_aligned,
-            &dab_infos_aligned,
-            &self.resources,
-            initial_pen_input.inner_buffer().unwrap(),
-            &[
-                intermediate_buffers[0].binding_or_empty(),
-                intermediate_buffers[1].binding_or_empty(),
-            ],
+            None,
+            &target_layer_bounds,
         );
+        self.selection_layer_bounds.dispatch_to(
+            device,
+            queue,
+            &mut encoder,
+            &selection_layer,
+            None,
+            &selection_layer_bounds,
+        );
+        queue.submit([encoder.finish()]);
+        let prepared_target_layer =
+            PreparedLayer::from_binding(target_layer.clone(), target_layer_bounds.clone());
+        let prepared_selection_layer =
+            PreparedLayer::from_binding(selection_layer.clone(), selection_layer_bounds.clone());
+        let mut input_batch =
+            DynamicBuffer::new(Some("pen input batch".into()), BufferUsages::STORAGE);
+        input_batch.push(&PenInputBatch::new(&[]));
+        input_batch.write_buffer(device, queue);
+        let mut output_samples = DynamicBuffer::new(
+            Some("output samples".into()),
+            BufferUsages::COPY_SRC | BufferUsages::STORAGE,
+        );
+        output_samples.push(&OutputSamples::new(
+            MAX_DABS_PER_STROKE * MAX_INPUTS_PER_SAMPLE_BATCH as u32,
+        ));
+        output_samples.write_buffer(device, queue);
 
         let input_sample_prepared = self.input_sample.prepare(
             device,
-            &pen_input_buffer,
-            &self.input_sampler_buffer,
-            &output_samples_packed,
-            &main_bounds_eval_dispatch,
-            &self.resources,
+            &input_batch,
+            &input_sampler,
+            &output_samples,
             &initial_pen_input,
         );
-
-        let main_bounds_eval_prepared = self.main_bounds_eval.prepare(
+        let resource_group = self.resources.resource_bind_group(
             device,
-            &output_samples_packed,
-            &dab_infos_packed,
-            &target_layer,
-            &has_selection,
-            &selection_layer,
-            &initial_pen_input,
-            &self.resources,
+            &BuiltinHostValues {
+                foreground_color: &self.resources.foreground_color,
+                background_color: &self.resources.background_color,
+                has_selection: &has_selection,
+                selection: &prepared_selection_layer,
+                target_layer: &prepared_target_layer,
+            },
         );
 
-        let shared = SharedBrushRendererMainPassState {
-            device: device.clone(),
-            queue: queue.clone(),
-            main: self.main.clone(),
-
-            intermediate_buffers,
-            round: 0,
-            accumulated_tile_bounds: IRect::EMPTY,
-
-            main_prepared,
-            samples_offsets,
-            dab_info_offsets,
-            target_layer: target_layer.clone(),
-            has_selection: has_selection.clone(),
-            selection_layer: selection_layer.clone(),
-            output_samples_aligned,
-            dab_infos_aligned,
-            resources: self.resources.clone(),
-            initial_pen_input: initial_pen_input.inner_buffer().unwrap().clone(),
-        };
-
-        let mut stroke_pp_pipeline_cache = Vec::with_capacity(self.stroke_pp_pipelines.len());
-        for pipeline in self.stroke_pp_pipelines.iter() {
-            let mut dab_info_buffer = DynamicBuffer::new(
-                Some("brush stroke pp dab info".into()),
-                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
-            );
-            dab_info_buffer.push(&DabInfo::default());
-            dab_info_buffer.write_buffer(device, queue);
-            let mut stroke_pp_data =
-                DynamicBuffer::new(Some("brush stroke pp data".into()), BufferUsages::STORAGE);
-            stroke_pp_data.push(&StrokePostprocessData::default());
-            stroke_pp_data.write_buffer(device, queue);
-
-            let data = pipeline.bounds_eval.prepare(
-                device,
-                &stroke_pp_data,
-                &target_layer,
-                &has_selection,
-                &selection_layer,
-                &dab_info_buffer,
-                &self.resources,
-            );
-            stroke_pp_pipeline_cache.push(StrokePostprocessPipelineCache {
-                pipeline: pipeline.clone(),
-                prepared_bounds_eval: data,
-                dab_info_buffer,
-                stroke_pp_data,
-            });
-        }
-
-        let stroke_pp_cache = StrokePostprocessCache {
-            resources: self.resources.clone(),
-            target_layer,
-            has_selection,
-            selection_layer,
-            pipeline_cache: stroke_pp_pipeline_cache,
-        };
-
-        self.session = Some(StrokeSession {
-            shared: Arc::new(Mutex::new(shared)),
-            stroke_pp_cache: Arc::new(futures::lock::Mutex::new(stroke_pp_cache)),
-
-            pen_input: pen_input_buffer,
-            output_samples_packed,
-            dab_infos_packed,
-
-            main_bounds_eval_dispatch,
-
-            input_sample_prepared,
-            main_bounds_eval_prepared,
-        });
-    }
-
-    pub fn end(&mut self, device: &Device, queue: &Queue) -> Task<DynamicLayerStorage> {
-        let Some(session) = self.session.take() else {
-            return Task::none();
-        };
-
-        let device = device.clone();
-        let queue = queue.clone();
-        let stroke_pp_cache = session.stroke_pp_cache.clone();
-
-        Task::future(async move {
-            brush_renderer_worker_stroke_postprocess(session.shared, stroke_pp_cache, device, queue)
-                .await
-        })
-    }
-
-    // TODO: Copy unchanged tiles onto another buffer?
-    pub fn update(
-        &mut self,
-        device: &Device,
-        queue: &Queue,
-        pen_input: PenInput,
-    ) -> Task<Result<()>> {
-        let Some(session) = &mut self.session else {
-            return Task::none();
-        };
-
-        self.resources.update_external_var_buffers(queue);
-
-        session.pen_input.clear();
-        session.pen_input.push(&pen_input);
-        session.pen_input.write_buffer(device, queue);
-
-        let mut ec = device.create_command_encoder(&Default::default());
-
-        ec.push_debug_group("brush preset update stroke");
-        {
-            let mut pass = ec.begin_compute_pass(&ComputePassDescriptor {
-                label: Some("brush preset update pass"),
-                ..Default::default()
-            });
-
-            self.input_sample
-                .dispatch(&mut pass, &session.input_sample_prepared);
-            self.main_bounds_eval.dispatch(
-                &mut pass,
-                &session.main_bounds_eval_prepared,
-                &session.main_bounds_eval_dispatch,
-            );
-        }
-        ec.pop_debug_group();
-
-        let output_samples_staging = create_readback_buffer_and_schedule_copy_buffer(
-            device,
-            &mut ec,
-            session.output_samples_packed.inner_buffer().unwrap(),
-        );
-        let dab_info_staging = create_readback_buffer_and_schedule_copy_buffer(
-            device,
-            &mut ec,
-            session.dab_infos_packed.inner_buffer().unwrap(),
-        );
-        let samples_readback =
-            readback_buffer_on_submit_async(&mut ec, &output_samples_staging, ..);
-        let dab_info_readback = readback_buffer_on_submit_async(&mut ec, &dab_info_staging, ..);
-
-        // unsafe {
-        //     device.start_graphics_debugger_capture();
-        // }
-        queue.submit([ec.finish()]);
-        // unsafe {
-        //     device.stop_graphics_debugger_capture();
-        // }
-
-        let shared = session.shared.clone();
-
-        Task::future(async move {
-            brush_renderer_worker_main(shared, samples_readback, dab_info_readback).await
-        })
-    }
-
-    pub fn generate_preview(
-        &mut self,
-        device: &Device,
-        queue: &Queue,
-    ) -> Task<Option<DynamicLayerStorage>> {
-        let Some(session) = self.session.as_ref() else {
-            return Task::done(None);
-        };
-
-        let device = device.clone();
-        let queue = queue.clone();
-        let stroke_pp_cache = session.stroke_pp_cache.clone();
-
-        let shared = session.shared.clone();
-
-        Task::future(async move {
-            let (mut intermediate_buffers, mut round, mut accumulated_tile_bounds) = {
-                let shared = shared.lock();
-
-                (
-                    if shared.round % 2 == 0 {
-                        [
-                            shared.intermediate_buffers[0].deep_clone(),
-                            shared.intermediate_buffers[1].create_allocated_empty_sibling(),
-                        ]
-                    } else {
-                        [
-                            shared.intermediate_buffers[0].create_allocated_empty_sibling(),
-                            shared.intermediate_buffers[1].deep_clone(),
-                        ]
-                    },
-                    shared.round,
-                    shared.accumulated_tile_bounds,
-                )
-            };
-
-            if accumulated_tile_bounds.is_empty() {
-                return None;
-            }
-
-            let mut cache = stroke_pp_cache.lock().await;
-
-            // unsafe {
-            //     device.start_graphics_debugger_capture();
-            // }
-            postprocess_stroke(
-                &device,
-                &queue,
-                Time::default(),
-                &mut intermediate_buffers,
-                &mut round,
-                &mut accumulated_tile_bounds,
-                &mut cache,
-            )
-            .await;
-            // unsafe {
-            //     device.stop_graphics_debugger_capture();
-            // }
-
-            let [buffer_a, buffer_b] = intermediate_buffers;
-            Some(if round % 2 == 0 { buffer_a } else { buffer_b })
-        })
-    }
-}
-
-struct SharedBrushRendererMainPassState {
-    device: Device,
-    queue: Queue,
-
-    main: BrushMainPipeline,
-    target_layer: LayerBinding,
-    has_selection: Buffer,
-    selection_layer: LayerBinding,
-    output_samples_aligned: DynamicBuffer<ComputedPenInput>,
-    dab_infos_aligned: DynamicBuffer<DabInfo>,
-    resources: StrokeResources,
-    initial_pen_input: Buffer,
-
-    intermediate_buffers: [DynamicLayerStorage; 2],
-    round: u32,
-    accumulated_tile_bounds: IRect,
-
-    main_prepared: PreparedBrushMainPipelineData,
-    samples_offsets: Vec<u32>,
-    dab_info_offsets: Vec<u32>,
-}
-
-async fn brush_renderer_worker_main(
-    shared: Arc<Mutex<SharedBrushRendererMainPassState>>,
-    samples: AsyncBufferReadback<OutputSamples>,
-    dab_infos: AsyncBufferReadback<Vec<DabInfo>>,
-) -> Result<()> {
-    let samples = samples.into_inner().await??;
-    let dab_infos = dab_infos.into_inner().await??;
-
-    {
-        let mut shared = shared.lock();
-        let SharedBrushRendererMainPassState {
+        let profile = Arc::new(Mutex::new(BrushStrokeProfile::default()));
+        let empty_accumulator = prepared_literal(
+            Arc::new(LayerType {
+                texel_type: self.resources.target_layer_format,
+            }),
+            &LayerReference,
             device,
             queue,
-            main,
-            target_layer,
-            has_selection,
-            selection_layer,
-            output_samples_aligned,
-            dab_infos_aligned,
-            resources,
-            initial_pen_input,
-            intermediate_buffers,
-            round,
-            accumulated_tile_bounds,
-            main_prepared,
-            samples_offsets,
-            dab_info_offsets,
-        } = &mut *shared;
-
-        let dispatch_span = tracing::info_span!("main_dispatch");
-        let _span = dispatch_span.enter();
-
-        output_samples_aligned.clear();
-        dab_infos_aligned.clear();
-
-        let old_generation = intermediate_buffers[0].allocation_generation();
-
-        let mut tiles_to_allocate = IndexSet::new();
-        for (sample, dab_info) in samples
-            .samples
-            .into_iter()
-            .take(samples.n_samples as usize)
-            .zip(dab_infos)
-        {
-            output_samples_aligned.push(&sample);
-            dab_infos_aligned.push(&dab_info);
-
-            let rect = IRect {
-                min: dab_info.bound_min,
-                max: dab_info.bound_max,
-            };
-            tiles_to_allocate.extend(
-                (rect.min.y..rect.max.y)
-                    .flat_map(|y| (rect.min.x..rect.max.x).map(move |x| IVec2::new(x, y))),
-            );
-            *accumulated_tile_bounds = accumulated_tile_bounds.union(rect);
-        }
-
-        for b in intermediate_buffers.as_mut() {
-            b.allocate_tiles_batch(&tiles_to_allocate);
-        }
-
-        let new_generation = intermediate_buffers[0].allocation_generation();
-        let _new_tiles = intermediate_buffers[0].len();
-        if old_generation != new_generation {
-            *main_prepared = main.prepare(
-                device,
-                target_layer,
-                has_selection,
-                selection_layer,
-                output_samples_aligned,
-                dab_infos_aligned,
-                resources,
-                initial_pen_input,
-                &[
-                    intermediate_buffers[0].binding_or_empty(),
-                    intermediate_buffers[1].binding_or_empty(),
-                ],
-            )
-        }
-
-        if accumulated_tile_bounds.is_empty() {
-            return Err(anyhow::anyhow!("accumulated_tile_bounds is empty"));
-        }
-
-        output_samples_aligned.write_buffer(device, queue);
-        dab_infos_aligned.write_buffer(device, queue);
-
-        let mut ec = device.create_command_encoder(&Default::default());
-
-        {
-            let mut pass = ec.begin_compute_pass(&ComputePassDescriptor {
-                label: Some("brush main pass"),
-                ..Default::default()
-            });
-            main.dispatch(
-                &mut pass,
-                main_prepared,
-                samples_offsets,
-                dab_info_offsets,
-                round,
-                samples.n_samples,
-            );
-        }
-
-        queue.submit([ec.finish()]);
-    }
-
-    Ok(())
-}
-
-pub struct StrokePostprocessPipelineCache {
-    pipeline: StrokePostprocessPipelines,
-    prepared_bounds_eval: PreparedBrushPostProcessBoundsEvalPipelineData,
-    dab_info_buffer: DynamicBuffer<DabInfo>,
-    stroke_pp_data: DynamicBuffer<StrokePostprocessData>,
-}
-
-pub struct StrokePostprocessCache {
-    resources: StrokeResources,
-    target_layer: LayerBinding,
-    has_selection: Buffer,
-    selection_layer: LayerBinding,
-
-    pipeline_cache: Vec<StrokePostprocessPipelineCache>,
-}
-
-async fn brush_renderer_worker_stroke_postprocess(
-    shared: Arc<Mutex<SharedBrushRendererMainPassState>>,
-    stroke_pp_cache: Arc<futures::lock::Mutex<StrokePostprocessCache>>,
-
-    device: Device,
-    queue: Queue,
-) -> DynamicLayerStorage {
-    let (mut intermediate_buffers, mut round, mut accumulated_tile_bounds) = {
-        let shared = shared.lock();
-        (
-            if shared.round.is_multiple_of(2) {
-                [
-                    shared.intermediate_buffers[0].deep_clone(),
-                    shared.intermediate_buffers[1].create_allocated_empty_sibling(),
-                ]
-            } else {
-                [
-                    shared.intermediate_buffers[0].create_allocated_empty_sibling(),
-                    shared.intermediate_buffers[1].deep_clone(),
-                ]
-            },
-            shared.round,
-            shared.accumulated_tile_bounds,
         )
-    };
-    let mut cache = stroke_pp_cache.lock().await;
-
-    postprocess_stroke(
-        &device,
-        &queue,
-        // TODO
-        Time::default(),
-        &mut intermediate_buffers,
-        &mut round,
-        &mut accumulated_tile_bounds,
-        &mut cache,
-    )
-    .await;
-
-    let [buffer_a, buffer_b] = intermediate_buffers;
-    if round % 2 == 0 { buffer_a } else { buffer_b }
-}
-
-async fn postprocess_stroke(
-    device: &Device,
-    queue: &Queue,
-    time: Time,
-    intermediate_buffers: &mut [DynamicLayerStorage; 2],
-    round: &mut u32,
-    accumulated_tile_bounds: &mut IRect,
-    cache: &mut StrokePostprocessCache,
-) {
-    let StrokePostprocessCache {
-        resources,
-        target_layer,
-        has_selection,
-        selection_layer,
-        pipeline_cache,
-    } = cache;
-
-    if accumulated_tile_bounds.is_empty() {
-        return;
+        .expect("failed to prepare brush accumulation layer");
+        let input_profiler = GpuProfiler::new(
+            device,
+            GpuProfilerSettings {
+                enable_timer_queries: device.features().contains(Features::TIMESTAMP_QUERY),
+                ..Default::default()
+            },
+        )
+        .expect("valid brush GPU profiler settings");
+        let worker = BrushStrokeWorker {
+            state: BrushEffectState {
+                compiled: self.compiled.clone(),
+                target_layer,
+                target_layer_bounds,
+                selection_layer,
+                selection_layer_bounds,
+                has_selection,
+                foreground_color: self.resources.foreground_color.clone(),
+                background_color: self.resources.background_color.clone(),
+                accumulator: Some(empty_accumulator),
+                initial_sample: None,
+                device: device.clone(),
+                queue: queue.clone(),
+                target_layer_format: self.resources.target_layer_format,
+                selection_layer_format: self.resources.selection_layer_format,
+            },
+            input_sample: self.input_sample.clone(),
+            input_profiler,
+            profile: profile.clone(),
+            resource_group,
+            input_batch,
+            output_samples,
+            input_sample_prepared,
+        };
+        let mailbox = Arc::new(Mutex::new(StrokeMailbox::default()));
+        let (wake, receiver) = mpsc::channel(1);
+        self.session = Some(StrokeSession {
+            mailbox: mailbox.clone(),
+            wake,
+            profile,
+        });
+        Task::future(worker.run(mailbox, receiver))
     }
 
-    for StrokePostprocessPipelineCache {
-        pipeline,
-        prepared_bounds_eval,
-        dab_info_buffer,
-        stroke_pp_data,
-    } in pipeline_cache.iter_mut()
-    {
-        stroke_pp_data.clear();
-        stroke_pp_data.push(&StrokePostprocessData {
-            accumulated_pixel_bounds: GpuTileStorage::tile_rect_to_pixel(*accumulated_tile_bounds),
-            time,
-        });
-        stroke_pp_data.write_buffer(device, queue);
-
-        let mut ec = device.create_command_encoder(&Default::default());
-        ec.push_debug_group("brush preset stroke postprocess");
-
-        {
-            let mut pass = ec.begin_compute_pass(&ComputePassDescriptor {
-                label: Some("brush preset stroke postprocess pass"),
-                ..Default::default()
-            });
-
-            pipeline
-                .bounds_eval
-                .dispatch(&mut pass, prepared_bounds_eval);
+    pub fn record_raw_inputs(&self, count: usize) {
+        if let Some(session) = &self.session {
+            session.profile.lock().raw_inputs += count as u64;
         }
+    }
 
-        let dab_info_readback_buffer = create_readback_buffer_and_schedule_copy_buffer(
-            device,
-            &mut ec,
-            dab_info_buffer.inner_buffer().unwrap(),
+    pub fn update(&mut self, input: PenInput) {
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        session.mailbox.lock().inputs.push(input);
+        let _ = session.wake.try_send(());
+    }
+
+    pub fn end(&mut self) -> Task<DynamicLayerStorage> {
+        let Some(mut session) = self.session.take() else {
+            return Task::none();
+        };
+        let (sender, receiver) = oneshot::channel();
+        let previous = session.mailbox.lock().finish.replace(sender);
+        assert!(
+            previous.is_none(),
+            "brush stroke finish was already requested"
         );
-        let dab_info_readback =
-            readback_buffer_on_submit_async::<DabInfo, _>(&mut ec, &dab_info_readback_buffer, ..);
+        let _ = session.wake.try_send(());
+        Task::future(async move {
+            receiver
+                .await
+                .expect("brush stroke worker stopped before producing a result")
+        })
+    }
 
-        ec.pop_debug_group();
-        // unsafe {
-        //     device.start_graphics_debugger_capture();
-        // }
-        queue.submit([ec.finish()]);
-        // unsafe {
-        //     device.stop_graphics_debugger_capture();
-        // }
+    pub fn generate_preview(&mut self) -> Task<Option<DynamicLayerStorage>> {
+        let Some(session) = &mut self.session else {
+            return Task::done(None);
+        };
+        let (sender, receiver) = oneshot::channel();
+        session.mailbox.lock().preview_requests.push_back(sender);
+        let _ = session.wake.try_send(());
+        Task::future(async move { receiver.await.unwrap_or(None) })
+    }
+}
 
-        let new_dab_info = dab_info_readback.into_inner().await.unwrap().unwrap();
-        *accumulated_tile_bounds = IRect {
-            min: new_dab_info.bound_min,
-            max: new_dab_info.bound_max,
+enum StrokeWork {
+    Inputs(Vec<PenInput>),
+    Preview(oneshot::Sender<Option<DynamicLayerStorage>>),
+    Finish(oneshot::Sender<DynamicLayerStorage>),
+}
+
+impl BrushStrokeWorker {
+    async fn run(mut self, mailbox: Arc<Mutex<StrokeMailbox>>, mut wake: mpsc::Receiver<()>) {
+        while wake.next().await.is_some() {
+            loop {
+                let work = {
+                    let mut mailbox = mailbox.lock();
+                    if !mailbox.inputs.is_empty() {
+                        Some(StrokeWork::Inputs(mem::take(&mut mailbox.inputs)))
+                    } else if let Some(request) = mailbox.preview_requests.pop_front() {
+                        Some(StrokeWork::Preview(request))
+                    } else {
+                        mailbox.finish.take().map(StrokeWork::Finish)
+                    }
+                };
+                let Some(work) = work else {
+                    break;
+                };
+                match work {
+                    StrokeWork::Inputs(inputs) => {
+                        for inputs in inputs.chunks(MAX_INPUTS_PER_SAMPLE_BATCH) {
+                            if let Err(error) = self.process_input_batch(inputs).await {
+                                log::error!("Brush main effects failed: {error:#}");
+                            }
+                        }
+                    }
+                    StrokeWork::Preview(sender) => {
+                        sender.send(self.generate_preview()).ok();
+                    }
+                    StrokeWork::Finish(sender) => {
+                        sender.send(self.finish()).ok();
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    async fn process_input_batch(&mut self, inputs: &[PenInput]) -> Result<()> {
+        let device = self.state.device.clone();
+        let queue = self.state.queue.clone();
+        self.input_batch.clear();
+        self.input_batch.push(&PenInputBatch::new(inputs));
+        self.input_batch.write_buffer(&device, &queue);
+        let batch_index = {
+            let mut profile = self.profile.lock();
+            profile.input_batches += 1;
+            profile.input_batches
         };
 
-        for b in intermediate_buffers.iter_mut() {
-            b.allocate_tiles(IRect {
-                min: new_dab_info.bound_min,
-                max: new_dab_info.bound_max,
-            });
-        }
-
-        let intermediate_buffers = [
-            intermediate_buffers[0].binding().unwrap(),
-            intermediate_buffers[1].binding().unwrap(),
-        ];
-
-        let prepared = pipeline.main.prepare(
-            device,
-            stroke_pp_data,
-            target_layer,
-            has_selection,
-            selection_layer,
-            dab_info_buffer,
-            resources,
-            &intermediate_buffers,
-            *round,
+        let mut encoder = device.create_command_encoder(&Default::default());
+        log_finished_gpu_profiles(&mut self.input_profiler, &queue);
+        let query = self.input_profiler.begin_pass_query(
+            format!("brush/input_sample/batch_{batch_index}"),
+            &mut encoder,
         );
-        let mut ec = device.create_command_encoder(&Default::default());
         {
-            let mut pass = ec.begin_compute_pass(&Default::default());
-            pipeline.main.dispatch(&mut pass, &prepared, round);
+            let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("brush input sampling pass"),
+                timestamp_writes: query.compute_pass_timestamp_writes(),
+            });
+            self.input_sample.dispatch(
+                &mut pass,
+                &self.input_sample_prepared,
+                &self.resource_group,
+            );
         }
-        queue.submit([ec.finish()]);
+        self.input_profiler.end_query(&mut encoder, query);
+
+        let output_samples = self.output_samples.inner_buffer().unwrap();
+
+        let max_samples = inputs.len() * MAX_DABS_PER_STROKE as usize;
+        // avoid readback dummy samples
+        let readback_size = OutputSamples::min_size().get()
+            + (max_samples as u64 - 1) * ComputedPenInput::SHADER_SIZE.get();
+
+        let staging = device.create_buffer(&BufferDescriptor {
+            label: Some("brush input samples readback"),
+            size: readback_size,
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        encoder.copy_buffer_to_buffer(output_samples, 0, &staging, 0, readback_size);
+        let readback =
+            readback_buffer_on_submit_async::<OutputSamples, _>(&mut encoder, &staging, ..);
+        self.input_profiler.resolve_queries(&mut encoder);
+        let readback_started = Instant::now();
+        queue.submit([encoder.finish()]);
+        self.input_profiler
+            .end_frame()
+            .expect("brush input GPU profile frame must be complete");
+
+        let samples = readback.into_inner().await??;
+        let input_readback = readback_started.elapsed();
+        let batch_dab_count = samples.n_samples as usize;
+        let is_overflow = samples.is_overflow != 0;
+        let mut batch_dab_tiles = Vec::with_capacity(batch_dab_count);
+        let mut effect_timing = EffectRunTiming::default();
+        for sample in samples.samples.into_iter().take(batch_dab_count) {
+            if self.state.initial_sample.is_none() {
+                self.state.initial_sample = Some(sample);
+            }
+            let accumulator = self
+                .state
+                .accumulator
+                .take()
+                .context("missing brush accumulator")?;
+            let mut builtins = main_builtins(&self.state, sample, accumulator)?;
+            let mut outputs = self
+                .state
+                .compiled
+                .main
+                .run_profiled(
+                    &self.state.compiled.main_inputs,
+                    &builtins,
+                    &mut effect_timing,
+                )
+                .context("main brush effect failed")?;
+            let dab = outputs
+                .remove(&self.state.compiled.main_dab_output)
+                .context("main effect did not produce its accumulation output")?;
+            let mut accumulator = builtins
+                .remove(MAIN_ACCUMULATE_BUFFER)
+                .context("main effect builtins lost the brush accumulator")?;
+
+            let dab = dab.downcast::<PreparedLayer>();
+            let dab_bounds = dab.pixel_bounds.context("brush dab bounds are unknown")?;
+            let PreparedLayerPixels::ReadWrite {
+                storage: dab_storage,
+                ..
+            } = dab.pixels
+            else {
+                bail!("brush main effect returned a read-only layer");
+            };
+            batch_dab_tiles.push(dab_storage.len());
+
+            {
+                let accumulator = accumulator
+                    .try_as_mut::<PreparedLayer>()
+                    .context("brush accumulator is not a layer")?;
+                let PreparedLayerPixels::ReadWrite { storage, .. } = &mut accumulator.pixels else {
+                    bail!("brush accumulator is read-only");
+                };
+                storage.copy_pixels_from(&dab_storage, dab_bounds);
+                let bounds = accumulator
+                    .pixel_bounds
+                    .unwrap_or(IRect::EMPTY)
+                    .union(dab_bounds);
+                accumulator.pixel_bounds = Some(bounds);
+                let mut encoded = StorageBuffer::new(Vec::new());
+                encoded.write(&IVec4::new(
+                    bounds.min.x,
+                    bounds.min.y,
+                    bounds.max.x,
+                    bounds.max.y,
+                ))?;
+                self.state
+                    .queue
+                    .write_buffer(&accumulator.bounds, 0, encoded.as_ref());
+            }
+
+            self.state.accumulator = Some(accumulator);
+        }
+
+        let accumulator_tiles = self
+            .state
+            .accumulator
+            .as_ref()
+            .and_then(|literal| literal.try_as_ref::<PreparedLayer>())
+            .and_then(|layer| match &layer.pixels {
+                PreparedLayerPixels::ReadWrite { storage, .. } => Some(storage.len()),
+                PreparedLayerPixels::ReadOnly(_) => None,
+            })
+            .unwrap_or(0);
+        let batch_tile_count = batch_dab_tiles.iter().sum::<usize>();
+        {
+            let mut profile = self.profile.lock();
+            profile.dabs += batch_dab_count as u64;
+            profile.dab_tiles += batch_tile_count as u64;
+            profile.input_readback += input_readback;
+            profile.record_main_effect(effect_timing);
+        }
+        log::info!(
+            target: "lapiz_brush::profile",
+            "batch index={} inputs={} dabs={} dab_tiles={:?} batch_tiles={} accumulator_tiles={} overflow={} input_readback_ms={:.3} eval_cpu_ms={:.3} effect_readback_ms={:.3} main_cpu_ms={:.3}",
+            batch_index,
+            inputs.len(),
+            batch_dab_count,
+            batch_dab_tiles,
+            batch_tile_count,
+            accumulator_tiles,
+            is_overflow,
+            input_readback.as_secs_f64() * 1_000.0,
+            effect_timing.eval_cpu.as_secs_f64() * 1_000.0,
+            effect_timing.readback.as_secs_f64() * 1_000.0,
+            effect_timing.main_cpu.as_secs_f64() * 1_000.0,
+        );
+        if is_overflow {
+            bail!("brush input sampling batch {batch_index} exceeded its output capacity");
+        }
+
+        Ok(())
+    }
+
+    fn generate_preview(&mut self) -> Option<DynamicLayerStorage> {
+        let accumulator = self.state.accumulator.as_ref()?;
+        let ty = accumulator.ty().clone();
+        let accumulator = accumulator.as_ref::<PreparedLayer>();
+        if accumulator
+            .pixel_bounds
+            .is_none_or(|bounds| bounds.is_empty())
+        {
+            return None;
+        }
+        let prepared = accumulator.deep_clone();
+        let original = self
+            .state
+            .accumulator
+            .replace(GraphShaderLiteral::new_boxed(Box::new(prepared), ty));
+        let started = Instant::now();
+        let mut timing = EffectRunTiming::default();
+        let result = run_postprocess(&mut self.state, &mut timing).ok();
+        let elapsed = started.elapsed();
+        {
+            let mut profile = self.profile.lock();
+            profile.preview_count += 1;
+            profile.preview += elapsed;
+        }
+        log::info!(
+            target: "lapiz_brush::profile",
+            "preview duration_ms={:.3} eval_cpu_ms={:.3} readback_ms={:.3} main_cpu_ms={:.3}",
+            elapsed.as_secs_f64() * 1_000.0,
+            timing.eval_cpu.as_secs_f64() * 1_000.0,
+            timing.readback.as_secs_f64() * 1_000.0,
+            timing.main_cpu.as_secs_f64() * 1_000.0,
+        );
+        self.state.accumulator = original;
+        result.map(|literal| {
+            let result = literal.downcast::<PreparedLayer>();
+            let PreparedLayerPixels::ReadWrite { storage, .. } = result.pixels else {
+                panic!("brush postprocess returned a read-only layer");
+            };
+            storage
+        })
+    }
+
+    fn finish(&mut self) -> DynamicLayerStorage {
+        let mut timing = EffectRunTiming::default();
+        let result =
+            run_postprocess(&mut self.state, &mut timing).expect("brush postprocess failed");
+        self.state
+            .compiled
+            .main
+            .finish_profiling()
+            .expect("failed to finish main effect profiling");
+        self.state
+            .compiled
+            .postprocess
+            .finish_profiling()
+            .expect("failed to finish postprocess effect profiling");
+        self.state
+            .device
+            .poll(PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            })
+            .expect("failed to finish brush input profiling");
+        log_finished_gpu_profiles(&mut self.input_profiler, &self.state.queue);
+        self.profile.lock().log();
+        let result = result.downcast::<PreparedLayer>();
+        let PreparedLayerPixels::ReadWrite { storage, .. } = result.pixels else {
+            panic!("brush postprocess returned a read-only layer");
+        };
+        storage
+    }
+}
+
+fn run_postprocess(
+    state: &mut BrushEffectState,
+    timing: &mut EffectRunTiming,
+) -> Result<GraphShaderLiteral> {
+    let accumulator = state
+        .accumulator
+        .take()
+        .context("missing brush accumulator")?;
+    let builtins = postprocess_builtins(state, accumulator)?;
+    let mut outputs = state.compiled.postprocess.run_profiled(
+        &state.compiled.postprocess_inputs,
+        &builtins,
+        timing,
+    )?;
+    outputs
+        .remove(&state.compiled.postprocess_output)
+        .context("postprocess effect did not produce the stroke result")
+}
+
+struct BrushEffectState {
+    compiled: Arc<CompiledBrushPreset>,
+    target_layer: LayerBinding,
+    target_layer_bounds: Buffer,
+    selection_layer: LayerBinding,
+    selection_layer_bounds: Buffer,
+    has_selection: Buffer,
+    foreground_color: Buffer,
+    background_color: Buffer,
+    accumulator: Option<GraphShaderLiteral>,
+    initial_sample: Option<ComputedPenInput>,
+    device: Device,
+    queue: Queue,
+    target_layer_format: TexelType,
+    selection_layer_format: TexelType,
+}
+
+fn log_finished_gpu_profiles(profiler: &mut GpuProfiler, queue: &Queue) {
+    while let Some(results) = profiler.process_finished_frame(queue.get_timestamp_period()) {
+        log_gpu_profile_results(&results);
+    }
+}
+
+fn log_gpu_profile_results(results: &[GpuTimerQueryResult]) {
+    for result in results {
+        if let Some(time) = &result.time {
+            log::info!(
+                target: "lapiz_gpu_profile",
+                "scope={} duration_ms={:.6}",
+                result.label,
+                (time.end - time.start) * 1_000.0
+            );
+        }
+        log_gpu_profile_results(&result.nested_queries);
+    }
+}
+
+fn main_builtins(
+    state: &BrushEffectState,
+    sample: ComputedPenInput,
+    accumulator: GraphShaderLiteral,
+) -> Result<HashMap<String, GraphShaderLiteral>> {
+    let mut values = base_builtins(state);
+    values.insert(
+        BRUSH_SAMPLE_BUILTIN.into(),
+        prepared_literal(
+            Arc::new(ComputedPenInputValueType),
+            &sample,
+            &state.device,
+            &state.queue,
+        )?,
+    );
+    values.insert(
+        INITIAL_PEN_INPUT_BUILTIN.into(),
+        prepared_literal(
+            Arc::new(ComputedPenInputValueType),
+            state.initial_sample.as_ref().unwrap_or(&sample),
+            &state.device,
+            &state.queue,
+        )?,
+    );
+    values.insert(MAIN_ACCUMULATE_BUFFER.into(), accumulator);
+    Ok(values)
+}
+
+fn postprocess_builtins(
+    state: &BrushEffectState,
+    accumulator: GraphShaderLiteral,
+) -> Result<HashMap<String, GraphShaderLiteral>> {
+    let mut values = base_builtins(state);
+    values.insert(MAIN_ACCUMULATE_BUFFER.into(), accumulator);
+    Ok(values)
+}
+
+fn base_builtins(state: &BrushEffectState) -> HashMap<String, GraphShaderLiteral> {
+    let types = graph::brush_builtin_types(state.target_layer_format, state.selection_layer_format);
+    let mut values = HashMap::new();
+    for (name, ty) in types {
+        let value = match name.as_str() {
+            FOREGROUND_COLOR_BUILTIN => {
+                Box::new(state.foreground_color.clone()) as Box<dyn GraphShaderLiteralValue>
+            }
+            BACKGROUND_COLOR_BUILTIN => Box::new(state.background_color.clone()),
+            HAS_SELECTION_BUILTIN => Box::new(state.has_selection.clone()),
+            SELECTION_BUILTIN => Box::new(PreparedLayer::from_binding(
+                state.selection_layer.clone(),
+                state.selection_layer_bounds.clone(),
+            )),
+            TARGET_LAYER_BUILTIN => Box::new(PreparedLayer::from_binding(
+                state.target_layer.clone(),
+                state.target_layer_bounds.clone(),
+            )),
+            _ => unreachable!(),
+        };
+        values.insert(name, GraphShaderLiteral::new_boxed(value, ty));
+    }
+    values
+}
+
+fn prepared_literal<T: GraphValueType>(
+    ty: Arc<T>,
+    value: &T::AssociatedLiteralType,
+    device: &Device,
+    queue: &Queue,
+) -> Result<GraphShaderLiteral> {
+    let prepared = ty.prepare_to_shader(value, device, queue)?;
+    Ok(GraphShaderLiteral::new_boxed(Box::new(prepared), ty))
+}
+
+#[derive(Clone, Debug, ShaderType)]
+pub struct PenInputBatch {
+    pub n_inputs: u32,
+    #[shader(size(runtime))]
+    pub inputs: Vec<PenInput>,
+}
+
+impl PenInputBatch {
+    pub fn new(inputs: &[PenInput]) -> Self {
+        assert!(inputs.len() <= MAX_INPUTS_PER_SAMPLE_BATCH);
+        let mut batch = inputs.to_vec();
+        batch.resize(MAX_INPUTS_PER_SAMPLE_BATCH, PenInput::default());
+        Self {
+            n_inputs: inputs.len() as u32,
+            inputs: batch,
+        }
     }
 }
 
@@ -1097,7 +1077,7 @@ pub struct PenInput {
     pub bezier_control_next: Vec2,
 }
 
-#[derive(ShaderType, Debug, Default, Clone, Copy)]
+#[derive(ShaderType, Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct ComputedPenInput {
     pub position: Vec2,
     pub draw_direction_vec: Vec2,
@@ -1110,35 +1090,29 @@ pub struct ComputedPenInput {
     pub time: Time,
 }
 
-#[derive(ShaderType, Debug, Default, Clone, Copy)]
-pub struct StrokePostprocessData {
-    pub accumulated_pixel_bounds: IRect,
-    pub time: Time,
-}
-
-#[derive(ShaderType, Debug, Default, Clone, Copy)]
+#[derive(ShaderType, Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct Time {
     pub now: f32,
     pub stroke_begin: f32,
 }
 
-#[derive(ShaderType, Debug, Default, Clone, Copy)]
-pub struct DabInfo {
-    pub bound_min: IVec2,
-    pub bound_max: IVec2,
+pub struct BuiltinHostValues<'a> {
+    pub foreground_color: &'a Buffer,
+    pub background_color: &'a Buffer,
+    pub has_selection: &'a Buffer,
+    pub selection: &'a PreparedLayer,
+    pub target_layer: &'a PreparedLayer,
 }
 
-#[derive(Clone)]
-// TODO This should be renamed to RendererResources
 pub struct StrokeResources {
-    pub external_var_storage: Arc<GraphExternalVariableStorage>,
-    pub external_var_layouts: Vec<BindGroupLayoutEntry>,
-    pub external_var_buffers: Vec<Buffer>,
-    pub referenced_textures: TextureAtlas,
-    pub canvas_resources: Buffer,
-
-    pub target_layer_format: TexelType,
-    pub selection_layer_format: TexelType,
+    resource_layout: wgpu::BindGroupLayout,
+    builtin_types: BTreeMap<String, Arc<dyn ErasedGraphValueType>>,
+    parameters: Arc<[GraphLiteral]>,
+    prepared_parameters: Vec<Box<dyn GraphShaderLiteralValue>>,
+    foreground_color: Buffer,
+    background_color: Buffer,
+    target_layer_format: TexelType,
+    selection_layer_format: TexelType,
 }
 
 impl StrokeResources {
@@ -1148,120 +1122,80 @@ impl StrokeResources {
         brush: &CompiledBrushPreset,
         target_layer_format: TexelType,
         selection_layer_format: TexelType,
-        assets: &AssetRegistry,
-        canvas_resources: &DynamicBuffer<CanvasResources>,
+        foreground_color: &DynamicBuffer<Vec4>,
+        background_color: &DynamicBuffer<Vec4>,
     ) -> Self {
-        let mut external_var_layouts = Vec::new();
-        for cur_binding in (EXTERNAL_VARIABLE_BASE_BINDING..).take(brush.external_vars.all().len())
-        {
-            external_var_layouts.push(BindGroupLayoutEntry {
-                binding: cur_binding,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            });
-        }
-
-        let mut external_var_buffers = Vec::new();
-        for var in brush.external_vars.all().iter() {
-            let (_, size) = var.value.ty().wgsl_type().unwrap();
-            let gpu_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("external variable buffer"),
-                size,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-            let mut writer = queue
-                .write_buffer_with(&gpu_buffer, 0, NonZeroU64::new(size).unwrap())
-                .unwrap();
-            var.value.try_write_into_shader_buffer(&mut writer).unwrap();
-            external_var_buffers.push(gpu_buffer);
-        }
-
-        let empty_texture = device.create_texture(&TextureDescriptor {
-            label: Some("empty texture"),
-            size: Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8Unorm,
-            usage: TextureUsages::TEXTURE_BINDING
-                | TextureUsages::STORAGE_BINDING
-                | TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        let mut referenced_textures_builder =
-            TextureAtlasBuilder::with_capacity(brush.texture_usage.len());
-        for id in &brush.texture_usage {
-            if let Some(asset_id) = **id {
-                let handle = assets.handle(asset_id).unwrap();
-                let gpu_image = GpuImage::from_asset(
-                    device,
-                    queue,
-                    &handle.get().unwrap(),
-                    // TODO: This is weird but, adding TEXTURE_BINDING usage to avoid vulkan validation error:
-                    // VALIDATION [VUID-VkImageViewCreateInfo-image-04441 (0xb75da543)]
-                    // vkCreateImageView(): pCreateInfo->image (VkImage 0xb550000000b55) was created with VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT but requires VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT|VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT|VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR|VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT|VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR|VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR|VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR|VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR|VK_IMAGE_USAGE_SAMPLE_WEIGHT_BIT_QCOM|VK_IMAGE_USAGE_SAMPLE_BLOCK_MATCH_BIT_QCOM|VK_IMAGE_USAGE_VIDEO_ENCODE_QUANTIZATION_DELTA_MAP_BIT_KHR|VK_IMAGE_USAGE_VIDEO_ENCODE_EMPHASIS_MAP_BIT_KHR.
-                    // The Vulkan spec states: image must have been created with a usage value containing at least one of the following: VK_IMAGE_USAGE_SAMPLED_BIT VK_IMAGE_USAGE_STORAGE_BIT VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR VK_IMAGE_USAGE_VIDEO_ENCODE_SRC_BIT_KHR VK_IMAGE_USAGE_VIDEO_ENCODE_DPB_BIT_KHR VK_IMAGE_USAGE_SAMPLE_WEIGHT_BIT_QCOM VK_IMAGE_USAGE_SAMPLE_BLOCK_MATCH_BIT_QCOM VK_IMAGE_USAGE_VIDEO_ENCODE_QUANTIZATION_DELTA_MAP_BIT_KHR VK_IMAGE_USAGE_VIDEO_ENCODE_EMPHASIS_MAP_BIT_KHR (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageViewCreateInfo-image-04441)
-                    TextureUsages::COPY_SRC | TextureUsages::TEXTURE_BINDING,
-                );
-                referenced_textures_builder.add_texture(gpu_image.texture.clone());
-            } else {
-                referenced_textures_builder.add_texture(empty_texture.clone());
-            }
-        }
-        if referenced_textures_builder.is_empty() {
-            referenced_textures_builder.add_texture(empty_texture.clone());
-        }
-        let referenced_textures = referenced_textures_builder
-            .build(Some("referenced textures"), device, queue)
-            .unwrap();
-
+        let prepared_parameters = brush
+            .spacing_parameters
+            .iter()
+            .map(|parameter| {
+                parameter
+                    .ty()
+                    .prepare_to_shader(parameter.value(), device, queue)
+                    .expect("failed to prepare spacing parameter")
+            })
+            .collect();
         Self {
-            external_var_storage: brush.external_vars.clone(),
-            external_var_layouts,
-            external_var_buffers,
-            referenced_textures,
-
+            resource_layout: device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("brush spacing resources"),
+                entries: &brush.spacing_resource_layouts,
+            }),
+            builtin_types: brush.spacing_builtin_types.clone(),
+            parameters: brush.spacing_parameters.clone(),
+            prepared_parameters,
+            foreground_color: foreground_color.inner_buffer().unwrap().clone(),
+            background_color: background_color.inner_buffer().unwrap().clone(),
             target_layer_format,
             selection_layer_format,
-            canvas_resources: canvas_resources.inner_buffer().unwrap().clone(),
         }
     }
 
-    pub fn update_external_var_buffers(&mut self, queue: &Queue) {
-        for (ext_var, var_buffer) in self
-            .external_var_storage
-            .all()
-            .iter()
-            .zip(&self.external_var_buffers)
-        {
-            let mut writer = queue
-                .write_buffer_with(var_buffer, 0, NonZeroU64::new(var_buffer.size()).unwrap())
-                .unwrap();
-            ext_var
-                .value
-                .try_write_into_shader_buffer(&mut writer)
-                .unwrap();
+    fn resource_bind_group(
+        &self,
+        device: &Device,
+        builtins: &BuiltinHostValues<'_>,
+    ) -> wgpu::BindGroup {
+        let mut binding = 0;
+        let mut entries = Vec::new();
+        for (name, ty) in &self.builtin_types {
+            let value = match name.as_str() {
+                FOREGROUND_COLOR_BUILTIN => {
+                    builtins.foreground_color as &dyn GraphShaderLiteralValue
+                }
+                BACKGROUND_COLOR_BUILTIN => builtins.background_color,
+                HAS_SELECTION_BUILTIN => builtins.has_selection,
+                SELECTION_BUILTIN => builtins.selection,
+                TARGET_LAYER_BUILTIN => builtins.target_layer,
+                _ => unreachable!(),
+            };
+            let (next, bound) = ty
+                .push_shader_binding(
+                    GraphShaderStage::Input,
+                    value,
+                    binding,
+                    DynamicBindGroupEntries::new(),
+                )
+                .expect("failed to bind spacing builtin");
+            binding = next;
+            entries.extend(bound.to_vec());
         }
-    }
-
-    fn external_var_bindings(&self) -> Vec<BindGroupEntry<'_>> {
-        self.external_var_buffers
-            .iter()
-            .enumerate()
-            .map(|(i, buffer)| BindGroupEntry {
-                binding: EXTERNAL_VARIABLE_BASE_BINDING + i as u32,
-                resource: BindingResource::Buffer(buffer.as_entire_buffer_binding()),
-            })
-            .collect()
+        for (parameter, prepared) in self.parameters.iter().zip(&self.prepared_parameters) {
+            let (next, bound) = parameter
+                .ty()
+                .push_shader_binding(
+                    GraphShaderStage::Input,
+                    prepared.as_ref(),
+                    binding,
+                    DynamicBindGroupEntries::new(),
+                )
+                .expect("failed to bind spacing parameter");
+            binding = next;
+            entries.extend(bound.to_vec());
+        }
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("brush spacing resources"),
+            layout: &self.resource_layout,
+            entries: &entries,
+        })
     }
 }

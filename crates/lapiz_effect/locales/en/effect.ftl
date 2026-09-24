@@ -1,0 +1,14 @@
+passes = Passes
+inputs = Inputs
+outputs = Outputs
+unbound = Unbound
+type = Type
+name = Name
+local_buffer = Local Buffer
+add_input = Add Input
+add_output = Add Output
+add_pass = Add Pass
+rename = Rename
+back_to_passes = All Passes
+pass_input_node = Pass Input
+pass_output_node = Pass Output

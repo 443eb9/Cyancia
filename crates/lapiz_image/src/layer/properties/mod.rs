@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
 use anyhow::{Result, anyhow};
 use downcast_rs::Downcast;
@@ -13,8 +13,8 @@ pub struct LayerProperties {
     props: HashMap<&'static str, Box<dyn LayerProperty>>,
 }
 
-impl std::fmt::Debug for LayerProperties {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for LayerProperties {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LayerProperties")
             .field("props", &self.props.keys().collect::<Vec<_>>())
             .finish()

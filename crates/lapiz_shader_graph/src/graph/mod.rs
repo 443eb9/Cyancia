@@ -1,17 +1,16 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
-    marker::PhantomData,
     sync::Arc,
 };
 
 use iced_core::Point;
 use indexmap::IndexMap;
+use lapiz_assets::store::AssetRegistry;
 use parking_lot::RwLock;
 use uuid::Uuid;
+use wesl::syntax::Expression;
 
 use crate::graph::{
-    external::GraphExternalVariableStorage,
-    function::SharedGraphFunctionStorage,
     node::{
         ContextualGraphNodeCodeGenError, ErasedGraphNode, ErasedGraphNodeMessage, GraphNode,
         GraphNodeCodeGenContext, GraphNodeCreateSlotsContext, GraphNodeData,
@@ -22,11 +21,9 @@ use crate::graph::{
         GraphDefaultInputSlot, GraphDefaultOutputSlot, GraphInputSlotData, GraphInputSlotId,
         GraphOutputSlotData, GraphOutputSlotId, GraphSlots,
     },
-    texture::{GraphTextureUsageRecorder, SharedGraphTextureStorage},
     variable::{GraphLiteral, GraphLiteralValue, GraphTypeRegistry, GraphVariable},
 };
 
-pub mod external;
 pub mod function;
 pub mod layout;
 pub mod node;
@@ -34,16 +31,16 @@ pub mod slot;
 pub mod texture;
 pub mod variable;
 
-pub struct Graph<Data: GraphData> {
-    pub(crate) nodes: HashMap<GraphNodeId, GraphNodeData<Data>>,
+pub struct Graph {
+    pub(crate) nodes: HashMap<GraphNodeId, GraphNodeData>,
     pub(crate) slots: GraphSlots,
-    pub(crate) resources: GraphResources<Data>,
+    pub(crate) resources: GraphResources,
     pub(crate) cached_run_order: RwLock<Option<Vec<GraphNodeId>>>,
     pub(crate) cached_signature: RwLock<Option<GraphSignature>>,
 }
 
-impl<Data: GraphData> Graph<Data> {
-    pub fn new(resources: GraphResources<Data>) -> Self {
+impl Graph {
+    pub fn new(resources: GraphResources) -> Self {
         Self {
             nodes: HashMap::new(),
             slots: GraphSlots::default(),
@@ -56,7 +53,7 @@ impl<Data: GraphData> Graph<Data> {
     pub fn add_boxed_node(
         &mut self,
         position: Point,
-        node: Box<dyn ErasedGraphNode<Data>>,
+        node: Box<dyn ErasedGraphNode>,
     ) -> GraphNodeId {
         let node_id = GraphNodeId::new(Uuid::new_v4());
         self.insert_boxed_node(node_id, position, node);
@@ -67,13 +64,12 @@ impl<Data: GraphData> Graph<Data> {
         &mut self,
         node_id: GraphNodeId,
         position: Point,
-        node: Box<dyn ErasedGraphNode<Data>>,
+        node: Box<dyn ErasedGraphNode>,
     ) {
         let node = StatefulGraphNode::new(
             node,
             GraphNodeDefaultStateContext {
                 resources: &self.resources,
-                _marker: PhantomData,
             },
         );
         let inputs = create_input_slots(
@@ -81,7 +77,6 @@ impl<Data: GraphData> Graph<Data> {
             node_id,
             node.create_inputs(GraphNodeCreateSlotsContext {
                 resources: &self.resources,
-                _marker: PhantomData,
             }),
         )
         .into();
@@ -90,7 +85,6 @@ impl<Data: GraphData> Graph<Data> {
             node_id,
             node.create_outputs(GraphNodeCreateSlotsContext {
                 resources: &self.resources,
-                _marker: PhantomData,
             }),
         )
         .into();
@@ -107,7 +101,7 @@ impl<Data: GraphData> Graph<Data> {
         self.invalidate_cache();
     }
 
-    pub fn add_node<T: GraphNode<Data>>(&mut self, position: Point, node: T) -> GraphNodeId {
+    pub fn add_node<T: GraphNode>(&mut self, position: Point, node: T) -> GraphNodeId {
         self.add_boxed_node(position, Box::new(node))
     }
 
@@ -119,11 +113,11 @@ impl<Data: GraphData> Graph<Data> {
         }
     }
 
-    pub fn get_node(&self, id: &GraphNodeId) -> Option<&GraphNodeData<Data>> {
+    pub fn get_node(&self, id: &GraphNodeId) -> Option<&GraphNodeData> {
         self.nodes.get(id)
     }
 
-    pub fn get_node_mut(&mut self, id: &GraphNodeId) -> Option<&mut GraphNodeData<Data>> {
+    pub fn get_node_mut(&mut self, id: &GraphNodeId) -> Option<&mut GraphNodeData> {
         self.nodes.get_mut(id)
     }
 
@@ -146,11 +140,11 @@ impl<Data: GraphData> Graph<Data> {
         let to_slot = self.slots.inputs.get(&to);
 
         if let (Some(from), Some(to)) = (from_slot, to_slot) {
-            from.data_ty.name() == to.data.ty().name()
+            from.data_ty.id() == to.data.ty().id()
                 || self
                     .resources
                     .type_registry
-                    .can_cast(&*from.data_ty, to.data.ty())
+                    .can_cast(&*from.data_ty, to.data.ty().as_ref())
         } else {
             false
         }
@@ -205,7 +199,23 @@ impl<Data: GraphData> Graph<Data> {
         }
     }
 
-    pub fn update_node_state<T: GraphNode<Data>>(
+    pub fn iter_nodes(&self) -> impl Iterator<Item = &GraphNodeData> {
+        self.nodes.values()
+    }
+
+    pub fn iter_nodes_mut(&mut self) -> impl Iterator<Item = &mut GraphNodeData> {
+        self.nodes.values_mut()
+    }
+
+    pub fn reconcile_all_node_slots(&mut self) {
+        let node_ids = self.nodes.keys().copied().collect::<Vec<_>>();
+        for node_id in node_ids {
+            self.reconcile_node_slots(node_id);
+        }
+        self.invalidate_cache();
+    }
+
+    pub fn update_node_state<T: GraphNode>(
         &mut self,
         node_id: GraphNodeId,
         f: impl FnOnce(&mut T::State),
@@ -231,7 +241,6 @@ impl<Data: GraphData> Graph<Data> {
                 inputs: &node.inputs,
                 slots: &mut self.slots,
                 resources: &self.resources,
-                _marker: PhantomData,
             },
         );
         self.reconcile_node_slots(node_id);
@@ -387,7 +396,6 @@ impl<Data: GraphData> Graph<Data> {
                 slots: &self.slots,
                 signature: &mut signature,
                 resources: &self.resources,
-                _marker: PhantomData,
             };
             node.data.update_signature(ctx);
         }
@@ -401,7 +409,6 @@ impl<Data: GraphData> Graph<Data> {
 
         let new_input_defs = node.data.create_inputs(GraphNodeCreateSlotsContext {
             resources: &self.resources,
-            _marker: PhantomData,
         });
         let mut new_input_ids = Vec::with_capacity(new_input_defs.len());
         let mut old_input_ids = node.inputs.to_vec();
@@ -415,7 +422,7 @@ impl<Data: GraphData> Graph<Data> {
                 };
 
                 if old_input_slot.name == new_input_def.name
-                    && old_input_slot.data.ty().name() == new_input_def.ty.name()
+                    && old_input_slot.data.ty().id() == new_input_def.ty.id()
                 {
                     new_input_ids.push(old_input_id);
                     old_input_ids.swap_remove(i);
@@ -434,7 +441,7 @@ impl<Data: GraphData> Graph<Data> {
                 name: new_input_def.name,
                 data: GraphLiteral::new_boxed(
                     new_input_def.ty.default_literal(),
-                    dyn_clone::clone_box(&*new_input_def.ty),
+                    new_input_def.ty.clone(),
                 ),
                 connected: None,
             };
@@ -457,7 +464,6 @@ impl<Data: GraphData> Graph<Data> {
 
         let new_output_defs = node.data.create_outputs(GraphNodeCreateSlotsContext {
             resources: &self.resources,
-            _marker: PhantomData,
         });
         let mut new_output_ids = Vec::with_capacity(new_output_defs.len());
         let mut old_output_ids = node.outputs.to_vec();
@@ -471,7 +477,7 @@ impl<Data: GraphData> Graph<Data> {
                 };
 
                 if old_output_slot.name == new_output_def.name
-                    && old_output_slot.data_ty.name() == new_output_def.ty.name()
+                    && old_output_slot.data_ty.id() == new_output_def.ty.id()
                 {
                     new_output_ids.push(old_output_id);
                     old_output_ids.swap_remove(i);
@@ -520,10 +526,16 @@ impl<Data: GraphData> Graph<Data> {
 
     pub fn compile(
         &self,
-        graph_input_idents: Vec<String>,
+        graph_input_idents: Vec<Expression>,
         mut ident_generator: GraphVarIdentGenerator,
-        texture_usage: &mut GraphTextureUsageRecorder,
-    ) -> Result<(Vec<String>, HashMap<GraphOutputSlotId, String>, String), GraphCompileError> {
+    ) -> Result<
+        (
+            Vec<Expression>,
+            HashMap<GraphOutputSlotId, Expression>,
+            String,
+        ),
+        GraphCompileError,
+    > {
         if self.cached_run_order.read().is_none() {
             self.update_run_order_cache();
         }
@@ -559,8 +571,6 @@ impl<Data: GraphData> Graph<Data> {
                 output_slot_idents: &mut output_slot_idents,
                 ident_generator: &mut ident_generator,
                 resources: &self.resources,
-                texture_usage,
-                _marker: PhantomData,
             };
 
             match node.data.generate_code(context) {
@@ -599,7 +609,7 @@ impl<Data: GraphData> Graph<Data> {
         Ok((graph_output_idents, output_slot_idents, code))
     }
 
-    pub fn resources(&self) -> &GraphResources<Data> {
+    pub fn resources(&self) -> &GraphResources {
         &self.resources
     }
 }
@@ -617,10 +627,7 @@ fn create_input_slots(
             GraphInputSlotData {
                 node_id,
                 name: slot.name,
-                data: GraphLiteral::new_boxed(
-                    slot.ty.default_literal(),
-                    dyn_clone::clone_box(&*slot.ty),
-                ),
+                data: GraphLiteral::new_boxed(slot.ty.default_literal(), slot.ty.clone()),
                 connected: None,
             },
         );
@@ -675,34 +682,18 @@ fn delete_all_outputs(slots: &mut GraphSlots, output_slot_ids: &[GraphOutputSlot
     }
 }
 
-pub struct GraphResources<Data: GraphData> {
+pub struct GraphResources {
     pub type_registry: Arc<GraphTypeRegistry>,
-    pub node_registry: Arc<GraphNodeRegistry<Data>>,
-    pub textures: SharedGraphTextureStorage,
-    pub functions: SharedGraphFunctionStorage,
-    pub external_vars: Arc<GraphExternalVariableStorage>,
+    pub node_registry: Arc<GraphNodeRegistry>,
+    pub assets: AssetRegistry,
 }
 
-impl<Data: GraphData> Clone for GraphResources<Data> {
+impl Clone for GraphResources {
     fn clone(&self) -> Self {
         Self {
             type_registry: self.type_registry.clone(),
             node_registry: self.node_registry.clone(),
-            textures: self.textures.clone(),
-            functions: self.functions.clone(),
-            external_vars: self.external_vars.clone(),
-        }
-    }
-}
-
-impl<Data: GraphData> Default for GraphResources<Data> {
-    fn default() -> Self {
-        Self {
-            type_registry: Arc::new(GraphTypeRegistry::default()),
-            node_registry: Arc::new(GraphNodeRegistry::with_capacity()),
-            textures: Default::default(),
-            functions: Default::default(),
-            external_vars: Default::default(),
+            assets: self.assets.clone(),
         }
     }
 }
@@ -743,5 +734,3 @@ impl GraphVarIdentGenerator {
         ident
     }
 }
-
-pub trait GraphData: Send + Sync + 'static + Sized {}

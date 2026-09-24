@@ -1,6 +1,6 @@
 use iced_core::{
-    Border, Element, Layout, Length, Point, Rectangle, Renderer as _, Size, Theme, Vector, Widget,
-    layout, overlay,
+    Border, Color, Element, Event, Layout, Length, Point, Rectangle, Renderer as _, Shell, Size,
+    Theme, Vector, Widget, layout, overlay,
     pointer::mouse,
     renderer,
     widget::{Operation, Tree},
@@ -117,11 +117,11 @@ impl<Message> Widget<Message, Theme, Renderer> for LabeledFrame<'_, Message> {
     fn update(
         &mut self,
         tree: &mut Tree,
-        event: &iced_core::Event,
+        event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        shell: &mut iced_core::Shell<'_, Message>,
+        shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
         let mut children = layout.children();
@@ -152,7 +152,7 @@ impl<Message> Widget<Message, Theme, Renderer> for LabeledFrame<'_, Message> {
         tree: &Tree,
         renderer: &mut Renderer,
         theme: &Theme,
-        style: &iced_core::renderer::Style,
+        style: &renderer::Style,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
@@ -169,7 +169,7 @@ impl<Message> Widget<Message, Theme, Renderer> for LabeledFrame<'_, Message> {
                 },
                 ..renderer::Quad::default()
             },
-            iced_core::Color::TRANSPARENT,
+            Color::TRANSPARENT,
         );
         let mut children = layout.children();
         let title_layout = children.next().expect("title layout");

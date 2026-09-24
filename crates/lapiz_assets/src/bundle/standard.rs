@@ -1,6 +1,7 @@
 use std::{
-    fs::{File, metadata},
-    io::{Cursor, Read as _, read_to_string},
+    error::Error,
+    fs::{self, File, metadata},
+    io::{self, Cursor, Read as _, read_to_string},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -8,7 +9,8 @@ use std::{
 use chrono::DateTime;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use zip::ZipArchive;
+use toml::de;
+use zip::{ZipArchive, result::ZipError};
 
 use crate::{
     asset::{ErasedAsset, UntypedAssetId},
@@ -50,7 +52,7 @@ fn scan_bundles(
     bundles: &mut Vec<StandardAssetBundle>,
     errors: &mut Vec<StandardAssetBundleError>,
 ) {
-    let entries = match std::fs::read_dir(root) {
+    let entries = match fs::read_dir(root) {
         Ok(entries) => entries,
         Err(e) => {
             errors.push(StandardAssetBundleError::Io(e));
@@ -83,15 +85,15 @@ pub enum StandardAssetBundleError {
     #[error("Unsupported writing to standard asset bundle")]
     UnsupportedWriting,
     #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error("Zip error: {0}")]
-    Zip(#[from] zip::result::ZipError),
+    Zip(#[from] ZipError),
     #[error("Missing serializer for extension: {0}")]
     MissingSerializer(String),
     #[error("Serializer error: {0}")]
-    SerializerError(Box<dyn std::error::Error + Send + Sync + 'static>),
+    SerializerError(Box<dyn Error + Send + Sync + 'static>),
     #[error("Toml error: {0}")]
-    TomlError(#[from] toml::de::Error),
+    TomlError(#[from] de::Error),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -167,7 +169,7 @@ impl AssetBundle for StandardAssetBundle {
         let mut archive = self.archive.write();
         let mut file = match archive.by_name(&path) {
             Ok(file) => file,
-            Err(zip::result::ZipError::FileNotFound) => return Ok(None),
+            Err(ZipError::FileNotFound) => return Ok(None),
             Err(error) => return Err(error.into()),
         };
         let content = read_to_string(&mut file)?;

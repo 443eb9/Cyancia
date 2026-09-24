@@ -29,3 +29,4 @@ opacity = 不透明度
 position = 位置
 rectangle = 矩形
 value = 值
+effect_io = Effect 输入/输出

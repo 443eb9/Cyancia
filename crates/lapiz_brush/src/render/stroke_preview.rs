@@ -1,10 +1,14 @@
-use std::{f32::consts::TAU, fs::File};
+use std::{
+    array::from_fn,
+    f32::consts::TAU,
+    fs::{self, File},
+};
 
 use anyhow::{Result, anyhow, ensure};
 use glam::{IVec4, Vec2, Vec4};
 use iced_runtime::Task;
 use image::{ImageFormat, RgbaImage};
-use lapiz_assets::asset::AssetHandle;
+use lapiz_assets::{asset::AssetHandle, store::AssetRegistry};
 use lapiz_dirs::cache_dir;
 use lapiz_image::{
     layer_bounds::LayerBoundsPipeline,
@@ -22,9 +26,6 @@ use lapiz_render::{
     util::DevicePollExt as _,
 };
 use lapiz_runtime::Services;
-use lapiz_shader_graph::graph::{
-    function::ASSET_GRAPH_FUNCTION_STORAGE, texture::ASSET_GRAPH_TEXTURE_STORAGE,
-};
 use lapiz_utils::log_err::LogErr as _;
 use tracing::info;
 use wesl::include_wesl;
@@ -40,13 +41,14 @@ use crate::{
     asset::BrushPreset,
     input_processing::{BasicStabilizer, InputProcessor, RawPenInput},
     instance::BrushPresetInstance,
-    render::{BrushPresetRenderer, EXTERNAL_VARIABLE_BASE_BINDING, Time, graph::CanvasResources},
+    render::{BrushPresetRenderer, Time, graph::CanvasResources},
 };
 
 pub const CACHED_STROKE_PREVIEW_SIZE: (u32, u32) = (512, 256);
 
 pub fn load_cached_stroke_preview_or_generate(
     brush: &AssetHandle<BrushPreset>,
+    assets: &AssetRegistry,
     services: &Services,
 ) -> Result<Task<Result<RgbaImage>>> {
     let cache_path = cache_dir()
@@ -62,18 +64,8 @@ pub fn load_cached_stroke_preview_or_generate(
 
     info!("Generating stroke preview for brush {}", brush.id());
 
-    let (instance, errs) = BrushPresetInstance::from_asset(
-        brush,
-        ASSET_GRAPH_TEXTURE_STORAGE.clone(),
-        ASSET_GRAPH_FUNCTION_STORAGE.clone(),
-    );
-
-    let Some(instance) = instance else {
-        return Err(anyhow::anyhow!(
-            "Failed to create brush preset instance: {:?}",
-            errs
-        ));
-    };
+    let instance = BrushPresetInstance::from_asset(brush, assets.clone())
+        .map_err(|error| anyhow::anyhow!("Failed to create brush preset instance: {error:#}"))?;
 
     let texture = create_stroke_preview(
         &instance,
@@ -96,6 +88,11 @@ pub fn load_cached_stroke_preview_or_generate(
             let img = img.logged_err().unwrap_or_else(|_| {
                 RgbaImage::new(CACHED_STROKE_PREVIEW_SIZE.0, CACHED_STROKE_PREVIEW_SIZE.1)
             });
+            fs::create_dir_all(
+                cache_path
+                    .parent()
+                    .expect("preview cache path has a parent"),
+            )?;
             let mut file = File::create(&cache_path)?;
             img.write_to(&mut file, ImageFormat::Png)?;
             info!("Stroke preview saved to {}", cache_path.display());
@@ -128,7 +125,7 @@ fn readback_preview(device: Device, queue: Queue, texture: Texture) -> Task<Resu
 }
 
 pub fn predefined_curve_samples(width: u32, height: u32) -> [RawPenInput; 32] {
-    std::array::from_fn(|i| {
+    from_fn(|i| {
         let t = i as f32 / 31.0;
         let azimuth = t * TAU;
         let altitude = (30.0 + 30.0 * t).to_radians();
@@ -153,6 +150,7 @@ pub fn predefined_curve_samples(width: u32, height: u32) -> [RawPenInput; 32] {
     })
 }
 
+// TODO remove this method
 pub fn create_stroke_preview(
     brush: &BrushPresetInstance,
     samples: &[RawPenInput],
@@ -161,19 +159,40 @@ pub fn create_stroke_preview(
     services: &Services,
     canvas_resources: &CanvasResources,
 ) -> Result<Task<Texture>> {
-    let target_layer = DynamicLayerStorage::new(
-        services.render_device().clone(),
-        services.render_queue().clone(),
-        GpuLayerInfo {
-            texel_type: TexelType::RGBA8,
-        },
-    );
-    create_stroke_preview_on_target(
+    create_stroke_preview_with(
         brush,
         samples,
         width,
         height,
-        services,
+        services.render_device(),
+        services.render_queue(),
+        canvas_resources,
+    )
+}
+
+pub fn create_stroke_preview_with(
+    brush: &BrushPresetInstance,
+    samples: &[RawPenInput],
+    width: u32,
+    height: u32,
+    device: &Device,
+    queue: &Queue,
+    canvas_resources: &CanvasResources,
+) -> Result<Task<Texture>> {
+    let target_layer = DynamicLayerStorage::new(
+        device.clone(),
+        queue.clone(),
+        GpuLayerInfo {
+            texel_type: TexelType::RGBA8,
+        },
+    );
+    create_stroke_preview_on_target_with(
+        brush,
+        samples,
+        width,
+        height,
+        device,
+        queue,
         canvas_resources,
         target_layer,
     )
@@ -188,6 +207,28 @@ pub fn create_stroke_preview_on_target(
     canvas_resources: &CanvasResources,
     target_layer: DynamicLayerStorage,
 ) -> Result<Task<Texture>> {
+    create_stroke_preview_on_target_with(
+        brush,
+        samples,
+        width,
+        height,
+        services.render_device(),
+        services.render_queue(),
+        canvas_resources,
+        target_layer,
+    )
+}
+
+pub fn create_stroke_preview_on_target_with(
+    brush: &BrushPresetInstance,
+    samples: &[RawPenInput],
+    width: u32,
+    height: u32,
+    device: &Device,
+    queue: &Queue,
+    canvas_resources: &CanvasResources,
+    mut target_layer: DynamicLayerStorage,
+) -> Result<Task<Texture>> {
     ensure!(
         samples.len() >= 2,
         "stroke preview requires at least two samples"
@@ -197,9 +238,7 @@ pub fn create_stroke_preview_on_target(
         "stroke preview dimensions must be non-zero"
     );
 
-    let device = services.render_device();
-    let queue = services.render_queue();
-    let selection_layer = DynamicLayerStorage::new(
+    let mut selection_layer = DynamicLayerStorage::new(
         device.clone(),
         queue.clone(),
         GpuLayerInfo {
@@ -207,55 +246,88 @@ pub fn create_stroke_preview_on_target(
         },
     );
 
-    let canvas_resources = {
-        let mut b = DynamicBuffer::new(
-            Some("canvas_resources_buffer".into()),
+    let foreground_color = {
+        let mut buffer = DynamicBuffer::new(
+            Some("brush preview foreground color".into()),
             BufferUsages::STORAGE,
         );
-        b.push(canvas_resources);
-        b.write_buffer(device, queue);
-        b
+        buffer.push(&canvas_resources.foreground_color);
+        buffer.write_buffer(device, queue);
+        buffer
+    };
+    let background_color = {
+        let mut buffer = DynamicBuffer::new(
+            Some("brush preview background color".into()),
+            BufferUsages::STORAGE,
+        );
+        buffer.push(&canvas_resources.background_color);
+        buffer.write_buffer(device, queue);
+        buffer
     };
 
-    let compiled = brush.compile(EXTERNAL_VARIABLE_BASE_BINDING)?;
-    let mut renderer = BrushPresetRenderer::new(
-        &compiled,
+    let compiled = brush.compile(
         target_layer.layer_info().texel_type,
         selection_layer.layer_info().texel_type,
-        services,
-        &canvas_resources,
+        device,
+        queue,
+    )?;
+    let mut renderer = BrushPresetRenderer::new(
+        compiled,
+        target_layer.layer_info().texel_type,
+        selection_layer.layer_info().texel_type,
+        device,
+        queue,
+        &foreground_color,
+        &background_color,
     );
 
     let mut input_processor = InputProcessor::new(256, Box::new(BasicStabilizer));
 
-    renderer.begin(
+    // Ensure both layers have at least a null tile so binding() works without
+    // the app-global empty-layer bindings.
+    target_layer.get_tile_or_allocate(GpuTileInfo::NULL.index);
+    selection_layer.get_tile_or_allocate(GpuTileInfo::NULL.index);
+
+    let worker = renderer.begin(
         device,
         queue,
         target_layer.binding_or_empty(),
         selection_layer.binding_or_empty(),
     );
-
-    let mut render_tasks = Vec::new();
+    renderer.record_raw_inputs(samples.len());
 
     for sample in samples.iter().take(samples.len() - 1) {
         if let Some(pen_input) = input_processor.push(*sample) {
-            render_tasks.push(renderer.update(device, queue, pen_input));
+            renderer.update(pen_input);
         }
     }
 
     for pen_input in input_processor.flush(*samples.last().unwrap()) {
-        render_tasks.push(renderer.update(device, queue, pen_input));
+        renderer.update(pen_input);
     }
 
-    let final_result = renderer.end(device, queue);
+    let final_result = renderer.end();
     let device = device.clone();
     let queue = queue.clone();
 
-    Ok(Task::batch(render_tasks)
-        .discard()
-        .chain(final_result.map(move |result| {
-            map_result_texture(device.clone(), queue.clone(), width, height, result)
-        })))
+    let texture = final_result.map(move |result| {
+        Some(map_result_texture(
+            device.clone(),
+            queue.clone(),
+            width,
+            height,
+            result,
+        ))
+    });
+    Ok(Task::batch([worker.map(|()| None), texture])
+        .collect()
+        .map(|textures| {
+            textures
+                .into_iter()
+                .flatten()
+                .next()
+                .expect("stroke preview worker produced no texture")
+        }))
 }
 
 fn map_result_texture(

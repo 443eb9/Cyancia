@@ -1,6 +1,4 @@
 import image::image_tiling::{TileInfo};
-import render::math::{IRect};
-
 const MAIN_WORKGROUP_SIZE = vec3u(16, 16, 1);
 const ESTIMATION_WORKGROUP_SIZE = vec3u(1, 1, 16);
 
@@ -8,7 +6,6 @@ struct StrokeInfo {
     // In tiles
     accumulated_bound_min: vec2i,
     accumulated_bound_max: vec2i,
-
     total_dabs: u32,
 }
 
@@ -16,6 +13,11 @@ struct OutputSamples {
     n_samples: u32,
     is_overflow: u32,
     samples: array<ComputedPenInput>,
+}
+
+struct PenInputBatch {
+    n_inputs: u32,
+    inputs: array<PenInput>,
 }
 
 struct DabInfos {
@@ -63,17 +65,7 @@ struct PenInput {
     bezier_control_cur: vec2f,
 }
 
-struct StrokePostprocessData {
-    accumulated_pixel_bound: IRect,
-    time: Time,
-}
-
 struct Time {
     now: f32,
     stroke_begin: f32,
-}
-
-struct CanvasResources {
-    foreground_color: vec4f,
-    background_color: vec4f,
 }

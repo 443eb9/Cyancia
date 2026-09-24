@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 chrono.workspace = true
+dashmap.workspace = true
 downcast-rs.workspace = true
 futures.workspace = true
 lapiz_runtime.workspace = true

@@ -1,5 +1,5 @@
 use iced_core::{Element, Length, Theme};
-use iced_widget::scrollable::{Catalog, Direction, Status, Style};
+use iced_widget::scrollable::{self, Catalog, Direction, Status, Style};
 use lapiz_runtime::Renderer;
 
 pub struct Scrollable<'a, Message> {
@@ -63,7 +63,7 @@ impl<'a, Message: 'a> From<Scrollable<'a, Message>> for Element<'a, Message, The
 pub fn default(theme: &Theme, status: Status) -> Style {
     let p = theme.palette();
     let active = matches!(status, Status::Dragged { .. });
-    let mut style = iced_widget::scrollable::default(theme, status);
+    let mut style = scrollable::default(theme, status);
     style.vertical_rail.background = Some(p.background.base.color.into());
     style.horizontal_rail.background = Some(p.background.base.color.into());
     style.vertical_rail.scroller.background = if active {

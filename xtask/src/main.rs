@@ -1,10 +1,15 @@
 mod import_alias;
 mod let_type_annotation;
 
-use std::{path::Path, process::Command};
+use std::{
+    env, fs,
+    path::Path,
+    process::{self, Command},
+    str,
+};
 
 fn main() {
-    let result = match std::env::args().nth(1).as_deref() {
+    let result = match env::args().nth(1).as_deref() {
         Some(import_alias::NAME) => run_check(
             import_alias::NAME,
             import_alias::FOUND,
@@ -21,12 +26,12 @@ fn main() {
                 import_alias::NAME,
                 let_type_annotation::NAME
             );
-            std::process::exit(2);
+            process::exit(2);
         }
     };
     if let Err(error) = result {
         eprintln!("{error}");
-        std::process::exit(1);
+        process::exit(1);
     }
 }
 
@@ -74,9 +79,9 @@ fn collect_violations(
         .split(|byte| *byte == 0)
         .filter(|name| !name.is_empty())
     {
-        let relative = std::str::from_utf8(relative)
+        let relative = str::from_utf8(relative)
             .map_err(|error| format!("invalid UTF-8 Rust file path: {error}"))?;
-        let text = std::fs::read_to_string(root.join(relative))
+        let text = fs::read_to_string(root.join(relative))
             .map_err(|error| format!("cannot read {relative}: {error}"))?;
         for message in diagnose(&text) {
             violations.push(format!("{relative}:{message}"));
@@ -87,7 +92,12 @@ fn collect_violations(
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::PathBuf, process::Command, time::SystemTime};
+    use std::{
+        env, fs,
+        path::PathBuf,
+        process::{self, Command},
+        time::SystemTime,
+    };
 
     use super::collect_violations;
 
@@ -101,9 +111,9 @@ mod tests {
 
     #[test]
     fn checks_nonignored_files_and_fails_when_a_tracked_file_cannot_be_read() {
-        let root = std::env::temp_dir().join(format!(
-            "cyancia-xtask-{}-{}",
-            std::process::id(),
+        let root = env::temp_dir().join(format!(
+            "lapiz-xtask-{}-{}",
+            process::id(),
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
