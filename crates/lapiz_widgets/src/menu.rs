@@ -599,13 +599,17 @@ where
                 let panels = self.panels();
                 let hit = Self::hit_test(&panels, *position);
                 match hit {
-                    Some((level, index)) => {
-                        if let Some(Item::Action { message, .. }) = self.resolve_item(level, index)
-                        {
+                    Some((level, index)) => match self.resolve_item(level, index) {
+                        Some(Item::Action { message, .. }) => {
                             shell.publish(message.clone());
                             self.open.clear();
                         }
-                    }
+                        Some(Item::Submenu { .. }) => {
+                            self.open.truncate(level + 1);
+                            self.open.push(index);
+                        }
+                        _ => {}
+                    },
                     None => {
                         self.open.clear();
                     }
