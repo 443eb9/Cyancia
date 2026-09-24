@@ -303,18 +303,17 @@ where
         tree: &mut Tree,
         event: &Event,
         layout: Layout<'_>,
-        cursor: mouse::Cursor,
+        _cursor: mouse::Cursor,
         _renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_mut::<MenuBarState>();
         match event {
-            Event::Pointer(event) if event.is_primary_press() && state.open.is_empty() => {
-                let Some(position) = cursor.position() else {
-                    return;
-                };
-                let Some(index) = root_at(layout, position) else {
+            Event::Pointer(event @ pointer::Event::PointerPressed { position, .. })
+                if event.is_primary_press() && state.open.is_empty() =>
+            {
+                let Some(index) = root_at(layout, *position) else {
                     return;
                 };
                 state.open = vec![index];
@@ -553,7 +552,7 @@ where
         &mut self,
         event: &Event,
         _layout: Layout<'_>,
-        cursor: mouse::Cursor,
+        _cursor: mouse::Cursor,
         _renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
     ) {
@@ -583,11 +582,11 @@ where
                     }
                 }
             }
-            Event::Pointer(event) if event.is_primary_press() => {
+            Event::Pointer(event @ pointer::Event::PointerPressed { position, .. })
+                if event.is_primary_press() =>
+            {
                 let panels = self.panels();
-                let hit = cursor
-                    .position()
-                    .and_then(|position| Self::hit_test(&panels, position));
+                let hit = Self::hit_test(&panels, *position);
                 match hit {
                     Some((level, index)) => {
                         if let Some(Item::Action { message, .. }) = self.resolve_item(level, index)
