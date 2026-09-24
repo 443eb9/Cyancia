@@ -311,7 +311,7 @@ where
         let state = tree.state.downcast_mut::<MenuBarState>();
         match event {
             Event::Pointer(event @ pointer::Event::PointerPressed { position, .. })
-                if event.is_primary_press() && state.open.is_empty() =>
+                if event.is_primary_press() =>
             {
                 let Some(index) = root_at(layout, *position) else {
                     return;
@@ -351,7 +351,7 @@ where
         for (index, root_layout) in layout.children().enumerate() {
             let bounds = root_layout.bounds();
             let open = state.open.first() == Some(&index);
-            let hovered = !open && cursor.is_over(bounds);
+            let hovered = state.open.is_empty() && cursor.is_over(bounds);
             if open || hovered {
                 renderer.fill_quad(
                     renderer::Quad {
@@ -389,17 +389,16 @@ where
 
     fn mouse_interaction(
         &self,
-        tree: &Tree,
+        _tree: &Tree,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
         _renderer: &Renderer,
     ) -> mouse::Interaction {
-        let state = tree.state.downcast_ref::<MenuBarState>();
         let Some(position) = cursor.position() else {
             return mouse::Interaction::None;
         };
-        if state.open.is_empty() && root_at(layout, position).is_some() {
+        if root_at(layout, position).is_some() {
             mouse::Interaction::Pointer
         } else {
             mouse::Interaction::None
@@ -422,6 +421,10 @@ where
         let bounds = root_layout.bounds();
         Some(overlay::Element::new(Box::new(MenuOverlay {
             roots: &self.menus,
+            bar_bounds: Some(Rectangle::new(
+                layout.bounds().position() + translation,
+                layout.bounds().size(),
+            )),
             open: &mut state.open,
             origin: bounds.position() + translation,
             root_height: bounds.height,
@@ -445,6 +448,7 @@ struct Panel {
 
 struct MenuOverlay<'a, Message> {
     roots: &'a [Menu<Message>],
+    bar_bounds: Option<Rectangle>,
     open: &'a mut Vec<usize>,
     origin: Point,
     root_height: f32,
@@ -585,6 +589,10 @@ where
             Event::Pointer(event @ pointer::Event::PointerPressed { position, .. })
                 if event.is_primary_press() =>
             {
+                if self.bar_bounds.is_some_and(|bounds| bounds.contains(*position)) {
+                    return;
+                }
+
                 let panels = self.panels();
                 let hit = Self::hit_test(&panels, *position);
                 match hit {
@@ -991,6 +999,7 @@ impl<Message: Clone> Widget<Message, Theme, Renderer> for ContextMenu<'_, Messag
         let origin = state.cursor_position;
         Some(overlay::Element::new(Box::new(MenuOverlay {
             roots: slice::from_ref(&self.menu),
+            bar_bounds: None,
             open: &mut state.open,
             origin: origin + translation,
             root_height: 0.0,
