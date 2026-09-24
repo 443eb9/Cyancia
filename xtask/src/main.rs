@@ -38,8 +38,9 @@ fn main() {
 fn run_check(name: &str, found: &str, diagnose: fn(&str) -> Vec<String>) -> Result<(), String> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .expect("xtask lives at the workspace root");
-    let violations = collect_violations(root, diagnose)?;
+        .expect("xtask lives at the workspace root")
+        .join("crates");
+    let violations = collect_violations(&root, diagnose)?;
     if violations.is_empty() {
         println!("{name}: ok");
         return Ok(());
