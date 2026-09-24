@@ -1,3 +1,10 @@
+#![expect(
+    clippy::pub_use,
+    reason = "This crate should emulate arboard if on supported platform"
+)]
+
+#[cfg(target_os = "android")]
+pub use android::*;
 #[cfg(not(target_os = "android"))]
 pub use arboard_upstream::*;
 
@@ -135,6 +142,3 @@ mod android {
         pub bytes: Cow<'a, [u8]>,
     }
 }
-
-#[cfg(target_os = "android")]
-pub use android::*;

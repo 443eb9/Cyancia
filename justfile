@@ -126,15 +126,15 @@ check-fmt:
     tombi lint
 
 check-clippy:
-    cargo clippy --workspace --exclude arboard --exclude iced_winit --no-deps --all-targets --locked -- -D warnings
+    cargo clippy --workspace --exclude iced_winit --no-deps --all-targets --locked -- -D warnings
 
 # TODO: Remove this when clippy supports.
 check-import-alias:
-    cargo run --locked --quiet -p xtask -- import-alias-check
+    cargo run --locked --quiet -p xtask -- import-alias-check --exclude iced_winit
 
 # TODO: Remove this when clippy supports;
 check-let-type-annotation:
-    cargo run --locked --quiet -p xtask -- let-type-annotation-check
+    cargo run --locked --quiet -p xtask -- let-type-annotation-check --exclude iced_winit
 
 check-deny:
     cargo deny check advisories bans licenses sources
