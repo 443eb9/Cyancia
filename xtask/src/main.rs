@@ -2,8 +2,9 @@ mod import_alias;
 mod let_type_annotation;
 
 use std::{
+    ffi::OsStr,
     fs,
-    path::Path,
+    path::{Component, Path},
     process::{self, Command},
     str,
 };
@@ -102,7 +103,11 @@ fn collect_violations(
         let relative = str::from_utf8(relative)
             .map_err(|error| format!("invalid UTF-8 Rust file path: {error}"))?;
         // This is... maybe inaccurate
-        if excludes.iter().any(|name| relative.contains(name)) {
+        if excludes.iter().any(|name| {
+            Path::new(relative)
+                .components()
+                .any(|c| c == Component::Normal(OsStr::new(name)))
+        }) {
             continue;
         }
         let text = fs::read_to_string(root.join(relative))
