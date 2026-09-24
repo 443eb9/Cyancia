@@ -1,13 +1,12 @@
 #[cfg(not(feature = "dev_local"))]
 use std::env;
+#[cfg(target_os = "android")]
+use std::sync::OnceLock;
 use std::{
     fs,
     path::{Path, PathBuf},
     sync::LazyLock,
 };
-
-#[cfg(target_os = "android")]
-use std::sync::OnceLock;
 
 use directories::BaseDirs;
 

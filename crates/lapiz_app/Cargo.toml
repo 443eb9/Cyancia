@@ -59,11 +59,11 @@ tracing-subscriber.workspace = true
 unic-langid.workspace = true
 wgpu.workspace = true
 
-[target.'cfg(target_os = "android")'.dependencies]
-winit = { workspace = true, features = ["android-native-activity"] }
-
 [build-dependencies]
 fs_extra.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+winit = { workspace = true, features = ["android-native-activity"] }
 
 [lints]
 workspace = true

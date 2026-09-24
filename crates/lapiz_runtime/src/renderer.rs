@@ -75,7 +75,8 @@ impl RenderContext {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("lapiz render device descriptor"),
-                required_features: shader_f16 | wgpu::Features::CLEAR_TEXTURE
+                required_features: shader_f16
+                    | wgpu::Features::CLEAR_TEXTURE
                     | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
                     | (adapter.features() & wgpu::Features::TIMESTAMP_QUERY),
                 required_limits: adapter.limits(),

@@ -50,7 +50,9 @@ impl ActionFunction for OpenFileAction {
                 .collect::<Vec<_>>();
             let all_extensions = formats
                 .iter()
-                .flat_map(|format| iter::once(format.extension).chain(format.aliases.iter().copied()))
+                .flat_map(|format| {
+                    iter::once(format.extension).chain(format.aliases.iter().copied())
+                })
                 .collect::<Vec<_>>();
             dialog = dialog.add_filter(t!("all_formats"), &all_extensions);
             for format in formats {

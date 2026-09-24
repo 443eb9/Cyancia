@@ -589,7 +589,10 @@ where
             Event::Pointer(event @ pointer::Event::PointerPressed { position, .. })
                 if event.is_primary_press() =>
             {
-                if self.bar_bounds.is_some_and(|bounds| bounds.contains(*position)) {
+                if self
+                    .bar_bounds
+                    .is_some_and(|bounds| bounds.contains(*position))
+                {
                     return;
                 }
 
