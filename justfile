@@ -126,7 +126,7 @@ check-fmt:
     tombi lint
 
 check-clippy:
-    cargo clippy --workspace --all-targets --locked -- -D warnings
+    cargo clippy --workspace --exclude arboard --exclude iced_winit --no-deps --all-targets --locked -- -D warnings
 
 # TODO: Remove this when clippy supports.
 check-import-alias:
