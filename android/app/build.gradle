@@ -3,21 +3,26 @@ plugins {
 }
 
 def root = file("../..")
-def abi = providers.gradleProperty("androidAbi").getOrElse("x86_64")
-def rustTargets = ["x86_64": "x86_64-linux-android", "arm64-v8a": "aarch64-linux-android"]
-def rustTarget = rustTargets[abi]
-if (rustTarget == null) {
-    throw new GradleException("Unsupported androidAbi: ${abi}")
+def toolchain = new Properties()
+file("../toolchain.properties").withInputStream { toolchain.load(it) }
+def arch = providers.gradleProperty("androidArch").orNull
+def abi = [
+    "aarch64": toolchain.getProperty("ANDROID_ABI_AARCH64"),
+    "x86_64": toolchain.getProperty("ANDROID_ABI_X86_64"),
+][arch]
+if (abi == null) {
+    throw new GradleException("Specify -PandroidArch=aarch64 or -PandroidArch=x86_64")
 }
+def rustTarget = "${arch}-linux-android"
 def generatedJni = layout.buildDirectory.dir("generated/jniLibs")
 def generatedAssets = layout.buildDirectory.dir("generated/assets")
 def cargo = System.getProperty("os.name").toLowerCase().contains("windows") ? "cargo.exe" : "cargo"
 
 android {
     namespace "app.lapiz.dev"
-    compileSdk 36
-    buildToolsVersion "36.0.0"
-    ndkVersion "27.3.13750724"
+    compileSdk toolchain.getProperty("ANDROID_PLATFORM").toInteger()
+    buildToolsVersion toolchain.getProperty("ANDROID_BUILD_TOOLS")
+    ndkVersion toolchain.getProperty("ANDROID_NDK")
     ndkPath System.getenv("ANDROID_NDK_HOME")
 
     defaultConfig {
@@ -75,7 +80,7 @@ androidComponents {
     def profile = variant == "ProdRelease" ? "release" : "android-dev"
     def buildRust = tasks.register("buildRust${variant}", Exec) {
         workingDir root
-        def args = ["ndk", "-P", "28", "-t", abi, "build", "--locked", "-j", "2", "-p", "lapiz_app", "--lib"]
+        def args = ["ndk", "-P", "28", "-t", abi, "build", "--locked", "-p", "lapiz_app", "--lib"]
         args.addAll(["--profile", profile])
         commandLine([cargo] + args)
     }

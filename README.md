@@ -1,6 +1,6 @@
 # Lapiz
 
-*Project logo under construction*
+_Project logo under construction_
 
 > [!WARNING]
 > This project is still at pre-pre-pre-alpha stage, and is absolutely not intended for production use. It has tons of bugs and incomplete code!
@@ -15,18 +15,36 @@ The name "Lapiz" means pencil in Spanish. It looks like the English word "Lapis"
 
 ## Development
 
-This project uses [just](https://just.systems/) as the build system.
+Lapiz uses [just](https://just.systems/) for local builds. Install it alongside Rustup, Bash (Git Bash on Windows), Node.js matching [`.node-version`](.node-version), npm, and pipx, then run `just setup`. It prepares the desktop tools and the pinned Android build toolchain; Android setup also needs `curl`, a network connection, and acceptance of the SDK licenses. Use `just setup-base` or `just setup-android` to prepare only one side.
 
 ```bash
-just setup # setup all required tools
-
-just build dev # or: just build release
-just run dev # or: just run release/dev-local
-just package dev # or: just package release
-
-just fmt # format the code
-just check # run fmt check, clippy, and custom lint xtasks
+just test  # unit, documentation, and WGSL tests
+just check # formatting, Clippy, and repository lints
+just fmt   # format code
 ```
+
+### Desktop
+
+```bash
+just build dev   # compile Lapiz
+just run dev     # build and launch
+just run dev-local # keep app data under target/ and use local assets
+just package dev # build a distributable archive
+```
+
+`build`, `run`, and `package` also accept `release`. Desktop packages, checksums, and debug symbols are written to `target/package/`.
+
+### Android
+
+Android toolchain versions are pinned in [`android/toolchain.properties`](android/toolchain.properties) and installed under `target/android-toolchain/`. Specify a Rust architecture for every command: `aarch64` (Android ABI `arm64-v8a`) or `x86_64` (Android ABI `x86_64`).
+
+```bash
+just build-android dev aarch64       # APK for ARM64 devices
+just package-android release aarch64 # APK, native symbols, and checksums in target/package/
+just run-android dev x86_64          # build, launch a matching emulator, and stream logs
+```
+
+All three commands accept `dev` or `release` followed by the architecture. `run-android` needs Android Emulator and Platform Tools installed separately; it uses a connected emulator of the corresponding Android ABI or starts an installed matching AVD (`ANDROID_AVD` can name one). The release APK uses a **debug key for local testing only**.
 
 ## LLM Assisted Contributions
 

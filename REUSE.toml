@@ -11,6 +11,8 @@ path = [
     "android/app/**",
     "android/build.gradle",
     "android/settings.gradle",
+    "android/toolchain.properties",
+    "android/toolchain.sh",
     "crates/**",
     "xtask/**",
     "default_config/**",

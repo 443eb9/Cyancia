@@ -13,9 +13,14 @@ os-name := os()
 default:
     @just --list
 
-setup: setup-rust setup-node setup-format setup-package setup-deny setup-reuse setup-linux
+setup: setup-base setup-android
 
-setup-ci: setup setup-ci-vulkan
+setup-base: setup-rust setup-node setup-format setup-package setup-deny setup-reuse setup-linux
+
+setup-ci: setup-base setup-ci-vulkan
+
+setup-android:
+    bash android/toolchain.sh setup
 
 setup-rust:
     cargo --version
@@ -149,7 +154,7 @@ build profile:
         *) echo "profile must be dev or release" >&2; exit 2 ;;
     esac
 
-build-android profile:
+build-android profile arch:
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{ profile }}" in
@@ -163,14 +168,11 @@ build-android profile:
             ;;
         *) echo "profile must be dev or release" >&2; exit 2 ;;
     esac
-    sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-${LOCALAPPDATA:-}/Android/Sdk}}"
-    if command -v cygpath >/dev/null; then
-        export ANDROID_HOME="$(cygpath -w "$(cygpath -u "$sdk")")"
-    else
-        export ANDROID_HOME="$sdk"
-    fi
+    source android/toolchain.sh
+    android_abi_for_arch "{{ arch }}" > /dev/null
+    use_toolchain
     rm -f "$apk"
-    (cd android && ./gradlew ":app:assemble${variant}" --console=plain)
+    (cd android && ./gradlew ":app:assemble${variant}" -PandroidArch="{{ arch }}" --console=plain)
 
 sync-iced-winit ref="HEAD":
     #!/usr/bin/env bash
@@ -196,22 +198,56 @@ run profile:
         *) echo "profile must be dev, dev-local or release" >&2; exit 2 ;;
     esac
 
-run-android profile: (build-android profile)
+package-android profile arch: (build-android profile arch)
     #!/usr/bin/env bash
     set -euo pipefail
-    sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-${LOCALAPPDATA:-}/Android/Sdk}}"
-    if command -v cygpath >/dev/null; then
-        sdk="$(cygpath -u "$sdk")"
-        export ANDROID_HOME="$(cygpath -w "$sdk")"
+    source android/toolchain.sh
+    rust_target="$(rust_target_for_arch "{{ arch }}")"
+    case "{{ profile }}" in
+        dev)
+            apk=android/app/build/outputs/apk/dev/debug/app-dev-debug.apk
+            cargo_profile=android-dev
+            ver="{{ version }}-dev"
+            ;;
+        release)
+            apk=android/app/build/outputs/apk/prod/release/app-prod-release.apk
+            cargo_profile=release
+            ver="{{ version }}"
+            ;;
+        *) echo "profile must be dev or release" >&2; exit 2 ;;
+    esac
+
+    symbols="target/$rust_target/$cargo_profile/liblapiz_app.so"
+    name="lapiz-$ver-{{ sha }}-android-{{ arch }}"
+    archive="target/package/$name.apk"
+    debug_symbols="target/package/$name-liblapiz_app.so"
+    checksum="target/package/$name.sha256"
+    mkdir -p target/package
+    cp "$apk" "$archive"
+    cp "$symbols" "$debug_symbols"
+    if command -v sha256sum >/dev/null; then
+        (cd target/package && sha256sum "$name.apk" "$name-liblapiz_app.so" > "$name.sha256")
     else
-        export ANDROID_HOME="$sdk"
+        (cd target/package && shasum -a 256 "$name.apk" "$name-liblapiz_app.so" > "$name.sha256")
+    fi
+    echo "Packaged: $archive + $debug_symbols + $checksum"
+
+run-android profile arch: (build-android profile arch)
+    #!/usr/bin/env bash
+    set -euo pipefail
+    emulator_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-${LOCALAPPDATA:-}/Android/Sdk}}"
+    if command -v cygpath >/dev/null; then
+        emulator_sdk="$(cygpath -u "$emulator_sdk")"
+        export ANDROID_HOME="$(cygpath -w "$emulator_sdk")"
+    else
+        export ANDROID_HOME="$emulator_sdk"
     fi
     if [ "{{ os-name }}" = "windows" ]; then
-        adb="$sdk/platform-tools/adb.exe"
-        emulator="$sdk/emulator/emulator.exe"
+        adb="$emulator_sdk/platform-tools/adb.exe"
+        emulator="$emulator_sdk/emulator/emulator.exe"
     else
-        adb="$sdk/platform-tools/adb"
-        emulator="$sdk/emulator/emulator"
+        adb="$emulator_sdk/platform-tools/adb"
+        emulator="$emulator_sdk/emulator/emulator"
     fi
     case "{{ profile }}" in
         dev)
@@ -225,18 +261,79 @@ run-android profile: (build-android profile)
         *) echo "profile must be dev or release" >&2; exit 2 ;;
     esac
     if [ ! -f "$apk" ]; then
-        echo "Android APK not found; run 'just build-android {{ profile }}' first" >&2
+        echo "Android APK not found; run 'just build-android {{ profile }} {{ arch }}' first" >&2
         exit 1
     fi
-    if ! "$adb" devices | grep -Eq '^emulator-[0-9]+[[:space:]]+device'; then
-        "$emulator" -avd "${ANDROID_AVD:-Medium_Phone_API_36.0}" -gpu "${ANDROID_EMULATOR_GPU:-host}" -no-snapshot-load > /dev/null 2>&1 < /dev/null &
+    source android/toolchain.sh
+    android_abi="$(android_abi_for_arch "{{ arch }}")"
+
+    matching_emulator() {
+        local serial guest_abi
+        while read -r serial; do
+            guest_abi="$(MSYS_NO_PATHCONV=1 "$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r')"
+            if [ "$guest_abi" = "$android_abi" ]; then
+                printf '%s\n' "$serial"
+                return 0
+            fi
+        done < <("$adb" devices | awk '$1 ~ /^emulator-[0-9]+$/ {gsub(/\r/, "", $2); if ($2 == "device") print $1}')
+        return 1
+    }
+
+    serial="$(matching_emulator || true)"
+    if [ -z "$serial" ]; then
+        avd_home="${ANDROID_AVD_HOME:-${ANDROID_USER_HOME:-$HOME/.android}/avd}"
+        if command -v cygpath >/dev/null; then avd_home="$(cygpath -u "$avd_home")"; fi
+
+        avd_abi() {
+            local ini="$avd_home/$1.ini" path
+            [ -f "$ini" ] || return 1
+            path="$(awk -F= '$1 == "path" {sub(/\r$/, ""); print substr($0, 6); exit}' "$ini")"
+            [ -n "$path" ] || return 1
+            if command -v cygpath >/dev/null; then path="$(cygpath -u "$path")"; fi
+            [ -f "$path/config.ini" ] || return 1
+            awk -F= '$1 == "abi.type" {gsub(/\r/, "", $2); print $2; exit}' "$path/config.ini"
+        }
+
+        avd="${ANDROID_AVD:-}"
+        if [ -z "$avd" ]; then
+            while IFS= read -r candidate; do
+                candidate="${candidate%$'\r'}"
+                if [ "$(avd_abi "$candidate" || true)" = "$android_abi" ]; then
+                    avd="$candidate"
+                    break
+                fi
+            done < <("$emulator" -list-avds)
+        fi
+        if [ -z "$avd" ] || [ "$(avd_abi "$avd" || true)" != "$android_abi" ]; then
+            echo "No AVD for $android_abi found; create one or set ANDROID_AVD to a matching AVD" >&2
+            exit 1
+        fi
+        "$emulator" -avd "$avd" -gpu "${ANDROID_EMULATOR_GPU:-host}" -no-snapshot-load > /dev/null 2>&1 < /dev/null &
+        for ((attempt=0; attempt<120; attempt++)); do
+            serial="$(matching_emulator || true)"
+            [ -n "$serial" ] && break
+            sleep 2
+        done
+        if [ -z "$serial" ]; then
+            echo "Emulator for $android_abi did not become available" >&2
+            exit 1
+        fi
     fi
-    "$adb" wait-for-device
-    until [ "$(MSYS_NO_PATHCONV=1 "$adb" shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; do sleep 2; done
-    "$adb" install -r "$apk"
-    "$adb" logcat -c
-    MSYS_NO_PATHCONV=1 "$adb" shell am start -n "$application_id/app.lapiz.dev.LapizActivity"
-    "$adb" logcat -v time -s RustStdoutStderr:V AndroidRuntime:E libc:F
+
+    booted=
+    for ((attempt=0; attempt<120; attempt++)); do
+        booted="$(MSYS_NO_PATHCONV=1 "$adb" -s "$serial" shell getprop sys.boot_completed | tr -d '\r')"
+        [ "$booted" = 1 ] && break
+        sleep 2
+    done
+    if [ "$booted" != 1 ]; then
+        echo "Emulator $serial did not finish booting" >&2
+        exit 1
+    fi
+    "$adb" -s "$serial" install -r "$apk"
+    "$adb" -s "$serial" logcat -c
+    MSYS_NO_PATHCONV=1 "$adb" -s "$serial" shell am start -n "$application_id/app.lapiz.dev.LapizActivity"
+    "$adb" -s "$serial" logcat -v time -s RustStdoutStderr:V AndroidRuntime:E libc:F
 
 verify-release-tag tag:
     #!/usr/bin/env bash
@@ -300,6 +397,9 @@ package profile: (build profile)
     fi
     mkdir -p "$staging"
 
+    # TODO: We should embed everything inside the binary, including licenses, readme, and
+    #       builtin assets. The uploaded artifact should only contains the binary, checksum
+    #       and debug symbols.
     cp "$bindir/$binary" "$staging/"
     cp README.md LICENSE "$staging/"
     cp LICENSES/MIT.txt "$staging/MIT.txt"
