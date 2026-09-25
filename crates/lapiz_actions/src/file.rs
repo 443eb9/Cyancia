@@ -11,8 +11,6 @@ use lapiz_image_exporter::{
     export_dialog::EXPORT_DIALOG_VIEW_ID,
 };
 use lapiz_image_importer::{ImageImporterRegistry, start_import};
-#[cfg(target_os = "android")]
-use lapiz_runtime::android::AndroidAppExt as _;
 use lapiz_runtime::{
     Services,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},

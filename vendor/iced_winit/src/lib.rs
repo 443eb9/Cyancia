@@ -250,7 +250,7 @@ where
                 self.android_surface_ready = true;
                 self.process_event(
                     event_loop,
-                    Event::EventLoopAwakened(EventLoopEvent::AboutToWait),
+                    Event::EventLoopAwakened(EventLoopEvent::SurfacesCreated),
                 );
                 self.proxy_wake_up(event_loop);
             }
@@ -259,7 +259,11 @@ where
         }
 
         #[cfg(target_os = "android")]
-        fn destroy_surfaces(&mut self, _event_loop: &dyn winit::event_loop::ActiveEventLoop) {
+        fn destroy_surfaces(&mut self, event_loop: &dyn winit::event_loop::ActiveEventLoop) {
+            self.process_event(
+                event_loop,
+                Event::EventLoopAwakened(EventLoopEvent::SurfacesDestroyed),
+            );
             self.android_surface_ready = false;
         }
 
@@ -352,7 +356,12 @@ where
             }
 
             #[cfg(target_os = "android")]
-            if !self.android_surface_ready {
+            if !self.android_surface_ready
+                && !matches!(
+                    event,
+                    Event::EventLoopAwakened(EventLoopEvent::SurfacesDestroyed)
+                )
+            {
                 return;
             }
 
@@ -669,6 +678,10 @@ enum EventLoopEvent<Message: 'static> {
         window_id: winit::window::WindowId,
         event: crate::core::Event,
     },
+    #[cfg(target_os = "android")]
+    SurfacesCreated,
+    #[cfg(target_os = "android")]
+    SurfacesDestroyed,
     AboutToWait,
 }
 
@@ -913,6 +926,24 @@ async fn run_instance<P>(
             }
             Event::EventLoopAwakened(event) => {
                 match event {
+                    #[cfg(target_os = "android")]
+                    EventLoopEvent::SurfacesCreated => {
+                        if let Some(compositor) = compositor.as_mut() {
+                            for (_id, window) in window_manager.iter_mut() {
+                                let size = window.state.physical_size();
+                                window.surface = Some(compositor.create_surface(
+                                    window.raw.clone(), size.width, size.height,
+                                ));
+                                window.raw.request_redraw();
+                            }
+                        }
+                    }
+                    #[cfg(target_os = "android")]
+                    EventLoopEvent::SurfacesDestroyed => {
+                        for (_id, window) in window_manager.iter_mut() {
+                            window.surface = None;
+                        }
+                    }
                     EventLoopEvent::NewEvents(event::StartCause::Init) => {
                         for (_id, window) in window_manager.iter_mut() {
                             window.raw.request_redraw();
@@ -990,7 +1021,7 @@ async fn run_instance<P>(
                             layout_span.finish();
 
                             current_compositor.configure_surface(
-                                &mut window.surface,
+                                window.surface.as_mut().expect("Window surface exists"),
                                 physical_size.width,
                                 physical_size.height,
                             );
@@ -1157,7 +1188,7 @@ async fn run_instance<P>(
                         let present_span = debug::present(id);
                         match current_compositor.present(
                             &mut window.renderer,
-                            &mut window.surface,
+                            window.surface.as_mut().expect("Window surface exists"),
                             window.state.viewport(),
                             window.state.background_color(),
                             || window.raw.pre_present_notify(),
@@ -1178,14 +1209,14 @@ async fn run_instance<P>(
                                     let physical_size = window.state.physical_size();
 
                                     if error == compositor::SurfaceError::Lost {
-                                        window.surface = current_compositor.create_surface(
+                                        window.surface = Some(current_compositor.create_surface(
                                             window.raw.clone(),
                                             physical_size.width,
                                             physical_size.height,
-                                        );
+                                        ));
                                     } else {
                                         current_compositor.configure_surface(
-                                            &mut window.surface,
+                                            window.surface.as_mut().expect("Window surface exists"),
                                             physical_size.width,
                                             physical_size.height,
                                         );
@@ -1994,8 +2025,9 @@ fn run_action<'a, P, C>(
                     drop(window.surface);
 
                     window.renderer = new_compositor.create_renderer(*renderer_settings);
-                    window.surface =
-                        new_compositor.create_surface(window.raw.clone(), size.width, size.height);
+                    window.surface = Some(new_compositor.create_surface(
+                        window.raw.clone(), size.width, size.height,
+                    ));
 
                     window
                 });
