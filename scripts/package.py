@@ -14,7 +14,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import TypedDict
 
-from . import android
+from . import android, build
 
 REPO = Path(__file__).resolve().parent.parent
 OUTPUT = REPO / "target/package"
@@ -85,8 +85,9 @@ def package_desktop(profile: str) -> None:
     if not name.startswith("lapiz-") or "/" in name or "\\" in name or ".." in name:
         raise RuntimeError(f"unsafe staging path: {name}")
 
-    bindir = REPO / "target" / ("debug" if profile == "dev" else "release")
-    binary = "lapiz_app.exe" if system == "windows" else "lapiz_app"
+    executable = build.build_desktop(profile)
+    bindir = executable.parent
+    binary = executable.name
     extension = "zip" if system == "windows" else "tar.gz"
 
     staging = OUTPUT / name
@@ -104,7 +105,7 @@ def package_desktop(profile: str) -> None:
     #       In the future, packages for all platforms should only include a
     #       single binary, checksum for the binary, and debug symbols.
     for source, target in (
-        (bindir / binary, binary),
+        (executable, binary),
         (REPO / "README.md", "README.md"),
         (REPO / "LICENSE", "LICENSE"),
         (REPO / "LICENSES/MIT.txt", "MIT.txt"),
@@ -187,12 +188,8 @@ def package_desktop(profile: str) -> None:
 
 def package_android(profile: str, arch: str) -> None:
     rust_target = android.rust_target_for_arch(arch)
-    if profile == "dev":
-        apk = REPO / "android/app/build/outputs/apk/dev/debug/app-dev-debug.apk"
-        cargo_profile = "android-dev"
-    else:
-        apk = REPO / "android/app/build/outputs/apk/prod/release/app-prod-release.apk"
-        cargo_profile = "release"
+    cargo_profile = "android-dev" if profile == "dev" else "release"
+    apk = build.build_android(profile, arch, strip_symbols=True)
 
     symbols = REPO / "target" / rust_target / cargo_profile / "liblapiz_app.so"
     name = artifact_name_for(profile, "android", arch)

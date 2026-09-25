@@ -33,6 +33,14 @@ android {
     buildToolsVersion = toolchain.getProperty("ANDROID_BUILD_TOOLS")
     ndkVersion = toolchain.getProperty("ANDROID_NDK")
 
+    packaging {
+        jniLibs {
+            if (!providers.gradleProperty("stripRustSymbols").isPresent) {
+                keepDebugSymbols += "**/liblapiz_app.so"
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "app.lapiz.dev"
         minSdk = 28

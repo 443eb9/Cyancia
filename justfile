@@ -192,7 +192,7 @@ run profile:
 
 setup-for-package: setup-for-build setup-package
 
-package platform profile arch="": (build platform profile arch)
+package platform profile arch="":
     {{ python }} -m scripts.package "{{ platform }}" "{{ profile }}" "{{ arch }}"
 
 sync-iced-winit ref="HEAD":
