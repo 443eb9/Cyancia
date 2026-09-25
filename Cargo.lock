@@ -3247,11 +3247,11 @@ dependencies = [
  "futures",
  "iced_core",
  "iced_runtime",
- "lapiz_android_file_dialog",
  "lapiz_assets",
  "lapiz_canvas",
  "lapiz_config",
  "lapiz_dirs",
+ "lapiz_file_dialog",
  "lapiz_i18n",
  "lapiz_image",
  "lapiz_image_exporter",
@@ -3271,18 +3271,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.20",
  "uuid",
-]
-
-[[package]]
-name = "lapiz_android_file_dialog"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "futures",
- "jni 0.21.1",
- "lapiz_dirs",
- "lapiz_runtime",
- "tempfile",
 ]
 
 [[package]]
@@ -3314,7 +3302,6 @@ dependencies = [
  "image",
  "lapiz_abr_bridge",
  "lapiz_actions",
- "lapiz_android_file_dialog",
  "lapiz_assets",
  "lapiz_brush",
  "lapiz_bucket_tool",
@@ -3326,6 +3313,7 @@ dependencies = [
  "lapiz_dirs",
  "lapiz_dock",
  "lapiz_eye_dropper",
+ "lapiz_file_dialog",
  "lapiz_filter",
  "lapiz_i18n",
  "lapiz_image",
@@ -3472,7 +3460,6 @@ dependencies = [
  "iced_runtime",
  "iced_widget",
  "image",
- "lapiz_android_file_dialog",
  "lapiz_assets",
  "lapiz_brush",
  "lapiz_canvas",
@@ -3480,6 +3467,7 @@ dependencies = [
  "lapiz_color_selector",
  "lapiz_config",
  "lapiz_dock",
+ "lapiz_file_dialog",
  "lapiz_i18n",
  "lapiz_image",
  "lapiz_image_importer",
@@ -3511,10 +3499,10 @@ dependencies = [
  "iced_wgpu",
  "iced_widget",
  "indexmap",
- "lapiz_android_file_dialog",
  "lapiz_color",
  "lapiz_config",
  "lapiz_dirs",
+ "lapiz_file_dialog",
  "lapiz_i18n",
  "lapiz_image",
  "lapiz_input",
@@ -3689,6 +3677,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "lapiz_file_dialog"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "jni 0.21.1",
+ "lapiz_dirs",
+ "lapiz_runtime",
+ "rfd",
+ "tempfile",
+]
+
+[[package]]
 name = "lapiz_filter"
 version = "0.1.0"
 dependencies = [
@@ -3793,9 +3794,9 @@ dependencies = [
  "iced_runtime",
  "iced_widget",
  "image",
- "lapiz_android_file_dialog",
  "lapiz_canvas",
  "lapiz_config",
+ "lapiz_file_dialog",
  "lapiz_i18n",
  "lapiz_image",
  "lapiz_lazuli",
@@ -3821,9 +3822,9 @@ dependencies = [
  "iced_core",
  "iced_runtime",
  "iced_widget",
- "lapiz_android_file_dialog",
  "lapiz_canvas",
  "lapiz_config",
+ "lapiz_file_dialog",
  "lapiz_i18n",
  "lapiz_image",
  "lapiz_lazuli",

@@ -4,9 +4,9 @@ use std::{ffi::OsStr, sync::Arc};
 
 use futures::executor::block_on;
 use iced_runtime::Task;
-use lapiz_android_file_dialog::LocalFile;
 use lapiz_canvas::CanvasAppExt as _;
 use lapiz_config::Config;
+use lapiz_file_dialog::LocalFile;
 #[cfg(not(target_os = "android"))]
 use lapiz_i18n::t;
 use lapiz_image_exporter::{
@@ -48,7 +48,7 @@ impl ActionFunction for OpenFileAction {
         {
             let app = services.android_app().clone();
             Task::future(async move {
-                match lapiz_android_file_dialog::pick_file(app).await {
+                match lapiz_file_dialog::pick_file(app).await {
                     Ok(Some(file)) => OpenFileMessage::Opened(file),
                     Ok(None) => OpenFileMessage::Canceled,
                     Err(error) => {
@@ -156,7 +156,7 @@ impl ActionFunction for ExportFileAction {
             let app = services.android_app().clone();
 
             Task::future(async move {
-                match lapiz_android_file_dialog::create_file(app, &name).await {
+                match lapiz_file_dialog::create_file(app, &name).await {
                     Ok(file) => ExportFileMessage::PathChosen(file),
                     Err(error) => {
                         log::error!("Unable to create document: {error}");

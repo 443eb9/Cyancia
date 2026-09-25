@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::Result;
 use indexmap::IndexSet;
-use lapiz_android_file_dialog::LocalFile;
+use lapiz_file_dialog::LocalFile;
 use lapiz_image::{
     CImage,
     layer::{LayerId, LayerStackNode},

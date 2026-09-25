@@ -11,8 +11,8 @@ use std::{
 use anyhow::Result;
 use iced_core::Element;
 use iced_runtime::Task;
-use lapiz_android_file_dialog::LocalFile;
 use lapiz_canvas::{CCanvas, CanvasId};
+use lapiz_file_dialog::LocalFile;
 use lapiz_runtime::{Application, Renderer, Services, Theme, plugin::Plugin, service::Service};
 
 use crate::{

@@ -4,9 +4,9 @@ use anyhow::Result;
 use futures::executor::block_on;
 use iced_core::Element;
 use iced_runtime::Task;
-use lapiz_android_file_dialog::LocalFile;
 use lapiz_canvas::{CCanvas, CanvasAppExt as _};
 use lapiz_config::Config;
+use lapiz_file_dialog::LocalFile;
 use lapiz_image::CImage;
 use lapiz_lazuli::LazuliArchive;
 use lapiz_runtime::{

@@ -8,9 +8,9 @@ use iced_runtime::{
     window::{close, open},
 };
 use iced_widget::{Space, column, row};
-use lapiz_android_file_dialog::LocalFile;
 use lapiz_canvas::{CanvasAppExt as _, CanvasId};
 use lapiz_config::Config;
+use lapiz_file_dialog::LocalFile;
 use lapiz_i18n::t;
 use lapiz_runtime::{
     Renderer, Services,

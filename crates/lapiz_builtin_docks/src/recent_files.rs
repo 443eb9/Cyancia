@@ -7,10 +7,10 @@ use iced_core::{Element, Length, image::Handle, text::Ellipsis, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
 use iced_widget::{Image, container, scrollable};
-use lapiz_android_file_dialog::LocalFile;
 use lapiz_canvas::recent::{RecentFiles, recent_file_thumbnail_path};
 use lapiz_config::Config;
 use lapiz_dock::dock::{Dock, DockId};
+use lapiz_file_dialog::LocalFile;
 use lapiz_image_importer::start_import;
 #[cfg(target_os = "android")]
 use lapiz_runtime::android::AndroidAppExt as _;
@@ -113,9 +113,7 @@ impl Dock for LandingDock {
                     let uri = file.path_or_uri.clone();
                     let name = file.name.clone();
                     Task::future(async move {
-                        LandingDockMessage::Opened(lapiz_android_file_dialog::open_file(
-                            app, uri, name,
-                        ))
+                        LandingDockMessage::Opened(lapiz_file_dialog::open_file(app, uri, name))
                     })
                 }
 

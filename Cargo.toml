@@ -5,7 +5,6 @@ members = [
     "crates/lapiz_abr_bridge",
     "crates/lapiz_abr_derive",
     "crates/lapiz_actions",
-    "crates/lapiz_android_file_dialog",
     "crates/lapiz_anti_aliasing",
     "crates/lapiz_app",
     "crates/lapiz_assets",
@@ -20,6 +19,7 @@ members = [
     "crates/lapiz_dock",
     "crates/lapiz_effect",
     "crates/lapiz_eye_dropper",
+    "crates/lapiz_file_dialog/",
     "crates/lapiz_filter",
     "crates/lapiz_i18n",
     "crates/lapiz_image",
@@ -58,7 +58,6 @@ lapiz_abr = { path = "crates/lapiz_abr", version = "0.1.0" }
 lapiz_abr_bridge = { path = "crates/lapiz_abr_bridge", version = "0.1.0" }
 lapiz_abr_derive = { path = "crates/lapiz_abr_derive", version = "0.1.0" }
 lapiz_actions = { path = "crates/lapiz_actions", version = "0.1.0" }
-lapiz_android_file_dialog = { path = "crates/lapiz_android_file_dialog", version = "0.1.0" }
 lapiz_anti_aliasing = { path = "crates/lapiz_anti_aliasing", version = "0.1.0" }
 lapiz_assets = { path = "crates/lapiz_assets", version = "0.1.0" }
 lapiz_brush = { path = "crates/lapiz_brush", version = "0.1.0" }
@@ -72,6 +71,7 @@ lapiz_dirs = { path = "crates/lapiz_dirs", version = "0.1.0" }
 lapiz_dock = { path = "crates/lapiz_dock", version = "0.1.0" }
 lapiz_effect = { path = "crates/lapiz_effect", version = "0.1.0" }
 lapiz_eye_dropper = { path = "crates/lapiz_eye_dropper", version = "0.1.0" }
+lapiz_file_dialog = { path = "crates/lapiz_file_dialog", version = "0.1.0" }
 lapiz_filter = { path = "crates/lapiz_filter", version = "0.1.0" }
 lapiz_i18n = { path = "crates/lapiz_i18n", version = "0.1.0" }
 lapiz_image = { path = "crates/lapiz_image", version = "0.1.0" }
