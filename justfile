@@ -19,7 +19,21 @@ setup-base: setup-rust setup-node setup-format setup-package setup-deny setup-re
 setup-ci: setup-base setup-ci-vulkan
 
 setup-android:
-    {{ python }} scripts/android.py
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source android/toolchain.properties
+    cli="android"
+    if [ "{{ os-name }}" = "windows" ]; then cli="android.exe"; fi
+    if ! command -v "$cli" >/dev/null; then
+        echo "Install Android CLI and add it to PATH" >&2
+        exit 1
+    fi
+    # Android is not exiting with 0 even on success
+    "$cli" --no-metrics sdk install "platforms/android-$ANDROID_PLATFORM" "build-tools/$ANDROID_BUILD_TOOLS" "ndk/$ANDROID_NDK" || true
+    rustup target add aarch64-linux-android x86_64-linux-android
+    if [ "$(cargo ndk --version 2>/dev/null || true)" != "cargo-ndk $ANDROID_CARGO_NDK" ]; then
+        RUSTFLAGS="" cargo install cargo-ndk --locked --version "$ANDROID_CARGO_NDK"
+    fi
 
 setup-rust:
     cargo --version
@@ -147,8 +161,15 @@ setup-for-build: setup-rust setup-linux
 build platform profile arch="":
     {{ python }} -m scripts.build "{{ platform }}" "{{ profile }}" "{{ arch }}"
 
-run platform profile: (build platform profile)
-    {{ python }} -m scripts.run "{{ platform }}" "{{ profile }}"
+run profile:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ profile }}" in
+        dev) cargo run --locked ;;
+        dev-local) cargo run --locked --features lapiz_dirs/dev_local ;;
+        release) cargo run --release --locked ;;
+        *) echo "run profile must be dev, dev-local, or release" >&2; exit 2 ;;
+    esac
 
 setup-for-package: setup-for-build setup-package
 

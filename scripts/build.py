@@ -34,7 +34,6 @@ def main() -> None:
         if args.profile == "dev-local":
             parser.error("Android profile must be dev or release")
 
-        env = android.env_vars()
         variant = "DevDebug" if args.profile == "dev" else "ProdRelease"
         apk = REPO / (
             "android/app/build/outputs/apk/dev/debug/app-dev-debug.apk"
@@ -49,11 +48,10 @@ def main() -> None:
             [
                 wrapper,
                 f":app:assemble{variant}",
-                f"-PandroidArch={android.abi_for_arch(arch)}",
+                f"-PandroidArch={arch}",
                 "--console=plain",
             ],
             cwd=REPO / "android",
-            env=env,
             check=True,
         )
     else:

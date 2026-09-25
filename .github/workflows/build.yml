@@ -74,6 +74,15 @@ jobs:
         with:
           tool: just
 
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Install Android CLI
+        shell: bash
+        run: curl -fsSL https://dl.google.com/android/cli/latest/linux_x86_64/install.sh | bash
+
       - run: just setup-android
 
       - uses: Swatinem/rust-cache@v2
