@@ -1,13 +1,13 @@
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Result;
-use futures::executor::block_on;
 use iced_core::{Alignment, Element, Length, Size, Theme, window};
 use iced_runtime::{
     Task,
     window::{close, open},
 };
 use iced_widget::{Space, column, row};
+use lapiz_android_file_dialog::LocalFile;
 use lapiz_canvas::{CanvasAppExt as _, CanvasId};
 use lapiz_config::Config;
 use lapiz_i18n::t;
@@ -22,7 +22,7 @@ use lapiz_widgets::{
 
 use crate::{
     ErasedExportDialogMessage, ImageExporterConfig, ImageFormatAdapterRegistry, PendingExport,
-    SilentSaveCanvases,
+    SilentSaveCanvases, export_file,
 };
 
 pub const EXPORT_DIALOG_VIEW_ID: &str = "export_dialog";
@@ -32,7 +32,7 @@ pub struct ExportDialogView {
     windows: Arc<[window::Id]>,
     adapter: Box<dyn crate::ErasedImageFormatAdapter>,
     extension: &'static str,
-    path: PathBuf,
+    local_file: LocalFile,
     canvas_id: CanvasId,
     allow_silent_export: bool,
     dont_ask_again: bool,
@@ -61,7 +61,8 @@ impl WindowView for ExportDialogView {
         let pending = params.ok_or(anyhow::anyhow!("No pending export"))?;
         let registry = services.service::<ImageFormatAdapterRegistry>();
         let extension = pending
-            .path
+            .local_file
+            .path()
             .extension()
             .and_then(|extension| extension.to_str())
             .and_then(|extension| registry.find_extension(extension))
@@ -87,7 +88,7 @@ impl WindowView for ExportDialogView {
                 windows: Arc::from([window]),
                 adapter,
                 extension,
-                path: pending.path,
+                local_file: pending.local_file,
                 canvas_id: pending.canvas_id,
                 allow_silent_export: pending.allow_silent_export,
                 dont_ask_again,
@@ -128,7 +129,7 @@ impl WindowView for ExportDialogView {
 
         column![
             Panel::new(
-                column![Label::new(self.path.display().to_string()).muted(), options,].spacing(10),
+                column![Label::new(self.local_file.path().display().to_string()).muted(), options,].spacing(10),
             )
             .width(Length::Fill)
             .height(Length::Fill)
@@ -161,7 +162,12 @@ impl WindowView for ExportDialogView {
                 };
 
                 // TODO use async
-                block_on(self.adapter.export(services, canvas, &self.path)).log_err();
+                if export_file(self.adapter.as_ref(), services, canvas, &self.local_file)
+                    .logged_err()
+                    .is_err()
+                {
+                    return Task::none();
+                }
                 let silent_saves = services.service_mut::<SilentSaveCanvases>();
                 if self.dont_ask_again {
                     silent_saves.insert(self.canvas_id);

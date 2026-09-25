@@ -4,6 +4,7 @@ use iced_core::{Element, Length, image::Handle, text::Ellipsis, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
 use iced_widget::{Image, container, scrollable};
+use lapiz_android_file_dialog::LocalFile;
 use lapiz_canvas::recent::{RecentFiles, recent_file_thumbnail_path};
 use lapiz_config::Config;
 use lapiz_dock::dock::{Dock, DockId};
@@ -90,7 +91,7 @@ impl Dock for LandingDock {
                     return Task::none();
                 };
 
-                start_import(services, file.path.clone());
+                start_import(services, LocalFile::from_path(file.path.clone()));
 
                 Task::none()
             }

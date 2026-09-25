@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     future::Future,
     iter,
-    path::{Path, PathBuf},
+    path::Path,
     pin::Pin,
 };
 
@@ -11,6 +11,7 @@ use anyhow::Result;
 use futures::executor::block_on;
 use iced_core::Element;
 use iced_runtime::Task;
+use lapiz_android_file_dialog::LocalFile;
 use lapiz_canvas::{CCanvas, CanvasAppExt as _};
 use lapiz_config::Config;
 use lapiz_image::CImage;
@@ -282,10 +283,11 @@ impl ImageImporterRegistry {
 }
 
 pub struct PendingImport {
-    pub path: PathBuf,
+    pub local_file: LocalFile,
 }
 
-pub fn start_import(services: &mut Services, path: PathBuf) {
+pub fn start_import(services: &mut Services, local_file: LocalFile) {
+    let path = local_file.path();
     let Some(path_extension) = path.extension().and_then(|extension| extension.to_str()) else {
         log::warn!(
             "Cannot import a path without an extension: {}",
@@ -308,14 +310,14 @@ pub fn start_import(services: &mut Services, path: PathBuf) {
             .service_mut::<WindowCommandBuffer>()
             .push(OpenWindowViewCommand::new_with_params(
                 WindowViewId::new(IMPORT_DIALOG_VIEW_ID),
-                PendingImport { path },
+                PendingImport { local_file },
             ));
     } else {
         let archive = block_on(importer.import(services, &path)).logged_err();
         if let Ok(archive) = archive
             && let Ok(image) = CImage::from_lazuli(&archive, services).logged_err()
         {
-            services.add_canvas(CCanvas::new(path, image, archive));
+            services.add_canvas(CCanvas::new(local_file, image, archive));
         }
     }
 }

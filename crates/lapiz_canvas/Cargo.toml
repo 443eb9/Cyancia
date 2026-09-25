@@ -17,6 +17,7 @@ iced_runtime.workspace = true
 iced_wgpu.workspace = true
 iced_widget.workspace = true
 indexmap.workspace = true
+lapiz_android_file_dialog.workspace = true
 lapiz_color.workspace = true
 lapiz_config.workspace = true
 lapiz_dirs.workspace = true

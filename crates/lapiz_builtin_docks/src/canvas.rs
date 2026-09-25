@@ -65,7 +65,7 @@ impl CanvasDock {
 
         let root_id = *canvas.image.layer_stack().root_id();
         let tiles = services.tile_storage().clone();
-        let file_path = canvas.file_path().clone();
+        let file_path = canvas.file_path().to_path_buf();
         let image_rect = canvas.image.image_pixel_rect();
         let canvas_id = self.canvas;
         let color_profile = canvas.image.profile().clone();

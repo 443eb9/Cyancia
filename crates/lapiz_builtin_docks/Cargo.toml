@@ -17,6 +17,7 @@ iced_widget.workspace = true
 image.workspace = true
 lapiz_assets.workspace = true
 lapiz_brush.workspace = true
+lapiz_android_file_dialog.workspace = true
 lapiz_canvas.workspace = true
 lapiz_color.workspace = true
 lapiz_color_selector.workspace = true
