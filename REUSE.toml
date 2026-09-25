@@ -12,6 +12,7 @@ path = [
     "android/build.gradle.kts",
     "android/settings.gradle.kts",
     "android/toolchain.properties",
+    "android/gradle/gradle-daemon-jvm.properties",
     "scripts/**",
     "crates/**",
     "xtask/**",

@@ -306,7 +306,7 @@ pub fn start_import(services: &mut Services, local_file: LocalFile) {
                 PendingImport { local_file },
             ));
     } else {
-        let archive = block_on(importer.import(services, &path)).logged_err();
+        let archive = block_on(importer.import(services, path)).logged_err();
         if let Ok(archive) = archive
             && let Ok(image) = CImage::from_lazuli(&archive, services).logged_err()
         {

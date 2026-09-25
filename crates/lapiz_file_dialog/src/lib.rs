@@ -39,6 +39,10 @@ impl FileDialog {
     }
 
     #[cfg(not(target_os = "android"))]
+    #[allow(
+        clippy::new_without_default,
+        reason = "Parameter of `new` various between platforms"
+    )]
     pub fn new() -> Self {
         Self {
             dialog: AsyncFileDialog::new(),
