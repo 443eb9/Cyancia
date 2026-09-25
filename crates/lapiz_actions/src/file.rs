@@ -1,21 +1,16 @@
-#[cfg(not(target_os = "android"))]
-use std::iter;
-use std::{ffi::OsStr, sync::Arc};
+use std::{ffi::OsStr, iter, sync::Arc};
 
 use futures::executor::block_on;
 use iced_runtime::Task;
 use lapiz_canvas::CanvasAppExt as _;
 use lapiz_config::Config;
-use lapiz_file_dialog::LocalFile;
-#[cfg(not(target_os = "android"))]
+use lapiz_file_dialog::{FileDialog, LocalFile};
 use lapiz_i18n::t;
 use lapiz_image_exporter::{
     ImageFormatAdapterRegistry, PendingExport, SilentSaveCanvases, config::ImageExporterConfig,
     export_dialog::EXPORT_DIALOG_VIEW_ID,
 };
-#[cfg(not(target_os = "android"))]
-use lapiz_image_importer::ImageImporterRegistry;
-use lapiz_image_importer::start_import;
+use lapiz_image_importer::{ImageImporterRegistry, start_import};
 #[cfg(target_os = "android")]
 use lapiz_runtime::android::AndroidAppExt as _;
 use lapiz_runtime::{
@@ -23,8 +18,6 @@ use lapiz_runtime::{
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},
 };
 use lapiz_utils::log_err::LogErr as _;
-#[cfg(not(target_os = "android"))]
-use rfd::AsyncFileDialog;
 
 use crate::{ActionFunction, ActionId};
 
@@ -44,47 +37,31 @@ impl ActionFunction for OpenFileAction {
     }
 
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        #[cfg(target_os = "android")]
-        {
-            let app = services.android_app().clone();
-            Task::future(async move {
-                match lapiz_file_dialog::pick_file(app).await {
-                    Ok(Some(file)) => OpenFileMessage::Opened(file),
-                    Ok(None) => OpenFileMessage::Canceled,
-                    Err(error) => {
-                        log::error!("Unable to open document: {error}");
-                        OpenFileMessage::Canceled
-                    }
+        let mut dialog = FileDialog::new_maybe_from_service(services);
+        let formats = services
+            .service::<ImageImporterRegistry>()
+            .iter_formats()
+            .collect::<Vec<_>>();
+        let all_extensions = formats
+            .iter()
+            .flat_map(|format| iter::once(format.extension).chain(format.aliases.iter().copied()))
+            .collect::<Vec<_>>();
+        dialog = dialog.add_filter(t!("all_formats"), &all_extensions);
+        for format in formats {
+            let mut extensions = vec![format.extension];
+            extensions.extend(format.aliases);
+            dialog = dialog.add_filter(format.description, &extensions);
+        }
+        Task::future(async move {
+            match dialog.pick_file().await {
+                Ok(Some(file)) => OpenFileMessage::Opened(file),
+                Ok(None) => OpenFileMessage::Canceled,
+                Err(error) => {
+                    log::error!("Unable to open document: {error}");
+                    OpenFileMessage::Canceled
                 }
-            })
-        }
-        #[cfg(not(target_os = "android"))]
-        {
-            let mut dialog = AsyncFileDialog::new();
-            let formats = services
-                .service::<ImageImporterRegistry>()
-                .iter_formats()
-                .collect::<Vec<_>>();
-            let all_extensions = formats
-                .iter()
-                .flat_map(|format| {
-                    iter::once(format.extension).chain(format.aliases.iter().copied())
-                })
-                .collect::<Vec<_>>();
-            dialog = dialog.add_filter(t!("all_formats"), &all_extensions);
-            for format in formats {
-                let mut extensions = vec![format.extension];
-                extensions.extend(format.aliases);
-                dialog = dialog.add_filter(&format.description, &extensions);
             }
-            Task::future(async {
-                let Some(file) = dialog.pick_file().await else {
-                    log::error!("Unable to get selected file path.");
-                    return OpenFileMessage::Canceled;
-                };
-                OpenFileMessage::Opened(LocalFile::native(file.path().to_path_buf()))
-            })
-        }
+        })
     }
 
     fn handle_message(
@@ -142,61 +119,37 @@ impl ActionFunction for ExportFileAction {
     }
 
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        #[cfg(target_os = "android")]
-        {
-            let Some(canvas) = services.current_canvas() else {
-                return Task::none();
-            };
-            // TODO: Support extension choosing
-            let name = canvas
-                .file_path()
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_else(|| String::from("Untitled.png"));
-            let app = services.android_app().clone();
-
-            Task::future(async move {
-                match lapiz_file_dialog::create_file(app, &name).await {
-                    Ok(file) => ExportFileMessage::PathChosen(file),
-                    Err(error) => {
-                        log::error!("Unable to create document: {error}");
-                        ExportFileMessage::PathChosen(None)
-                    }
-                }
-            })
-        }
-        #[cfg(not(target_os = "android"))]
-        {
-            let Some(canvas) = services.current_canvas() else {
-                return Task::none();
-            };
-            let file_name = canvas
-                .file_path()
-                .file_stem()
-                .map(|stem| stem.to_string_lossy().into_owned());
-
-            let mut dialog = AsyncFileDialog::new();
-            for format in services
-                .service::<ImageFormatAdapterRegistry>()
-                .iter_formats()
+        let Some(canvas) = services.current_canvas() else {
+            return Task::none();
+        };
+        let mut dialog = FileDialog::new_maybe_from_service(services);
+        let name = canvas.local_file().name();
+        if !name.is_empty() {
+            dialog = dialog.set_file_name(name);
+        } else {
+            #[cfg(target_os = "android")]
             {
-                let mut extensions = vec![format.extension];
-                extensions.extend(format.aliases);
-                dialog = dialog.add_filter(&format.description, &extensions);
+                dialog = dialog.set_file_name("Untitled.png");
             }
-            if let Some(file_name) = file_name {
-                dialog = dialog.set_file_name(file_name);
-            }
-
-            Task::future(async move {
-                ExportFileMessage::PathChosen(
-                    dialog
-                        .save_file()
-                        .await
-                        .map(|file| LocalFile::native(file.path().to_path_buf())),
-                )
-            })
         }
+        for format in services
+            .service::<ImageFormatAdapterRegistry>()
+            .iter_formats()
+        {
+            let mut extensions = vec![format.extension];
+            extensions.extend(format.aliases);
+            dialog = dialog.add_filter(format.description, &extensions);
+        }
+
+        Task::future(async move {
+            match dialog.save_file().await {
+                Ok(file) => ExportFileMessage::PathChosen(file),
+                Err(error) => {
+                    log::error!("Unable to create document: {error}");
+                    ExportFileMessage::PathChosen(None)
+                }
+            }
+        })
     }
 
     fn handle_message(
