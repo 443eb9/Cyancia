@@ -3283,7 +3283,6 @@ dependencies = [
  "lapiz_dirs",
  "lapiz_runtime",
  "tempfile",
- "winit",
 ]
 
 [[package]]

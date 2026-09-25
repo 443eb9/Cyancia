@@ -65,6 +65,11 @@ android {
     }
 }
 
+dependencies {
+    implementation("androidx.activity:activity:1.10.1")
+    implementation("androidx.core:core:1.16.0")
+}
+
 val syncAssets = tasks.register<SyncGeneratedDirectory>("syncAssets") {
     outputDirectory.set(layout.buildDirectory.dir("generated/assets"))
     from(repoRoot.resolve("assets/builtin_assets")) {

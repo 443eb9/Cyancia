@@ -1,6 +1,8 @@
-use std::ffi::OsStr;
 #[cfg(not(target_os = "android"))]
 use std::iter;
+use std::{ffi::OsStr, sync::Arc};
+
+use futures::executor::block_on;
 use iced_runtime::Task;
 use lapiz_android_file_dialog::LocalFile;
 use lapiz_canvas::CanvasAppExt as _;
@@ -9,11 +11,13 @@ use lapiz_config::Config;
 use lapiz_i18n::t;
 use lapiz_image_exporter::{
     ImageFormatAdapterRegistry, PendingExport, SilentSaveCanvases, config::ImageExporterConfig,
-    export_dialog::EXPORT_DIALOG_VIEW_ID, export_file,
+    export_dialog::EXPORT_DIALOG_VIEW_ID,
 };
 #[cfg(not(target_os = "android"))]
 use lapiz_image_importer::ImageImporterRegistry;
 use lapiz_image_importer::start_import;
+#[cfg(target_os = "android")]
+use lapiz_runtime::android::AndroidAppExt as _;
 use lapiz_runtime::{
     Services,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},
@@ -42,12 +46,9 @@ impl ActionFunction for OpenFileAction {
     fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
         #[cfg(target_os = "android")]
         {
-            let app = services
-                .service::<lapiz_android_file_dialog::AndroidFileDialog>()
-                .app()
-                .clone();
+            let app = services.android_app().clone();
             Task::future(async move {
-                match lapiz_android_file_dialog::open_file(app).await {
+                match lapiz_android_file_dialog::pick_file(app).await {
                     Ok(Some(file)) => OpenFileMessage::Opened(file),
                     Ok(None) => OpenFileMessage::Canceled,
                     Err(error) => {
@@ -81,7 +82,7 @@ impl ActionFunction for OpenFileAction {
                     log::error!("Unable to get selected file path.");
                     return OpenFileMessage::Canceled;
                 };
-                OpenFileMessage::Opened(LocalFile::from_path(file.path().to_path_buf()))
+                OpenFileMessage::Opened(LocalFile::native(file.path().to_path_buf()))
             })
         }
     }
@@ -118,17 +119,10 @@ impl ActionFunction for SaveFileAction {
         let Some(canvas) = services.canvas(&canvas_id) else {
             return Task::none();
         };
-        let local_file = match canvas.local_file().for_save() {
-            Ok(file) => file,
-            Err(error) => {
-                log::error!("Unable to prepare save: {error}");
-                return Task::none();
-            }
-        };
 
         // TODO incremental saving for lazuli file. Saving should happen at every canvas command.
+        start_export(services, true, canvas.local_file().clone());
 
-        start_export(services, true, local_file);
         Task::none()
     }
 }
@@ -153,13 +147,14 @@ impl ActionFunction for ExportFileAction {
             let Some(canvas) = services.current_canvas() else {
                 return Task::none();
             };
-            let name = canvas.file_path().file_name()
+            // TODO: Support extension choosing
+            let name = canvas
+                .file_path()
+                .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_else(|| String::from("Untitled.png"));
-            let app = services
-                .service::<lapiz_android_file_dialog::AndroidFileDialog>()
-                .app()
-                .clone();
+            let app = services.android_app().clone();
+
             Task::future(async move {
                 match lapiz_android_file_dialog::create_file(app, &name).await {
                     Ok(file) => ExportFileMessage::PathChosen(file),
@@ -198,7 +193,7 @@ impl ActionFunction for ExportFileAction {
                     dialog
                         .save_file()
                         .await
-                        .map(|file| LocalFile::from_path(file.path().to_path_buf())),
+                        .map(|file| LocalFile::native(file.path().to_path_buf())),
                 )
             })
         }
@@ -212,12 +207,12 @@ impl ActionFunction for ExportFileAction {
         let ExportFileMessage::PathChosen(Some(local_file)) = message else {
             return Task::none();
         };
-        start_export(services, false, local_file);
+        start_export(services, false, local_file.into());
         Task::none()
     }
 }
 
-fn start_export(services: &mut Services, allow_silent_export: bool, local_file: LocalFile) {
+fn start_export(services: &mut Services, allow_silent_export: bool, local_file: Arc<LocalFile>) {
     let Some(canvas) = services.current_canvas() else {
         return;
     };
@@ -257,6 +252,8 @@ fn start_export(services: &mut Services, allow_silent_export: bool, local_file: 
             ));
     } else {
         // TODO nonononono use async
-        export_file(adapter.as_ref(), services, canvas, &local_file).log_err();
+        block_on(adapter.export(services, canvas, local_file.path()))
+            .and_then(|_| local_file.commit())
+            .log_err();
     }
 }

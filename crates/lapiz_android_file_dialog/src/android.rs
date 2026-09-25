@@ -1,4 +1,8 @@
-use std::{ffi::c_void, fs, path::{Path, PathBuf}};
+use std::{
+    ffi::c_void,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use futures::channel::oneshot;
@@ -7,9 +11,7 @@ use jni::{
     objects::{JClass, JObject, JString, JValue},
     sys::{jint, jlong},
 };
-use winit::platform::android::activity::AndroidApp;
-
-use crate::LocalFile;
+use lapiz_runtime::android::AndroidApp;
 
 pub struct Document {
     pub uri: String,
@@ -67,7 +69,9 @@ fn with_activity<R>(
 
 pub async fn pick(app: &AndroidApp, save: bool, name: &str) -> Result<Option<Document>> {
     let receiver = start_pick(app, save, name)?;
-    receiver.await.context("Document picker did not return a result")?
+    receiver
+        .await
+        .context("Document picker did not return a result")?
 }
 
 fn start_pick(app: &AndroidApp, save: bool, name: &str) -> Result<oneshot::Receiver<PickerResult>> {
@@ -107,6 +111,7 @@ fn start_pick(app: &AndroidApp, save: bool, name: &str) -> Result<oneshot::Recei
             return Err(error);
         }
     }
+
     Ok(receiver)
 }
 
@@ -126,10 +131,12 @@ fn with_document(app: &AndroidApp, method: &str, uri: &str, path: &Path) -> Resu
     Ok(ok)
 }
 
-fn temp_file(name: &str) -> Result<(PathBuf, tempfile::TempDir)> {
+pub fn temp_file(name: &str) -> Result<(PathBuf, tempfile::TempDir)> {
     let cache = lapiz_dirs::cache_dir();
     fs::create_dir_all(&cache)?;
-    let directory = tempfile::Builder::new().prefix("document-").tempdir_in(cache)?;
+    let directory = tempfile::Builder::new()
+        .prefix("document-")
+        .tempdir_in(cache)?;
     let name = Path::new(name)
         .file_name()
         .filter(|name| !name.is_empty())
@@ -137,27 +144,11 @@ fn temp_file(name: &str) -> Result<(PathBuf, tempfile::TempDir)> {
     Ok((directory.path().join(name), directory))
 }
 
-pub fn open(app: AndroidApp, document: Document) -> Result<LocalFile> {
-    let (path, directory) = temp_file(&document.name)?;
-    if !with_document(&app, "copyDocument", &document.uri, &path)? {
+pub fn copy_file(app: &AndroidApp, uri: &str, path: &Path) -> Result<()> {
+    if !with_document(app, "copyDocument", uri, path)? {
         bail!("Unable to read selected document");
     }
-    Ok(LocalFile {
-        path,
-        uri: Some(document.uri),
-        app: Some(app),
-        _temporary: Some(directory),
-    })
-}
-
-pub fn destination(app: AndroidApp, uri: String, name: &str) -> Result<LocalFile> {
-    let (path, directory) = temp_file(name)?;
-    Ok(LocalFile {
-        path,
-        uri: Some(uri),
-        app: Some(app),
-        _temporary: Some(directory),
-    })
+    Ok(())
 }
 
 pub fn write_file(app: &AndroidApp, uri: &str, path: &Path) -> Result<()> {

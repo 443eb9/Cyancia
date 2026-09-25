@@ -23,6 +23,8 @@ use crate::{
 pub mod event;
 #[doc(hidden)]
 pub use event::__private;
+#[cfg(target_os = "android")]
+pub mod android;
 pub mod platform;
 pub mod plugin;
 pub mod renderer;

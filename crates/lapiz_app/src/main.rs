@@ -72,9 +72,8 @@ pub(crate) fn run(
 
     let mut app = Application::default();
     #[cfg(target_os = "android")]
-    app.runtime_mut().add_service_instance(
-        lapiz_android_file_dialog::AndroidFileDialog::new(android_app.clone()),
-    );
+    app.runtime_mut()
+        .add_service_instance(lapiz_runtime::android::AndroidApp::new(android_app.clone()));
     let mut asset_bundles = Vec::<Arc<dyn ErasedAssetBundle>>::new();
     asset_bundles.push(Arc::new(
         AssetDirectory::new(assets_dir().join("builtin_assets")).unwrap(),

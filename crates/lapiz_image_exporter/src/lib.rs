@@ -5,10 +5,10 @@ use std::{
     iter,
     path::Path,
     pin::Pin,
+    sync::Arc,
 };
 
 use anyhow::Result;
-use futures::executor::block_on;
 use iced_core::Element;
 use iced_runtime::Task;
 use lapiz_android_file_dialog::LocalFile;
@@ -291,22 +291,9 @@ impl ImageFormatAdapterRegistry {
 }
 
 pub struct PendingExport {
-    pub local_file: LocalFile,
+    pub local_file: Arc<LocalFile>,
     pub allow_silent_export: bool,
     pub canvas_id: CanvasId,
-}
-
-pub fn export_file(
-    adapter: &dyn ErasedImageFormatAdapter,
-    services: &Services,
-    canvas: &CCanvas,
-    local_file: &LocalFile,
-) -> Result<()> {
-    if local_file.is_temporary() && local_file.path().exists() {
-        std::fs::remove_file(local_file.path())?;
-    }
-    block_on(adapter.export(services, canvas, local_file.path()))?;
-    local_file.sync()
 }
 
 #[derive(Default)]

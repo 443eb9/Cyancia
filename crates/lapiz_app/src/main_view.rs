@@ -534,13 +534,14 @@ impl WindowView for MainView {
                     },
                 );
 
-                if !canvas.local_file().is_temporary() {
-                    Config::<RecentFiles>::read_or_init_or_fallback()
-                        .update(|c| {
-                            c.update(canvas.file_path());
-                        })
-                        .log_err();
-                }
+                Config::<RecentFiles>::read_or_init_or_fallback()
+                    .update(|c| {
+                        c.update(
+                            canvas.local_file().source(),
+                            canvas.local_file().name().to_owned(),
+                        );
+                    })
+                    .log_err();
 
                 let tool_task = services
                     .update_tool_proxy(&e.id, |tool_proxy, services| {

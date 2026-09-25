@@ -5,8 +5,8 @@ members = [
     "crates/lapiz_abr_bridge",
     "crates/lapiz_abr_derive",
     "crates/lapiz_actions",
-    "crates/lapiz_anti_aliasing",
     "crates/lapiz_android_file_dialog",
+    "crates/lapiz_anti_aliasing",
     "crates/lapiz_app",
     "crates/lapiz_assets",
     "crates/lapiz_brush",
@@ -58,8 +58,8 @@ lapiz_abr = { path = "crates/lapiz_abr", version = "0.1.0" }
 lapiz_abr_bridge = { path = "crates/lapiz_abr_bridge", version = "0.1.0" }
 lapiz_abr_derive = { path = "crates/lapiz_abr_derive", version = "0.1.0" }
 lapiz_actions = { path = "crates/lapiz_actions", version = "0.1.0" }
-lapiz_anti_aliasing = { path = "crates/lapiz_anti_aliasing", version = "0.1.0" }
 lapiz_android_file_dialog = { path = "crates/lapiz_android_file_dialog", version = "0.1.0" }
+lapiz_anti_aliasing = { path = "crates/lapiz_anti_aliasing", version = "0.1.0" }
 lapiz_assets = { path = "crates/lapiz_assets", version = "0.1.0" }
 lapiz_brush = { path = "crates/lapiz_brush", version = "0.1.0" }
 lapiz_bucket_tool = { path = "crates/lapiz_bucket_tool", version = "0.1.0" }
@@ -159,6 +159,7 @@ iced_widget = { version = "0.15.0-dev", features = ["advanced", "canvas", "image
 iced_winit = "0.15.0-dev"
 image = "0.25"
 indexmap = { version = "2", features = ["serde"] }
+jni = "0.21"
 log = "0.4"
 lyon = "1"
 md5 = "0.8"

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use futures::executor::block_on;
 use iced_core::{Alignment, Element, Length, Size, Theme, window};
 use iced_runtime::{
     Task,
@@ -22,7 +23,7 @@ use lapiz_widgets::{
 
 use crate::{
     ErasedExportDialogMessage, ImageExporterConfig, ImageFormatAdapterRegistry, PendingExport,
-    SilentSaveCanvases, export_file,
+    SilentSaveCanvases,
 };
 
 pub const EXPORT_DIALOG_VIEW_ID: &str = "export_dialog";
@@ -32,7 +33,7 @@ pub struct ExportDialogView {
     windows: Arc<[window::Id]>,
     adapter: Box<dyn crate::ErasedImageFormatAdapter>,
     extension: &'static str,
-    local_file: LocalFile,
+    local_file: Arc<LocalFile>,
     canvas_id: CanvasId,
     allow_silent_export: bool,
     dont_ask_again: bool,
@@ -129,7 +130,11 @@ impl WindowView for ExportDialogView {
 
         column![
             Panel::new(
-                column![Label::new(self.local_file.path().display().to_string()).muted(), options,].spacing(10),
+                column![
+                    Label::new(self.local_file.path().display().to_string()).muted(),
+                    options,
+                ]
+                .spacing(10),
             )
             .width(Length::Fill)
             .height(Length::Fill)
@@ -162,12 +167,17 @@ impl WindowView for ExportDialogView {
                 };
 
                 // TODO use async
-                if export_file(self.adapter.as_ref(), services, canvas, &self.local_file)
-                    .logged_err()
-                    .is_err()
+                if block_on(
+                    self.adapter
+                        .export(services, canvas, self.local_file.path()),
+                )
+                .and_then(|_| self.local_file.commit())
+                .logged_err()
+                .is_err()
                 {
                     return Task::none();
                 }
+
                 let silent_saves = services.service_mut::<SilentSaveCanvases>();
                 if self.dont_ask_again {
                     silent_saves.insert(self.canvas_id);

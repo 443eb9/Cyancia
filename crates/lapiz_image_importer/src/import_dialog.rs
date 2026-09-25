@@ -106,7 +106,19 @@ impl WindowView for ImportDialogView {
 
         column![
             Panel::new(
-                column![Label::new(self.local_file.as_ref().expect("import is active").path().display().to_string()).muted(), options].spacing(10),
+                column![
+                    Label::new(
+                        self.local_file
+                            .as_ref()
+                            .expect("import is active")
+                            .path()
+                            .display()
+                            .to_string()
+                    )
+                    .muted(),
+                    options
+                ]
+                .spacing(10),
             )
             .width(Length::Fill)
             .height(Length::Fill)
@@ -133,11 +145,16 @@ impl WindowView for ImportDialogView {
                 let Some(local_file) = self.local_file.as_ref() else {
                     return close(self.window);
                 };
-                let archive = block_on(self.importer.import(services, local_file.path())).logged_err();
+                let archive =
+                    block_on(self.importer.import(services, local_file.path())).logged_err();
                 if let Ok(archive) = archive
                     && let Ok(image) = CImage::from_lazuli(&archive, services).logged_err()
                 {
-                    services.add_canvas(CCanvas::new(self.local_file.take().unwrap(), image, archive));
+                    services.add_canvas(CCanvas::new(
+                        self.local_file.take().unwrap(),
+                        image,
+                        archive,
+                    ));
                 }
 
                 Config::<ImageImporterConfig>::read_or_init_or_fallback()

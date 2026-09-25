@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::Result;
 use indexmap::IndexSet;
@@ -44,7 +41,7 @@ pub struct CCanvas {
     id: CanvasId,
     pub image: CImage,
     pub archive: LazuliArchive,
-    local_file: LocalFile,
+    local_file: Arc<LocalFile>,
     pub transform: CanvasTransform,
     active_layer: LayerId,
     selected_layers: IndexSet<LayerId>,
@@ -61,7 +58,7 @@ impl CCanvas {
 
         Self {
             id: CanvasId::new(Uuid::new_v4()),
-            local_file,
+            local_file: Arc::new(local_file),
             image,
             archive,
             transform: CanvasTransform::default(),
@@ -78,13 +75,13 @@ impl CCanvas {
         self.local_file.path()
     }
 
-    pub fn local_file(&self) -> &LocalFile {
+    pub fn local_file(&self) -> &Arc<LocalFile> {
         &self.local_file
     }
 
-    pub fn set_file_path(&mut self, path: PathBuf) -> Result<()> {
-        self.archive.set_path(path.clone())?;
-        self.local_file = LocalFile::from_path(path.clone());
+    pub fn set_file_path(&mut self, local_file: LocalFile) -> Result<()> {
+        self.archive.set_path(local_file.path().to_path_buf())?;
+        self.local_file = Arc::new(local_file);
         Ok(())
     }
 

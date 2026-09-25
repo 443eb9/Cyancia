@@ -1,11 +1,4 @@
-use std::{
-    any::Any,
-    collections::HashMap,
-    future::Future,
-    iter,
-    path::Path,
-    pin::Pin,
-};
+use std::{any::Any, collections::HashMap, future::Future, iter, path::Path, pin::Pin};
 
 use anyhow::Result;
 use futures::executor::block_on;
