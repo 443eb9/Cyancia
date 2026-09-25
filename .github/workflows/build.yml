@@ -85,10 +85,16 @@ jobs:
 
       - run: just setup-android
 
+      - run: just setup-for-check
+
+      - uses: tombi-toml/setup-tombi@v1.5.5
+
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: android-dev
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      - run: just check android aarch64
 
       - run: just package android dev aarch64
 

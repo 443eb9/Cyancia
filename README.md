@@ -35,6 +35,7 @@ just package desktop dev
 ### Android
 
 ```bash
+just check android aarch64
 just build android dev aarch64
 just package android release aarch64
 ```

@@ -112,7 +112,7 @@ impl Application {
             log::info!("Loaded {} Android font faces", db.len());
             drop(font_system);
 
-            return iced_winit::run_android(self, android_app);
+            iced_winit::run_android(self, android_app)
         }
 
         #[cfg(not(target_os = "android"))]

@@ -133,14 +133,33 @@ test-wgsl:
 
 setup-for-check: setup-rust setup-format setup-deny setup-reuse setup-linux
 
-check: check-fmt check-clippy check-import-alias check-let-type-annotation check-deny check-reuse
+check platform="desktop" arch="": check-fmt (check-clippy platform arch) check-import-alias check-let-type-annotation check-deny check-reuse
 
 check-fmt:
     cargo +{{ nightly }} fmt --all -- --check
     tombi lint
 
-check-clippy:
-    cargo clippy --workspace --exclude iced_winit --no-deps --all-targets --locked -- -D warnings
+check-clippy platform="desktop" arch="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ platform }}" in
+        desktop)
+            if [ -n "{{ arch }}" ]; then
+                echo "desktop does not accept an architecture" >&2
+                exit 2
+            fi
+            cargo clippy --workspace --exclude iced_winit --no-deps --all-targets --locked -- -D warnings
+            ;;
+        android)
+            case "{{ arch }}" in
+                aarch64) abi=arm64-v8a ;;
+                x86_64) abi=x86_64 ;;
+                *) echo "Android architecture must be aarch64 or x86_64" >&2; exit 2 ;;
+            esac
+            cargo ndk -P 28 -t "$abi" clippy --workspace --exclude iced_winit --exclude xtask --lib --no-deps --locked -- -D warnings
+            ;;
+        *) echo "check-clippy platform must be desktop or android" >&2; exit 2 ;;
+    esac
 
 # TODO: Remove this when clippy supports.
 check-import-alias:

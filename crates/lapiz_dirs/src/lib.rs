@@ -1,4 +1,4 @@
-#[cfg(not(feature = "dev_local"))]
+#[cfg(all(not(target_os = "android"), not(feature = "dev_local")))]
 use std::env;
 #[cfg(target_os = "android")]
 use std::sync::OnceLock;
@@ -8,8 +8,10 @@ use std::{
     sync::LazyLock,
 };
 
+#[cfg(all(not(target_os = "android"), not(feature = "dev_local")))]
 use directories::BaseDirs;
 
+#[cfg(all(not(target_os = "android"), not(feature = "dev_local")))]
 static BASE_DIRS: LazyLock<Option<BaseDirs>> = LazyLock::new(BaseDirs::new);
 
 #[cfg(target_os = "android")]

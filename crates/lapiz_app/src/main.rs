@@ -25,21 +25,23 @@ use lapiz_image_exporter::ImageExporterPlugin;
 use lapiz_image_importer::ImageImporterPlugin;
 use lapiz_input::InputPlugin;
 use lapiz_render::RenderPlugin;
+#[cfg(target_os = "android")]
+use lapiz_runtime::android;
 use lapiz_runtime::{Application, renderer::global_render_context, windows::WindowCommandBuffer};
 use lapiz_selection_tool::SelectionPlugin;
 use lapiz_shader_graph::ShaderGraphPlugin;
 use lapiz_tools::ToolsPlugin;
 use lapiz_transform_tool::FreeTransformPlugin;
 use lapiz_undo::UndoPlugin;
+#[cfg(target_os = "android")]
+use winit::platform::android::activity::AndroidApp;
 
 #[cfg(not(target_os = "android"))]
 fn main() {
     run();
 }
 
-pub(crate) fn run(
-    #[cfg(target_os = "android")] android_app: winit::platform::android::activity::AndroidApp,
-) {
+pub(crate) fn run(#[cfg(target_os = "android")] android_app: AndroidApp) {
     #[cfg(target_os = "android")]
     {
         use std::{ffi::CString, fs, io};
@@ -73,7 +75,7 @@ pub(crate) fn run(
     let mut app = Application::default();
     #[cfg(target_os = "android")]
     app.runtime_mut()
-        .add_service_instance(lapiz_runtime::android::AndroidApp::new(android_app.clone()));
+        .add_service_instance(android::AndroidApp::new(android_app.clone()));
     let mut asset_bundles = Vec::<Arc<dyn ErasedAssetBundle>>::new();
     asset_bundles.push(Arc::new(
         AssetDirectory::new(assets_dir().join("builtin_assets")).unwrap(),

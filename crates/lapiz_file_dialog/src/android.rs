@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context as _, Result, anyhow, bail};
 use futures::channel::oneshot;
 use jni::{
-    JNIEnv, JavaVM, NativeMethod,
+    JNIEnv, JavaVM, NativeMethod, errors,
     objects::{JClass, JObject, JString, JValue},
     sys::{jint, jlong},
 };
@@ -31,6 +31,7 @@ extern "system" fn picked(
     if request == 0 {
         return;
     }
+    // SAFETY: The request pointer was allocated by start_pick and is transferred to this callback once.
     let sender = unsafe { Box::from_raw(request as *mut oneshot::Sender<PickerResult>) };
     let result = match status {
         0 => Ok(None),
@@ -46,9 +47,11 @@ extern "system" fn picked(
 
 fn with_activity<R>(
     app: &AndroidApp,
-    f: impl FnOnce(&mut JNIEnv<'_>, &JObject<'_>) -> jni::errors::Result<R>,
+    f: impl FnOnce(&mut JNIEnv<'_>, &JObject<'_>) -> errors::Result<R>,
 ) -> Result<R> {
+    // SAFETY: AndroidApp retains the VM and activity references for the duration of this call.
     let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }?;
+    // SAFETY: The activity pointer is a valid JNI object reference supplied by AndroidApp.
     let activity = unsafe { JObject::from_raw(app.activity_as_ptr().cast()) };
     let mut env = vm.attach_current_thread_permanently()?;
     let result = f(&mut env, &activity);
@@ -77,7 +80,7 @@ pub async fn pick(app: &AndroidApp, save: bool, name: &str) -> Result<Option<Doc
 fn start_pick(app: &AndroidApp, save: bool, name: &str) -> Result<oneshot::Receiver<PickerResult>> {
     let (sender, receiver) = oneshot::channel();
     let request = Box::into_raw(Box::new(sender));
-    let shown = with_activity(app, |env, activity| -> jni::errors::Result<bool> {
+    let shown = with_activity(app, |env, activity| -> errors::Result<bool> {
         let class = env.get_object_class(activity)?;
         env.register_native_methods(
             &class,
@@ -103,10 +106,12 @@ fn start_pick(app: &AndroidApp, save: bool, name: &str) -> Result<oneshot::Recei
     match shown {
         Ok(true) => {}
         Ok(false) => {
+            // SAFETY: The request was not accepted, so no callback will reclaim this allocation.
             unsafe { drop(Box::from_raw(request)) };
             bail!("Another document picker is already open");
         }
         Err(error) => {
+            // SAFETY: The request was not accepted, so no callback will reclaim this allocation.
             unsafe { drop(Box::from_raw(request)) };
             return Err(error);
         }
@@ -117,7 +122,7 @@ fn start_pick(app: &AndroidApp, save: bool, name: &str) -> Result<oneshot::Recei
 
 fn with_document(app: &AndroidApp, method: &str, uri: &str, path: &Path) -> Result<bool> {
     let path = path.to_str().context("Document path is not UTF-8")?;
-    let ok = with_activity(app, |env, activity| -> jni::errors::Result<bool> {
+    let ok = with_activity(app, |env, activity| -> errors::Result<bool> {
         let uri = env.new_string(uri)?;
         let path = env.new_string(path)?;
         env.call_method(
@@ -133,7 +138,7 @@ fn with_document(app: &AndroidApp, method: &str, uri: &str, path: &Path) -> Resu
 
 pub fn temp_file(name: &str) -> Result<(PathBuf, tempfile::TempDir)> {
     let cache = lapiz_dirs::cache_dir();
-    fs::create_dir_all(&cache)?;
+    fs::create_dir_all(cache)?;
     let directory = tempfile::Builder::new()
         .prefix("document-")
         .tempdir_in(cache)?;

@@ -10,7 +10,12 @@ pub use arboard_upstream::*;
 
 #[cfg(target_os = "android")]
 mod android {
-    use std::{borrow::Cow, path::Path};
+    use std::{
+        borrow::Cow,
+        error, fmt,
+        marker::PhantomData,
+        path::{Path, PathBuf},
+    };
 
     #[derive(Debug)]
     #[non_exhaustive]
@@ -22,13 +27,13 @@ mod android {
         Unknown { description: String },
     }
 
-    impl std::fmt::Display for Error {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl fmt::Display for Error {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "Clipboard is not supported on Android")
         }
     }
 
-    impl std::error::Error for Error {}
+    impl error::Error for Error {}
 
     pub struct Clipboard;
 
@@ -38,15 +43,15 @@ mod android {
         }
 
         pub fn get(&mut self) -> Get<'_> {
-            Get(std::marker::PhantomData)
+            Get(PhantomData)
         }
 
         pub fn set(&mut self) -> Set<'_> {
-            Set(std::marker::PhantomData)
+            Set(PhantomData)
         }
 
         pub fn clear_with(&mut self) -> Clear<'_> {
-            Clear(std::marker::PhantomData)
+            Clear(PhantomData)
         }
 
         pub fn get_text(&mut self) -> Result<String, Error> {
@@ -80,7 +85,7 @@ mod android {
         }
     }
 
-    pub struct Get<'a>(std::marker::PhantomData<&'a mut Clipboard>);
+    pub struct Get<'a>(PhantomData<&'a mut Clipboard>);
 
     impl Get<'_> {
         pub fn text(self) -> Result<String, Error> {
@@ -91,7 +96,7 @@ mod android {
             Err(Error::ClipboardNotSupported)
         }
 
-        pub fn file_list(self) -> Result<Vec<std::path::PathBuf>, Error> {
+        pub fn file_list(self) -> Result<Vec<PathBuf>, Error> {
             Err(Error::ClipboardNotSupported)
         }
 
@@ -101,7 +106,7 @@ mod android {
         }
     }
 
-    pub struct Set<'a>(std::marker::PhantomData<&'a mut Clipboard>);
+    pub struct Set<'a>(PhantomData<&'a mut Clipboard>);
 
     impl Set<'_> {
         pub fn text<'a, T: Into<Cow<'a, str>>>(self, _text: T) -> Result<(), Error> {
@@ -126,7 +131,7 @@ mod android {
         }
     }
 
-    pub struct Clear<'a>(std::marker::PhantomData<&'a mut Clipboard>);
+    pub struct Clear<'a>(PhantomData<&'a mut Clipboard>);
 
     impl Clear<'_> {
         pub fn default(self) -> Result<(), Error> {

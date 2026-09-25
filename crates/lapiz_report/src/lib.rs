@@ -12,6 +12,7 @@ use chrono::{Local, Utc};
 #[cfg(not(target_os = "android"))]
 use gfxinfo::active_gpu;
 use lapiz_dirs::panic_reports_dir;
+#[cfg(not(target_os = "android"))]
 use lapiz_runtime::renderer::global_render_context;
 use lapiz_utils::log_err::LogErr as _;
 use sysinfo::{System, get_current_pid};
