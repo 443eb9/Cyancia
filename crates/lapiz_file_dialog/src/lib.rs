@@ -96,7 +96,7 @@ impl FileDialog {
             let Some(document) = android::pick(&self.app, false, "").await? else {
                 return Ok(None);
             };
-            open_file(self.app, document.uri, document.name).map(Some)
+            LocalFile::open_android(self.app, document.uri, document.name).map(Some)
         }
     }
 
@@ -150,6 +150,20 @@ impl LocalFile {
         LocalFile { path, name }
     }
 
+    // TODO: maybe query the name on the fly?
+    #[cfg(target_os = "android")]
+    pub fn open_android(app: AndroidApp, uri: String, name: String) -> Result<Self> {
+        let (path, directory) = android::temp_file(&name)?;
+        android::copy_file(&app, &uri, &path)?;
+        Ok(LocalFile {
+            path,
+            name,
+            app,
+            uri,
+            _temp: directory,
+        })
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -175,17 +189,4 @@ impl LocalFile {
 
         Ok(())
     }
-}
-
-#[cfg(target_os = "android")]
-pub fn open_file(app: AndroidApp, uri: String, name: String) -> Result<LocalFile> {
-    let (path, directory) = android::temp_file(&name)?;
-    android::copy_file(&app, &uri, &path)?;
-    Ok(LocalFile {
-        path,
-        name,
-        app,
-        uri,
-        _temp: directory,
-    })
 }

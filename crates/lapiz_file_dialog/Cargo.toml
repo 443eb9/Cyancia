@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+lapiz_runtime.workspace = true
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 rfd.workspace = true
@@ -16,7 +17,6 @@ rfd.workspace = true
 futures.workspace = true
 jni.workspace = true
 lapiz_dirs.workspace = true
-lapiz_runtime.workspace = true
 tempfile.workspace = true
 
 [lints]

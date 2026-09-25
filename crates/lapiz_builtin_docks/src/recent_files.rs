@@ -113,7 +113,7 @@ impl Dock for LandingDock {
                     let uri = file.path_or_uri.clone();
                     let name = file.name.clone();
                     Task::future(async move {
-                        LandingDockMessage::Opened(lapiz_file_dialog::open_file(app, uri, name))
+                        LandingDockMessage::Opened(LocalFile::open_android(app, uri, name))
                     })
                 }
 
