@@ -346,11 +346,14 @@ impl WindowView for MainView {
         ])
         .gap(12);
 
+        #[cfg(not(target_os = "android"))]
         let title = TitleBar::new(title_content)
             .on_minimize(MainViewMessage::MinimizeWindow(window))
             .on_maximize(MainViewMessage::MaximizeWindow(window))
-            .on_close(MainViewMessage::CloseWindow(window))
             .on_drag(MainViewMessage::MainWindowDrag);
+
+        #[cfg(target_os = "android")]
+        let title = TitleBar::new(title_content);
 
         let preset_name = services
             .get_service::<CurrentBrushPresetHandle>()

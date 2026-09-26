@@ -67,6 +67,7 @@ impl<'a, Message> TitleBar<'a, Message> {
 impl<'a, Message: 'a> From<TitleBar<'a, Message>> for Element<'a, Message, Theme, Renderer> {
     fn from(value: TitleBar<'a, Message>) -> Self {
         let mut controls = Flex::row(Vec::new()).height(Length::Fill);
+        #[cfg(not(target_os = "android"))]
         if value.minimize.is_set() {
             controls = controls.push(
                 Button::new(icon::win_minimize().size(12))
