@@ -2,7 +2,7 @@ use crate::Proxy;
 use crate::android::actions;
 use crate::android::container::{Window, Windows};
 use crate::android::input::{PhysicalBounds, Routed, Router};
-use crate::android::manager::{self, LogicalWindow, Manager, Screen};
+use crate::android::manager::{LogicalWindow, Manager, Screen, initial_geometry};
 use crate::android::render;
 use crate::android::runner::{Control, Event, EventLoopEvent};
 use crate::clipboard::Clipboard;
@@ -347,13 +347,9 @@ pub(crate) async fn run<P>(
                             ..
                         } = state
                         {
-                            manager::request_redraw_at(
-                                &*native,
-                                &mut loop_.redraw_at,
-                                redraw_request,
-                            );
+                            request_redraw_at(&*native, &mut loop_.redraw_at, redraw_request);
 
-                            manager::update_mouse_cursor(
+                            update_mouse_cursor(
                                 native.as_ref(),
                                 &mut loop_.mouse_interaction,
                                 mouse_interaction,
@@ -603,9 +599,9 @@ where
             ..
         } => {
             if let Some(native) = &loop_.native {
-                manager::request_redraw_at(&**native, &mut loop_.redraw_at, redraw_request);
+                request_redraw_at(&**native, &mut loop_.redraw_at, redraw_request);
 
-                manager::update_mouse_cursor(
+                update_mouse_cursor(
                     native.as_ref(),
                     &mut loop_.mouse_interaction,
                     mouse_interaction,
@@ -718,45 +714,57 @@ where
     }
 }
 
+/// Updates the native cursor from a mouse interaction.
+fn update_mouse_cursor(
+    native: &dyn winit::window::Window,
+    interaction: &mut mouse::Interaction,
+    new_interaction: mouse::Interaction,
+) {
+    if new_interaction != *interaction {
+        if let Some(icon) = conversion::mouse_interaction(new_interaction) {
+            native.set_cursor(winit::cursor::Cursor::Icon(icon));
+
+            if *interaction == mouse::Interaction::Hidden {
+                native.set_cursor_visible(true);
+            }
+        } else {
+            native.set_cursor_visible(false);
+        }
+
+        *interaction = new_interaction;
+    }
+}
+
+/// Requests a redraw according to a [`window::RedrawRequest`], tracking
+/// the scheduled instant.
+fn request_redraw_at(
+    native: &dyn winit::window::Window,
+    redraw_at: &mut Option<Instant>,
+    redraw_request: window::RedrawRequest,
+) {
+    match redraw_request {
+        window::RedrawRequest::NextFrame => {
+            native.request_redraw();
+            *redraw_at = None;
+        }
+        window::RedrawRequest::At(at) => *redraw_at = Some(at),
+        window::RedrawRequest::Wait => {}
+    }
+}
+
 /// Routes a native pointer event.
 fn pointer_event<P>(loop_: &mut Loop<P>, event: winit::event::WindowEvent)
 where
     P: Program,
     P::Theme: theme::Base,
 {
-    use winit::dpi::PhysicalPosition;
-
     let scale = loop_
         .native
         .as_ref()
         .map(|native| native.scale_factor())
         .unwrap_or(1.0);
 
-    let screen = loop_
-        .native
-        .as_ref()
-        .map(|native| native.surface_size())
-        .map(|size| PhysicalBounds {
-            position: PhysicalPosition::new(0.0, 0.0),
-            size: (f64::from(size.width), f64::from(size.height)),
-        })
-        .unwrap_or(PhysicalBounds {
-            position: PhysicalPosition::new(0.0, 0.0),
-            size: (0.0, 0.0),
-        });
-
-    let result = loop_.router.pointer_event(event, |bounds| {
-        PhysicalPosition::new(
-            bounds
-                .position
-                .x
-                .clamp(0.0, (screen.size.0 - bounds.size.0).max(0.0)),
-            bounds
-                .position
-                .y
-                .clamp(0.0, (screen.size.1 - bounds.size.1).max(0.0)),
-        )
-    });
+    let result = loop_.router.pointer_event(event);
 
     match result {
         Routed::Deliver(event) => {
@@ -790,37 +798,29 @@ where
                         core_event,
                         core::Event::Pointer(crate::core::pointer::Event::PointerPressed { .. })
                     ) {
-                        loop_.router.focus(tag);
-
-                        if Some(tag) != loop_.manager.root_id() {
-                            loop_.manager.raise(tag);
-                        }
+                        focus_and_raise(loop_, tag);
                     }
 
                     loop_.events.push((tag, core_event));
                 }
             }
         }
-        Routed::Moved { position, release } => {
-            let id = loop_
-                .manager
-                .z_order()
-                .last()
-                .copied()
-                .or_else(|| loop_.manager.root_id());
+        Routed::Moved {
+            id,
+            position,
+            release,
+        } => {
+            let position = position.to_logical::<f32>(scale);
+            let screen = loop_.manager.screen();
 
-            if let Some(id) = id {
-                let position = position.to_logical::<f32>(scale);
-                let position = Point::new(position.x, position.y);
-                let screen = loop_.manager.screen();
+            if let Some(window) = loop_.manager.get_mut(id) {
+                window.position =
+                    screen.clamp_position(Point::new(position.x, position.y), window.size);
 
-                if let Some(window) = loop_.manager.get_mut(id) {
-                    window.position = screen.clamp_position(position, window.size);
-                }
-
-                loop_
-                    .events
-                    .push((id, core::Event::Window(window::Event::Moved(position))));
+                loop_.events.push((
+                    id,
+                    core::Event::Window(window::Event::Moved(window.position)),
+                ));
             }
 
             loop_.needs_rebuild = true;
@@ -830,23 +830,42 @@ where
                 pointer_event(loop_, release);
             }
         }
-        Routed::Resized { id, bounds, release } => {
-            let position = PhysicalPosition::new(bounds.position.x, bounds.position.y)
-                .to_logical::<f32>(scale);
-            let size =
-                PhysicalPosition::new(bounds.size.0, bounds.size.1).to_logical::<f32>(scale);
+        Routed::Resized {
+            id,
+            bounds,
+            release,
+        } => {
+            let position = bounds.position.to_logical::<f32>(scale);
+            let size = bounds.size.to_logical::<f32>(scale);
 
             if let Some(window) = loop_.manager.get_mut(id) {
                 window.position = Point::new(position.x, position.y);
             }
 
-            resize_window(loop_, id, Size::new(size.x, size.y));
+            resize_window(loop_, id, Size::new(size.width, size.height));
 
             if let Some(release) = release {
                 pointer_event(loop_, release);
             }
         }
         Routed::Consumed => {}
+    }
+}
+
+/// Focuses a window and brings it to the front, like a pointer press on
+/// its content does.
+///
+/// The root window keeps its place below the windows laid out on top of
+/// it.
+fn focus_and_raise<P>(loop_: &mut Loop<P>, id: Id)
+where
+    P: Program,
+    P::Theme: theme::Base,
+{
+    loop_.router.focus(id);
+
+    if Some(id) != loop_.manager.root_id() {
+        loop_.manager.raise(id);
     }
 }
 
@@ -861,7 +880,6 @@ where
     P: Program,
     P::Theme: theme::Base,
 {
-    use winit::dpi::PhysicalPosition;
     use winit::event::ElementState;
 
     if !matches!(
@@ -893,17 +911,9 @@ where
         return false;
     };
 
-    // The press focuses and raises the window, like a press delivered to
-    // its content would.
-    loop_.router.focus(id);
+    focus_and_raise(loop_, id);
 
-    if Some(id) != loop_.manager.root_id() {
-        loop_.manager.raise(id);
-    }
-
-    let bounds = physical_bounds_of(loop_, id);
-
-    if !loop_.router.start_drag_resize(id, direction, bounds) {
+    if !start_resize_session(loop_, id, direction) {
         return false;
     }
 
@@ -911,6 +921,43 @@ where
     loop_.request_redraw();
 
     true
+}
+
+/// Starts an interactive resize session for the given window, capturing
+/// its current bounds and size constraints.
+pub(crate) fn start_resize_session<P>(
+    loop_: &mut Loop<P>,
+    id: Id,
+    direction: window::Direction,
+) -> bool
+where
+    P: Program,
+    P::Theme: theme::Base,
+{
+    let scale = loop_
+        .native
+        .as_ref()
+        .map(|native| native.scale_factor())
+        .unwrap_or(1.0);
+
+    let Some(window) = loop_.manager.get(id) else {
+        return false;
+    };
+
+    let to_physical = |size: Size| {
+        winit::dpi::PhysicalSize::new(
+            f64::from(size.width) * scale,
+            f64::from(size.height) * scale,
+        )
+    };
+
+    let min_size = window.min_size.map(to_physical);
+    let max_size = window.max_size.map(to_physical);
+    let bounds = physical_bounds_of(loop_, id);
+
+    loop_
+        .router
+        .start_drag_resize(id, direction, bounds, min_size, max_size)
 }
 
 /// Resizes a logical window to the given logical size, honoring its size
@@ -968,12 +1015,12 @@ where
 pub(crate) fn physical_bounds_of<P>(
     loop_: &Loop<P>,
     id: Id,
-) -> crate::android::input::PhysicalBounds
+) -> PhysicalBounds
 where
     P: Program,
     P::Theme: theme::Base,
 {
-    use winit::dpi::PhysicalPosition;
+    use winit::dpi::{PhysicalPosition, PhysicalSize};
 
     let scale = loop_
         .native
@@ -982,16 +1029,16 @@ where
         .unwrap_or(1.0);
 
     loop_.manager.get(id).map_or_else(
-        || crate::android::input::PhysicalBounds {
+        || PhysicalBounds {
             position: PhysicalPosition::new(0.0, 0.0),
-            size: (0.0, 0.0),
+            size: PhysicalSize::new(0.0, 0.0),
         },
-        |window| crate::android::input::PhysicalBounds {
+        |window| PhysicalBounds {
             position: PhysicalPosition::new(
                 f64::from(window.position.x) * scale,
                 f64::from(window.position.y) * scale,
             ),
-            size: (
+            size: PhysicalSize::new(
                 f64::from(window.size.width) * scale,
                 f64::from(window.size.height) * scale,
             ),
@@ -1061,7 +1108,7 @@ pub(crate) fn open_window<'a, P>(
     }
 
     let is_root = loop_.manager.is_empty();
-    let (position, size) = manager::initial_geometry(&settings, loop_.manager.screen(), is_root);
+    let (position, size) = initial_geometry(&settings, loop_.manager.screen(), is_root);
 
     loop_.manager.insert(
         id,

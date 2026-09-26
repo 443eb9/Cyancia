@@ -1,6 +1,6 @@
 use crate::android::instance::{
     Interface, Loop, close_window, maximize_window, move_window, open_window, physical_bounds_of,
-    resize_window,
+    resize_window, start_resize_session,
 };
 use crate::core::Renderer as _;
 use crate::core::Size;
@@ -238,14 +238,12 @@ fn run_window_action<'a, P>(
         window::Action::Drag(id) => {
             let bounds = physical_bounds_of(loop_, id);
 
-            if !loop_.router.start_drag(bounds) {
+            if !loop_.router.start_drag(id, bounds) {
                 log::warn!("window::drag ignored: no known pointer position");
             }
         }
         window::Action::DragResize(id, direction) => {
-            let bounds = physical_bounds_of(loop_, id);
-
-            if !loop_.router.start_drag_resize(id, direction, bounds) {
+            if !start_resize_session(loop_, id, direction) {
                 log::warn!("window::drag_resize ignored: no known pointer position");
             }
         }

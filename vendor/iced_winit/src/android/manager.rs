@@ -1,6 +1,4 @@
-use crate::conversion;
-use crate::core::pointer::mouse;
-use crate::core::window::{self, Id, Level, RedrawRequest, Settings};
+use crate::core::window::{self, Id, Level, Settings};
 use crate::core::{Point, Rectangle, Size};
 
 /// The logical size and scale factor of the native window.
@@ -221,25 +219,25 @@ impl Manager {
             return None;
         }
 
-        const RESIZE_BORDER: f32 = 20.0;
+        const RESIZE_BORDER: f32 = 10.0;
 
-            let bounds = window.bounds();
-            let left = position.x < bounds.x + RESIZE_BORDER;
-            let right = position.x >= bounds.x + bounds.width - RESIZE_BORDER;
-            let top = position.y < bounds.y + RESIZE_BORDER;
-            let bottom = position.y >= bounds.y + bounds.height - RESIZE_BORDER;
+        let bounds = window.bounds();
+        let left = position.x < bounds.x + RESIZE_BORDER;
+        let right = position.x >= bounds.x + bounds.width - RESIZE_BORDER;
+        let top = position.y < bounds.y + RESIZE_BORDER;
+        let bottom = position.y >= bounds.y + bounds.height - RESIZE_BORDER;
 
-        let direction=    match (left, right, top, bottom) {
-                (true, _, true, _) => Some(window::Direction::NorthWest),
-                (_, true, true, _) => Some(window::Direction::NorthEast),
-                (true, _, _, true) => Some(window::Direction::SouthWest),
-                (_, true, _, true) => Some(window::Direction::SouthEast),
-                (true, ..) => Some(window::Direction::West),
-                (_, true, ..) => Some(window::Direction::East),
-                (_, _, true, _) => Some(window::Direction::North),
-                (_, _, _, true) => Some(window::Direction::South),
-                _ => None,
-            };
+        let direction = match (left, right, top, bottom) {
+            (true, _, true, _) => Some(window::Direction::NorthWest),
+            (_, true, true, _) => Some(window::Direction::NorthEast),
+            (true, _, _, true) => Some(window::Direction::SouthWest),
+            (_, true, _, true) => Some(window::Direction::SouthEast),
+            (true, ..) => Some(window::Direction::West),
+            (_, true, ..) => Some(window::Direction::East),
+            (_, _, true, _) => Some(window::Direction::North),
+            (_, _, _, true) => Some(window::Direction::South),
+            _ => None,
+        };
 
         direction.map(|d| (id, d))
     }
@@ -274,8 +272,6 @@ impl Manager {
     }
 }
 
-
-
 /// Computes the initial geometry of a logical window from its [`Settings`].
 pub fn initial_geometry(settings: &Settings, screen: Screen, is_root: bool) -> (Point, Size) {
     if is_root {
@@ -298,42 +294,4 @@ pub fn initial_geometry(settings: &Settings, screen: Screen, is_root: bool) -> (
     };
 
     (screen.clamp_position(position, size), size)
-}
-
-/// Updates the native cursor from a mouse interaction.
-pub fn update_mouse_cursor(
-    native: &dyn winit::window::Window,
-    interaction: &mut mouse::Interaction,
-    new_interaction: mouse::Interaction,
-) {
-    if new_interaction != *interaction {
-        if let Some(icon) = conversion::mouse_interaction(new_interaction) {
-            native.set_cursor(winit::cursor::Cursor::Icon(icon));
-
-            if *interaction == mouse::Interaction::Hidden {
-                native.set_cursor_visible(true);
-            }
-        } else {
-            native.set_cursor_visible(false);
-        }
-
-        *interaction = new_interaction;
-    }
-}
-
-/// Requests a redraw according to a [`RedrawRequest`], tracking the
-/// scheduled instant.
-pub fn request_redraw_at(
-    native: &dyn winit::window::Window,
-    redraw_at: &mut Option<crate::core::time::Instant>,
-    redraw_request: RedrawRequest,
-) {
-    match redraw_request {
-        RedrawRequest::NextFrame => {
-            native.request_redraw();
-            *redraw_at = None;
-        }
-        RedrawRequest::At(at) => *redraw_at = Some(at),
-        RedrawRequest::Wait => {}
-    }
 }
