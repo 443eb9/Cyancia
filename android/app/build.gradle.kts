@@ -28,7 +28,7 @@ val abi = mapOf(
 val rustTarget = "$arch-linux-android"
 
 android {
-    namespace = "app.lapiz.dev"
+    namespace = "dev.lapiz.app"
     compileSdk = toolchain.getProperty("ANDROID_PLATFORM").toInt()
     buildToolsVersion = toolchain.getProperty("ANDROID_BUILD_TOOLS")
     ndkVersion = toolchain.getProperty("ANDROID_NDK")
@@ -42,7 +42,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "app.lapiz.dev"
+        applicationId = "dev.lapiz.app"
         minSdk = 28
         targetSdk = 35
         versionCode = 1
@@ -56,11 +56,11 @@ android {
     productFlavors {
         create("dev") {
             dimension = "channel"
-            applicationId = "dbg.lapiz.dev"
+            applicationId = "dev.lapiz.dbg"
         }
         create("prod") {
             dimension = "channel"
-            applicationId = "app.lapiz.dev"
+            applicationId = "dev.lapiz.app"
         }
     }
 
