@@ -1,24 +1,31 @@
+use std::marker::PhantomData;
+
 use iced_core::{
-    Border, Element, Length, Point, Rectangle, Size, Theme, Widget, layout,
+    Border, Element, Length, Padding, Point, Rectangle, Size, Theme, Widget, layout,
     pointer::{self, mouse},
-    renderer, widget,
+    renderer,
+    text::IntoFragment,
+    widget,
 };
 use iced_widget::{button, container};
 use lapiz_runtime::Renderer;
 
 use crate::{
     button::{Button, transparent},
-    callback::Callback,
+    callback::{Callback, publish},
     flex::{self, Flex},
     icon,
+    label::Label,
 };
 
 pub type Style = container::Style;
 
 pub struct TitleBar<'a, Message> {
     content: Element<'a, Message, Theme, Renderer>,
+    content_padding: Padding,
     minimize: Callback<'a, Message>,
     maximize: Callback<'a, Message>,
+    drag: Callback<'a, Message>,
     close: Callback<'a, Message>,
     class: <Theme as flex::Catalog>::Class<'a>,
 }
@@ -27,8 +34,10 @@ impl<'a, Message> TitleBar<'a, Message> {
     pub fn new(content: impl Into<Element<'a, Message, Theme, Renderer>>) -> Self {
         Self {
             content: content.into(),
+            content_padding: Padding::from([0, 10]),
             minimize: Callback::Empty,
             maximize: Callback::Empty,
+            drag: Callback::Empty,
             close: Callback::Empty,
             class: Box::new(default),
         }
@@ -36,6 +45,7 @@ impl<'a, Message> TitleBar<'a, Message> {
 
     crate::callback_methods!(minimize);
     crate::callback_methods!(maximize);
+    crate::callback_methods!(drag);
     crate::callback_methods!(close);
 
     pub fn style(mut self, style: impl Fn(&Theme, flex::Status) -> Style + 'a) -> Self {
@@ -45,6 +55,11 @@ impl<'a, Message> TitleBar<'a, Message> {
 
     pub fn class(mut self, class: impl Into<<Theme as flex::Catalog>::Class<'a>>) -> Self {
         self.class = class.into();
+        self
+    }
+
+    pub fn content_padding(mut self, padding: impl Into<Padding>) -> Self {
+        self.content_padding = padding.into();
         self
     }
 }
@@ -82,11 +97,21 @@ impl<'a, Message: 'a> From<TitleBar<'a, Message>> for Element<'a, Message, Theme
                     .on_press_with_callback(value.close),
             );
         }
-        Flex::row([value.content, controls.into()])
-            .width(Length::Fill)
-            .height(32)
-            .class(value.class)
-            .into()
+        let row = if value.drag.is_set() {
+            Flex::row([
+                Flex::row([value.content])
+                    .padding(value.content_padding)
+                    .into(),
+                WindowCaptionRegion::new()
+                    .on_drag_with_callback(value.drag)
+                    .into(),
+                controls.into(),
+            ])
+        } else {
+            Flex::row([value.content, controls.into()])
+        };
+
+        row.width(Length::Fill).height(32).class(value.class).into()
     }
 }
 
@@ -114,19 +139,22 @@ pub fn default(theme: &Theme, _status: flex::Status) -> Style {
         })
 }
 
-pub struct WindowCaptionRegion<Message> {
-    on_drag: Box<dyn Fn(Point) -> Message>,
+#[derive(Default)]
+pub struct WindowCaptionRegion<'a, Message> {
+    drag: Callback<'a, Message>,
 }
 
-impl<Message> WindowCaptionRegion<Message> {
-    pub fn new(on_drag: impl Fn(Point) -> Message + 'static) -> Self {
+impl<'a, Message> WindowCaptionRegion<'a, Message> {
+    pub fn new() -> Self {
         Self {
-            on_drag: Box::new(on_drag),
+            drag: Callback::Empty,
         }
     }
+
+    crate::callback_methods!(drag);
 }
 
-impl<Message> Widget<Message, Theme, Renderer> for WindowCaptionRegion<Message> {
+impl<'a, Message> Widget<Message, Theme, Renderer> for WindowCaptionRegion<'a, Message> {
     fn size(&self) -> Size<Length> {
         Size::new(Length::Fill, Length::Fill)
     }
@@ -151,11 +179,11 @@ impl<Message> Widget<Message, Theme, Renderer> for WindowCaptionRegion<Message> 
         _viewport: &Rectangle,
     ) {
         match event {
-            iced_core::Event::Pointer(event @ pointer::Event::PointerPressed { position, .. })
-                if event.is_primary_press() =>
-            {
-                if cursor.is_over(layout.bounds()) {
-                    shell.publish((self.on_drag)(*position));
+            iced_core::Event::Pointer(event) if event.is_primary_press() => {
+                if cursor.is_over(layout.bounds())
+                    && let Some(message) = publish(&mut self.drag)
+                {
+                    shell.publish(message);
                 }
             }
             _ => {}
@@ -175,11 +203,11 @@ impl<Message> Widget<Message, Theme, Renderer> for WindowCaptionRegion<Message> 
     }
 }
 
-impl<'a, Message> From<WindowCaptionRegion<Message>> for Element<'a, Message, Theme, Renderer>
+impl<'a, Message> From<WindowCaptionRegion<'a, Message>> for Element<'a, Message, Theme, Renderer>
 where
     Message: 'a,
 {
-    fn from(value: WindowCaptionRegion<Message>) -> Element<'a, Message, Theme, Renderer> {
+    fn from(value: WindowCaptionRegion<'a, Message>) -> Element<'a, Message, Theme, Renderer> {
         Element::new(value)
     }
 }

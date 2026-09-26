@@ -337,23 +337,20 @@ impl WindowView for MainView {
         }
 
         let title_content = Flex::row([
-            Label::new("LAPIZ").size(13).strong().into(),
+            Label::new("LAPIZ").window_title().into(),
             Element::new(
                 self.menu_bar(&services.service::<ApplicationTheme>().0)
                     .height(Length::Fill),
             )
             .map(MainViewMessage::MenuBar),
-            WindowCaptionRegion::new(|_| MainViewMessage::MainWindowDrag).into(),
         ])
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .gap(12)
-        .padding([0, 10]);
+        .gap(12);
 
         let title = TitleBar::new(title_content)
             .on_minimize(MainViewMessage::MinimizeWindow(window))
             .on_maximize(MainViewMessage::MaximizeWindow(window))
-            .on_close(MainViewMessage::CloseWindow(window));
+            .on_close(MainViewMessage::CloseWindow(window))
+            .on_drag(MainViewMessage::MainWindowDrag);
 
         let preset_name = services
             .get_service::<CurrentBrushPresetHandle>()
@@ -420,9 +417,7 @@ impl WindowView for MainView {
                 .dock_manager
                 .update(m, services)
                 .map(MainViewMessage::Dock),
-            MainViewMessage::MainWindowDrag => {
-                window::drag(self.dock_manager.main_window().id)
-            }
+            MainViewMessage::MainWindowDrag => window::drag(self.dock_manager.main_window().id),
             MainViewMessage::WindowEvent(id, event) => {
                 let unfocused = matches!(event, window::Event::Unfocused);
                 let window_task = self.dock_manager.on_window_event(id, event).discard();
