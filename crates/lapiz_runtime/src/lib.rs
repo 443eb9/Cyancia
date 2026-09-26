@@ -10,15 +10,8 @@ use std::{
 };
 
 use iced_core::{Element, Length, Widget, window};
-use iced_futures::{
-    Subscription,
-    backend::native,
-    event::{listen, listen_with},
-};
-use iced_runtime::{
-    Task,
-    window::{close_events, raw_id},
-};
+use iced_futures::{Subscription, backend::native, event::listen_with};
+use iced_runtime::{Task, window::raw_id};
 use iced_winit::program::Program;
 
 use crate::{

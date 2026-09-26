@@ -1,11 +1,6 @@
-use std::marker::PhantomData;
-
 use iced_core::{
-    Border, Element, Length, Padding, Point, Rectangle, Size, Theme, Widget, layout,
-    pointer::{self, mouse},
-    renderer,
-    text::IntoFragment,
-    widget,
+    Border, Element, Length, Padding, Rectangle, Size, Theme, Widget, layout, pointer::mouse,
+    renderer, widget,
 };
 use iced_widget::{button, container};
 use lapiz_runtime::Renderer;
@@ -15,7 +10,6 @@ use crate::{
     callback::{Callback, publish},
     flex::{self, Flex},
     icon,
-    label::Label,
 };
 
 pub type Style = container::Style;

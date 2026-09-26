@@ -5,7 +5,7 @@ use iced_core::{Element, Length, Size, Theme, alignment::Vertical, window};
 use iced_futures::Subscription;
 use iced_runtime::{
     Task,
-    window::{close, drag, minimize, open, raw_id, toggle_maximize},
+    window::{close, drag, minimize, open, toggle_maximize},
 };
 use iced_widget::{Column, column, component::component, row};
 use lapiz_assets::{AssetAppExt as _, asset::AssetHandle, store::AssetRegistry};
@@ -18,7 +18,7 @@ use lapiz_effect::{
 use lapiz_i18n::t;
 use lapiz_image::texel::TexelType;
 use lapiz_runtime::{
-    Services, platform,
+    Services,
     windows::{WindowView, WindowViewId},
 };
 use lapiz_shader_graph::{

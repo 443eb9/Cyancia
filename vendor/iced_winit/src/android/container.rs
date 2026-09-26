@@ -63,7 +63,7 @@ where
     }
 
     /// Adds a window on top of the existing ones.
-    pub fn push(&mut self, window: Window<'a, Message, Theme, Renderer>) -> &mut Self {
+    pub fn push(mut self, window: Window<'a, Message, Theme, Renderer>) -> Self {
         self.windows.push(window);
 
         self

@@ -28,9 +28,7 @@ use crate::runtime::user_interface::{self, UserInterface};
 use crate::window::Preedit;
 
 use std::borrow::Cow;
-use std::cell::Cell;
 use std::mem::ManuallyDrop;
-use std::rc::Rc;
 use std::sync::Arc;
 
 pub(crate) type Interface<'a, P> =
@@ -676,7 +674,7 @@ where
             continue;
         }
 
-        windows.push(Window {
+        windows = windows.push(Window {
             id,
             position: window.position,
             size: window.size,

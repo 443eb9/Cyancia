@@ -79,6 +79,7 @@ where
     run_with_event_loop(program)
 }
 
+/// This is kept only for compilation. Our project never calls this.
 #[cfg(target_os = "android")]
 pub fn run<P>(_program: P) -> Result<(), Error>
 where
@@ -88,6 +89,7 @@ where
     panic!("Android requires run_android with an AndroidApp")
 }
 
+/// Runs a [`Program`] with the provided settings on Android.
 #[cfg(target_os = "android")]
 pub fn run_android<P>(
     program: P,
@@ -1426,7 +1428,7 @@ async fn run_instance<P>(
                                 control_sender.start_send(Control::ChangeFlow(ControlFlow::Wait));
                         }
                     }
-                    _ => {}
+                    EventLoopEvent::NewEvents(_) => {}
                 }
             }
             Event::Exit => break,

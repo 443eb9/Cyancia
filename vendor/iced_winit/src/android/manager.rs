@@ -169,7 +169,7 @@ impl Manager {
 
         let sequence = self.next_sequence;
         self.next_sequence += 1;
-        self.sequence.insert(id, sequence);
+        let _=self.sequence.insert(id, sequence);
         self.sort_order();
     }
 
