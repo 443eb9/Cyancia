@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use iced_core::Point;
-use lapiz_assets::{asset::AssetId, loader::AssetRegistryBuilder};
+use lapiz_assets::{asset::AssetId, loader::AssetRegistryBuilder, store::AssetRegistry};
 use lapiz_brush::{
     instance::{main_effect_resources, postprocess_effect_resources, spacing_effect_resources},
     render::graph::{
@@ -354,7 +354,7 @@ fn required_spacing_effect(
     sampled: bool,
 ) -> Result<EffectAsset> {
     let mut graph = Graph::new(spacing_effect_resources(
-        AssetRegistryBuilder::default().build(),
+        AssetRegistry::new_in_memory(Default::default()),
     ));
     let input_nodes = inputs.add_input_nodes_into(&mut graph);
     let mut state = CustomExpressionNodeState::default();
@@ -419,7 +419,7 @@ fn build_main_effect(
     inputs: &BrushInputs,
 ) -> Result<EffectAsset> {
     let mut graph = Graph::new(main_effect_resources(
-        AssetRegistryBuilder::default().build(),
+        AssetRegistry::new_in_memory(Default::default()),
     ));
     let input_nodes = inputs.add_input_nodes_into(&mut graph);
     let pixel_position = graph.add_node(Point::new(0.0, 0.0), PixelPositionNode);
@@ -541,7 +541,7 @@ pub fn opacity_postprocess_effect(
     inputs: &BrushInputs,
 ) -> Result<EffectAsset> {
     let mut graph = Graph::new(postprocess_effect_resources(
-        AssetRegistryBuilder::default().build(),
+        AssetRegistry::new_in_memory(Default::default()),
     ));
     let input_nodes = inputs.add_input_nodes_into(&mut graph);
     let pixel_position = graph.add_node(Point::new(0.0, 0.0), PixelPositionNode);
