@@ -28,7 +28,9 @@ use crate::runtime::user_interface::{self, UserInterface};
 use crate::window::Preedit;
 
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::mem::ManuallyDrop;
+use std::rc::Rc;
 use std::sync::Arc;
 
 pub(crate) type Interface<'a, P> =
@@ -686,6 +688,8 @@ where
             content: program.view(id),
         });
     }
+
+    windows = windows.focus(loop_.router.focused());
 
     let element: Element<'a, P::Message, P::Theme, P::Renderer> = Element::new(windows);
 
