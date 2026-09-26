@@ -1,0 +1,11 @@
+about_title = About
+about_tab = About
+third_party_licenses_tab = Third Party Licenses
+about_version = Version { $version }
+about_license_line = Licensed under GPL-3.0-or-later, with portions under MIT.
+gpl_license_header = GNU General Public License v3.0
+mit_license_header = MIT License
+about_search_placeholder = Search crates…
+about_overview = License overview
+about_crates_count = { $count } crates
+about_no_results = No matching crates.

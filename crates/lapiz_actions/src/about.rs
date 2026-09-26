@@ -4,10 +4,33 @@ use chrono::Utc;
 use iced_runtime::Task;
 use lapiz_dirs::reports_dir;
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::Services;
+use lapiz_runtime::{
+    Services,
+    windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},
+};
 use lapiz_utils::log_err::LogErr as _;
 
 use crate::{ActionFunction, ActionId};
+
+#[derive(Default)]
+pub struct OpenAboutAction;
+
+impl ActionFunction for OpenAboutAction {
+    type Message = ();
+
+    fn id(&self) -> ActionId {
+        ActionId::new("open_about_action".into())
+    }
+
+    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
+        services
+            .service_mut::<WindowCommandBuffer>()
+            .push(OpenWindowViewCommand::new(WindowViewId::new(
+                lapiz_about::ABOUT_VIEW_ID,
+            )));
+        Task::none()
+    }
+}
 
 #[derive(Default)]
 pub struct GenerateReportAction;

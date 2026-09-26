@@ -36,7 +36,7 @@ pub(crate) async fn readback_root_layer(
             let src = &data[row * stride..row * stride + width * 4];
             let offset =
                 ((origin.y + row as i32) as usize * size.x as usize + origin.x as usize) * 4;
-            result.as_mut()[offset..offset + width * 4].copy_from_slice(src);
+            (&mut *result)[offset..offset + width * 4].copy_from_slice(src);
         }
     }
     Ok(result)

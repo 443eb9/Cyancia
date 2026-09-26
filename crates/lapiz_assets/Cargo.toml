@@ -19,6 +19,7 @@ parking_lot.workspace = true
 parse-display.workspace = true
 path-clean.workspace = true
 rusqlite.workspace = true
+rust-embed = { workspace = true, features = ["include-exclude"] }
 serde.workspace = true
 thiserror.workspace = true
 toml.workspace = true

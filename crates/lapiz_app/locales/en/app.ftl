@@ -22,6 +22,7 @@ select_next_layer_action = Select Next Layer
 delete_selection_action = Delete Selection
 toggle_filter_panel_action = Toggle Filter Panel
 open_brush_editor_action = Open Brush Editor
+open_about_action = About
 generate_report_action = Generate Report
 debug_manual_panic_action = Debug Manual Panic (really crashes!)
 

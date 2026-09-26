@@ -7,7 +7,7 @@ use parse_display::Display;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    about::{DebugManualPanicAction, GenerateReportAction},
+    about::{DebugManualPanicAction, GenerateReportAction, OpenAboutAction},
     edit::{PasteIntoNewLayerAction, RedoAction, UndoAction},
     file::{ExportFileAction, OpenFileAction, SaveFileAction},
     layer::{
@@ -56,6 +56,7 @@ impl Plugin for ActionPlugin {
             .add_action_function::<UndoAction>()
             .add_action_function::<RedoAction>()
             .add_action_function::<GenerateReportAction>()
+            .add_action_function::<OpenAboutAction>()
             .add_action_function::<DebugManualPanicAction>();
     }
 }

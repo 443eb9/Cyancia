@@ -78,14 +78,6 @@ dependencies {
     implementation("androidx.core:core:1.16.0")
 }
 
-val syncAssets = tasks.register<SyncGeneratedDirectory>("syncAssets") {
-    outputDirectory.set(layout.buildDirectory.dir("generated/assets"))
-    from(repoRoot.resolve("assets/builtin_assets")) {
-        into("builtin_assets")
-    }
-    into(outputDirectory)
-}
-
 androidComponents {
     beforeVariants(selector().all()) { variant ->
         variant.enable = (variant.buildType == "debug") == (variant.productFlavors[0].second == "dev")
@@ -114,7 +106,6 @@ androidComponents {
             }
             into(outputDirectory)
         }
-        variant.sources.assets?.addGeneratedSourceDirectory(syncAssets, SyncGeneratedDirectory::outputDirectory)
         variant.sources.jniLibs?.addGeneratedSourceDirectory(syncRust, SyncGeneratedDirectory::outputDirectory)
     }
 }

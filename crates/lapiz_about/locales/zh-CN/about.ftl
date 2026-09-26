@@ -1,0 +1,11 @@
+about_title = 关于
+about_tab = 关于
+third_party_licenses_tab = 第三方许可
+about_version = 版本 { $version }
+about_license_line = 以 GPL-3.0-or-later 许可，部分以 MIT 许可。
+gpl_license_header = GNU 通用公共许可证 v3.0
+mit_license_header = MIT 许可证
+about_search_placeholder = 搜索 crate…
+about_overview = 许可概览
+about_crates_count = { $count } 个 crate
+about_no_results = 没有匹配的 crate。

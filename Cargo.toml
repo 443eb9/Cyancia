@@ -4,6 +4,7 @@ members = [
     "crates/lapiz_abr",
     "crates/lapiz_abr_bridge",
     "crates/lapiz_abr_derive",
+    "crates/lapiz_about",
     "crates/lapiz_actions",
     "crates/lapiz_anti_aliasing",
     "crates/lapiz_app",
@@ -57,6 +58,7 @@ publish = false
 lapiz_abr = { path = "crates/lapiz_abr", version = "0.1.0" }
 lapiz_abr_bridge = { path = "crates/lapiz_abr_bridge", version = "0.1.0" }
 lapiz_abr_derive = { path = "crates/lapiz_abr_derive", version = "0.1.0" }
+lapiz_about = { path = "crates/lapiz_about", version = "0.1.0" }
 lapiz_actions = { path = "crates/lapiz_actions", version = "0.1.0" }
 lapiz_anti_aliasing = { path = "crates/lapiz_anti_aliasing", version = "0.1.0" }
 lapiz_assets = { path = "crates/lapiz_assets", version = "0.1.0" }
