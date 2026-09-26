@@ -12,11 +12,8 @@ REPO = Path(__file__).resolve().parent.parent
 
 
 def generate_third_party_licenses() -> None:
-    """Generate the third-party license listing embedded by lapiz_about.
+    """Generate the third-party license listing embedded by lapiz_about."""
 
-    cargo-about's raw JSON carries the full dependency graph per crate; only
-    the fields rendered by the about view are kept here.
-    """
     raw = REPO / "target" / "about" / "third_party_licenses.raw.json"
     output = REPO / "target" / "about" / "third_party_licenses.json"
     raw.parent.mkdir(parents=True, exist_ok=True)
