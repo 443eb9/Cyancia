@@ -350,6 +350,7 @@ impl WindowView for MainView {
         let title = TitleBar::new(title_content)
             .on_minimize(MainViewMessage::MinimizeWindow(window))
             .on_maximize(MainViewMessage::MaximizeWindow(window))
+            .on_close(MainViewMessage::CloseWindow(window))
             .on_drag(MainViewMessage::MainWindowDrag);
 
         #[cfg(target_os = "android")]
