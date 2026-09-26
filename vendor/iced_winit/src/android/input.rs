@@ -21,7 +21,7 @@ pub struct Router {
     /// An interactive window move session started by `window::drag`.
     drag: Option<Drag>,
     /// An interactive window resize session started by
-    /// `window::drag_resize`.
+    /// `window::drag_resize` or a press on a window border.
     drag_resize: Option<DragResize>,
 }
 
@@ -31,8 +31,10 @@ struct Drag {
     size: (f64, f64),
 }
 
+/// An interactive resize session of a logical window.
 #[derive(Debug, Clone, Copy)]
 struct DragResize {
+    id: Id,
     direction: window::Direction,
     start_bounds: PhysicalBounds,
     start_cursor: PhysicalPosition<f64>,
@@ -49,8 +51,10 @@ pub enum Routed {
         position: PhysicalPosition<f64>,
         release: Option<WindowEvent>,
     },
-    /// A `window::drag_resize` session resized a window.
+    /// A `window::drag_resize` session—or a press on the resize border of
+    /// a resizable window—resized a window.
     Resized {
+        id: Id,
         bounds: PhysicalBounds,
         release: Option<WindowEvent>,
     },
@@ -113,6 +117,7 @@ impl Router {
     /// `Window::drag_resize_window` does on the desktop platforms.
     pub fn start_drag_resize(
         &mut self,
+        id: Id,
         direction: window::Direction,
         bounds: PhysicalBounds,
     ) -> bool {
@@ -121,6 +126,7 @@ impl Router {
         };
 
         self.drag_resize = Some(DragResize {
+            id,
             direction,
             start_bounds: bounds,
             start_cursor: cursor,
@@ -177,6 +183,7 @@ impl Router {
                     }
 
                     return Routed::Resized {
+                        id: drag_resize.id,
                         bounds: resized_bounds(&drag_resize, cursor),
                         release,
                     };

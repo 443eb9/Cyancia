@@ -16,7 +16,9 @@
 //! logical window, `window::close` removes it, `window::resize`/`move_to`
 //! change its geometry, and `window::drag` starts an interactive move
 //! session driven by the pointer, mirroring how an undecorated window
-//! behaves on the desktop platforms.
+//! behaves on the desktop platforms. A pointer press on the border of a
+//! resizable logical window starts an interactive resize session, like the
+//! resize border of a decorated window.
 //!
 //! Commands that cannot be emulated—like `window::screenshot` and
 //! `window::minimize`—log a warning and are ignored.

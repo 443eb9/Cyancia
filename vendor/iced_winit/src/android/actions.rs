@@ -1,10 +1,11 @@
 use crate::android::instance::{
-    Interface, Loop, close_window, maximize_window, move_window, open_window, resize_window,
+    Interface, Loop, close_window, maximize_window, move_window, open_window, physical_bounds_of,
+    resize_window,
 };
 use crate::core::Renderer as _;
 use crate::core::Size;
 use crate::core::theme;
-use crate::core::window::{Id, Mode};
+use crate::core::window::Mode;
 use crate::futures::subscription;
 use crate::graphics::{Compositor as _, Shell, compositor};
 use crate::program::{self, Program};
@@ -244,7 +245,7 @@ fn run_window_action<'a, P>(
         window::Action::DragResize(id, direction) => {
             let bounds = physical_bounds_of(loop_, id);
 
-            if !loop_.router.start_drag_resize(direction, bounds) {
+            if !loop_.router.start_drag_resize(id, direction, bounds) {
                 log::warn!("window::drag_resize ignored: no known pointer position");
             }
         }
@@ -407,36 +408,4 @@ fn run_window_action<'a, P>(
             loop_.request_redraw();
         }
     }
-}
-
-/// The physical bounds of a logical window.
-fn physical_bounds_of<P>(loop_: &Loop<P>, id: Id) -> crate::android::input::PhysicalBounds
-where
-    P: Program,
-    P::Theme: theme::Base,
-{
-    use winit::dpi::PhysicalPosition;
-
-    let scale = loop_
-        .native
-        .as_ref()
-        .map(|native| native.scale_factor())
-        .unwrap_or(1.0);
-
-    loop_.manager.get(id).map_or_else(
-        || crate::android::input::PhysicalBounds {
-            position: PhysicalPosition::new(0.0, 0.0),
-            size: (0.0, 0.0),
-        },
-        |window| crate::android::input::PhysicalBounds {
-            position: PhysicalPosition::new(
-                f64::from(window.position.x) * scale,
-                f64::from(window.position.y) * scale,
-            ),
-            size: (
-                f64::from(window.size.width) * scale,
-                f64::from(window.size.height) * scale,
-            ),
-        },
-    )
 }

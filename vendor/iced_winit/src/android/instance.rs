@@ -760,6 +760,13 @@ where
 
     match result {
         Routed::Deliver(event) => {
+            // A press on the resize border of a resizable window starts
+            // an interactive resize session instead of reaching its
+            // content, like the resize border of a decorated window.
+            if start_edge_resize(loop_, &event) {
+                return;
+            }
+
             let tag = loop_
                 .router
                 .cursor()
@@ -823,26 +830,17 @@ where
                 pointer_event(loop_, release);
             }
         }
-        Routed::Resized { bounds, release } => {
-            let id = loop_
-                .manager
-                .z_order()
-                .last()
-                .copied()
-                .or_else(|| loop_.manager.root_id());
+        Routed::Resized { id, bounds, release } => {
+            let position = PhysicalPosition::new(bounds.position.x, bounds.position.y)
+                .to_logical::<f32>(scale);
+            let size =
+                PhysicalPosition::new(bounds.size.0, bounds.size.1).to_logical::<f32>(scale);
 
-            if let Some(id) = id {
-                let position = PhysicalPosition::new(bounds.position.x, bounds.position.y)
-                    .to_logical::<f32>(scale);
-                let size =
-                    PhysicalPosition::new(bounds.size.0, bounds.size.1).to_logical::<f32>(scale);
-
-                if let Some(window) = loop_.manager.get_mut(id) {
-                    window.position = Point::new(position.x, position.y);
-                }
-
-                resize_window(loop_, id, Size::new(size.x, size.y));
+            if let Some(window) = loop_.manager.get_mut(id) {
+                window.position = Point::new(position.x, position.y);
             }
+
+            resize_window(loop_, id, Size::new(size.x, size.y));
 
             if let Some(release) = release {
                 pointer_event(loop_, release);
@@ -850,6 +848,69 @@ where
         }
         Routed::Consumed => {}
     }
+}
+
+/// Starts an interactive resize session when the given event is a pointer
+/// press on the resize border of a resizable logical window, like the
+/// resize border of a decorated window on the desktop platforms.
+///
+/// Returns `true` when the session started, in which case the event is
+/// consumed instead of being delivered to the user interface.
+fn start_edge_resize<P>(loop_: &mut Loop<P>, event: &winit::event::WindowEvent) -> bool
+where
+    P: Program,
+    P::Theme: theme::Base,
+{
+    use winit::dpi::PhysicalPosition;
+    use winit::event::ElementState;
+
+    if !matches!(
+        event,
+        winit::event::WindowEvent::PointerButton {
+            state: ElementState::Pressed,
+            ..
+        }
+    ) {
+        return false;
+    }
+
+    let scale = loop_
+        .native
+        .as_ref()
+        .map(|native| native.scale_factor())
+        .unwrap_or(1.0);
+
+    let Some(cursor) = loop_.router.cursor() else {
+        return false;
+    };
+
+    let position = cursor.to_logical::<f32>(scale);
+
+    let Some((id, direction)) = loop_
+        .manager
+        .resize_hit_test(Point::new(position.x, position.y))
+    else {
+        return false;
+    };
+
+    // The press focuses and raises the window, like a press delivered to
+    // its content would.
+    loop_.router.focus(id);
+
+    if Some(id) != loop_.manager.root_id() {
+        loop_.manager.raise(id);
+    }
+
+    let bounds = physical_bounds_of(loop_, id);
+
+    if !loop_.router.start_drag_resize(id, direction, bounds) {
+        return false;
+    }
+
+    loop_.needs_rebuild = true;
+    loop_.request_redraw();
+
+    true
 }
 
 /// Resizes a logical window to the given logical size, honoring its size
@@ -901,6 +962,41 @@ where
 
     loop_.needs_rebuild = true;
     loop_.request_redraw();
+}
+
+/// The physical bounds of a logical window.
+pub(crate) fn physical_bounds_of<P>(
+    loop_: &Loop<P>,
+    id: Id,
+) -> crate::android::input::PhysicalBounds
+where
+    P: Program,
+    P::Theme: theme::Base,
+{
+    use winit::dpi::PhysicalPosition;
+
+    let scale = loop_
+        .native
+        .as_ref()
+        .map(|native| native.scale_factor())
+        .unwrap_or(1.0);
+
+    loop_.manager.get(id).map_or_else(
+        || crate::android::input::PhysicalBounds {
+            position: PhysicalPosition::new(0.0, 0.0),
+            size: (0.0, 0.0),
+        },
+        |window| crate::android::input::PhysicalBounds {
+            position: PhysicalPosition::new(
+                f64::from(window.position.x) * scale,
+                f64::from(window.position.y) * scale,
+            ),
+            size: (
+                f64::from(window.size.width) * scale,
+                f64::from(window.size.height) * scale,
+            ),
+        },
+    )
 }
 
 /// Maximizes or restores a logical window.

@@ -208,6 +208,42 @@ impl Manager {
         })
     }
 
+    /// Returns the topmost window whose resize border contains the given
+    /// logical position, together with the direction to resize it in.
+    ///
+    /// The root window—which always covers the whole native window—and
+    /// maximized windows are never resizable through their borders.
+    pub fn resize_hit_test(&self, position: Point) -> Option<(Id, window::Direction)> {
+        let id = self.hit_test(position)?;
+        let window = self.entries.get(&id)?;
+
+        if !window.resizable || Some(id) == self.root || window.maximized.is_some() {
+            return None;
+        }
+
+        const RESIZE_BORDER: f32 = 20.0;
+
+            let bounds = window.bounds();
+            let left = position.x < bounds.x + RESIZE_BORDER;
+            let right = position.x >= bounds.x + bounds.width - RESIZE_BORDER;
+            let top = position.y < bounds.y + RESIZE_BORDER;
+            let bottom = position.y >= bounds.y + bounds.height - RESIZE_BORDER;
+
+        let direction=    match (left, right, top, bottom) {
+                (true, _, true, _) => Some(window::Direction::NorthWest),
+                (_, true, true, _) => Some(window::Direction::NorthEast),
+                (true, _, _, true) => Some(window::Direction::SouthWest),
+                (_, true, _, true) => Some(window::Direction::SouthEast),
+                (true, ..) => Some(window::Direction::West),
+                (_, true, ..) => Some(window::Direction::East),
+                (_, _, true, _) => Some(window::Direction::North),
+                (_, _, _, true) => Some(window::Direction::South),
+                _ => None,
+            };
+
+        direction.map(|d| (id, d))
+    }
+
     /// Clamps the position of every window so that it stays fully visible
     /// on the screen.
     pub fn clamp_positions(&mut self) {
@@ -237,6 +273,8 @@ impl Manager {
         size
     }
 }
+
+
 
 /// Computes the initial geometry of a logical window from its [`Settings`].
 pub fn initial_geometry(settings: &Settings, screen: Screen, is_root: bool) -> (Point, Size) {
