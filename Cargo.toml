@@ -183,7 +183,7 @@ ringbuffer = "0.16"
 rmp = "0.8"
 rmp-serde = "1"
 rusqlite = { version = "0.40", features = ["bundled-full"] }
-rust-embed = "8"
+rust-embed = { version = "8", features = ["debug-embed"] }
 rustc-hash = "2"
 schemars = { version = "1", features = ["uuid1"] }
 serde = { version = "1", features = ["derive", "rc"] }
@@ -251,7 +251,3 @@ opt-level = 3
 
 [profile.release]
 debug = "full"
-
-[profile.android-dev]
-inherits = "dev"
-debug-assertions = false

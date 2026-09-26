@@ -91,7 +91,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: android-dev
+          shared-key: workspace-deps-android
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - run: just check android aarch64
@@ -100,7 +100,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: android-dev-aarch64
+          name: build-android-aarch64
           retention-days: 1
           if-no-files-found: error
           path: |

@@ -188,10 +188,10 @@ def package_desktop(profile: str) -> None:
 
 def package_android(profile: str, arch: str) -> None:
     rust_target = android.rust_target_for_arch(arch)
-    cargo_profile = "android-dev" if profile == "dev" else "release"
+    out_dir = "release" if profile == "release" else "debug"
     apk = build.build_android(profile, arch, strip_symbols=True)
 
-    symbols = REPO / "target" / rust_target / cargo_profile / "liblapiz_app.so"
+    symbols = REPO / "target" / rust_target / out_dir / "liblapiz_app.so"
     name = artifact_name_for(profile, "android", arch)
 
     OUTPUT.mkdir(parents=True, exist_ok=True)

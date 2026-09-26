@@ -93,7 +93,9 @@ androidComponents {
 
     onVariants(selector().all()) { variant ->
         val taskSuffix = variant.name.replaceFirstChar { it.uppercaseChar() }
-        val profile = if (variant.buildType == "release") "release" else "android-dev"
+        val profile = if (variant.buildType == "release") "release" else "dev"
+        // The built-in dev profile is built into target/debug.
+        val outDir = if (variant.buildType == "release") "release" else "debug"
         val buildRust = tasks.register<Exec>("buildRust$taskSuffix") {
             workingDir = repoRoot
             doFirst {
@@ -107,7 +109,7 @@ androidComponents {
         val syncRust = tasks.register<SyncGeneratedDirectory>("syncRust$taskSuffix") {
             dependsOn(buildRust)
             outputDirectory.set(layout.buildDirectory.dir("generated/jniLibs/${variant.name}"))
-            from(repoRoot.resolve("target/$rustTarget/$profile/liblapiz_app.so")) {
+            from(repoRoot.resolve("target/$rustTarget/$outDir/liblapiz_app.so")) {
                 into(abi)
             }
             into(outputDirectory)
