@@ -47,7 +47,7 @@ pub(crate) fn run(#[cfg(target_os = "android")] android_app: AndroidApp) {
         use std::{ffi::CString, fs, io};
 
         lapiz_dirs::set_android_data_dir(
-            android_app.internal_data_path().expect("Android data path"),
+            android_app.external_data_path().expect("Android data path"),
         );
         let destination = assets_dir().join("builtin_assets");
         fs::create_dir_all(&destination).unwrap();
