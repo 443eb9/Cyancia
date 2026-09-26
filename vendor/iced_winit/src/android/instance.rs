@@ -784,6 +784,10 @@ where
                         core::Event::Pointer(crate::core::pointer::Event::PointerPressed { .. })
                     ) {
                         loop_.router.focus(tag);
+
+                        if Some(tag) != loop_.manager.root_id() {
+                            loop_.manager.raise(tag);
+                        }
                     }
 
                     loop_.events.push((tag, core_event));
