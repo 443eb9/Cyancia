@@ -5,7 +5,7 @@ use iced_core::{Element, Length, Size, Theme, alignment::Vertical, window};
 use iced_futures::Subscription;
 use iced_runtime::{
     Task,
-    window::{close, open},
+    window::{close, open, raw_id},
 };
 use iced_widget::{Column, column, component::component, row};
 use lapiz_assets::{AssetAppExt as _, asset::AssetHandle};
@@ -18,8 +18,7 @@ use lapiz_effect::{
 use lapiz_i18n::t;
 use lapiz_image::texel::TexelType;
 use lapiz_runtime::{
-    Services,
-    windows::{WindowView, WindowViewId},
+    Services, platform, windows::{WindowView, WindowViewId}
 };
 use lapiz_shader_graph::{
     GraphElement,
@@ -82,9 +81,15 @@ impl WindowView for FilterEditor {
             .all_handles_of::<FilterPreset>()
             .expect("Failed to list filter presets");
         let (main_window, open) = open(window::Settings {
+            decorations: false,
             size: Size {
                 width: 1280.0,
                 height: 800.0,
+            },
+            #[cfg(target_os = "windows")]
+            platform_specific: window::settings::PlatformSpecific {
+                corner_preference: window::settings::platform::CornerPreference::DoNotRound,
+                ..Default::default()
             },
             ..Default::default()
         });

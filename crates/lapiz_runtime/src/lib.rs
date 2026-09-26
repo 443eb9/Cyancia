@@ -10,8 +10,15 @@ use std::{
 };
 
 use iced_core::{Element, Length, Widget, window};
-use iced_futures::{Subscription, backend::native};
-use iced_runtime::{Task, window::close_events};
+use iced_futures::{
+    Subscription,
+    backend::native,
+    event::{listen, listen_with},
+};
+use iced_runtime::{
+    Task,
+    window::{close_events, raw_id},
+};
 use iced_winit::program::Program;
 
 use crate::{
@@ -192,6 +199,13 @@ impl Program for Application {
                 .wm
                 .update(m, &mut state.services)
                 .map(ApplicationMessage::Window),
+            ApplicationMessage::WindowOpened(id) => {
+                raw_id::<()>(id).map(move |raw_id| ApplicationMessage::WindowRawId(id, raw_id))
+            }
+            ApplicationMessage::WindowRawId(_, raw_id) => {
+                platform::attach_resize_handle(raw_id);
+                Task::none()
+            }
             ApplicationMessage::WindowClosed(id) => {
                 state.wm.on_window_closed(id, &mut state.services).discard()
             }
@@ -248,9 +262,16 @@ impl Program for Application {
             .wm
             .subscription(&state.services)
             .map(ApplicationMessage::Window);
-        let window_closed = close_events().map(ApplicationMessage::WindowClosed);
+        let external = listen_with(|event, _, window_id| match event {
+            iced_core::Event::Window(event) => match event {
+                window::Event::Opened { .. } => Some(ApplicationMessage::WindowOpened(window_id)),
+                window::Event::Closed => Some(ApplicationMessage::WindowClosed(window_id)),
+                _ => None,
+            },
+            _ => None,
+        });
 
-        Subscription::batch([windows, window_closed])
+        Subscription::batch([windows, external])
     }
 }
 
@@ -293,6 +314,8 @@ impl Runtime {
 
 pub enum ApplicationMessage {
     Window(WindowViewManagerMessage),
+    WindowOpened(window::Id),
+    WindowRawId(window::Id, u64),
     WindowClosed(window::Id),
 }
 

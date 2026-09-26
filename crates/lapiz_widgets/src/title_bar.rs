@@ -1,4 +1,8 @@
-use iced_core::{Border, Element, Length, Theme};
+use iced_core::{
+    Border, Element, Length, Point, Rectangle, Size, Theme, Widget, layout,
+    pointer::{self, mouse},
+    renderer, widget,
+};
 use iced_widget::{button, container};
 use lapiz_runtime::Renderer;
 
@@ -108,4 +112,74 @@ pub fn default(theme: &Theme, _status: flex::Status) -> Style {
             width: 1.0,
             color: p.background.strong.color,
         })
+}
+
+pub struct WindowCaptionRegion<Message> {
+    on_drag: Box<dyn Fn(Point) -> Message>,
+}
+
+impl<Message> WindowCaptionRegion<Message> {
+    pub fn new(on_drag: impl Fn(Point) -> Message + 'static) -> Self {
+        Self {
+            on_drag: Box::new(on_drag),
+        }
+    }
+}
+
+impl<Message> Widget<Message, Theme, Renderer> for WindowCaptionRegion<Message> {
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fill)
+    }
+
+    fn layout(
+        &mut self,
+        _tree: &mut widget::Tree,
+        _renderer: &Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        layout::atomic(limits, Length::Fill, Length::Fill)
+    }
+
+    fn update(
+        &mut self,
+        _tree: &mut widget::Tree,
+        event: &iced_core::Event,
+        layout: layout::Layout<'_>,
+        cursor: mouse::Cursor,
+        _renderer: &Renderer,
+        shell: &mut iced_core::Shell<'_, Message>,
+        _viewport: &Rectangle,
+    ) {
+        match event {
+            iced_core::Event::Pointer(event @ pointer::Event::PointerPressed { position, .. })
+                if event.is_primary_press() =>
+            {
+                if cursor.is_over(layout.bounds()) {
+                    shell.publish((self.on_drag)(*position));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn draw(
+        &self,
+        _tree: &widget::Tree,
+        _renderer: &mut Renderer,
+        _theme: &Theme,
+        _style: &renderer::Style,
+        _layout: layout::Layout<'_>,
+        _cursor: mouse::Cursor,
+        _viewport: &Rectangle,
+    ) {
+    }
+}
+
+impl<'a, Message> From<WindowCaptionRegion<Message>> for Element<'a, Message, Theme, Renderer>
+where
+    Message: 'a,
+{
+    fn from(value: WindowCaptionRegion<Message>) -> Element<'a, Message, Theme, Renderer> {
+        Element::new(value)
+    }
 }

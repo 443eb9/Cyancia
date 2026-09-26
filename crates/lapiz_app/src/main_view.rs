@@ -56,7 +56,7 @@ use lapiz_widgets::{
     icon::{self, Icon},
     label::Label,
     menu::{Item, Menu, MenuBar},
-    title_bar::TitleBar,
+    title_bar::{TitleBar, WindowCaptionRegion},
 };
 use moxcms::ProfileText;
 use unic_langid::LanguageIdentifier;
@@ -70,6 +70,7 @@ pub struct MainView {
 
 pub enum MainViewMessage {
     Dock(DockMessage),
+    MainWindowDrag,
     WindowEvent(window::Id, window::Event),
     KeyboardEvent(window::Id, keyboard::Event),
     PointerEvent(window::Id, pointer::Event),
@@ -335,7 +336,6 @@ impl WindowView for MainView {
             return Some(dock);
         }
 
-        let window_decorations = &self.dock_manager.main_window().window_decorations;
         let title_content = Flex::row([
             Label::new("LAPIZ").size(13).strong().into(),
             Element::new(
@@ -343,7 +343,7 @@ impl WindowView for MainView {
                     .height(Length::Fill),
             )
             .map(MainViewMessage::MenuBar),
-            window_decorations.caption_region(),
+            WindowCaptionRegion::new(|_| MainViewMessage::MainWindowDrag).into(),
         ])
         .width(Length::Fill)
         .height(Length::Fill)
@@ -420,6 +420,9 @@ impl WindowView for MainView {
                 .dock_manager
                 .update(m, services)
                 .map(MainViewMessage::Dock),
+            MainViewMessage::MainWindowDrag => {
+                window::drag(self.dock_manager.main_window().id)
+            }
             MainViewMessage::WindowEvent(id, event) => {
                 let unfocused = matches!(event, window::Event::Unfocused);
                 let window_task = self.dock_manager.on_window_event(id, event).discard();

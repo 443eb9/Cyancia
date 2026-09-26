@@ -150,9 +150,16 @@ impl Dock for ColorSelectorDock {
                     window::gain_focus(id)
                 } else {
                     let (id, task) = window::open(window::Settings {
+                        decorations: false,
                         size: Size {
                             width: 700.0,
                             height: 900.0,
+                        },
+                        #[cfg(target_os = "windows")]
+                        platform_specific: window::settings::PlatformSpecific {
+                            corner_preference:
+                                window::settings::platform::CornerPreference::DoNotRound,
+                            ..Default::default()
                         },
                         ..Default::default()
                     });
