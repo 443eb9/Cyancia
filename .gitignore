@@ -3,6 +3,7 @@
 /android/app/build/
 /android/build/
 /android/local.properties
+/android/gradle.properties
 /android/app/bin/
 *.sqlite3
 *.modified
