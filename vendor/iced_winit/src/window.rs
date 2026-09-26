@@ -82,7 +82,7 @@ where
                 waker,
                 state,
                 exit_on_close_request,
-                surface: Some(surface),
+                surface,
                 surface_version,
                 renderer,
                 mouse_interaction: mouse::Interaction::None,
@@ -180,7 +180,7 @@ where
     pub state: State<P>,
     pub exit_on_close_request: bool,
     pub mouse_interaction: mouse::Interaction,
-    pub surface: Option<C::Surface>,
+    pub surface: C::Surface,
     pub surface_version: u64,
     pub renderer: P::Renderer,
     pub redraw_at: Option<Instant>,
@@ -311,7 +311,7 @@ where
     }
 }
 
-struct Preedit<Renderer>
+pub(crate) struct Preedit<Renderer>
 where
     Renderer: text::Renderer,
 {
@@ -324,7 +324,7 @@ impl<Renderer> Preedit<Renderer>
 where
     Renderer: text::Renderer,
 {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             position: Point::ORIGIN,
             spans: Vec::new(),
@@ -332,7 +332,7 @@ where
         }
     }
 
-    fn update(
+    pub(crate) fn update(
         &mut self,
         cursor: Rectangle,
         preedit: &input_method::Preedit,
@@ -385,7 +385,13 @@ where
         }
     }
 
-    fn draw(&self, renderer: &mut Renderer, color: Color, background: Color, viewport: &Rectangle) {
+    pub(crate) fn draw(
+        &self,
+        renderer: &mut Renderer,
+        color: Color,
+        background: Color,
+        viewport: &Rectangle,
+    ) {
         use text::Paragraph as _;
 
         if self.content.min_width() < 1.0 {
