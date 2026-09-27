@@ -1,7 +1,6 @@
 use std::io::{self, Cursor, Read, Write};
 
 use anyhow::Result;
-
 use indexmap::IndexMap;
 use lapiz_assets::{asset::Asset, loader::AssetSerializer};
 use lapiz_effect::asset::{

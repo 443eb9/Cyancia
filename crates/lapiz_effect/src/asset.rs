@@ -3,7 +3,6 @@
 use std::io::{self, Read, Write};
 
 use anyhow::Result;
-
 use lapiz_assets::{asset::Asset, loader::AssetSerializer};
 use lapiz_shader_graph::save::SerializableGraph;
 use lapiz_utils::wrapper;

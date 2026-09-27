@@ -89,10 +89,10 @@ impl AssetBundleCache {
 
     pub fn get_cached_asset(&self, id: &UntypedAssetId) -> Result<Arc<dyn ErasedAsset>> {
         let assets = self.assets.read();
-        Ok(assets
+        assets
             .get(id)
             .cloned()
-            .ok_or_else(|| anyhow!("Asset not found for asset ID: {id}"))?)
+            .ok_or_else(|| anyhow!("Asset not found for asset ID: {id}"))
     }
 
     pub fn delete_cached_asset(&self, id: &UntypedAssetId) -> Result<()> {
@@ -250,7 +250,7 @@ pub(crate) fn read_asset_file(
 }
 
 pub(crate) fn read_tag_file(tag_path: &Path, bundle: &dyn ErasedAssetBundle) -> Result<TagFile> {
-    Ok(bundle.read_tag(tag_path)?)
+    bundle.read_tag(tag_path)
 }
 
 pub(crate) fn read_asset_tags_file(
@@ -267,7 +267,7 @@ pub(crate) fn read_asset_tags_file(
         }
     }
 
-    Ok(bundle.read_asset_tags(asset_path)?)
+    bundle.read_asset_tags(asset_path)
 }
 
 pub(crate) fn scan_bundle_assets(
@@ -445,7 +445,7 @@ fn read_modified_asset(
 ) -> Result<Arc<dyn ErasedAsset>> {
     let path = modified_bundle_absolute_path(assets_root, bundle_id).join(asset_relative_path);
     let mut file = File::open(path)?;
-    Ok(serializer.read(&mut file).map(Into::into)?)
+    serializer.read(&mut file).map(Into::into)
 }
 
 fn write_modified_asset(

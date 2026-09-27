@@ -1,7 +1,6 @@
 use std::io::{self, Cursor, Read, Write};
 
 use anyhow::Result;
-
 use image::{DynamicImage, ImageFormat};
 use lapiz_assets::{asset::Asset, loader::AssetSerializer};
 use serde::{Deserialize, Serialize};

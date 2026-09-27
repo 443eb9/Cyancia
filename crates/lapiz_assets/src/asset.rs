@@ -210,12 +210,12 @@ impl<T: Asset> AssetHandle<T> {
             }
         };
 
-        Ok(dynamic.downcast_arc::<T>().map_err(|_| {
+        dynamic.downcast_arc::<T>().map_err(|_| {
             anyhow!(
                 "Failed to downcast asset into desired type: {}",
                 T::TYPE_NAME
             )
-        })?)
+        })
     }
 
     pub fn update(&self, asset: T) -> Result<()> {
