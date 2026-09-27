@@ -24,8 +24,6 @@ use lapiz_input::InputPlugin;
 use lapiz_main_view::MainViewPlugin;
 use lapiz_render::RenderPlugin;
 use lapiz_runtime::Application;
-#[cfg(target_os = "android")]
-use lapiz_runtime::android;
 use lapiz_selection_tool::SelectionPlugin;
 use lapiz_shader_graph::ShaderGraphPlugin;
 use lapiz_tools::ToolsPlugin;
