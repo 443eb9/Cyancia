@@ -22,7 +22,6 @@ path = [
 
     ".gitignore",
     ".node-version",
-    "about.hbs",
     "about.toml",
     "Cargo.lock",
     "Cargo.toml",

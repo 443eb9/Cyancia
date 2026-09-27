@@ -3,7 +3,6 @@
 import argparse
 import hashlib
 import json
-import os
 import platform
 import shutil
 import subprocess
@@ -99,18 +98,7 @@ def package_desktop(profile: str) -> None:
         shutil.rmtree(staging)
     staging.mkdir()
 
-    # TODO: We should embed readme, licenses, assets into the binary,
-    #       instead of an archive, to match the behavior on android.
-    #       Currently, android only packs the binary, checksum and debug symbols.
-    #       In the future, packages for all platforms should only include a
-    #       single binary, checksum for the binary, and debug symbols.
-    for source, target in (
-        (executable, binary),
-        (REPO / "README.md", "README.md"),
-        (REPO / "LICENSE", "LICENSE"),
-        (REPO / "LICENSES/MIT.txt", "MIT.txt"),
-    ):
-        shutil.copy2(source, staging / target)
+    shutil.copy2(executable, staging / binary)
 
     if system == "linux":
         symbols = OUTPUT / f"{name}.debug"
@@ -140,38 +128,6 @@ def package_desktop(profile: str) -> None:
         if not pdb.is_file():
             raise RuntimeError(f"missing debug symbols: {pdb}")
         shutil.copy2(pdb, symbols)
-
-    subprocess.run(
-        [
-            "cargo",
-            "about",
-            "generate",
-            "about.hbs",
-            "--output-file",
-            str(staging / "THIRD_PARTY_LICENSES.html"),
-        ],
-        cwd=REPO,
-        check=True,
-    )
-
-    tracked = subprocess.check_output(
-        ["git", "ls-files", "-z", "--", "assets"], cwd=REPO
-    ).split(b"\0")
-    for raw in filter(None, tracked):
-        source = os.fsdecode(raw)
-        if (
-            subprocess.run(
-                ["git", "check-ignore", "--no-index", "-q", "--", source],
-                cwd=REPO,
-                check=False,
-            ).returncode
-            == 0
-        ):
-            print(f"Excluded ignored asset: {source}")
-            continue
-        destination = staging / source
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(REPO / source, destination)
 
     archive.unlink(missing_ok=True)
     digest.unlink(missing_ok=True)

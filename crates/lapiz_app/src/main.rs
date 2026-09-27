@@ -5,11 +5,13 @@ use self::main_view::MainView;
 mod main_view;
 lapiz_i18n::define_i18n!("app");
 
+use lapiz_about::AboutPlugin;
 use lapiz_abr_bridge::AbrAssetBundle;
 use lapiz_actions::ActionPlugin;
 use lapiz_assets::{
     AssetsPlugin,
     bundle::{ErasedAssetBundle, directory::AssetDirectory, standard::StandardAssetBundle},
+    embedded,
 };
 use lapiz_brush::BrushPlugin;
 use lapiz_bucket_tool::BucketPlugin;
@@ -33,6 +35,7 @@ use lapiz_shader_graph::ShaderGraphPlugin;
 use lapiz_tools::ToolsPlugin;
 use lapiz_transform_tool::FreeTransformPlugin;
 use lapiz_undo::UndoPlugin;
+use lapiz_utils::log_err::LogErr as _;
 #[cfg(target_os = "android")]
 use winit::platform::android::activity::AndroidApp;
 
@@ -44,23 +47,12 @@ fn main() {
 pub(crate) fn run(#[cfg(target_os = "android")] android_app: AndroidApp) {
     #[cfg(target_os = "android")]
     {
-        use std::{ffi::CString, fs, io};
-
         lapiz_dirs::set_android_data_dir(
             android_app.external_data_path().expect("Android data path"),
         );
-        let destination = assets_dir().join("builtin_assets");
-        fs::create_dir_all(&destination).unwrap();
-        let manager = android_app.asset_manager();
-        let entries = manager.open_dir(c"builtin_assets").expect("Builtin assets");
-        for entry in entries {
-            let name = entry.to_str().unwrap();
-            let source = CString::new(format!("builtin_assets/{name}")).unwrap();
-            let mut asset = manager.open(&source).expect("Builtin asset");
-            let mut output = fs::File::create(destination.join(name)).unwrap();
-            io::copy(&mut asset, &mut output).unwrap();
-        }
     }
+
+    embedded::extract_if_empty(assets_dir()).log_err();
 
     lapiz_report::setup_panic_hook();
 
@@ -145,7 +137,8 @@ pub(crate) fn run(#[cfg(target_os = "android")] android_app: AndroidApp) {
         .add_plugin(ColorSelectorPlugin)
         .add_plugin(BuiltinDocksPlugin)
         .add_plugin(ImageImporterPlugin)
-        .add_plugin(ImageExporterPlugin);
+        .add_plugin(ImageExporterPlugin)
+        .add_plugin(AboutPlugin);
     app.build_plugins();
 
     {

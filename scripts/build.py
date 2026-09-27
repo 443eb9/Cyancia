@@ -1,6 +1,7 @@
 """Build desktop binaries or Android APKs."""
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -10,7 +11,55 @@ from . import android
 REPO = Path(__file__).resolve().parent.parent
 
 
+def generate_third_party_licenses() -> None:
+    """Generate the third-party license listing embedded by lapiz_about."""
+
+    raw = REPO / "target" / "about" / "third_party_licenses.raw.json"
+    output = REPO / "target" / "about" / "third_party_licenses.json"
+    raw.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "cargo",
+            "about",
+            "generate",
+            "--format",
+            "json",
+            "--output-file",
+            str(raw),
+        ],
+        cwd=REPO,
+        check=True,
+    )
+    data = json.loads(raw.read_text(encoding="utf-8"))
+    licenses = [
+        {"id": entry["id"], "name": entry["name"], "text": entry["text"]}
+        for entry in data["licenses"]
+    ]
+    crates = sorted(
+        (
+            {
+                "name": used["crate"]["name"],
+                "version": used["crate"]["version"],
+                "repository": used["crate"].get("repository"),
+                "license": index,
+            }
+            for index, entry in enumerate(data["licenses"])
+            for used in entry["used_by"]
+        ),
+        key=lambda crate: (crate["name"], crate["version"]),
+    )
+    output.write_text(
+        json.dumps(
+            {"licenses": licenses, "crates": crates},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+
+
 def build_desktop(profile: str) -> Path:
+    generate_third_party_licenses()
     command = ["cargo", "build"]
     if profile == "release":
         command.append("--release")
@@ -23,6 +72,7 @@ def build_desktop(profile: str) -> Path:
 
 
 def build_android(profile: str, arch: str, *, strip_symbols: bool = False) -> Path:
+    generate_third_party_licenses()
     variant = "DevDebug" if profile == "dev" else "ProdRelease"
     apk = REPO / (
         "android/app/build/outputs/apk/dev/debug/app-dev-debug.apk"
