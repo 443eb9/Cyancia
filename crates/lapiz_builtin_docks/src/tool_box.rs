@@ -5,7 +5,7 @@ use iced_runtime::Task;
 use lapiz_canvas::CanvasToolProxyAppExt as _;
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;
-use lapiz_runtime::{Renderer, Services};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_tools::{
     ErasedToolFunctionMessage, ToolFunctionRegistry, ToolId, manifest::ToolBoxManifestConfig,
 };
@@ -51,15 +51,15 @@ impl Dock for ToolBoxDock {
     fn view<'a>(
         &'a self,
         _window_id: window::Id,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
-        let active_tool = services
+        let active_tool = globals
             .current_tool_proxy()
             .and_then(|proxy| proxy.current_tool());
         let tool_button = |tool: &ToolId| {
             let selected = active_tool == Some(tool);
-            let glyph = services
-                .service::<ToolFunctionRegistry>()
+            let glyph = globals
+                .global::<ToolFunctionRegistry>()
                 .icon(tool)
                 .unwrap_or_else(icon::info)
                 .size(12)
@@ -137,16 +137,14 @@ impl Dock for ToolBoxDock {
             .into()
     }
 
-    fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
+    fn update(&mut self, message: Self::Message, globals: &mut Globals) -> Task<Self::Message> {
         match message {
-            ToolBoxDockMessage::Switch(tool) => services
-                .update_current_tool_proxy(|proxy, services| proxy.switch_tool(tool, services))
+            ToolBoxDockMessage::Switch(tool) => globals
+                .update_current_tool_proxy(|proxy, globals| proxy.switch_tool(tool, globals))
                 .unwrap_or_else(Task::none)
                 .map(ToolBoxDockMessage::ToolFunction),
-            ToolBoxDockMessage::ToolFunction(message) => services
-                .update_current_tool_proxy(|proxy, services| {
-                    proxy.handle_message(message, services)
-                })
+            ToolBoxDockMessage::ToolFunction(message) => globals
+                .update_current_tool_proxy(|proxy, globals| proxy.handle_message(message, globals))
                 .unwrap_or_else(Task::none)
                 .map(ToolBoxDockMessage::ToolFunction),
         }

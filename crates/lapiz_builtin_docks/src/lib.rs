@@ -9,7 +9,7 @@ pub mod tool_options;
 lapiz_i18n::define_i18n!("builtin_docks");
 
 use lapiz_dock::DockRegistry;
-use lapiz_runtime::{Application, plugin::Plugin};
+use lapiz_runtime::{Runtime, plugin::Plugin};
 
 use crate::{
     brush_preset::BrushPresetDock, color_selector::ColorSelectorDock, layers::LayersDock,
@@ -19,26 +19,25 @@ use crate::{
 pub struct BuiltinDocksPlugin;
 
 impl Plugin for BuiltinDocksPlugin {
-    fn build(&self, _app: &mut Application) {
+    fn build(&self, _app: &mut Runtime) {
         i18n::init();
     }
 
-    fn finish(&self, app: &mut Application) {
+    fn finish(&self, app: &mut Runtime) {
         let mut registry = DockRegistry::default();
 
         {
-            let mut runtime = app.runtime_mut();
-            let services = runtime.services_mut();
+            let globals = app.globals_mut();
 
-            registry.register(BrushPresetDock::new(services));
-            registry.register(ColorSelectorDock::new(services));
-            registry.register(ToolOptionsDock::new(services));
+            registry.register(BrushPresetDock::new(globals));
+            registry.register(ColorSelectorDock::new(globals));
+            registry.register(ToolOptionsDock::new(globals));
         }
 
         registry.register(LandingDock::new());
         registry.register(LayersDock::default());
         registry.register(ToolBoxDock::new());
 
-        app.add_service_instance(registry);
+        app.add_global_instance(registry);
     }
 }

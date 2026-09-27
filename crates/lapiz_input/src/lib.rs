@@ -1,4 +1,4 @@
-use lapiz_runtime::{Application, plugin::Plugin};
+use lapiz_runtime::{Runtime, plugin::Plugin};
 
 use crate::key::KeyboardState;
 
@@ -8,9 +8,9 @@ pub mod mouse;
 pub struct InputPlugin;
 
 impl Plugin for InputPlugin {
-    fn build(&self, app: &mut Application) {
-        app.add_service::<KeyboardState>();
+    fn build(&self, app: &mut Runtime) {
+        app.add_global::<KeyboardState>();
     }
 
-    fn finish(&self, _app: &mut Application) {}
+    fn finish(&self, _app: &mut Runtime) {}
 }

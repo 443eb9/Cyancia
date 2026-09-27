@@ -15,7 +15,7 @@ use iced_core::{
 };
 use iced_runtime::Task;
 use iced_wgpu::{graphics::geometry, primitive};
-use lapiz_runtime::{Renderer, Services};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_widgets::canvas::{Frame, Path, Stroke};
 
 use crate::{
@@ -56,7 +56,7 @@ impl ColorSelectorState {
         &mut self,
         index: usize,
         position: Point,
-        services: &Services,
+        globals: &Globals,
     ) -> Task<ColorSelectorMessage> {
         let config = &self.presets[self.selected_preset].planes[index];
         let Some(bounds) = self.planes.get(index).map(|plane| plane.bounds) else {
@@ -90,26 +90,26 @@ impl ColorSelectorState {
             None
         };
 
-        self.update_active_selection(position, services)
+        self.update_active_selection(position, globals)
     }
 
     pub(crate) fn start_bar_selection(
         &mut self,
         index: usize,
         position: Point,
-        services: &Services,
+        globals: &Globals,
     ) -> Task<ColorSelectorMessage> {
         if index >= self.bars.len() {
             return Task::none();
         }
         self.active_selection = Some(ActiveSelection::Bar(index));
-        self.update_active_selection(position, services)
+        self.update_active_selection(position, globals)
     }
 
     pub(crate) fn update_active_selection(
         &mut self,
         position: Point,
-        services: &Services,
+        globals: &Globals,
     ) -> Task<ColorSelectorMessage> {
         let Some(selection) = self.active_selection else {
             return Task::none();
@@ -180,7 +180,7 @@ impl ColorSelectorState {
         }
 
         Task::batch([
-            self.refresh_clip_bounds(services),
+            self.refresh_clip_bounds(globals),
             Task::done(ColorSelectorMessage::Changed(self.color())),
         ])
     }
@@ -189,12 +189,12 @@ impl ColorSelectorState {
         &mut self,
         target: SurfaceTarget,
         position: Point,
-        services: &Services,
+        globals: &Globals,
     ) -> Task<ColorSelectorMessage> {
         if self.active_selection.map(|s| s.surface_target()) != Some(target) {
             return Task::none();
         }
-        let task = self.update_active_selection(position, services);
+        let task = self.update_active_selection(position, globals);
         self.active_selection = None;
         Task::batch([
             task,

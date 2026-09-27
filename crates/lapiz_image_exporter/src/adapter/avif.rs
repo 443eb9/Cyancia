@@ -8,7 +8,7 @@ use lapiz_canvas::CCanvas;
 use lapiz_i18n::t;
 use lapiz_image::tile::TileStorageAppExt as _;
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Renderer, Services};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_widgets::{form, spin_slider};
 use serde::{Deserialize, Serialize};
 
@@ -45,7 +45,7 @@ impl ImageFormatExporter for AvifExporter {
         t!("avif_image_description")
     }
 
-    fn dialog_view(&self, _: &Services) -> Element<'_, AvifExportMessage, Theme, Renderer> {
+    fn dialog_view(&self, _: &Globals) -> Element<'_, AvifExportMessage, Theme, Renderer> {
         form()
             .push(
                 t!("quality"),
@@ -59,7 +59,7 @@ impl ImageFormatExporter for AvifExporter {
     fn dialog_update(
         &mut self,
         message: AvifExportMessage,
-        _: &mut Services,
+        _: &mut Globals,
     ) -> Task<AvifExportMessage> {
         match message {
             AvifExportMessage::QualityChanged(quality) => self.quality = quality,
@@ -68,12 +68,12 @@ impl ImageFormatExporter for AvifExporter {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn export(&self, services: &Services, canvas: &CCanvas, path: &Path) -> Result<()> {
+    async fn export(&self, globals: &Globals, canvas: &CCanvas, path: &Path) -> Result<()> {
         let rgba = pixels::readback_root_layer(
             canvas,
-            services.tile_storage(),
-            services.render_device(),
-            services.render_queue(),
+            globals.tile_storage(),
+            globals.render_device(),
+            globals.render_queue(),
         )
         .await?;
         let file = File::create(path)?;

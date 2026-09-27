@@ -26,8 +26,8 @@ use lapiz_image::{
 };
 use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{
-    Services,
     event::Event as _,
+    global::Globals,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowView, WindowViewId},
 };
 use lapiz_shader_graph::graph::slot::{ErasedGraphLiteralUpdateMessage, GraphInputSlotId};
@@ -103,9 +103,9 @@ impl WindowView for FilterPanel {
 
     fn boot(
         _params: Option<Self::BootParams>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Result<(Self, Task<Self::Message>)> {
-        let mut filters = services
+        let mut filters = globals
             .assets()
             .all_handles_of::<FilterPreset>()
             .expect("Failed to list filter presets");
@@ -145,7 +145,7 @@ impl WindowView for FilterPanel {
         ))
     }
 
-    fn view<'a>(&'a self, _: window::Id, services: &'a Services) -> impl Into<Element<'a>> {
+    fn view<'a>(&'a self, _: window::Id, globals: &'a Globals) -> impl Into<Element<'a>> {
         let title_bar = title_bar(label(t!("filter_panel_title")).window_title())
             .on_drag(FilterPanelMessage::Drag)
             .on_close(FilterPanelMessage::Close);
@@ -196,7 +196,7 @@ impl WindowView for FilterPanel {
                             .view_literal(
                                 GraphInputSlotId::new(id.0),
                                 parameter.value.value(),
-                                services.assets(),
+                                globals.assets(),
                             )
                             .map(move |message| {
                                 FilterPanelMessage::ParameterUpdated(*id, message)
@@ -248,33 +248,33 @@ impl WindowView for FilterPanel {
     fn update(
         &mut self,
         message: Self::Message,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> impl Into<Task<Self::Message>> {
         match message {
-            FilterPanelMessage::FilterSelected(index) => self.filter_selected(index, services),
+            FilterPanelMessage::FilterSelected(index) => self.filter_selected(index, globals),
             FilterPanelMessage::ParameterUpdated(id, message) => {
-                self.parameter_updated(id, message, services)
+                self.parameter_updated(id, message, globals)
             }
             FilterPanelMessage::NewFilter | FilterPanelMessage::EditFilter => {
-                services
-                    .service_mut::<WindowCommandBuffer>()
+                globals
+                    .global_mut::<WindowCommandBuffer>()
                     .push(OpenWindowViewCommand::new(WindowViewId::new(
                         "filter_editor",
                     )));
                 Task::none()
             }
-            FilterPanelMessage::Confirm => self.confirm(services),
-            FilterPanelMessage::Cancel => self.cancel(services),
+            FilterPanelMessage::Confirm => self.confirm(globals),
+            FilterPanelMessage::Cancel => self.cancel(globals),
             FilterPanelMessage::RenderFinished(generation, result) => {
-                self.render_finished(generation, result, services)
+                self.render_finished(generation, result, globals)
             }
-            FilterPanelMessage::WindowClosed => self.window_closed(services),
+            FilterPanelMessage::WindowClosed => self.window_closed(globals),
             FilterPanelMessage::Close => close(self.main_window),
             FilterPanelMessage::Drag => drag(self.main_window),
         }
     }
 
-    fn subscription(&self, _services: &Services) -> Subscription<Self::Message> {
+    fn subscription(&self, _globals: &Globals) -> Subscription<Self::Message> {
         let main_window = self.main_window;
         subscription::filter_map(("filter_panel", main_window), move |event| match event {
             subscription::Event::Interaction {
@@ -300,7 +300,7 @@ impl WindowView for FilterPanel {
         })
     }
 
-    fn close(self, _: &mut Services) -> Task<()> {
+    fn close(self, _: &mut Globals) -> Task<()> {
         close(self.main_window)
     }
 
@@ -314,15 +314,11 @@ impl WindowView for FilterPanel {
 }
 
 impl FilterPanel {
-    fn filter_selected(
-        &mut self,
-        index: usize,
-        services: &mut Services,
-    ) -> Task<FilterPanelMessage> {
+    fn filter_selected(&mut self, index: usize, globals: &mut Globals) -> Task<FilterPanelMessage> {
         let Some(handle) = self.filters.get(index).cloned() else {
             return Task::none();
         };
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return Task::none();
         };
         let canvas_id = canvas.id();
@@ -331,7 +327,7 @@ impl FilterPanel {
         let preview_canvas_id = self.canvas_id.unwrap_or(canvas_id);
         let dirty_tiles = if removing_preview {
             self.canvas_id
-                .and_then(|preview_id| services.canvas(&preview_id))
+                .and_then(|preview_id| globals.canvas(&preview_id))
                 .map(|preview_canvas| self.preview_dirty_tiles(preview_canvas))
         } else {
             None
@@ -341,7 +337,7 @@ impl FilterPanel {
             self.selected = None;
             self.renderer = None;
             self.results.clear();
-            self.remove_previews(services);
+            self.remove_previews(globals);
             self.preview_installed = false;
             self.rendering = false;
             self.target_layers.clear();
@@ -358,7 +354,7 @@ impl FilterPanel {
         self.generation += 1;
         self.rendering = true;
         self.results.clear();
-        self.remove_previews(services);
+        self.remove_previews(globals);
         self.preview_installed = false;
         if let Some(dirty_tiles) = dirty_tiles {
             CanvasUpdated::broadcast(CanvasUpdated {
@@ -369,7 +365,7 @@ impl FilterPanel {
         self.target_layers = target_layers.clone();
         self.canvas_id = Some(canvas_id);
 
-        let instance = match FilterInstance::from_asset(&handle, services.assets()) {
+        let instance = match FilterInstance::from_asset(&handle, globals.assets()) {
             Ok(instance) => instance,
             Err(e) => {
                 log::error!("Failed to load filter preset: {e}");
@@ -379,7 +375,7 @@ impl FilterPanel {
                 return Task::none();
             }
         };
-        let renderer = match FilterRenderer::new(services, &instance) {
+        let renderer = match FilterRenderer::new(globals, &instance) {
             Ok(renderer) => renderer,
             Err(e) => {
                 log::error!("Failed to create filter renderer: {e}");
@@ -393,14 +389,14 @@ impl FilterPanel {
         let parameters = instance.parameters().clone();
         self.selected = Some(instance);
         self.renderer = Some(renderer);
-        self.rerender(generation, target_layers, parameters, services)
+        self.rerender(generation, target_layers, parameters, globals)
     }
 
     fn parameter_updated(
         &mut self,
         id: EffectInputSlotId,
         message: ErasedGraphLiteralUpdateMessage,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<FilterPanelMessage> {
         if let Some(instance) = self.selected.as_mut() {
             instance.update_parameter(&id, message);
@@ -415,7 +411,7 @@ impl FilterPanel {
         let generation = self.generation;
         let target_layers = self.target_layers.clone();
         let parameters = instance.parameters().clone();
-        self.rerender(generation, target_layers, parameters, services)
+        self.rerender(generation, target_layers, parameters, globals)
     }
 
     fn rerender(
@@ -423,14 +419,14 @@ impl FilterPanel {
         generation: u64,
         target_layers: Vec<LayerId>,
         parameters: IndexMap<EffectInputSlotId, FilterParameter>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<FilterPanelMessage> {
         let Some(renderer) = self.renderer.as_ref() else {
             return Task::none();
         };
-        let device = services.render_device().clone();
-        let queue = services.render_queue().clone();
-        let tile_storage = services.tile_storage().clone();
+        let device = globals.render_device().clone();
+        let queue = globals.render_queue().clone();
+        let tile_storage = globals.tile_storage().clone();
         renderer
             .run(target_layers, parameters, &tile_storage, &device, &queue)
             .map(move |result| FilterPanelMessage::RenderFinished(generation, result))
@@ -440,7 +436,7 @@ impl FilterPanel {
         &mut self,
         generation: u64,
         result: Result<HashMap<LayerId, DynamicLayerStorage>>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<FilterPanelMessage> {
         if generation != self.generation {
             return Task::none();
@@ -456,13 +452,13 @@ impl FilterPanel {
         let Some(canvas_id) = self.canvas_id else {
             return Task::none();
         };
-        let Some(canvas) = services.canvas(&canvas_id) else {
+        let Some(canvas) = globals.canvas(&canvas_id) else {
             log::warn!("Filter preview canvas no longer exists; dropping results");
             return Task::none();
         };
         let dirty_tiles = self.preview_dirty_tiles(canvas);
         {
-            let overriders = services.service_mut::<LayerPreviewOverriders>();
+            let overriders = globals.global_mut::<LayerPreviewOverriders>();
             for (layer_id, storage) in &results {
                 overriders.insert_overrider(
                     *layer_id,
@@ -479,22 +475,22 @@ impl FilterPanel {
         Task::none()
     }
 
-    fn confirm(&mut self, services: &mut Services) -> Task<FilterPanelMessage> {
+    fn confirm(&mut self, globals: &mut Globals) -> Task<FilterPanelMessage> {
         self.generation += 1;
         self.rendering = false;
         let Some(canvas_id) = self.canvas_id else {
             return Task::none();
         };
-        let device = services.render_device().clone();
-        let queue = services.render_queue().clone();
+        let device = globals.render_device().clone();
+        let queue = globals.render_queue().clone();
         let results = mem::take(&mut self.results);
-        self.remove_previews(services);
+        self.remove_previews(globals);
         self.preview_installed = false;
         let target_layers = mem::take(&mut self.target_layers);
 
         let mut commands = Vec::<TileReplaceCommand>::new();
         {
-            let tiles = services.tile_storage();
+            let tiles = globals.tile_storage();
             for layer_id in &target_layers {
                 let Some(result) = results.get(layer_id) else {
                     continue;
@@ -520,7 +516,7 @@ impl FilterPanel {
 
         if !commands.is_empty() {
             let batched = BatchedUndoCommand::new("Filter".into(), commands);
-            if let Err(e) = services.push_undo_command(&canvas_id, batched) {
+            if let Err(e) = globals.push_undo_command(&canvas_id, batched) {
                 log::error!("Failed to push filter undo command: {e}");
             }
         }
@@ -528,21 +524,21 @@ impl FilterPanel {
         close(self.main_window)
     }
 
-    fn cancel(&mut self, services: &mut Services) -> Task<FilterPanelMessage> {
-        self.cancel_internal(services)
+    fn cancel(&mut self, globals: &mut Globals) -> Task<FilterPanelMessage> {
+        self.cancel_internal(globals)
     }
 
-    fn window_closed(&mut self, services: &mut Services) -> Task<FilterPanelMessage> {
-        self.cancel_internal(services)
+    fn window_closed(&mut self, globals: &mut Globals) -> Task<FilterPanelMessage> {
+        self.cancel_internal(globals)
     }
 
-    fn cancel_internal(&mut self, services: &mut Services) -> Task<FilterPanelMessage> {
+    fn cancel_internal(&mut self, globals: &mut Globals) -> Task<FilterPanelMessage> {
         self.generation += 1;
         self.rendering = false;
-        self.remove_previews(services);
+        self.remove_previews(globals);
         self.preview_installed = false;
         if let Some(canvas_id) = self.canvas_id
-            && let Some(canvas) = services.canvas(&canvas_id)
+            && let Some(canvas) = globals.canvas(&canvas_id)
         {
             let dirty_tiles = self.preview_dirty_tiles(canvas);
             CanvasUpdated::broadcast(CanvasUpdated {
@@ -564,11 +560,11 @@ impl FilterPanel {
         dirty_tiles
     }
 
-    fn remove_previews(&mut self, services: &mut Services) {
+    fn remove_previews(&mut self, globals: &mut Globals) {
         if !self.preview_installed {
             return;
         }
-        let overriders = services.service_mut::<LayerPreviewOverriders>();
+        let overriders = globals.global_mut::<LayerPreviewOverriders>();
         for layer_id in &self.target_layers {
             overriders.remove_overrider(layer_id);
         }

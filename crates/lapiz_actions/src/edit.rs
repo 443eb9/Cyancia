@@ -10,7 +10,7 @@ use lapiz_image::{
     layer::{LayerPosition, pixel_layer::PixelLayer},
     tile::TileStorageAppExt as _,
 };
-use lapiz_runtime::Services;
+use lapiz_runtime::global::Globals;
 use lapiz_undo::{BatchedUndoCommand, UndoStacks};
 use lapiz_utils::log_err::LogErr as _;
 
@@ -26,18 +26,17 @@ impl ActionFunction for UndoAction {
         ActionId::new("undo_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        if services.update_current_tool_proxy(|proxy, services| proxy.undo(services)) == Some(true)
-        {
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
+        if globals.update_current_tool_proxy(|proxy, globals| proxy.undo(globals)) == Some(true) {
             return Task::none();
         }
 
-        let Some(canvas_id) = services.current_canvas_id() else {
+        let Some(canvas_id) = globals.current_canvas_id() else {
             return Task::none();
         };
-        services.service_scope::<UndoStacks, _>(|stacks, services| {
+        globals.update_global::<UndoStacks, _>(|stacks, globals| {
             if let Some(stack) = stacks.get_mut(&*canvas_id) {
-                stack.undo(services).log_err();
+                stack.undo(globals).log_err();
             }
         });
         Task::none()
@@ -54,18 +53,17 @@ impl ActionFunction for RedoAction {
         ActionId::new("redo_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        if services.update_current_tool_proxy(|proxy, services| proxy.redo(services)) == Some(true)
-        {
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
+        if globals.update_current_tool_proxy(|proxy, globals| proxy.redo(globals)) == Some(true) {
             return Task::none();
         }
 
-        let Some(canvas_id) = services.current_canvas_id() else {
+        let Some(canvas_id) = globals.current_canvas_id() else {
             return Task::none();
         };
-        services.service_scope::<UndoStacks, _>(|stacks, services| {
+        globals.update_global::<UndoStacks, _>(|stacks, globals| {
             if let Some(stack) = stacks.get_mut(&*canvas_id) {
-                stack.redo(services).log_err();
+                stack.redo(globals).log_err();
             }
         });
         Task::none()
@@ -86,15 +84,11 @@ impl ActionFunction for PasteIntoNewLayerAction {
         ActionId::new("paste_into_new_layer_action".into())
     }
 
-    fn trigger(&self, _services: &mut Services) -> Task<Self::Message> {
+    fn trigger(&self, _globals: &mut Globals) -> Task<Self::Message> {
         clipboard::read(Kind::Files).map(PasteMessage::Clipboard)
     }
 
-    fn handle_message(
-        &self,
-        message: Self::Message,
-        services: &mut Services,
-    ) -> Task<Self::Message> {
+    fn handle_message(&self, message: Self::Message, globals: &mut Globals) -> Task<Self::Message> {
         let PasteMessage::Clipboard(Ok(content)) = message else {
             return Task::none();
         };
@@ -112,11 +106,11 @@ impl ActionFunction for PasteIntoNewLayerAction {
             return Task::none();
         }
 
-        let Some(canvas_id) = services.current_canvas_id() else {
+        let Some(canvas_id) = globals.current_canvas_id() else {
             return Task::none();
         };
 
-        let (parent, position, profile) = services
+        let (parent, position, profile) = globals
             .update_canvas(&canvas_id, |canvas, _| {
                 let (parent, position) = {
                     let mut cur_parent = canvas.active_layer_node();
@@ -145,7 +139,7 @@ impl ActionFunction for PasteIntoNewLayerAction {
         let mut layers = Vec::new();
         for path in &paths {
             let Ok(layer) =
-                PixelLayer::from_path(path, services.tile_storage(), &profile).logged_err()
+                PixelLayer::from_path(path, globals.tile_storage(), &profile).logged_err()
             else {
                 continue;
             };
@@ -155,7 +149,7 @@ impl ActionFunction for PasteIntoNewLayerAction {
             return Task::none();
         }
 
-        let commands = services
+        let commands = globals
             .update_canvas(&canvas_id, |canvas, _| {
                 let mut commands = Vec::new();
                 let mut cur_position = position;
@@ -168,7 +162,7 @@ impl ActionFunction for PasteIntoNewLayerAction {
             })
             .unwrap();
 
-        services
+        globals
             .push_undo_command(
                 &canvas_id,
                 BatchedUndoCommand::new("Paste Images".into(), commands),

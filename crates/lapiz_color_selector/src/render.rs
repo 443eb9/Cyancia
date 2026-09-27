@@ -13,7 +13,7 @@ use lapiz_render::{
     buffer::DynamicBuffer,
     render_context::RenderContextAppExt as _,
 };
-use lapiz_runtime::Services;
+use lapiz_runtime::global::Globals;
 use lapiz_widgets::shader;
 use moxcms::ColorProfile;
 use wgpu::{
@@ -185,12 +185,12 @@ impl ColorSelectorState {
         }
     }
 
-    pub(crate) fn rebuild_plane_state(&mut self, services: &Services) {
+    pub(crate) fn rebuild_plane_state(&mut self, globals: &Globals) {
         let Some(preset) = self.presets.get(self.selected_preset) else {
             self.planes.clear();
             return;
         };
-        let device = services.render_device();
+        let device = globals.render_device();
         self.planes = preset
             .planes
             .iter()
@@ -208,12 +208,12 @@ impl ColorSelectorState {
             .collect();
     }
 
-    pub(crate) fn rebuild_bar_states(&mut self, services: &Services) {
+    pub(crate) fn rebuild_bar_states(&mut self, globals: &Globals) {
         let Some(preset) = self.presets.get(self.selected_preset) else {
             self.bars.clear();
             return;
         };
-        let device = services.render_device();
+        let device = globals.render_device();
         self.bars = preset
             .bars
             .iter()
@@ -248,14 +248,14 @@ impl ColorSelectorState {
         plane.ranges = (Vec2::new(0.0, 1.0), Vec2::new(0.0, 1.0));
     }
 
-    pub(crate) fn refresh_clip_bounds(&self, services: &Services) -> Task<ColorSelectorMessage> {
+    pub(crate) fn refresh_clip_bounds(&self, globals: &Globals) -> Task<ColorSelectorMessage> {
         let preset = &self.presets[self.selected_preset];
         if !preset.clip_to_gamut {
             return Task::none();
         }
 
-        let device = services.render_device().clone();
-        let queue = services.render_queue().clone();
+        let device = globals.render_device().clone();
+        let queue = globals.render_queue().clone();
 
         let mut tasks = Vec::new();
 

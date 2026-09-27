@@ -17,7 +17,7 @@ use lapiz_effect::{
 use lapiz_i18n::t;
 use lapiz_image::texel::TexelType;
 use lapiz_runtime::{
-    Services,
+    global::Globals,
     windows::{WindowView, WindowViewId},
 };
 use lapiz_shader_graph::{
@@ -80,9 +80,9 @@ impl WindowView for FilterEditor {
 
     fn boot(
         _params: Option<Self::BootParams>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Result<(Self, Task<Self::Message>)> {
-        let filters = services
+        let filters = globals
             .assets()
             .all_handles_of::<FilterPreset>()
             .expect("Failed to list filter presets");
@@ -107,7 +107,7 @@ impl WindowView for FilterEditor {
                 selected_index: None,
                 selected: None,
                 effect_editor_state: EffectEditorState::new(filter_graph_resources(
-                    services.assets().clone(),
+                    globals.assets().clone(),
                 )),
                 filter_name_buffer: String::new(),
                 dirty: false,
@@ -120,7 +120,7 @@ impl WindowView for FilterEditor {
     fn view<'a>(
         &'a self,
         _: window::Id,
-        _: &'a Services,
+        _: &'a Globals,
     ) -> impl Into<Element<'a, Self::Message, Theme, lapiz_runtime::Renderer>> {
         let titlebar = title_bar(label(t!("filter_editor_title")).window_title())
             .on_close(FilterEditorMessage::Close)
@@ -182,11 +182,11 @@ impl WindowView for FilterEditor {
     fn update(
         &mut self,
         message: Self::Message,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> impl Into<Task<Self::Message>> {
         match message {
-            FilterEditorMessage::SelectFilter(index) => self.select_filter(index, services),
-            FilterEditorMessage::NewFilter => self.new_filter(services),
+            FilterEditorMessage::SelectFilter(index) => self.select_filter(index, globals),
+            FilterEditorMessage::NewFilter => self.new_filter(globals),
             FilterEditorMessage::FilterNameChanged(name) => {
                 self.filter_name_buffer = name.clone();
                 if let Some(selected) = self.selected.as_mut() {
@@ -195,7 +195,7 @@ impl WindowView for FilterEditor {
                 }
                 Task::none()
             }
-            FilterEditorMessage::Save => self.save(services),
+            FilterEditorMessage::Save => self.save(globals),
             FilterEditorMessage::Effect(message) => {
                 if let Some(selected) = self.selected.as_mut() {
                     self.effect_editor_state
@@ -220,11 +220,11 @@ impl WindowView for FilterEditor {
         }
     }
 
-    fn subscription(&self, _services: &Services) -> Subscription<Self::Message> {
+    fn subscription(&self, _globals: &Globals) -> Subscription<Self::Message> {
         Subscription::none()
     }
 
-    fn close(self, _: &mut Services) -> Task<()> {
+    fn close(self, _: &mut Globals) -> Task<()> {
         close(self.main_window)
     }
 
@@ -350,11 +350,11 @@ impl FilterEditor {
         (naming, effect_editor, parameters.into())
     }
 
-    fn select_filter(&mut self, index: usize, services: &Services) -> Task<FilterEditorMessage> {
+    fn select_filter(&mut self, index: usize, globals: &Globals) -> Task<FilterEditorMessage> {
         let Some(handle) = self.filters.get(index).cloned() else {
             return Task::none();
         };
-        let instance = match FilterInstance::from_asset(&handle, services.assets()) {
+        let instance = match FilterInstance::from_asset(&handle, globals.assets()) {
             Ok(instance) => instance,
             Err(e) => {
                 log::error!("Failed to load filter preset: {e}");
@@ -365,13 +365,13 @@ impl FilterEditor {
         self.filter_name_buffer = instance.metadata().name.clone();
         self.selected = Some(SelectedFilter { handle, instance });
         self.effect_editor_state =
-            EffectEditorState::new(filter_graph_resources(services.assets().clone()));
+            EffectEditorState::new(filter_graph_resources(globals.assets().clone()));
         self.dirty = false;
         self.validation_error = None;
         Task::none()
     }
 
-    fn new_filter(&mut self, services: &mut Services) -> Task<FilterEditorMessage> {
+    fn new_filter(&mut self, globals: &mut Globals) -> Task<FilterEditorMessage> {
         let layer_ty = Arc::new(LayerType {
             texel_type: TexelType::RGBA8,
         });
@@ -406,7 +406,7 @@ impl FilterEditor {
                 .expect("freshly built effects always serialize"),
             parameters: Default::default(),
         };
-        let Some(bundle) = services
+        let Some(bundle) = globals
             .assets()
             .bundles()
             .find(|bundle| !bundle.is_readonly())
@@ -416,32 +416,32 @@ impl FilterEditor {
             return Task::none();
         };
         let path = format!("unnamed_filter_{}.lfp", Uuid::new_v4());
-        let id = match services.assets().add_asset(bundle, path, Arc::new(preset)) {
+        let id = match globals.assets().add_asset(bundle, path, Arc::new(preset)) {
             Ok(id) => id,
             Err(err) => {
                 log::error!("Failed to add new filter preset asset: {err}");
                 return Task::none();
             }
         };
-        let Some(handle) = services.assets().handle(id).ok() else {
+        let Some(handle) = globals.assets().handle(id).ok() else {
             log::error!("Failed to obtain handle for new filter preset");
             return Task::none();
         };
         let index = self.filters.len();
         self.filters.push(handle);
-        let task = self.select_filter(index, services);
+        let task = self.select_filter(index, globals);
         self.dirty = true;
         task
     }
 
-    fn save(&mut self, services: &mut Services) -> Task<FilterEditorMessage> {
+    fn save(&mut self, globals: &mut Globals) -> Task<FilterEditorMessage> {
         let Some(selected) = self.selected.as_mut() else {
             return Task::none();
         };
         if self.validation_error.is_some() {
             return Task::none();
         }
-        let preset = match selected.instance.as_asset(services.assets()) {
+        let preset = match selected.instance.as_asset(globals.assets()) {
             Ok(preset) => preset,
             Err(err) => {
                 self.validation_error = Some(format!("Failed to serialize filter: {err}"));

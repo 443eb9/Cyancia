@@ -8,7 +8,7 @@ use std::{
 use dyn_clone::DynClone;
 use indexmap::IndexSet;
 use lapiz_i18n::t;
-use lapiz_runtime::service::Service;
+use lapiz_runtime::global::Global;
 use lapiz_utils::wrapper;
 use parse_display::Display;
 use schemars::JsonSchema;
@@ -36,7 +36,7 @@ pub struct LayerTypeRegistry {
     tys: HashMap<u32, Box<dyn Layer>>,
 }
 
-impl Service for LayerTypeRegistry {}
+impl Global for LayerTypeRegistry {}
 
 impl LayerTypeRegistry {
     pub fn register<T: Layer + HasLayerPropertiesDyn + Default>(&mut self) {

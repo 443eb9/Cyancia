@@ -8,7 +8,11 @@ use std::{
 use anyhow::{Result, bail};
 use downcast_rs::Downcast;
 use futures::channel::oneshot::{self, Canceled, Receiver, Sender};
-use lapiz_runtime::{Application, Services, plugin::Plugin, service::Service};
+use lapiz_runtime::{
+    Runtime,
+    global::{Global, Globals},
+    plugin::Plugin,
+};
 use lapiz_utils::{Deref, DerefMut, log_err::LogErr as _};
 use tracing::info;
 use uuid::Uuid;
@@ -16,8 +20,8 @@ use uuid::Uuid;
 pub struct UndoPlugin;
 
 impl Plugin for UndoPlugin {
-    fn build(&self, app: &mut Application) {
-        app.add_service::<UndoStacks>();
+    fn build(&self, app: &mut Runtime) {
+        app.add_global::<UndoStacks>();
     }
 }
 
@@ -27,11 +31,11 @@ pub struct QueuedUndoCommand {
 }
 
 impl QueuedUndoCommand {
-    pub fn send(self, cmd: Box<dyn UndoCommand>, services: &mut Services) -> Result<()> {
+    pub fn send(self, cmd: Box<dyn UndoCommand>, globals: &mut Globals) -> Result<()> {
         let _ = self.tx.send(cmd);
-        services.service_scope::<UndoStacks, _>(|stacks, services| {
+        globals.update_global::<UndoStacks, _>(|stacks, globals| {
             if let Some(stack) = stacks.get_mut(&self.stack_id) {
-                stack.poll(services)
+                stack.poll(globals)
             } else {
                 bail!("No undo stack found for id: {}", self.stack_id)
             }
@@ -44,7 +48,7 @@ pub struct UndoStacks {
     stacks: HashMap<Uuid, UndoStack>,
 }
 
-impl Service for UndoStacks {}
+impl Global for UndoStacks {}
 
 pub struct UndoStack {
     id: Uuid,
@@ -74,22 +78,22 @@ impl UndoStack {
         }
     }
 
-    pub fn push<C: UndoCommand>(&mut self, cmd: C, services: &mut Services) -> anyhow::Result<()> {
-        self.push_boxed(Box::new(cmd), services)
+    pub fn push<C: UndoCommand>(&mut self, cmd: C, globals: &mut Globals) -> anyhow::Result<()> {
+        self.push_boxed(Box::new(cmd), globals)
     }
 
     pub fn push_boxed(
         &mut self,
         cmd: Box<dyn UndoCommand>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> anyhow::Result<()> {
         if self.queue.is_empty() {
-            self.push_internal(cmd, services)?;
+            self.push_internal(cmd, globals)?;
         } else {
             let (tx, rx) = oneshot::channel();
             self.queue.push_back(rx);
             let _ = tx.send(cmd);
-            self.poll(services)?;
+            self.poll(globals)?;
         }
 
         Ok(())
@@ -98,7 +102,7 @@ impl UndoStack {
     fn push_internal(
         &mut self,
         mut cmd: Box<dyn UndoCommand>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> anyhow::Result<()> {
         info!("Push command {}", cmd.label());
         self.history.truncate(self.cursor);
@@ -106,14 +110,14 @@ impl UndoStack {
         if let Some(rhs) = self.history.back()
             && rhs.command.can_cancel_out(cmd.as_ref())
         {
-            cmd.redo(services)?;
+            cmd.redo(globals)?;
             self.history.pop_back();
         } else {
             if self.history.len() == self.max_history {
                 self.history.pop_front();
             }
 
-            cmd.redo(services)?;
+            cmd.redo(globals)?;
             self.history.push_back(UndoCommandData {
                 _pushed_at: Instant::now(),
                 command: cmd,
@@ -124,7 +128,7 @@ impl UndoStack {
         Ok(())
     }
 
-    pub fn poll(&mut self, services: &mut Services) -> anyhow::Result<()> {
+    pub fn poll(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
         while let Some(first) = self.queue.front_mut() {
             let cmd = match first.try_recv() {
                 Ok(Some(cmd)) => cmd,
@@ -136,7 +140,7 @@ impl UndoStack {
             };
 
             self.queue.pop_front();
-            self.push_internal(cmd, services)?;
+            self.push_internal(cmd, globals)?;
         }
 
         Ok(())
@@ -146,7 +150,7 @@ impl UndoStack {
         self.cursor
     }
 
-    pub fn set_cursor(&mut self, cursor: usize, services: &mut Services) -> anyhow::Result<()> {
+    pub fn set_cursor(&mut self, cursor: usize, globals: &mut Globals) -> anyhow::Result<()> {
         if cursor > self.len() {
             return Err(anyhow::anyhow!(
                 "cursor {} out of bounds {}",
@@ -160,31 +164,31 @@ impl UndoStack {
 
             let data = &mut self.history[self.cursor - 1];
             info!("Redo {}", data.command.label());
-            data.command.redo(services).logged_err()?;
+            data.command.redo(globals).logged_err()?;
         }
         while self.cursor > cursor {
             self.cursor -= 1;
 
             let data = &mut self.history[self.cursor];
             info!("Undo {}", data.command.label());
-            data.command.undo(services).logged_err()?;
+            data.command.undo(globals).logged_err()?;
         }
 
         Ok(())
     }
 
-    pub fn undo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+    pub fn undo(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
         if self.cursor == 0 {
             return Err(anyhow::anyhow!("undo stack is empty"));
         }
-        self.set_cursor(self.cursor - 1, services)
+        self.set_cursor(self.cursor - 1, globals)
     }
 
-    pub fn redo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+    pub fn redo(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
         if self.cursor == self.len() {
             return Err(anyhow::anyhow!("undo stack reached the end"));
         }
-        self.set_cursor(self.cursor + 1, services)
+        self.set_cursor(self.cursor + 1, globals)
     }
 
     pub fn len(&self) -> usize {
@@ -220,8 +224,8 @@ pub struct UndoCommandData {
 
 pub trait UndoCommand: 'static + Downcast {
     fn label(&self) -> Cow<'static, str>;
-    fn redo(&mut self, services: &mut Services) -> anyhow::Result<()>;
-    fn undo(&mut self, services: &mut Services) -> anyhow::Result<()>;
+    fn redo(&mut self, globals: &mut Globals) -> anyhow::Result<()>;
+    fn undo(&mut self, globals: &mut Globals) -> anyhow::Result<()>;
     fn can_cancel_out(&self, _: &dyn UndoCommand) -> bool {
         false
     }
@@ -251,14 +255,14 @@ impl UndoCommand for BatchedUndoCommand {
         self.label.clone()
     }
 
-    fn redo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+    fn redo(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
         let mut success = 0;
         for i in 0..self.commands.len() {
-            match self.commands[i].redo(services) {
+            match self.commands[i].redo(globals) {
                 Ok(_) => success += 1,
                 Err(err) => {
                     for i in (0..success).rev() {
-                        self.commands[i].undo(services)?;
+                        self.commands[i].undo(globals)?;
                     }
                     return Err(err);
                 }
@@ -267,14 +271,14 @@ impl UndoCommand for BatchedUndoCommand {
         Ok(())
     }
 
-    fn undo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+    fn undo(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
         let mut success = 0;
         for i in (0..self.commands.len()).rev() {
-            match self.commands[i].undo(services) {
+            match self.commands[i].undo(globals) {
                 Ok(_) => success += 1,
                 Err(err) => {
                     for i in self.commands.len() - success..self.commands.len() {
-                        self.commands[i].redo(services)?;
+                        self.commands[i].redo(globals)?;
                     }
                     return Err(err);
                 }

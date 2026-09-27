@@ -20,10 +20,7 @@ use lapiz_render::{
     buffer::BufferVec, readback::readback_buffer_raw_on_submit_async,
     render_context::RenderContextAppExt as _, util::DevicePollExt as _,
 };
-use lapiz_runtime::{
-    Services,
-    service::{FromServices, Service},
-};
+use lapiz_runtime::global::{FromGlobals, Global, Globals};
 use lapiz_utils::Deref;
 use moxcms::{ColorProfile, TransformOptions};
 use wgpu::{
@@ -43,9 +40,9 @@ pub trait TileStorageAppExt {
     fn tile_storage(&self) -> &GpuTileStorage;
 }
 
-impl TileStorageAppExt for Services {
+impl TileStorageAppExt for Globals {
     fn tile_storage(&self) -> &GpuTileStorage {
-        self.service::<GpuTileStorage>()
+        self.global::<GpuTileStorage>()
     }
 }
 
@@ -62,12 +59,12 @@ impl fmt::Debug for GpuTileStorage {
     }
 }
 
-impl Service for GpuTileStorage {}
+impl Global for GpuTileStorage {}
 
-impl FromServices for GpuTileStorage {
-    fn from_services(services: &Services) -> Self {
-        let device = services.render_device();
-        let queue = services.render_queue();
+impl FromGlobals for GpuTileStorage {
+    fn from_globals(globals: &Globals) -> Self {
+        let device = globals.render_device();
+        let queue = globals.render_queue();
         let mut dummy_layers = HashMap::new();
         for texel_type in TexelType::ALL_POSSIBLE_FORMATS {
             let mut storage = DynamicLayerStorage::new(

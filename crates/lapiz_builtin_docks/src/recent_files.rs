@@ -13,7 +13,7 @@ use lapiz_file_dialog::LocalFile;
 use lapiz_image_importer::start_import;
 #[cfg(target_os = "android")]
 use lapiz_runtime::android::AndroidAppExt as _;
-use lapiz_runtime::{Renderer, Services, Theme};
+use lapiz_runtime::{Renderer, Theme, global::Globals};
 use lapiz_widgets::{button, column, container, flex::Flex, image::Image, label, scrollable};
 
 pub struct LandingDock {
@@ -55,7 +55,7 @@ impl Dock for LandingDock {
     fn view<'a>(
         &'a self,
         _window_id: window::Id,
-        _services: &'a Services,
+        _globals: &'a Globals,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
         scrollable(
             container(
@@ -97,7 +97,7 @@ impl Dock for LandingDock {
         .into()
     }
 
-    fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
+    fn update(&mut self, message: Self::Message, globals: &mut Globals) -> Task<Self::Message> {
         match message {
             LandingDockMessage::OpenFile(i) => {
                 let Some(file) = self.files.files.get(i) else {
@@ -106,7 +106,7 @@ impl Dock for LandingDock {
 
                 #[cfg(target_os = "android")]
                 {
-                    let app = services.android_app().clone();
+                    let app = globals.android_app().clone();
                     let uri = file.path_or_uri.clone();
                     let name = file.name.clone();
                     Task::future(async move {
@@ -116,14 +116,14 @@ impl Dock for LandingDock {
 
                 #[cfg(not(target_os = "android"))]
                 {
-                    start_import(services, LocalFile::native(file.path_or_uri.clone().into()));
+                    start_import(globals, LocalFile::native(file.path_or_uri.clone().into()));
                     Task::none()
                 }
             }
             #[cfg(target_os = "android")]
             LandingDockMessage::Opened(result) => {
                 match result {
-                    Ok(file) => start_import(services, file),
+                    Ok(file) => start_import(globals, file),
                     Err(error) => log::error!("Unable to reopen document: {error}"),
                 }
                 Task::none()
@@ -135,7 +135,7 @@ impl Dock for LandingDock {
         }
     }
 
-    fn subscription(&self, _services: &Services) -> Subscription<Self::Message> {
+    fn subscription(&self, _globals: &Globals) -> Subscription<Self::Message> {
         self.config
             .listen_to()
             .map(|_| LandingDockMessage::RecentFilesChanged)

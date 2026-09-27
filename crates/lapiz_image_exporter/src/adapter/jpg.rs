@@ -8,7 +8,7 @@ use lapiz_canvas::CCanvas;
 use lapiz_i18n::t;
 use lapiz_image::tile::TileStorageAppExt as _;
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Renderer, Services};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_widgets::{checkbox, form, spin_slider};
 use serde::{Deserialize, Serialize};
 
@@ -52,7 +52,7 @@ impl ImageFormatExporter for JpgExporter {
         t!("jpg_image_description")
     }
 
-    fn dialog_view(&self, _: &Services) -> Element<'_, JpgExportMessage, Theme, Renderer> {
+    fn dialog_view(&self, _: &Globals) -> Element<'_, JpgExportMessage, Theme, Renderer> {
         form()
             .push(
                 t!("quality"),
@@ -70,7 +70,7 @@ impl ImageFormatExporter for JpgExporter {
     fn dialog_update(
         &mut self,
         message: JpgExportMessage,
-        _: &mut Services,
+        _: &mut Globals,
     ) -> Task<JpgExportMessage> {
         match message {
             JpgExportMessage::QualityChanged(quality) => self.quality = quality,
@@ -80,12 +80,12 @@ impl ImageFormatExporter for JpgExporter {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn export(&self, services: &Services, canvas: &CCanvas, path: &Path) -> Result<()> {
+    async fn export(&self, globals: &Globals, canvas: &CCanvas, path: &Path) -> Result<()> {
         let rgba = pixels::readback_root_layer(
             canvas,
-            services.tile_storage(),
-            services.render_device(),
-            services.render_queue(),
+            globals.tile_storage(),
+            globals.render_device(),
+            globals.render_queue(),
         )
         .await?;
         let rgb = flatten_onto_white(&rgba);

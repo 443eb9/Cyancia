@@ -6,7 +6,11 @@ use lapiz_input::{
     key::{KeySequence, KeyboardState},
     mouse::{HoverMouseState, PressedMouseState},
 };
-use lapiz_runtime::{Application, Renderer, Services, plugin::Plugin, service::Service};
+use lapiz_runtime::{
+    Renderer, Runtime,
+    global::{Global, Globals},
+    plugin::Plugin,
+};
 use lapiz_utils::{Deref, DerefMut, wrapper};
 use lapiz_widgets::{icon::Icon, space, stack};
 use parse_display::Display;
@@ -20,13 +24,13 @@ pub mod manifest;
 pub struct ToolsPlugin;
 
 impl Plugin for ToolsPlugin {
-    fn build(&self, app: &mut Application) {
-        app.add_service::<ToolFunctionRegistry>()
-            .add_service::<ToolProxies>()
-            .add_service::<GlobalToolBindings>();
+    fn build(&self, app: &mut Runtime) {
+        app.add_global::<ToolFunctionRegistry>()
+            .add_global::<ToolProxies>()
+            .add_global::<GlobalToolBindings>();
     }
 
-    fn finish(&self, app: &mut Application) {
+    fn finish(&self, app: &mut Runtime) {
         let tool_bindings = ToolBindingManifestConfig::read_or_init_or_fallback();
 
         let bindings = tool_bindings
@@ -37,9 +41,8 @@ impl Plugin for ToolsPlugin {
             .map(|binding| (binding.shortcut, binding))
             .collect();
 
-        app.runtime_mut()
-            .services_mut()
-            .service_mut::<GlobalToolBindings>()
+        app.globals_mut()
+            .global_mut::<GlobalToolBindings>()
             .bindings = bindings;
     }
 }
@@ -48,9 +51,9 @@ pub trait ToolsAppExt {
     fn add_tool_function<T: ToolFunction + Default>(&mut self) -> &mut Self;
 }
 
-impl ToolsAppExt for Services {
+impl ToolsAppExt for Globals {
     fn add_tool_function<T: ToolFunction + Default>(&mut self) -> &mut Self {
-        self.service_mut::<ToolFunctionRegistry>().register::<T>();
+        self.global_mut::<ToolFunctionRegistry>().register::<T>();
         self
     }
 }
@@ -99,14 +102,14 @@ pub trait ToolFunction: 'static {
 
     fn id() -> ToolId;
     fn icon() -> Icon<'static>;
-    fn activate(&mut self, _: &mut Services) -> Task<Self::Message> {
+    fn activate(&mut self, _: &mut Globals) -> Task<Self::Message> {
         Task::none()
     }
     fn hover(
         &mut self,
         _: &KeyboardState,
         _: &HoverMouseState,
-        _: &mut Services,
+        _: &mut Globals,
     ) -> Task<Self::Message> {
         Task::none()
     }
@@ -114,7 +117,7 @@ pub trait ToolFunction: 'static {
         &mut self,
         _: &KeyboardState,
         _: &PressedMouseState,
-        _: &mut Services,
+        _: &mut Globals,
     ) -> Task<Self::Message> {
         Task::none()
     }
@@ -122,7 +125,7 @@ pub trait ToolFunction: 'static {
         &mut self,
         _: &KeyboardState,
         _: &PressedMouseState,
-        _: &mut Services,
+        _: &mut Globals,
     ) -> Task<Self::Message> {
         Task::none()
     }
@@ -130,32 +133,29 @@ pub trait ToolFunction: 'static {
         &mut self,
         _: &KeyboardState,
         _: &PressedMouseState,
-        _: &mut Services,
+        _: &mut Globals,
     ) -> Task<Self::Message> {
         Task::none()
     }
-    fn undo(&mut self, _: &mut Services) -> bool {
+    fn undo(&mut self, _: &mut Globals) -> bool {
         false
     }
-    fn redo(&mut self, _: &mut Services) -> bool {
+    fn redo(&mut self, _: &mut Globals) -> bool {
         false
     }
-    fn deactivate(&mut self, _: &mut Services) -> Task<Self::Message> {
+    fn deactivate(&mut self, _: &mut Globals) -> Task<Self::Message> {
         Task::none()
     }
-    fn handle_message(&mut self, _: Self::Message, _: &mut Services) -> Task<Self::Message> {
+    fn handle_message(&mut self, _: Self::Message, _: &mut Globals) -> Task<Self::Message> {
         Task::none()
     }
     fn tool_option_widget<'a>(
         &'a self,
-        _: &'a Services,
+        _: &'a Globals,
     ) -> Option<Element<'a, Self::Message, iced_core::Theme, lapiz_runtime::Renderer>> {
         None
     }
-    fn canvas_overlay<'a>(
-        &'a self,
-        _: &'a Services,
-    ) -> Element<'a, Self::Message, Theme, Renderer> {
+    fn canvas_overlay<'a>(&'a self, _: &'a Globals) -> Element<'a, Self::Message, Theme, Renderer> {
         space().into()
     }
     fn subscription(&self) -> Subscription<Self::Message> {
@@ -166,46 +166,46 @@ pub trait ToolFunction: 'static {
 pub trait ErasedToolFunction: 'static {
     fn id(&self) -> ToolId;
     fn icon(&self) -> Icon<'static>;
-    fn activate(&mut self, services: &mut Services) -> Task<ErasedToolFunctionMessage>;
+    fn activate(&mut self, globals: &mut Globals) -> Task<ErasedToolFunctionMessage>;
     fn hover(
         &mut self,
         keyboard: &KeyboardState,
         mouse: &HoverMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage>;
     fn begin(
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage>;
     fn update(
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage>;
     fn end(
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage>;
-    fn undo(&mut self, services: &mut Services) -> bool;
-    fn redo(&mut self, services: &mut Services) -> bool;
-    fn deactivate(&mut self, services: &mut Services) -> Task<ErasedToolFunctionMessage>;
+    fn undo(&mut self, globals: &mut Globals) -> bool;
+    fn redo(&mut self, globals: &mut Globals) -> bool;
+    fn deactivate(&mut self, globals: &mut Globals) -> Task<ErasedToolFunctionMessage>;
     fn handle_message(
         &mut self,
         message: Box<dyn Any + Send + Sync>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage>;
     fn tool_option_widget<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Option<Element<'a, ErasedToolFunctionMessage, Theme, Renderer>>;
     fn canvas_overlay<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, ErasedToolFunctionMessage, Theme, Renderer>;
     fn subscription(&self) -> Subscription<ErasedToolFunctionMessage>;
 }
@@ -219,8 +219,8 @@ impl<T: ToolFunction> ErasedToolFunction for T {
         T::icon()
     }
 
-    fn activate(&mut self, services: &mut Services) -> Task<ErasedToolFunctionMessage> {
-        self.activate(services)
+    fn activate(&mut self, globals: &mut Globals) -> Task<ErasedToolFunctionMessage> {
+        self.activate(globals)
             .map(move |message| ErasedToolFunctionMessage {
                 tool_id: T::id(),
                 message: Box::new(message),
@@ -231,9 +231,9 @@ impl<T: ToolFunction> ErasedToolFunction for T {
         &mut self,
         keyboard: &KeyboardState,
         mouse: &HoverMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage> {
-        self.hover(keyboard, mouse, services)
+        self.hover(keyboard, mouse, globals)
             .map(move |message| ErasedToolFunctionMessage {
                 tool_id: T::id(),
                 message: Box::new(message),
@@ -244,9 +244,9 @@ impl<T: ToolFunction> ErasedToolFunction for T {
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage> {
-        self.begin(keyboard, mouse, services)
+        self.begin(keyboard, mouse, globals)
             .map(move |message| ErasedToolFunctionMessage {
                 tool_id: T::id(),
                 message: Box::new(message),
@@ -257,9 +257,9 @@ impl<T: ToolFunction> ErasedToolFunction for T {
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage> {
-        self.update(keyboard, mouse, services)
+        self.update(keyboard, mouse, globals)
             .map(move |message| ErasedToolFunctionMessage {
                 tool_id: T::id(),
                 message: Box::new(message),
@@ -270,25 +270,25 @@ impl<T: ToolFunction> ErasedToolFunction for T {
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage> {
-        self.end(keyboard, mouse, services)
+        self.end(keyboard, mouse, globals)
             .map(move |message| ErasedToolFunctionMessage {
                 tool_id: T::id(),
                 message: Box::new(message),
             })
     }
 
-    fn undo(&mut self, services: &mut Services) -> bool {
-        ToolFunction::undo(self, services)
+    fn undo(&mut self, globals: &mut Globals) -> bool {
+        ToolFunction::undo(self, globals)
     }
 
-    fn redo(&mut self, services: &mut Services) -> bool {
-        ToolFunction::redo(self, services)
+    fn redo(&mut self, globals: &mut Globals) -> bool {
+        ToolFunction::redo(self, globals)
     }
 
-    fn deactivate(&mut self, services: &mut Services) -> Task<ErasedToolFunctionMessage> {
-        self.deactivate(services)
+    fn deactivate(&mut self, globals: &mut Globals) -> Task<ErasedToolFunctionMessage> {
+        self.deactivate(globals)
             .map(move |message| ErasedToolFunctionMessage {
                 tool_id: T::id(),
                 message: Box::new(message),
@@ -298,12 +298,12 @@ impl<T: ToolFunction> ErasedToolFunction for T {
     fn handle_message(
         &mut self,
         message: Box<dyn Any + Send + Sync>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage> {
         let message = message
             .downcast::<T::Message>()
             .expect("Invalid message type passed to tool function");
-        self.handle_message(*message, services)
+        self.handle_message(*message, globals)
             .map(move |message| ErasedToolFunctionMessage {
                 tool_id: T::id(),
                 message: Box::new(message),
@@ -312,10 +312,10 @@ impl<T: ToolFunction> ErasedToolFunction for T {
 
     fn tool_option_widget<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Option<Element<'a, ErasedToolFunctionMessage, Theme, Renderer>> {
         let id = T::id();
-        self.tool_option_widget(services).map(|e| {
+        self.tool_option_widget(globals).map(|e| {
             e.map(move |message| ErasedToolFunctionMessage {
                 tool_id: id.clone(),
                 message: Box::new(message),
@@ -325,9 +325,9 @@ impl<T: ToolFunction> ErasedToolFunction for T {
 
     fn canvas_overlay<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, ErasedToolFunctionMessage, Theme, Renderer> {
-        self.canvas_overlay(services)
+        self.canvas_overlay(globals)
             .map(move |message| ErasedToolFunctionMessage {
                 tool_id: T::id(),
                 message: Box::new(message),
@@ -365,7 +365,7 @@ impl ToolFunctionRegistry {
     }
 }
 
-impl Service for ToolFunctionRegistry {}
+impl Global for ToolFunctionRegistry {}
 
 struct State {
     function: ToolId,
@@ -397,7 +397,7 @@ impl ToolProxy {
     pub fn switch_tool(
         &mut self,
         tool: ToolId,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage> {
         if Some(&tool) == self.current_tool() {
             return Task::none();
@@ -411,7 +411,7 @@ impl ToolProxy {
                 self.tool_functions
                     .get_mut(&state.function)
                     .unwrap()
-                    .deactivate(services)
+                    .deactivate(globals)
             })
             .unwrap_or_else(Task::none);
 
@@ -424,7 +424,7 @@ impl ToolProxy {
             .tool_functions
             .get_mut(&tool)
             .unwrap()
-            .activate(services);
+            .activate(globals);
         self.current_state = Some(State {
             function: tool,
             is_updating: false,
@@ -435,7 +435,7 @@ impl ToolProxy {
     pub fn switch_override_tool(
         &mut self,
         tool: Option<ToolId>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage> {
         if tool.as_ref() == self.override_tool() {
             return Task::none();
@@ -449,7 +449,7 @@ impl ToolProxy {
                 self.tool_functions
                     .get_mut(&state.function)
                     .unwrap()
-                    .deactivate(services)
+                    .deactivate(globals)
             })
             .unwrap_or_else(Task::none);
 
@@ -463,7 +463,7 @@ impl ToolProxy {
                 .tool_functions
                 .get_mut(&tool)
                 .unwrap()
-                .activate(services);
+                .activate(globals);
             self.override_state = Some(State {
                 function: tool,
                 is_updating: false,
@@ -478,7 +478,7 @@ impl ToolProxy {
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage> {
         let Some(state) = self.override_state.as_mut().or(self.current_state.as_mut()) else {
             return Task::none();
@@ -490,21 +490,21 @@ impl ToolProxy {
         self.tool_functions
             .get_mut(&state.function)
             .unwrap()
-            .begin(keyboard, mouse, services)
+            .begin(keyboard, mouse, globals)
     }
 
     pub fn mouse_moved_pressing(
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage> {
         let Some(state) = self.override_state.as_ref().or(self.current_state.as_ref()) else {
             return Task::none();
         };
         let function = self.tool_functions.get_mut(&state.function).unwrap();
         if state.is_updating {
-            function.update(keyboard, mouse, services)
+            function.update(keyboard, mouse, globals)
         } else {
             Task::none()
         }
@@ -514,7 +514,7 @@ impl ToolProxy {
         &mut self,
         keyboard: &KeyboardState,
         mouse: &HoverMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage> {
         let Some(state) = self.override_state.as_ref().or(self.current_state.as_ref()) else {
             return Task::none();
@@ -523,7 +523,7 @@ impl ToolProxy {
         if state.is_updating {
             Task::none()
         } else {
-            function.hover(keyboard, mouse, services)
+            function.hover(keyboard, mouse, globals)
         }
     }
 
@@ -531,7 +531,7 @@ impl ToolProxy {
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage> {
         let Some(state) = self.override_state.as_mut().or(self.current_state.as_mut()) else {
             return Task::none();
@@ -543,50 +543,50 @@ impl ToolProxy {
         self.tool_functions
             .get_mut(&state.function)
             .unwrap()
-            .end(keyboard, mouse, services)
+            .end(keyboard, mouse, globals)
     }
 
-    pub fn undo(&mut self, services: &mut Services) -> bool {
+    pub fn undo(&mut self, globals: &mut Globals) -> bool {
         let Some(state) = self.override_state.as_mut().or(self.current_state.as_mut()) else {
             return false;
         };
         self.tool_functions
             .get_mut(&state.function)
             .unwrap()
-            .undo(services)
+            .undo(globals)
     }
 
-    pub fn redo(&mut self, services: &mut Services) -> bool {
+    pub fn redo(&mut self, globals: &mut Globals) -> bool {
         let Some(state) = self.override_state.as_mut().or(self.current_state.as_mut()) else {
             return false;
         };
         self.tool_functions
             .get_mut(&state.function)
             .unwrap()
-            .redo(services)
+            .redo(globals)
     }
 
     pub fn handle_message(
         &mut self,
         message: ErasedToolFunctionMessage,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedToolFunctionMessage> {
         let Some(function) = self.tool_functions.get_mut(&message.tool_id) else {
             return Task::none();
         };
-        function.handle_message(message.message, services)
+        function.handle_message(message.message, globals)
     }
 
     pub fn tool_option_widget<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Option<Element<'a, ErasedToolFunctionMessage, iced_core::Theme, lapiz_runtime::Renderer>>
     {
         let overrider_widget = self
             .override_state
             .as_ref()
             .and_then(|s| self.tool_functions.get(&s.function))
-            .and_then(|f| f.tool_option_widget(services));
+            .and_then(|f| f.tool_option_widget(globals));
         if let Some(widget) = overrider_widget {
             return Some(widget);
         }
@@ -594,12 +594,12 @@ impl ToolProxy {
         self.current_state
             .as_ref()
             .and_then(|s| self.tool_functions.get(&s.function))
-            .and_then(|f| f.tool_option_widget(services))
+            .and_then(|f| f.tool_option_widget(globals))
     }
 
     pub fn canvas_overlay<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, ErasedToolFunctionMessage, Theme, Renderer> {
         let mut overlays = stack![];
 
@@ -608,7 +608,7 @@ impl ToolProxy {
                 self.tool_functions
                     .get(&state.function)
                     .unwrap()
-                    .canvas_overlay(services),
+                    .canvas_overlay(globals),
             );
         }
 
@@ -617,7 +617,7 @@ impl ToolProxy {
                 self.tool_functions
                     .get(&state.function)
                     .unwrap()
-                    .canvas_overlay(services),
+                    .canvas_overlay(globals),
             );
         }
 
@@ -651,14 +651,14 @@ pub struct ToolProxies {
     proxies: HashMap<Uuid, ToolProxy>,
 }
 
-impl Service for ToolProxies {}
+impl Global for ToolProxies {}
 
 #[derive(Default)]
 pub struct GlobalToolBindings {
     bindings: Vec<(KeySequence, ToolBinding)>,
 }
 
-impl Service for GlobalToolBindings {}
+impl Global for GlobalToolBindings {}
 
 impl GlobalToolBindings {
     pub fn binding_for(&self, shortcut: KeySequence) -> Option<&ToolBinding> {

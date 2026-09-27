@@ -8,7 +8,12 @@ use lapiz_image::{
     layer::{LayerId, LayerStackNode},
 };
 use lapiz_lazuli::LazuliArchive;
-use lapiz_runtime::{Application, Services, event::Event as _, plugin::Plugin, service::Service};
+use lapiz_runtime::{
+    Runtime,
+    event::Event as _,
+    global::{Global, Globals},
+    plugin::Plugin,
+};
 use lapiz_tools::{ToolProxies, ToolProxy, ToolsAppExt as _};
 use lapiz_undo::{QueuedUndoCommand, UndoCommand, UndoStack, UndoStacks};
 use lapiz_utils::wrapper;
@@ -176,11 +181,9 @@ impl CCanvas {
 pub struct CanvasPlugin;
 
 impl Plugin for CanvasPlugin {
-    fn build(&self, app: &mut Application) {
-        app.add_service::<CanvasManager>();
-        let mut runtime = app.runtime_mut();
-        runtime
-            .services_mut()
+    fn build(&self, app: &mut Runtime) {
+        app.add_global::<CanvasManager>();
+        app.globals_mut()
             .add_tool_function::<PanTool>()
             .add_tool_function::<RotateTool>()
             .add_tool_function::<ZoomTool>();
@@ -193,7 +196,7 @@ pub struct CanvasManager {
     current_canvas: Option<CanvasId>,
 }
 
-impl Service for CanvasManager {}
+impl Global for CanvasManager {}
 
 impl CanvasManager {
     pub fn add_canvas(&mut self, canvas: CCanvas) -> CanvasId {
@@ -248,48 +251,48 @@ pub trait CanvasAppExt {
     fn canvas_mut(&mut self, id: &CanvasId) -> Option<&mut CCanvas>;
     fn update_current_canvas<R>(
         &mut self,
-        update: impl FnOnce(&mut CCanvas, &mut Services) -> R,
+        update: impl FnOnce(&mut CCanvas, &mut Globals) -> R,
     ) -> Option<R>;
     fn update_canvas<R>(
         &mut self,
         id: &CanvasId,
-        update: impl FnOnce(&mut CCanvas, &mut Services) -> R,
+        update: impl FnOnce(&mut CCanvas, &mut Globals) -> R,
     ) -> Option<R>;
     fn set_current_canvas(&mut self, id: CanvasId);
 }
 
-impl CanvasAppExt for Services {
+impl CanvasAppExt for Globals {
     fn add_canvas(&mut self, canvas: CCanvas) -> CanvasId {
-        self.service_mut::<CanvasManager>().add_canvas(canvas)
+        self.global_mut::<CanvasManager>().add_canvas(canvas)
     }
 
     fn remove_canvas(&mut self, id: &CanvasId) -> Option<CCanvas> {
-        self.service_mut::<CanvasManager>().remove_canvas(id)
+        self.global_mut::<CanvasManager>().remove_canvas(id)
     }
 
     fn current_canvas_id(&self) -> Option<CanvasId> {
-        self.service::<CanvasManager>().current_id()
+        self.global::<CanvasManager>().current_id()
     }
 
     fn current_canvas(&self) -> Option<&CCanvas> {
-        self.service::<CanvasManager>().current()
+        self.global::<CanvasManager>().current()
     }
 
     fn current_canvas_mut(&mut self) -> Option<&mut CCanvas> {
-        self.service_mut::<CanvasManager>().current_mut()
+        self.global_mut::<CanvasManager>().current_mut()
     }
 
     fn canvas(&self, id: &CanvasId) -> Option<&CCanvas> {
-        self.service::<CanvasManager>().get(id)
+        self.global::<CanvasManager>().get(id)
     }
 
     fn canvas_mut(&mut self, id: &CanvasId) -> Option<&mut CCanvas> {
-        self.service_mut::<CanvasManager>().get_mut(id)
+        self.global_mut::<CanvasManager>().get_mut(id)
     }
 
     fn update_current_canvas<R>(
         &mut self,
-        update: impl FnOnce(&mut CCanvas, &mut Services) -> R,
+        update: impl FnOnce(&mut CCanvas, &mut Globals) -> R,
     ) -> Option<R> {
         let id = self.current_canvas_id()?;
         self.update_canvas(&id, update)
@@ -298,16 +301,16 @@ impl CanvasAppExt for Services {
     fn update_canvas<R>(
         &mut self,
         id: &CanvasId,
-        update: impl FnOnce(&mut CCanvas, &mut Services) -> R,
+        update: impl FnOnce(&mut CCanvas, &mut Globals) -> R,
     ) -> Option<R> {
-        self.service_scope::<CanvasManager, _>(|manager, services| {
+        self.update_global::<CanvasManager, _>(|manager, globals| {
             let canvas = manager.get_mut(id)?;
-            Some(update(canvas, services))
+            Some(update(canvas, globals))
         })
     }
 
     fn set_current_canvas(&mut self, id: CanvasId) {
-        self.service_mut::<CanvasManager>().set_current(id);
+        self.global_mut::<CanvasManager>().set_current(id);
     }
 }
 
@@ -335,7 +338,7 @@ pub trait CanvasUndoStackAppExt {
     fn queue_undo_command(&mut self, id: &CanvasId) -> anyhow::Result<QueuedUndoCommand>;
 }
 
-impl CanvasUndoStackAppExt for Services {
+impl CanvasUndoStackAppExt for Globals {
     fn current_canvas_undo_stack(&self) -> Option<&UndoStack> {
         self.undo_stack(&self.current_canvas_id()?)
     }
@@ -345,11 +348,11 @@ impl CanvasUndoStackAppExt for Services {
     }
 
     fn undo_stack(&self, id: &CanvasId) -> Option<&UndoStack> {
-        self.service::<UndoStacks>().get(&**id)
+        self.global::<UndoStacks>().get(&**id)
     }
 
     fn undo_stack_mut(&mut self, id: &CanvasId) -> Option<&mut UndoStack> {
-        self.service_mut::<UndoStacks>().get_mut(&**id)
+        self.global_mut::<UndoStacks>().get_mut(&**id)
     }
 
     fn push_undo_command_to_current<C: UndoCommand>(&mut self, command: C) -> anyhow::Result<()> {
@@ -379,11 +382,11 @@ impl CanvasUndoStackAppExt for Services {
         id: &CanvasId,
         command: Box<dyn UndoCommand>,
     ) -> anyhow::Result<()> {
-        self.service_scope::<UndoStacks, _>(|stacks, services| {
+        self.update_global::<UndoStacks, _>(|stacks, globals| {
             stacks
                 .get_mut(&**id)
                 .ok_or_else(|| anyhow::anyhow!("Undo stack for canvas {} not found", id))?
-                .push_boxed(command, services)
+                .push_boxed(command, globals)
         })
     }
 
@@ -395,7 +398,7 @@ impl CanvasUndoStackAppExt for Services {
     }
 
     fn queue_undo_command(&mut self, id: &CanvasId) -> anyhow::Result<QueuedUndoCommand> {
-        self.service_mut::<UndoStacks>()
+        self.global_mut::<UndoStacks>()
             .get_mut(&**id)
             .ok_or_else(|| anyhow::anyhow!("Undo stack for canvas {} not found", id))
             .map(UndoStack::queue)
@@ -409,22 +412,22 @@ pub trait CanvasToolProxyAppExt {
     fn tool_proxy_mut(&mut self, canvas_id: &CanvasId) -> Option<&mut ToolProxy>;
     fn update_current_tool_proxy<R>(
         &mut self,
-        f: impl FnOnce(&mut ToolProxy, &mut Services) -> R,
+        f: impl FnOnce(&mut ToolProxy, &mut Globals) -> R,
     ) -> Option<R>;
     fn update_tool_proxy<R>(
         &mut self,
         canvas_id: &CanvasId,
-        f: impl FnOnce(&mut ToolProxy, &mut Services) -> R,
+        f: impl FnOnce(&mut ToolProxy, &mut Globals) -> R,
     ) -> Option<R>;
 }
 
-impl CanvasToolProxyAppExt for Services {
+impl CanvasToolProxyAppExt for Globals {
     fn current_tool_proxy(&self) -> Option<&ToolProxy> {
         self.tool_proxy(&self.current_canvas_id()?)
     }
 
     fn tool_proxy(&self, canvas_id: &CanvasId) -> Option<&ToolProxy> {
-        self.service::<ToolProxies>().get(canvas_id)
+        self.global::<ToolProxies>().get(canvas_id)
     }
 
     fn current_tool_proxy_mut(&mut self) -> Option<&mut ToolProxy> {
@@ -432,12 +435,12 @@ impl CanvasToolProxyAppExt for Services {
     }
 
     fn tool_proxy_mut(&mut self, canvas_id: &CanvasId) -> Option<&mut ToolProxy> {
-        self.service_mut::<ToolProxies>().get_mut(canvas_id)
+        self.global_mut::<ToolProxies>().get_mut(canvas_id)
     }
 
     fn update_current_tool_proxy<R>(
         &mut self,
-        f: impl FnOnce(&mut ToolProxy, &mut Services) -> R,
+        f: impl FnOnce(&mut ToolProxy, &mut Globals) -> R,
     ) -> Option<R> {
         self.update_tool_proxy(&self.current_canvas_id()?, f)
     }
@@ -445,10 +448,10 @@ impl CanvasToolProxyAppExt for Services {
     fn update_tool_proxy<R>(
         &mut self,
         canvas_id: &CanvasId,
-        f: impl FnOnce(&mut ToolProxy, &mut Services) -> R,
+        f: impl FnOnce(&mut ToolProxy, &mut Globals) -> R,
     ) -> Option<R> {
-        self.service_scope::<ToolProxies, Option<R>>(|proxies, services| {
-            Some(f(proxies.get_mut(canvas_id)?, services))
+        self.update_global::<ToolProxies, Option<R>>(|proxies, globals| {
+            Some(f(proxies.get_mut(canvas_id)?, globals))
         })
     }
 }

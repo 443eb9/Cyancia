@@ -7,7 +7,7 @@ use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle,
 };
 
-use crate::service::Service;
+use crate::global::Global;
 
 static RENDER_CONTEXT: LazyLock<RenderContext> =
     LazyLock::new(|| block_on(RenderContext::request()));
@@ -45,7 +45,7 @@ pub struct RenderContext {
     pub queue: wgpu::Queue,
 }
 
-impl Service for RenderContext {}
+impl Global for RenderContext {}
 
 impl RenderContext {
     pub async fn request() -> Self {

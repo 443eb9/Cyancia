@@ -28,7 +28,9 @@ use lapiz_input::{
     mouse::{HoverMouseState, PressedMouseState},
 };
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Renderer, Services, event::Event as _, platform::get_window_monitor_name};
+use lapiz_runtime::{
+    Renderer, event::Event as _, global::Globals, platform::get_window_monitor_name,
+};
 use lapiz_tools::ErasedToolFunctionMessage;
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::stack;
@@ -62,13 +64,13 @@ impl CanvasDock {
         }
     }
 
-    fn update_thumbnail(&self, services: &Services) -> Task<CanvasDockMessage> {
-        let Some(canvas) = services.canvas(&self.canvas) else {
+    fn update_thumbnail(&self, globals: &Globals) -> Task<CanvasDockMessage> {
+        let Some(canvas) = globals.canvas(&self.canvas) else {
             return Task::none();
         };
 
         let root_id = *canvas.image.layer_stack().root_id();
-        let tiles = services.tile_storage().clone();
+        let tiles = globals.tile_storage().clone();
         let source = canvas.local_file().source();
         let image_rect = canvas.image.image_pixel_rect();
         let canvas_id = self.canvas;
@@ -127,15 +129,15 @@ impl CanvasDock {
         .discard()
     }
 
-    fn request_composite(&mut self, services: &mut Services, dirty_tiles: Option<IRect>) {
-        services.service_scope::<LayerPreviewOverriders, _>(|overriders, services| {
-            let Some(canvas) = services.canvas(&self.canvas) else {
+    fn request_composite(&mut self, globals: &mut Globals, dirty_tiles: Option<IRect>) {
+        globals.update_global::<LayerPreviewOverriders, _>(|overriders, globals| {
+            let Some(canvas) = globals.canvas(&self.canvas) else {
                 return;
             };
-            let tiles = services.tile_storage();
-            let blend_functions = services.service::<BlendFunctionRegistry>();
-            let device = services.render_device();
-            let queue = services.render_queue();
+            let tiles = globals.tile_storage();
+            let blend_functions = globals.global::<BlendFunctionRegistry>();
+            let device = globals.render_device();
+            let queue = globals.render_queue();
             self.compositor.create_cache(
                 overriders,
                 &canvas.image,
@@ -180,9 +182,9 @@ impl Dock for CanvasDock {
     fn view<'a>(
         &'a self,
         window_id: window::Id,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
-        let canvas_manager = services.service::<CanvasManager>();
+        let canvas_manager = globals.global::<CanvasManager>();
         self.window_id.replace(window_id);
 
         let (Some(canvas), Some(window_id), Some(monitor_name)) = (
@@ -193,16 +195,16 @@ impl Dock for CanvasDock {
             return Void.into();
         };
 
-        let canvas_overlay = services.tool_proxy(&self.canvas).map(|proxy| {
+        let canvas_overlay = globals.tool_proxy(&self.canvas).map(|proxy| {
             proxy
-                .canvas_overlay(services)
+                .canvas_overlay(globals)
                 .map(CanvasDockMessage::ToolFunctionMessage)
         });
 
         let canvas = CanvasWidget {
             is_focusing: canvas_manager.current_id() == Some(self.canvas),
             canvas,
-            tile_storage: services.service::<GpuTileStorage>().clone(),
+            tile_storage: globals.global::<GpuTileStorage>().clone(),
             on_focus: Box::new(CanvasDockMessage::CanvasFocus),
             on_pointer_event: Box::new(CanvasDockMessage::PointerEvent),
             on_widget_rect_change: Box::new(CanvasDockMessage::WidgetRectChange),
@@ -215,21 +217,21 @@ impl Dock for CanvasDock {
         stack!(canvas, canvas_overlay).clip(true).into()
     }
 
-    fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
+    fn update(&mut self, message: Self::Message, globals: &mut Globals) -> Task<Self::Message> {
         match message {
             CanvasDockMessage::CanvasUpdated(dirty_tiles) => {
-                self.request_composite(services, dirty_tiles);
+                self.request_composite(globals, dirty_tiles);
 
                 Task::none()
             }
             CanvasDockMessage::PointerEvent(event) => {
-                if services.current_canvas_id() != Some(self.canvas) {
+                if globals.current_canvas_id() != Some(self.canvas) {
                     return Task::none();
                 }
 
-                services
-                    .update_tool_proxy(&self.canvas, |tool_proxy, services| {
-                        let keyboard_state = services.service::<KeyboardState>().clone();
+                globals
+                    .update_tool_proxy(&self.canvas, |tool_proxy, globals| {
+                        let keyboard_state = globals.global::<KeyboardState>().clone();
 
                         match event {
                             pointer::Event::PointerPressed { position, button }
@@ -240,7 +242,7 @@ impl Dock for CanvasDock {
                                 tool_proxy.mouse_pressed(
                                     &keyboard_state,
                                     &PressedMouseState::from_button(position, button),
-                                    services,
+                                    globals,
                                 )
                             }
                             pointer::Event::PointerReleased { position, button }
@@ -251,7 +253,7 @@ impl Dock for CanvasDock {
                                 tool_proxy.mouse_released(
                                     &keyboard_state,
                                     &PressedMouseState::from_button(position, button),
-                                    services,
+                                    globals,
                                 )
                             }
                             pointer::Event::PointerMoved { position, source } => {
@@ -260,13 +262,13 @@ impl Dock for CanvasDock {
                                     tool_proxy.mouse_moved_pressing(
                                         &keyboard_state,
                                         &PressedMouseState::from_pointer(position, source),
-                                        services,
+                                        globals,
                                     )
                                 } else {
                                     tool_proxy.mouse_moved_hovering(
                                         &keyboard_state,
                                         &HoverMouseState::from_pointer(position, source),
-                                        services,
+                                        globals,
                                     )
                                 }
                             }
@@ -278,21 +280,21 @@ impl Dock for CanvasDock {
             }
             CanvasDockMessage::CanvasFocus(cursor_pos) => {
                 self.cursor_position = cursor_pos;
-                services
-                    .service_mut::<CanvasManager>()
+                globals
+                    .global_mut::<CanvasManager>()
                     .set_current(self.canvas);
                 Task::none()
             }
             CanvasDockMessage::WidgetRectChange(rect) => {
-                let canvas_manager = services.service_mut::<CanvasManager>();
+                let canvas_manager = globals.global_mut::<CanvasManager>();
                 if let Some(canvas) = canvas_manager.get_mut(&self.canvas) {
                     canvas.transform.widget_bounds = rect;
                 }
                 Task::none()
             }
-            CanvasDockMessage::ToolFunctionMessage(message) => services
-                .update_tool_proxy(&self.canvas, |tool_proxy, services| {
-                    tool_proxy.handle_message(message, services)
+            CanvasDockMessage::ToolFunctionMessage(message) => globals
+                .update_tool_proxy(&self.canvas, |tool_proxy, globals| {
+                    tool_proxy.handle_message(message, globals)
                 })
                 .unwrap_or_else(Task::none)
                 .map(CanvasDockMessage::ToolFunctionMessage),
@@ -307,23 +309,23 @@ impl Dock for CanvasDock {
         }
     }
 
-    fn on_open(&mut self, services: &mut Services) -> Task<Self::Message> {
-        self.request_composite(services, None);
+    fn on_open(&mut self, globals: &mut Globals) -> Task<Self::Message> {
+        self.request_composite(globals, None);
 
         Task::batch([
             Task::done(CanvasDockMessage::WindowMoved),
-            self.update_thumbnail(services),
+            self.update_thumbnail(globals),
         ])
     }
 
-    fn on_close(&mut self, services: &mut Services) -> Task<Self::Message> {
+    fn on_close(&mut self, globals: &mut Globals) -> Task<Self::Message> {
         CanvasRemoved::broadcast(CanvasRemoved { id: self.canvas });
 
-        self.request_composite(services, None);
-        self.update_thumbnail(services)
+        self.request_composite(globals, None);
+        self.update_thumbnail(globals)
     }
 
-    fn subscription(&self, services: &Services) -> Subscription<Self::Message> {
+    fn subscription(&self, globals: &Globals) -> Subscription<Self::Message> {
         let cur_window = *self.window_id.borrow();
 
         let canvas_update = CanvasUpdated::listen_to()
@@ -338,7 +340,7 @@ impl Dock for CanvasDock {
                         None
                     }
                 });
-        let tool = services
+        let tool = globals
             .tool_proxy(&self.canvas)
             .and_then(|tool_proxy| tool_proxy.subscription())
             .unwrap_or_else(Subscription::none)

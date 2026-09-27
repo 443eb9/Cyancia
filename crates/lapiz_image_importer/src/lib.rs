@@ -10,9 +10,9 @@ use lapiz_file_dialog::LocalFile;
 use lapiz_image::CImage;
 use lapiz_lazuli::LazuliArchive;
 use lapiz_runtime::{
-    Application, Renderer, Services, Theme,
+    Renderer, Runtime, Theme,
+    global::{Global, Globals},
     plugin::Plugin,
-    service::Service,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},
 };
 use lapiz_utils::log_err::LogErr as _;
@@ -39,18 +39,14 @@ pub mod importer;
 pub struct ImageImporterPlugin;
 
 impl Plugin for ImageImporterPlugin {
-    fn build(&self, app: &mut Application) {
+    fn build(&self, app: &mut Runtime) {
         i18n::init();
 
-        let mut runtime = app.runtime_mut();
-        runtime.add_service::<ImageImporterRegistry>();
-        runtime
-            .window_manager_mut()
+        app.add_global::<ImageImporterRegistry>()
             .register_view::<ImportDialogView>();
 
-        let services = runtime.services_mut();
-        services
-            .service_mut::<ImageImporterRegistry>()
+        app.globals_mut()
+            .global_mut::<ImageImporterRegistry>()
             .register::<PngImporter>()
             .register::<JpgImporter>()
             .register::<WebPImporter>()
@@ -88,20 +84,20 @@ pub trait ImageFormatImporter: 'static {
 
     fn dialog_view<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Self::DialogMessage, Theme, Renderer>;
 
     fn dialog_update(
         &mut self,
         message: Self::DialogMessage,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::DialogMessage>;
 
     #[allow(
         async_fn_in_trait,
         reason = "callers await this method directly; the erased trait boxes the future"
     )]
-    async fn import(&self, services: &Services, path: &Path) -> Result<LazuliArchive>;
+    async fn import(&self, globals: &Globals, path: &Path) -> Result<LazuliArchive>;
 
     fn to_toml(&self) -> Result<toml::Value>;
 
@@ -119,18 +115,18 @@ pub trait ErasedImageFormatImporter: Send + Sync + 'static {
 
     fn dialog_view<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, ErasedImportDialogMessage, Theme, Renderer>;
 
     fn dialog_update(
         &mut self,
         message: ErasedImportDialogMessage,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedImportDialogMessage>;
 
     fn import<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
         path: &'a Path,
     ) -> Pin<Box<dyn Future<Output = Result<LazuliArchive>> + 'a>>;
 
@@ -161,30 +157,30 @@ where
 
     fn dialog_view<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, ErasedImportDialogMessage, Theme, Renderer> {
-        self.dialog_view(services)
+        self.dialog_view(globals)
             .map(|message| Box::new(message) as ErasedImportDialogMessage)
     }
 
     fn dialog_update(
         &mut self,
         message: ErasedImportDialogMessage,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedImportDialogMessage> {
         let message = *message
             .downcast::<T::DialogMessage>()
             .expect("Invalid import dialog message type");
-        self.dialog_update(message, services)
+        self.dialog_update(message, globals)
             .map(|message| Box::new(message) as ErasedImportDialogMessage)
     }
 
     fn import<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
         path: &'a Path,
     ) -> Pin<Box<dyn Future<Output = Result<LazuliArchive>> + 'a>> {
-        Box::pin(ImageFormatImporter::import(self, services, path))
+        Box::pin(ImageFormatImporter::import(self, globals, path))
     }
 
     fn to_toml(&self) -> Result<toml::Value> {
@@ -215,7 +211,7 @@ pub struct ImageImporterRegistry {
     lookup: HashMap<String, usize>,
 }
 
-impl Service for ImageImporterRegistry {}
+impl Global for ImageImporterRegistry {}
 
 impl ImageImporterRegistry {
     pub fn register<A: ImageFormatImporter + Send + Sync + Default>(&mut self) -> &mut Self {
@@ -279,7 +275,7 @@ pub struct PendingImport {
     pub local_file: LocalFile,
 }
 
-pub fn start_import(services: &mut Services, local_file: LocalFile) {
+pub fn start_import(globals: &mut Globals, local_file: LocalFile) {
     let path = local_file.path();
     let Some(path_extension) = path.extension().and_then(|extension| extension.to_str()) else {
         log::warn!(
@@ -288,7 +284,7 @@ pub fn start_import(services: &mut Services, local_file: LocalFile) {
         );
         return;
     };
-    let registry = services.service::<ImageImporterRegistry>();
+    let registry = globals.global::<ImageImporterRegistry>();
     let Some(extension) = registry.find_extension(path_extension) else {
         log::warn!("No image importer matches {}", path.display());
         return;
@@ -299,18 +295,18 @@ pub fn start_import(services: &mut Services, local_file: LocalFile) {
     };
 
     if importer.has_options() {
-        services
-            .service_mut::<WindowCommandBuffer>()
+        globals
+            .global_mut::<WindowCommandBuffer>()
             .push(OpenWindowViewCommand::new_with_params(
                 WindowViewId::new(IMPORT_DIALOG_VIEW_ID),
                 PendingImport { local_file },
             ));
     } else {
-        let archive = block_on(importer.import(services, path)).logged_err();
+        let archive = block_on(importer.import(globals, path)).logged_err();
         if let Ok(archive) = archive
-            && let Ok(image) = CImage::from_lazuli(&archive, services).logged_err()
+            && let Ok(image) = CImage::from_lazuli(&archive, globals).logged_err()
         {
-            services.add_canvas(CCanvas::new(local_file, image, archive));
+            globals.add_canvas(CCanvas::new(local_file, image, archive));
         }
     }
 }

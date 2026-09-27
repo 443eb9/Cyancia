@@ -26,7 +26,10 @@ use lapiz_input::{
 };
 use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{
-    Application, Renderer, Services, event::Event as _, plugin::Plugin, service::Service,
+    Renderer, Runtime,
+    event::Event as _,
+    global::{Global, Globals},
+    plugin::Plugin,
 };
 use lapiz_tools::{ToolFunction, ToolId, ToolsAppExt as _};
 use lapiz_utils::log_err::LogErr as _;
@@ -45,16 +48,14 @@ lapiz_i18n::define_i18n!("eye_dropper");
 pub struct EyeDropperPlugin;
 
 impl Plugin for EyeDropperPlugin {
-    fn build(&self, app: &mut Application) {
+    fn build(&self, app: &mut Runtime) {
         i18n::init();
-        app.runtime_mut()
-            .services_mut()
-            .add_tool_function::<EyeDropperTool>();
+        app.globals_mut().add_tool_function::<EyeDropperTool>();
 
         let mut registry = EyeDropperTargetRegistry::default();
         registry.register::<PixelLayer, PixelLayerEyeDropperTarget>();
         registry.register::<GroupLayer, GroupLayerEyeDropperTarget>();
-        app.runtime_mut().services_mut().insert_service(registry);
+        app.add_global_instance(registry);
     }
 }
 
@@ -76,7 +77,7 @@ pub struct EyeDropperTargetRegistry {
     inner: HashMap<u32, Arc<dyn EyeDropperTarget>>,
 }
 
-impl Service for EyeDropperTargetRegistry {}
+impl Global for EyeDropperTargetRegistry {}
 
 impl EyeDropperTargetRegistry {
     pub fn register<L: Layer + Default, T: EyeDropperTarget + Default>(&mut self) {
@@ -144,12 +145,12 @@ impl EyeDropperTool {
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &Services,
+        globals: &Globals,
     ) -> Task<EyeDropperToolMessage> {
         self.pending_sample = None;
         self.cursor_position = Some(mouse.position);
 
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return Task::none();
         };
         let position = canvas
@@ -188,13 +189,13 @@ impl EyeDropperTool {
             self.pending_sample = Some(request);
             Task::none()
         } else {
-            self.start_sample(request, &canvas.image, services)
+            self.start_sample(request, &canvas.image, globals)
         }
     }
 
-    fn sampled_rgb(&self, services: &Services) -> Option<Rgb> {
+    fn sampled_rgb(&self, globals: &Globals) -> Option<Rgb> {
         let color = self.sampled_color?;
-        let profile = services.current_canvas()?.image.profile();
+        let profile = globals.current_canvas()?.image.profile();
         Some(color.into_rgb(profile.rgb_to_xyz_matrix().to_f32().inverse()))
     }
 
@@ -202,17 +203,17 @@ impl EyeDropperTool {
         &mut self,
         request: SampleRequest,
         image: &CImage,
-        services: &Services,
+        globals: &Globals,
     ) -> Task<EyeDropperToolMessage> {
-        let registry = services.service::<EyeDropperTargetRegistry>();
+        let registry = globals.global::<EyeDropperTargetRegistry>();
         let layer = image.layer_stack().get_layer(&request.layer_id).unwrap();
         let Some(target) = registry.get(layer.instance()) else {
             return Task::none();
         };
 
-        let tiles = services.tile_storage().clone();
-        let device = services.render_device().clone();
-        let queue = services.render_queue().clone();
+        let tiles = globals.tile_storage().clone();
+        let device = globals.render_device().clone();
+        let queue = globals.render_queue().clone();
 
         self.sample_in_flight = true;
 
@@ -249,7 +250,7 @@ impl ToolFunction for EyeDropperTool {
         &mut self,
         _: &KeyboardState,
         mouse: &HoverMouseState,
-        _: &mut Services,
+        _: &mut Globals,
     ) -> Task<Self::Message> {
         self.cursor_position = Some(mouse.position);
         Task::none()
@@ -259,31 +260,31 @@ impl ToolFunction for EyeDropperTool {
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        self.sample(keyboard, mouse, services)
+        self.sample(keyboard, mouse, globals)
     }
 
     fn update(
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        self.sample(keyboard, mouse, services)
+        self.sample(keyboard, mouse, globals)
     }
 
     fn end(
         &mut self,
         _: &KeyboardState,
         mouse: &PressedMouseState,
-        _: &mut Services,
+        _: &mut Globals,
     ) -> Task<Self::Message> {
         self.cursor_position = Some(mouse.position);
         Task::none()
     }
 
-    fn deactivate(&mut self, _: &mut Services) -> Task<Self::Message> {
+    fn deactivate(&mut self, _: &mut Globals) -> Task<Self::Message> {
         self.cursor_position = None;
         Task::none()
     }
@@ -291,7 +292,7 @@ impl ToolFunction for EyeDropperTool {
     fn handle_message(
         &mut self,
         message: Self::Message,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
         match message {
             EyeDropperToolMessage::SampleModeChanged(mode) => self.sample_mode = mode,
@@ -302,16 +303,16 @@ impl ToolFunction for EyeDropperTool {
             EyeDropperToolMessage::Sampled(result) => {
                 self.sample_in_flight = false;
                 if let Ok(color) = result.logged_err() {
-                    let old = services.foreground_color().get();
-                    services.foreground_color_mut().set(color);
+                    let old = globals.foreground_color().get();
+                    globals.foreground_color_mut().set(color);
                     ForegroundColorChanged::broadcast(ForegroundColorChanged::new(old, color));
                     self.sampled_color = Some(color);
                 }
 
                 if let Some(pending) = self.pending_sample.take()
-                    && let Some(canvas) = services.canvas(&pending.canvas_id)
+                    && let Some(canvas) = globals.canvas(&pending.canvas_id)
                 {
-                    return self.start_sample(pending, &canvas.image, services);
+                    return self.start_sample(pending, &canvas.image, globals);
                 }
             }
         }
@@ -321,13 +322,13 @@ impl ToolFunction for EyeDropperTool {
 
     fn tool_option_widget<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
         let radius = match self.sample_mode {
             EyeDropperSampleMode::Single => 1,
             EyeDropperSampleMode::Average { radius } => radius,
         };
-        let sampled_rgb = self.sampled_rgb(services);
+        let sampled_rgb = self.sampled_rgb(globals);
         let color = sampled_rgb.unwrap_or(Rgb::new(0.0, 0.0, 0.0));
         let preview_color = iced_core::Color::from_rgb(
             color.r.clamp(0.0, 1.0),
@@ -404,14 +405,14 @@ impl ToolFunction for EyeDropperTool {
 
     fn canvas_overlay<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
         const SWATCH_SIZE: f32 = 60.0;
 
         let (Some(cursor), Some(color), Some(canvas)) = (
             self.cursor_position,
-            self.sampled_rgb(services),
-            services.current_canvas(),
+            self.sampled_rgb(globals),
+            globals.current_canvas(),
         ) else {
             return Void.into();
         };

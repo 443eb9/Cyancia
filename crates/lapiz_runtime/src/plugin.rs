@@ -1,6 +1,6 @@
-use crate::Application;
+use crate::Runtime;
 
 pub trait Plugin: 'static {
-    fn build(&self, app: &mut Application);
-    fn finish(&self, _app: &mut Application) {}
+    fn build(&self, app: &mut Runtime);
+    fn finish(&self, _app: &mut Runtime) {}
 }

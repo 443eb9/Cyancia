@@ -12,7 +12,7 @@ use lapiz_image::{
     tile::{DynamicLayerStorage, GpuLayerInfo, GpuTileStorage, TileStorageAppExt as _},
 };
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Services, event::Event as _};
+use lapiz_runtime::{event::Event as _, global::Globals};
 use lapiz_undo::UndoCommand;
 use lapiz_utils::log_err::LogErr as _;
 use wgpu::{
@@ -162,7 +162,7 @@ impl TileReplaceCommand {
 }
 
 fn apply_tile_replace(
-    services: &mut Services,
+    globals: &mut Globals,
     canvas: CanvasId,
     layer: LayerId,
     replace_tile: &Option<(Texture, Vec<IVec2>)>,
@@ -171,10 +171,10 @@ fn apply_tile_replace(
     let mut dirty_min = IVec2::MAX;
     let mut dirty_max = IVec2::MIN;
 
-    let device = services.render_device();
-    let queue = services.render_queue();
+    let device = globals.render_device();
+    let queue = globals.render_queue();
 
-    let tile_storage = services.tile_storage();
+    let tile_storage = globals.tile_storage();
     let mut layer = tile_storage.get_layer_mut(layer).unwrap();
 
     let mut ec = device.create_command_encoder(&Default::default());
@@ -256,7 +256,7 @@ impl UndoCommand for TileReplaceCommand {
     }
 
     #[tracing::instrument(skip_all)]
-    fn redo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+    fn redo(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
         let to_clear = self
             .old_tiles
             .as_ref()
@@ -270,12 +270,12 @@ impl UndoCommand for TileReplaceCommand {
             })
             .unwrap_or_default();
 
-        apply_tile_replace(services, self.canvas, self.layer, &self.new_tiles, to_clear);
+        apply_tile_replace(globals, self.canvas, self.layer, &self.new_tiles, to_clear);
         Ok(())
     }
 
     #[tracing::instrument(skip_all)]
-    fn undo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+    fn undo(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
         let to_clear = self
             .new_tiles
             .as_ref()
@@ -289,7 +289,7 @@ impl UndoCommand for TileReplaceCommand {
             })
             .unwrap_or_default();
 
-        apply_tile_replace(services, self.canvas, self.layer, &self.old_tiles, to_clear);
+        apply_tile_replace(globals, self.canvas, self.layer, &self.old_tiles, to_clear);
         Ok(())
     }
 }
@@ -329,14 +329,14 @@ impl UndoCommand for InsertLayerCommand {
         "Create Layer".into()
     }
 
-    fn redo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+    fn redo(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
         if let Some(texel_type) = self.layer.properties().get_texel_type() {
-            services
+            globals
                 .tile_storage()
                 .declare_layer(*self.layer.id(), GpuLayerInfo { texel_type });
         }
 
-        services
+        globals
             .update_canvas(&self.canvas, |canvas, _| {
                 canvas.image.layer_stack_mut().add_layer(
                     self.parent_id,
@@ -355,8 +355,8 @@ impl UndoCommand for InsertLayerCommand {
         Ok(())
     }
 
-    fn undo(&mut self, services: &mut Services) -> anyhow::Result<()> {
-        services
+    fn undo(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
+        globals
             .update_canvas(&self.canvas, |canvas, _| {
                 canvas
                     .image
@@ -397,14 +397,14 @@ impl UndoCommand for GroupLayerCommand {
         "Group Layer".into()
     }
 
-    fn redo(&mut self, services: &mut Services) -> anyhow::Result<()> {
+    fn redo(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
         if let Some(texel_type) = self.group.properties().get_texel_type() {
-            services
+            globals
                 .tile_storage()
                 .declare_layer(*self.group.id(), GpuLayerInfo { texel_type });
         }
 
-        services
+        globals
             .update_canvas(&self.canvas, |canvas, _| {
                 canvas.image.layer_stack_mut().add_layer(
                     self.parent_id,
@@ -428,8 +428,8 @@ impl UndoCommand for GroupLayerCommand {
         Ok(())
     }
 
-    fn undo(&mut self, services: &mut Services) -> anyhow::Result<()> {
-        services
+    fn undo(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
+        globals
             .update_canvas(&self.canvas, |canvas, _| {
                 let mut removed_nodes = canvas
                     .image
@@ -508,8 +508,8 @@ impl UndoCommand for MoveLayersCommand {
         "Move Layer".into()
     }
 
-    fn redo(&mut self, services: &mut Services) -> anyhow::Result<()> {
-        services.update_canvas(&self.canvas, |canvas, _| {
+    fn redo(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
+        globals.update_canvas(&self.canvas, |canvas, _| {
             match self.new_position {
                 LayerPosition::Above(_) => {
                     for layer in self.layers.iter().rev() {
@@ -539,8 +539,8 @@ impl UndoCommand for MoveLayersCommand {
         Ok(())
     }
 
-    fn undo(&mut self, services: &mut Services) -> anyhow::Result<()> {
-        services.update_canvas(&self.canvas, |canvas, _| {
+    fn undo(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
+        globals.update_canvas(&self.canvas, |canvas, _| {
             match self.new_position {
                 LayerPosition::Above(_) => {
                     for layer in self.layers.iter().rev() {
@@ -666,8 +666,8 @@ impl UndoCommand for DeleteLayersCommand {
     }
 
     #[tracing::instrument(skip_all)]
-    fn redo(&mut self, services: &mut Services) -> anyhow::Result<()> {
-        services
+    fn redo(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
+        globals
             .update_canvas(&self.canvas, |canvas, _| {
                 if self.nodes.is_some() {
                     bail!("Called redo twice consecutively is not valid")
@@ -705,8 +705,8 @@ impl UndoCommand for DeleteLayersCommand {
     }
 
     #[tracing::instrument(skip_all)]
-    fn undo(&mut self, services: &mut Services) -> anyhow::Result<()> {
-        services
+    fn undo(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
+        globals
             .update_canvas(&self.canvas, |canvas, _| {
                 let Some(nodes) = self.nodes.take() else {
                     bail!("Called undo twice consecutively is not valid")
@@ -750,8 +750,8 @@ impl UndoCommand for LayerPropertyChangeCommand {
         "Layer Property Change".into()
     }
 
-    fn redo(&mut self, services: &mut Services) -> anyhow::Result<()> {
-        services.update_canvas(&self.canvas, |canvas, _| {
+    fn redo(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
+        globals.update_canvas(&self.canvas, |canvas, _| {
             let layer = canvas
                 .image
                 .layer_stack_mut()
@@ -767,8 +767,8 @@ impl UndoCommand for LayerPropertyChangeCommand {
         Ok(())
     }
 
-    fn undo(&mut self, services: &mut Services) -> anyhow::Result<()> {
-        services.update_canvas(&self.canvas, |canvas, _| {
+    fn undo(&mut self, globals: &mut Globals) -> anyhow::Result<()> {
+        globals.update_canvas(&self.canvas, |canvas, _| {
             let layer = canvas
                 .image
                 .layer_stack_mut()

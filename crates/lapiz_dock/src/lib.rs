@@ -9,7 +9,10 @@ use group::DockGroupData;
 use iced_core::{Element, Point, Size, Theme, Vector, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
-use lapiz_runtime::{Renderer, Services, service::Service};
+use lapiz_runtime::{
+    Renderer,
+    global::{Global, Globals},
+};
 use lapiz_widgets::pane_grid;
 use state::DockState;
 
@@ -48,7 +51,7 @@ impl DockRegistry {
     }
 }
 
-impl Service for DockRegistry {}
+impl Global for DockRegistry {}
 
 pub struct DockManager {
     main_window: GroupWindowInfo,
@@ -96,15 +99,15 @@ impl DockManager {
         self.docks.remove(dock_id);
     }
 
-    pub fn open_dock(&mut self, services: &mut Services, dock_id: DockId) -> Task<DockMessage> {
+    pub fn open_dock(&mut self, globals: &mut Globals, dock_id: DockId) -> Task<DockMessage> {
         self.dock_state.open(dock_id.clone());
 
-        self.on_open_task(services, dock_id)
+        self.on_open_task(globals, dock_id)
     }
 
     pub fn open_dock_in_group(
         &mut self,
-        services: &mut Services,
+        globals: &mut Globals,
         dock_id: DockId,
         target: &DockGroupId,
     ) -> Task<DockMessage> {
@@ -113,15 +116,15 @@ impl DockManager {
             .open_in_group(target, dock_id.clone())
             .is_none()
         {
-            return self.open_dock(services, dock_id);
+            return self.open_dock(globals, dock_id);
         }
 
-        self.on_open_task(services, dock_id)
+        self.on_open_task(globals, dock_id)
     }
 
-    fn on_open_task(&mut self, services: &mut Services, dock_id: DockId) -> Task<DockMessage> {
+    fn on_open_task(&mut self, globals: &mut Globals, dock_id: DockId) -> Task<DockMessage> {
         if let Some(dock) = self.docks.get_mut(&dock_id) {
-            dock.on_open(services)
+            dock.on_open(globals)
                 .map(move |message| DockMessage::Dock(dock_id.clone(), message))
         } else {
             Task::none()
@@ -130,7 +133,7 @@ impl DockManager {
 
     pub fn open_dock_split(
         &mut self,
-        services: &mut Services,
+        globals: &mut Globals,
         dock_id: DockId,
         target: &DockGroupId,
         edge: pane_grid::Edge,
@@ -141,15 +144,15 @@ impl DockManager {
             .open_split(target, edge, ratio, dock_id.clone())
             .is_none()
         {
-            return self.open_dock(services, dock_id);
+            return self.open_dock(globals, dock_id);
         }
 
-        self.on_open_task(services, dock_id)
+        self.on_open_task(globals, dock_id)
     }
 
     pub fn on_dock_action(
         &mut self,
-        services: &mut Services,
+        globals: &mut Globals,
         action: DockAction,
     ) -> Task<DockMessage> {
         match action {
@@ -175,7 +178,7 @@ impl DockManager {
 
                         if let Some(dock) = self.docks.get_mut(&dock_id) {
                             return dock
-                                .on_close(services)
+                                .on_close(globals)
                                 .map(move |m| DockMessage::Dock(dock_id.clone(), m));
                         }
                     }
@@ -221,7 +224,7 @@ impl DockManager {
                             };
 
                             let task = dock
-                                .on_close(services)
+                                .on_close(globals)
                                 .map(move |m| DockMessage::Dock(dock_id.clone(), m));
                             tasks.push(task);
                         }
@@ -682,7 +685,7 @@ impl DockManager {
     pub fn view<'a>(
         &'a self,
         window_id: window::Id,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Option<Element<'a, DockMessage, Theme, Renderer>> {
         if window_id == self.main_window.id {
             let dock_w = DockWidget::new(&self.docks, &self.dock_state, DockMessage::Main).content(
@@ -691,7 +694,7 @@ impl DockManager {
                         .docks
                         .get(&dock_id)
                         .unwrap_or_else(|| panic!("Dock not found: {}", dock_id));
-                    dock.view(window_id, services)
+                    dock.view(window_id, globals)
                         .map(move |m| DockMessage::Dock(dock_id.clone(), m))
                 },
             );
@@ -714,7 +717,7 @@ impl DockManager {
                         .docks
                         .get(&dock_id)
                         .unwrap_or_else(|| panic!("Dock not found: {}", dock_id));
-                    dock.view(window_id, services)
+                    dock.view(window_id, globals)
                         .map(move |m| DockMessage::Dock(dock_id.clone(), m))
                 })
                 .is_merging(match self.current_attach_or_merge_info() {
@@ -727,7 +730,7 @@ impl DockManager {
             && let Some(dock) = self.docks.get(dock_id)
         {
             Some(
-                dock.view(window_id, services)
+                dock.view(window_id, globals)
                     .map(move |m| DockMessage::Dock(dock_id.clone(), m)),
             )
         } else {
@@ -735,13 +738,13 @@ impl DockManager {
         }
     }
 
-    pub fn update(&mut self, action: DockMessage, services: &mut Services) -> Task<DockMessage> {
+    pub fn update(&mut self, action: DockMessage, globals: &mut Globals) -> Task<DockMessage> {
         let task = match action {
-            DockMessage::Main(dock_action) => self.on_dock_action(services, dock_action),
+            DockMessage::Main(dock_action) => self.on_dock_action(globals, dock_action),
             DockMessage::Float { id, action } => self.on_float_action(id, action),
             DockMessage::Dock(dock_id, msg) => {
                 if let Some(dock) = self.docks.get_mut(&dock_id) {
-                    dock.update(msg, services)
+                    dock.update(msg, globals)
                         .map(move |m| DockMessage::Dock(dock_id.clone(), m))
                 } else {
                     Task::none()
@@ -783,9 +786,9 @@ impl DockManager {
         task
     }
 
-    pub fn subscription(&self, services: &Services) -> Subscription<DockMessage> {
+    pub fn subscription(&self, globals: &Globals) -> Subscription<DockMessage> {
         Subscription::batch(self.docks.iter().map(|(id, dock)| {
-            dock.subscription(services)
+            dock.subscription(globals)
                 .with(id.clone())
                 .map(|(dock, message)| DockMessage::Dock(dock, message))
         }))

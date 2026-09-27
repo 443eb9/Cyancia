@@ -1,4 +1,4 @@
-use lapiz_runtime::{Application, plugin::Plugin};
+use lapiz_runtime::{Runtime, plugin::Plugin};
 use lapiz_tools::ToolsAppExt as _;
 
 use crate::{
@@ -17,10 +17,9 @@ lapiz_i18n::define_i18n!("selection_tool");
 pub struct SelectionPlugin;
 
 impl Plugin for SelectionPlugin {
-    fn build(&self, app: &mut Application) {
+    fn build(&self, app: &mut Runtime) {
         i18n::init();
-        app.runtime_mut()
-            .services_mut()
+        app.globals_mut()
             .add_tool_function::<RectangularSelectionTool>()
             .add_tool_function::<EllipticalSelectionTool>()
             .add_tool_function::<FreehandSelectionTool>()

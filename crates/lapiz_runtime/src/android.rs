@@ -1,21 +1,21 @@
 use lapiz_utils::wrapper;
 use winit::platform::android::activity;
 
-use crate::{Services, service::Service};
+use crate::global::{Global, Globals};
 
 wrapper! {
     #[derive(Debug, Clone)]
     pub AndroidApp : activity::AndroidApp
 }
 
-impl Service for AndroidApp {}
+impl Global for AndroidApp {}
 
 pub trait AndroidAppExt {
     fn android_app(&self) -> &AndroidApp;
 }
 
-impl AndroidAppExt for Services {
+impl AndroidAppExt for Globals {
     fn android_app(&self) -> &AndroidApp {
-        self.service::<AndroidApp>()
+        self.global::<AndroidApp>()
     }
 }

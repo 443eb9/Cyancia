@@ -1,10 +1,5 @@
 use std::{env, sync::Arc};
 
-use self::main_view::MainView;
-
-mod main_view;
-lapiz_i18n::define_i18n!("app");
-
 use lapiz_about::AboutPlugin;
 use lapiz_abr_bridge::AbrAssetBundle;
 use lapiz_actions::ActionPlugin;
@@ -26,10 +21,9 @@ use lapiz_image::ImagePlugin;
 use lapiz_image_exporter::ImageExporterPlugin;
 use lapiz_image_importer::ImageImporterPlugin;
 use lapiz_input::InputPlugin;
+use lapiz_main_view::MainViewPlugin;
 use lapiz_render::RenderPlugin;
-#[cfg(target_os = "android")]
-use lapiz_runtime::android;
-use lapiz_runtime::{Application, renderer::global_render_context, windows::WindowCommandBuffer};
+use lapiz_runtime::Application;
 use lapiz_selection_tool::SelectionPlugin;
 use lapiz_shader_graph::ShaderGraphPlugin;
 use lapiz_tools::ToolsPlugin;
@@ -60,14 +54,12 @@ pub(crate) fn run(#[cfg(target_os = "android")] android_app: AndroidApp) {
         .with_env_filter("info,wgpu_hal=warn,iced_winit=warn,iced_wgpu=warn")
         .init();
 
-    i18n::init();
-
     log::info!("Running at {}", env::current_dir().unwrap().display());
 
-    let mut app = Application::default();
-    #[cfg(target_os = "android")]
-    app.runtime_mut()
-        .add_service_instance(android::AndroidApp::new(android_app.clone()));
+    let mut app = Application::new(
+        #[cfg(target_os = "android")]
+        android_app,
+    );
     let mut asset_bundles = Vec::<Arc<dyn ErasedAssetBundle>>::new();
     asset_bundles.push(Arc::new(
         AssetDirectory::new(assets_dir().join("builtin_assets")).unwrap(),
@@ -113,46 +105,34 @@ pub(crate) fn run(#[cfg(target_os = "android")] android_app: AndroidApp) {
         );
     }
 
-    app.add_service_instance(global_render_context())
-        .add_service::<WindowCommandBuffer>()
-        .add_plugin(AssetsPlugin {
-            asset_root: assets_dir().into(),
-            bundles: asset_bundles,
-        })
-        .add_plugin(UndoPlugin)
-        .add_plugin(RenderPlugin)
-        .add_plugin(ShaderGraphPlugin)
-        .add_plugin(ToolsPlugin)
-        .add_plugin(ImagePlugin)
-        .add_plugin(CanvasPlugin)
-        .add_plugin(InputPlugin)
-        .add_plugin(BrushPlugin)
-        .add_plugin(FilterPlugin)
-        .add_plugin(BucketPlugin)
-        .add_plugin(EyeDropperPlugin)
-        .add_plugin(SelectionPlugin)
-        .add_plugin(FreeTransformPlugin)
-        .add_plugin(ColorPlugin)
-        .add_plugin(ActionPlugin)
-        .add_plugin(ColorSelectorPlugin)
-        .add_plugin(BuiltinDocksPlugin)
-        .add_plugin(ImageImporterPlugin)
-        .add_plugin(ImageExporterPlugin)
-        .add_plugin(AboutPlugin);
+    app.add_plugin(AssetsPlugin {
+        asset_root: assets_dir().into(),
+        bundles: asset_bundles,
+    })
+    .add_plugin(UndoPlugin)
+    .add_plugin(RenderPlugin)
+    .add_plugin(ShaderGraphPlugin)
+    .add_plugin(ToolsPlugin)
+    .add_plugin(ImagePlugin)
+    .add_plugin(CanvasPlugin)
+    .add_plugin(InputPlugin)
+    .add_plugin(BrushPlugin)
+    .add_plugin(FilterPlugin)
+    .add_plugin(BucketPlugin)
+    .add_plugin(EyeDropperPlugin)
+    .add_plugin(SelectionPlugin)
+    .add_plugin(FreeTransformPlugin)
+    .add_plugin(ColorPlugin)
+    .add_plugin(ActionPlugin)
+    .add_plugin(ColorSelectorPlugin)
+    .add_plugin(BuiltinDocksPlugin)
+    .add_plugin(ImageImporterPlugin)
+    .add_plugin(ImageExporterPlugin)
+    .add_plugin(AboutPlugin)
+    .add_plugin(MainViewPlugin);
     app.build_plugins();
-
-    {
-        let mut rt = app.runtime_mut();
-
-        rt.window_manager_mut().set_root_view::<MainView>();
-        rt.window_manager_mut().register_view::<MainView>();
-    }
 
     lapiz_i18n::init();
 
-    app.run(
-        #[cfg(target_os = "android")]
-        android_app,
-    )
-    .unwrap();
+    app.run().unwrap();
 }

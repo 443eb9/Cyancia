@@ -1,5 +1,5 @@
 use iced_core::keyboard::{Modifiers, key};
-use lapiz_runtime::service::Service;
+use lapiz_runtime::global::Global;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
@@ -57,7 +57,7 @@ impl KeyboardState {
     }
 }
 
-impl Service for KeyboardState {}
+impl Global for KeyboardState {}
 
 #[derive(Debug, thiserror::Error)]
 pub enum KeyParseError {

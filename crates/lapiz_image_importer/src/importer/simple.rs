@@ -5,7 +5,7 @@ use iced_core::{Element, Theme};
 use iced_runtime::Task;
 use lapiz_image::CImage;
 use lapiz_lazuli::LazuliArchive;
-use lapiz_runtime::{Renderer, Services};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_widgets::column;
 
 use crate::ImageFormatImporter;
@@ -35,16 +35,16 @@ macro_rules! simple_importers {
                     false
                 }
 
-                fn dialog_view(&self, _: &Services) -> Element<'_, (), Theme, Renderer> {
+                fn dialog_view(&self, _: &Globals) -> Element<'_, (), Theme, Renderer> {
                     column!().into()
                 }
 
-                fn dialog_update(&mut self, _: (), _: &mut Services) -> Task<()> {
+                fn dialog_update(&mut self, _: (), _: &mut Globals) -> Task<()> {
                     Task::none()
                 }
 
                 #[tracing::instrument(skip_all)]
-                async fn import(&self, _: &Services, path: &Path) -> Result<LazuliArchive> {
+                async fn import(&self, _: &Globals, path: &Path) -> Result<LazuliArchive> {
                     let (image, profile) = CImage::load_image_with_profile(BufReader::new(
                         File::open(path)?,
                     ))?;

@@ -12,7 +12,7 @@ use imagers::{DynamicImage, GenericImageView as _};
 use lapiz_i18n::t;
 use lapiz_lazuli::{LazuliArchive, image_props::ImageProperties, layer_tree::LayerNode};
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::Services;
+use lapiz_runtime::global::Globals;
 use moxcms::ColorProfile;
 use serde::{Serialize, Serializer, ser};
 use uuid::Uuid;
@@ -33,16 +33,16 @@ use crate::{
 };
 
 impl CImage {
-    pub fn from_lazuli(archive: &LazuliArchive, services: &Services) -> Result<Self> {
+    pub fn from_lazuli(archive: &LazuliArchive, globals: &Globals) -> Result<Self> {
         let image_props = archive.read_image_properties()?;
         let layer_stack = LayerStack::read_entire_tree(
             image_props.root_layer,
             archive,
-            services.service::<LayerTypeRegistry>(),
+            globals.global::<LayerTypeRegistry>(),
         )?;
 
-        let queue = services.render_queue();
-        let tile_storage = services.tile_storage();
+        let queue = globals.render_queue();
+        let tile_storage = globals.tile_storage();
         for layer in layer_stack.iter_layers() {
             let Some(texel_type) = layer.properties().get_texel_type() else {
                 continue;
@@ -73,7 +73,7 @@ impl CImage {
         })
     }
 
-    pub async fn write_archive(&self, archive: &LazuliArchive, services: &Services) -> Result<()> {
+    pub async fn write_archive(&self, archive: &LazuliArchive, globals: &Globals) -> Result<()> {
         archive.write_image_properties(&ImageProperties {
             width: self.size.x,
             height: self.size.y,
@@ -84,8 +84,8 @@ impl CImage {
         })?;
 
         self.layers.write_entire_tree(archive)?;
-        let render_context = services.render_context();
-        let tile_storage = services.tile_storage();
+        let render_context = globals.render_context();
+        let tile_storage = globals.tile_storage();
 
         let result = join_all(
             self.layers

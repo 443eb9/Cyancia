@@ -13,7 +13,8 @@ use lapiz_file_dialog::LocalFile;
 use lapiz_i18n::t;
 use lapiz_image::CImage;
 use lapiz_runtime::{
-    Renderer, Services,
+    Renderer,
+    global::Globals,
     windows::{WindowView, WindowViewId},
 };
 use lapiz_utils::log_err::LogErr as _;
@@ -49,10 +50,10 @@ impl WindowView for ImportDialogView {
 
     fn boot(
         params: Option<Self::BootParams>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Result<(Self, Task<Self::Message>)> {
         let pending = params.ok_or(anyhow::anyhow!("No pending import"))?;
-        let registry = services.service::<ImageImporterRegistry>();
+        let registry = globals.global::<ImageImporterRegistry>();
         let extension = pending
             .local_file
             .path()
@@ -87,11 +88,11 @@ impl WindowView for ImportDialogView {
     fn view<'a>(
         &'a self,
         _: window::Id,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> impl Into<Element<'a, Self::Message, Theme, Renderer>> {
         let options = self
             .importer
-            .dialog_view(services)
+            .dialog_view(globals)
             .map(ImportDialogMessage::Importer);
         let footer = row![
             space().width(Length::Fill),
@@ -132,23 +133,23 @@ impl WindowView for ImportDialogView {
     fn update(
         &mut self,
         message: Self::Message,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> impl Into<Task<Self::Message>> {
         match message {
             ImportDialogMessage::Importer(message) => self
                 .importer
-                .dialog_update(message, services)
+                .dialog_update(message, globals)
                 .map(ImportDialogMessage::Importer),
             ImportDialogMessage::Confirm => {
                 let Some(local_file) = self.local_file.as_ref() else {
                     return close(self.window);
                 };
                 let archive =
-                    block_on(self.importer.import(services, local_file.path())).logged_err();
+                    block_on(self.importer.import(globals, local_file.path())).logged_err();
                 if let Ok(archive) = archive
-                    && let Ok(image) = CImage::from_lazuli(&archive, services).logged_err()
+                    && let Ok(image) = CImage::from_lazuli(&archive, globals).logged_err()
                 {
-                    services.add_canvas(CCanvas::new(
+                    globals.add_canvas(CCanvas::new(
                         self.local_file.take().unwrap(),
                         image,
                         archive,
@@ -169,7 +170,7 @@ impl WindowView for ImportDialogView {
         }
     }
 
-    fn close(self, _: &mut Services) -> Task<()> {
+    fn close(self, _: &mut Globals) -> Task<()> {
         close(self.window)
     }
 

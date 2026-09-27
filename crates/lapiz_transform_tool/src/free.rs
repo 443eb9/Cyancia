@@ -42,7 +42,7 @@ use lapiz_render::{
     util::DevicePollExt as _,
     wesl_jit,
 };
-use lapiz_runtime::{Renderer, Services, event::Event as _};
+use lapiz_runtime::{Renderer, event::Event as _, global::Globals};
 use lapiz_tools::{ChangesTracker, ToolFunction, ToolId};
 use lapiz_undo::BatchedUndoCommand;
 use lapiz_utils::log_err::LogErr as _;
@@ -99,10 +99,10 @@ pub struct TransformSession {
 }
 
 impl TransformSession {
-    pub fn new(init: InitTransform, services: &Services) -> Self {
-        let device = services.render_device();
-        let queue = services.render_queue();
-        let tiles = services.tile_storage();
+    pub fn new(init: InitTransform, globals: &Globals) -> Self {
+        let device = globals.render_device();
+        let queue = globals.render_queue();
+        let tiles = globals.tile_storage();
 
         let target_layers = init
             .target_layers
@@ -665,7 +665,7 @@ impl ToolFunction for FreeTransformTool {
         icon::transform()
     }
 
-    fn activate(&mut self, _services: &mut Services) -> Task<Self::Message> {
+    fn activate(&mut self, _globals: &mut Globals) -> Task<Self::Message> {
         Task::done(FreeTransformToolMessage::RequestInit)
     }
 
@@ -673,12 +673,12 @@ impl ToolFunction for FreeTransformTool {
         &mut self,
         _keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
         let Some(session) = &mut self.session else {
             return Task::none();
         };
-        let Some(canvas) = services.canvas(&session.canvas_id) else {
+        let Some(canvas) = globals.canvas(&session.canvas_id) else {
             return Task::none();
         };
         let cursor_ps = canvas
@@ -710,12 +710,12 @@ impl ToolFunction for FreeTransformTool {
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
         let Some(session) = &mut self.session else {
             return Task::none();
         };
-        let Some(canvas) = services.canvas(&session.canvas_id) else {
+        let Some(canvas) = globals.canvas(&session.canvas_id) else {
             return Task::none();
         };
         let cursor_ps = canvas
@@ -727,7 +727,7 @@ impl ToolFunction for FreeTransformTool {
         }
 
         session.update(cursor_ps, keyboard.modifiers());
-        render_transform_preview(session, services);
+        render_transform_preview(session, globals);
 
         Task::none()
     }
@@ -736,7 +736,7 @@ impl ToolFunction for FreeTransformTool {
         &mut self,
         _keyboard: &KeyboardState,
         _mouse: &PressedMouseState,
-        _services: &mut Services,
+        _globals: &mut Globals,
     ) -> Task<Self::Message> {
         let Some(session) = &mut self.session else {
             return Task::none();
@@ -755,7 +755,7 @@ impl ToolFunction for FreeTransformTool {
         Task::none()
     }
 
-    fn undo(&mut self, services: &mut Services) -> bool {
+    fn undo(&mut self, globals: &mut Globals) -> bool {
         let Some(session) = self.session.as_mut() else {
             return false;
         };
@@ -765,12 +765,12 @@ impl ToolFunction for FreeTransformTool {
 
         if let Some(step) = session.tracker.undo().copied() {
             session.apply_params(step.before);
-            render_transform_preview(session, services);
+            render_transform_preview(session, globals);
         }
         true
     }
 
-    fn redo(&mut self, services: &mut Services) -> bool {
+    fn redo(&mut self, globals: &mut Globals) -> bool {
         let Some(session) = self.session.as_mut() else {
             return false;
         };
@@ -780,7 +780,7 @@ impl ToolFunction for FreeTransformTool {
 
         if let Some(step) = session.tracker.redo().copied() {
             session.apply_params(step.after);
-            render_transform_preview(session, services);
+            render_transform_preview(session, globals);
         }
         true
     }
@@ -788,23 +788,23 @@ impl ToolFunction for FreeTransformTool {
     fn handle_message(
         &mut self,
         message: Self::Message,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
         match message {
             FreeTransformToolMessage::RequestInit => {
                 if let Some(session) = self.session.take() {
-                    commit_transform(session, services);
+                    commit_transform(session, globals);
                 }
 
-                let Some(canvas) = services.current_canvas() else {
+                let Some(canvas) = globals.current_canvas() else {
                     return Task::none();
                 };
 
-                let device = services.render_device();
-                let queue = services.render_queue();
+                let device = globals.render_device();
+                let queue = globals.render_queue();
 
                 let canvas_id = canvas.id();
-                let tiles = services.tile_storage();
+                let tiles = globals.tile_storage();
 
                 let selection_layer_id = canvas.image.selection_layer();
                 let selection_layer = tiles.get_layer(selection_layer_id).unwrap();
@@ -928,7 +928,7 @@ impl ToolFunction for FreeTransformTool {
                     warn!("Unable to transform on empty layer.");
                     self.session = None;
                 } else {
-                    self.session = Some(TransformSession::new(init, services));
+                    self.session = Some(TransformSession::new(init, globals));
                 }
                 Task::none()
             }
@@ -937,8 +937,8 @@ impl ToolFunction for FreeTransformTool {
             FreeTransformToolMessage::Cancel => {
                 if let Some(session) = self.session.take() {
                     for (layer_id, _) in &session.target_layers {
-                        services
-                            .service_mut::<LayerPreviewOverriders>()
+                        globals
+                            .global_mut::<LayerPreviewOverriders>()
                             .remove_overrider(layer_id);
                     }
                     CanvasUpdated::broadcast(CanvasUpdated {
@@ -1025,7 +1025,7 @@ impl ToolFunction for FreeTransformTool {
                 }
 
                 session.update_matrix();
-                render_transform_preview(session, services);
+                render_transform_preview(session, globals);
                 if session.params() != before {
                     let after = session.params();
                     session.tracker.push(TransformStep { before, after });
@@ -1035,9 +1035,9 @@ impl ToolFunction for FreeTransformTool {
         }
     }
 
-    fn deactivate(&mut self, services: &mut Services) -> Task<Self::Message> {
+    fn deactivate(&mut self, globals: &mut Globals) -> Task<Self::Message> {
         if let Some(session) = self.session.take() {
-            commit_transform(session, services);
+            commit_transform(session, globals);
         }
 
         Task::none()
@@ -1045,12 +1045,12 @@ impl ToolFunction for FreeTransformTool {
 
     fn canvas_overlay<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
         let Some(session) = &self.session else {
             return space().into();
         };
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return space().into();
         };
 
@@ -1066,7 +1066,7 @@ impl ToolFunction for FreeTransformTool {
 
     fn tool_option_widget<'a>(
         &'a self,
-        _services: &'a Services,
+        _globals: &'a Globals,
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
         let session = self.session.as_ref()?;
         let shear_axis = match session.last_shear {
@@ -1188,7 +1188,7 @@ impl ToolFunction for FreeTransformTool {
     }
 }
 
-fn render_transform_preview(session: &mut TransformSession, services: &mut Services) {
+fn render_transform_preview(session: &mut TransformSession, globals: &mut Globals) {
     let transformed_tiles =
         GpuTileStorage::pixel_rect_to_tile(session.transformed_aabb_ps().as_irect());
 
@@ -1196,9 +1196,9 @@ fn render_transform_preview(session: &mut TransformSession, services: &mut Servi
         result_buffer.allocate_tiles(session.tile_bounds);
         result_buffer.allocate_tiles(transformed_tiles);
 
-        let device = services.render_device();
-        let queue = services.render_queue();
-        let tiles = services.tile_storage();
+        let device = globals.render_device();
+        let queue = globals.render_queue();
+        let tiles = globals.tile_storage();
         let target_layer = tiles.get_layer_binding_or_empty(*layer_id).unwrap();
         let selection_layer = (!session.selection_bounds.is_empty()).then(|| {
             tiles
@@ -1221,8 +1221,8 @@ fn render_transform_preview(session: &mut TransformSession, services: &mut Servi
             selection_layer,
         );
 
-        services
-            .service_mut::<LayerPreviewOverriders>()
+        globals
+            .global_mut::<LayerPreviewOverriders>()
             .insert_overrider(
                 *layer_id,
                 PixelPreviewOverrider::from_layer_storage(result_buffer),
@@ -1235,24 +1235,24 @@ fn render_transform_preview(session: &mut TransformSession, services: &mut Servi
     });
 }
 
-fn commit_transform(session: TransformSession, services: &mut Services) {
+fn commit_transform(session: TransformSession, globals: &mut Globals) {
     let replace_commands = session
         .result_buffers
         .into_iter()
         .filter_map(|(layer_id, result_buffer)| {
             let result_texture = result_buffer.texture()?;
 
-            services
-                .service_mut::<LayerPreviewOverriders>()
+            globals
+                .global_mut::<LayerPreviewOverriders>()
                 .remove_overrider(&layer_id);
 
-            let tiles = services.tile_storage();
+            let tiles = globals.tile_storage();
             let target_layer = tiles.get_layer(layer_id).unwrap();
             let cmd = TileReplaceCommand::new(
                 "Free Transform".into(),
                 session.canvas_id,
-                services.render_device(),
-                services.render_queue(),
+                globals.render_device(),
+                globals.render_queue(),
                 layer_id,
                 &target_layer,
                 result_buffer.iter_tile_indices().collect(),
@@ -1264,9 +1264,7 @@ fn commit_transform(session: TransformSession, services: &mut Services) {
         .collect();
 
     let cmd = BatchedUndoCommand::new("Free Transform".into(), replace_commands);
-    services
-        .push_undo_command(&session.canvas_id, cmd)
-        .log_err();
+    globals.push_undo_command(&session.canvas_id, cmd).log_err();
 }
 
 pub struct FreeTransformToolOverlay<'a> {

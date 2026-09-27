@@ -38,8 +38,10 @@ use lapiz_image::{
 };
 use lapiz_input::key::KeyboardState;
 use lapiz_runtime::{
-    ApplicationTheme, Renderer, Services,
+    ApplicationTheme, Renderer, Runtime,
     event::Event as _,
+    global::Globals,
+    plugin::Plugin,
     windows::{WindowView, WindowViewId},
 };
 use lapiz_tools::{
@@ -58,6 +60,19 @@ use lapiz_widgets::{
 };
 use moxcms::ProfileText;
 use unic_langid::LanguageIdentifier;
+
+lapiz_i18n::define_i18n!("main_view");
+
+pub struct MainViewPlugin;
+
+impl Plugin for MainViewPlugin {
+    fn build(&self, app: &mut Runtime) {
+        i18n::init();
+
+        app.window_manager_mut().set_root_view::<MainView>();
+        app.register_view::<MainView>();
+    }
+}
 
 pub struct MainView {
     dock_manager: DockManager,
@@ -182,26 +197,26 @@ impl MainView {
 
     fn switch_tool_keys(
         &mut self,
-        services: &mut Services,
+        globals: &mut Globals,
         is_keydown: bool,
     ) -> Task<MainViewMessage> {
-        services
-            .update_current_tool_proxy(|tool_proxy, services| {
-                let keyboard_state = services.service::<KeyboardState>();
+        globals
+            .update_current_tool_proxy(|tool_proxy, globals| {
+                let keyboard_state = globals.global::<KeyboardState>();
                 let seq = keyboard_state.get_sequence();
 
-                let config = services
-                    .service::<GlobalToolBindings>()
+                let config = globals
+                    .global::<GlobalToolBindings>()
                     .binding_for(seq)
                     .cloned();
                 let Some(config) = config else {
-                    return tool_proxy.switch_override_tool(None, services);
+                    return tool_proxy.switch_override_tool(None, globals);
                 };
 
                 if config.is_temporary {
-                    tool_proxy.switch_override_tool(Some(config.tool.clone()), services)
+                    tool_proxy.switch_override_tool(Some(config.tool.clone()), globals)
                 } else if is_keydown {
-                    tool_proxy.switch_tool(config.tool.clone(), services)
+                    tool_proxy.switch_tool(config.tool.clone(), globals)
                 } else {
                     Task::none()
                 }
@@ -222,7 +237,7 @@ impl WindowView for MainView {
 
     fn boot(
         _params: Option<Self::BootParams>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Result<(Self, Task<Self::Message>)> {
         let action_bindings = ActionBindingManifestConfig::read_or_init_or_fallback().get();
         log::info!(
@@ -244,26 +259,26 @@ impl WindowView for MainView {
             },
             ..Default::default()
         });
-        let dock_registry = services.remove_service::<DockRegistry>();
+        let dock_registry = globals.remove_global::<DockRegistry>();
         let (mut dock_manager, dock_manager_task) = dock_registry.build(main_window);
 
-        let task_tool_options = dock_manager.open_dock(services, TOOL_OPTIONS_DOCK_ID.clone());
+        let task_tool_options = dock_manager.open_dock(globals, TOOL_OPTIONS_DOCK_ID.clone());
         let tool_options = *dock_manager
             .dock_state()
             .dock_in_group(&TOOL_OPTIONS_DOCK_ID)
             .unwrap()
             .id();
         let task_landing_page =
-            dock_manager.open_dock_in_group(services, RECENT_FILES_DOCK_ID.clone(), &tool_options);
+            dock_manager.open_dock_in_group(globals, RECENT_FILES_DOCK_ID.clone(), &tool_options);
         let task_tool_box = dock_manager.open_dock_split(
-            services,
+            globals,
             TOOL_BOX_DOCK_ID.clone(),
             &tool_options,
             pane_grid::Edge::Left,
             0.06,
         );
         let task_color_selector = dock_manager.open_dock_split(
-            services,
+            globals,
             COLOR_SELECTOR_DOCK_ID.clone(),
             &tool_options,
             pane_grid::Edge::Right,
@@ -275,7 +290,7 @@ impl WindowView for MainView {
             .unwrap()
             .id();
         let task_brush_presets = dock_manager.open_dock_split(
-            services,
+            globals,
             BRUSH_PRESETS_DOCK_ID.clone(),
             &color_selector,
             pane_grid::Edge::Bottom,
@@ -289,7 +304,7 @@ impl WindowView for MainView {
             .clone();
 
         let task_layer = dock_manager.open_dock_split(
-            services,
+            globals,
             LAYER_DOCK_ID.clone(),
             brush_preset,
             pane_grid::Edge::Bottom,
@@ -324,11 +339,11 @@ impl WindowView for MainView {
     fn view<'a>(
         &'a self,
         window: window::Id,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> impl Into<Element<'a, Self::Message, Theme, lapiz_runtime::Renderer>> {
         let dock = self
             .dock_manager
-            .view(window, services)?
+            .view(window, globals)?
             .map(MainViewMessage::Dock);
 
         if window != self.dock_manager.main_window().id {
@@ -338,7 +353,7 @@ impl WindowView for MainView {
         let title_content = row![
             label("LAPIZ").window_title(),
             Element::new(
-                self.menu_bar(&services.service::<ApplicationTheme>().0)
+                self.menu_bar(&globals.global::<ApplicationTheme>().0)
                     .height(Length::Fill),
             )
             .map(MainViewMessage::MenuBar)
@@ -355,13 +370,13 @@ impl WindowView for MainView {
         #[cfg(target_os = "android")]
         let title = title_bar(title_content);
 
-        let preset_name = services
-            .get_service::<CurrentBrushPresetHandle>()
+        let preset_name = globals
+            .get_global::<CurrentBrushPresetHandle>()
             .and_then(|handle| handle.0.get().ok())
             .map(|preset| preset.metadata.name.clone())
             .unwrap_or_else(|| String::from("NO PRESET"));
         let mut status_cells = vec![Self::status_cell(icon::brush(), preset_name)];
-        if let Some(canvas) = services.current_canvas() {
+        if let Some(canvas) = globals.current_canvas() {
             let size = canvas.image.size();
             status_cells.extend([
                 Divider::vertical(1).into(),
@@ -413,12 +428,12 @@ impl WindowView for MainView {
     fn update(
         &mut self,
         message: Self::Message,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> impl Into<Task<Self::Message>> {
         match message {
             MainViewMessage::Dock(m) => self
                 .dock_manager
-                .update(m, services)
+                .update(m, globals)
                 .map(MainViewMessage::Dock),
             #[cfg(not(target_os = "android"))]
             MainViewMessage::MainWindowDrag => window::drag(self.dock_manager.main_window().id),
@@ -429,10 +444,10 @@ impl WindowView for MainView {
                     return window_task;
                 }
 
-                services.service_mut::<KeyboardState>().clear();
-                let tool_task = services
-                    .update_current_tool_proxy(|tool_proxy, services| {
-                        tool_proxy.switch_override_tool(None, services)
+                globals.global_mut::<KeyboardState>().clear();
+                let tool_task = globals
+                    .update_current_tool_proxy(|tool_proxy, globals| {
+                        tool_proxy.switch_override_tool(None, globals)
                     })
                     .unwrap_or_else(Task::none)
                     .map(MainViewMessage::ToolFunctionMessage);
@@ -440,7 +455,7 @@ impl WindowView for MainView {
             }
 
             MainViewMessage::KeyboardEvent(_window, event) => {
-                let keyboard_state = services.service_mut::<KeyboardState>();
+                let keyboard_state = globals.global_mut::<KeyboardState>();
                 let old_modifier_count = keyboard_state.modifiers().bits().count_ones();
 
                 match &event {
@@ -467,31 +482,31 @@ impl WindowView for MainView {
                         if let Some(action) = self
                             .action_collection
                             .get_action_id(keyboard_state.get_sequence())
-                            && let Some(action_func) = services
-                                .service_mut::<ActionFunctionRegistry>()
+                            && let Some(action_func) = globals
+                                .global_mut::<ActionFunctionRegistry>()
                                 .get(action.clone())
                         {
                             log::info!("Triggering action: {}", action.0);
-                            return action_func.trigger(services).map(move |message| {
+                            return action_func.trigger(globals).map(move |message| {
                                 MainViewMessage::ActionMessage(action.clone(), message)
                             });
                         }
 
-                        self.switch_tool_keys(services, true)
+                        self.switch_tool_keys(globals, true)
                     }
                     keyboard::Event::KeyReleased {
                         physical_key: key::Physical::Code(code),
                         ..
                     } => {
                         keyboard_state.release(*code);
-                        self.switch_tool_keys(services, false)
+                        self.switch_tool_keys(globals, false)
                     }
                     keyboard::Event::ModifiersChanged(modifiers) => {
                         keyboard_state.set_modifiers(*modifiers);
 
                         let new_modifier_count = keyboard_state.modifiers().bits().count_ones();
                         let is_keydown = new_modifier_count > old_modifier_count;
-                        self.switch_tool_keys(services, is_keydown)
+                        self.switch_tool_keys(globals, is_keydown)
                     }
                     _ => Task::none(),
                 }
@@ -518,17 +533,15 @@ impl WindowView for MainView {
             MainViewMessage::CanvasCreated(e) => {
                 log::info!("Canvas created: {}", e.id);
 
-                let tool_proxy = ToolProxy::new(services.service::<ToolFunctionRegistry>());
-                services
-                    .service_mut::<ToolProxies>()
+                let tool_proxy = ToolProxy::new(globals.global::<ToolFunctionRegistry>());
+                globals
+                    .global_mut::<ToolProxies>()
                     .insert(*e.id, tool_proxy);
                 let undo_stack = UndoStack::new(*e.id, 200);
-                services
-                    .service_mut::<UndoStacks>()
-                    .insert(*e.id, undo_stack);
+                globals.global_mut::<UndoStacks>().insert(*e.id, undo_stack);
 
-                let canvas = services.canvas(&e.id).unwrap();
-                services.tile_storage().declare_layer(
+                let canvas = globals.canvas(&e.id).unwrap();
+                globals.tile_storage().declare_layer(
                     canvas.image.selection_layer(),
                     GpuLayerInfo {
                         // TODO This will change when image depth is not 8 bit
@@ -545,9 +558,9 @@ impl WindowView for MainView {
                     })
                     .log_err();
 
-                let tool_task = services
-                    .update_tool_proxy(&e.id, |tool_proxy, services| {
-                        tool_proxy.switch_tool(PanTool::id(), services)
+                let tool_task = globals
+                    .update_tool_proxy(&e.id, |tool_proxy, globals| {
+                        tool_proxy.switch_tool(PanTool::id(), globals)
                     })
                     .unwrap_or_else(Task::none);
                 let dock = CanvasDock::new(e.id, self.dock_manager.main_window().id);
@@ -556,9 +569,9 @@ impl WindowView for MainView {
 
                 let dock_task = if let Some(target) = self.canvas_group_anchor {
                     self.dock_manager
-                        .open_dock_in_group(services, id.clone(), &target)
+                        .open_dock_in_group(globals, id.clone(), &target)
                 } else {
-                    let task = self.dock_manager.open_dock(services, id.clone());
+                    let task = self.dock_manager.open_dock(globals, id.clone());
                     self.canvas_group_anchor = self
                         .dock_manager
                         .dock_state()
@@ -580,11 +593,11 @@ impl WindowView for MainView {
                 Task::none()
             }
             MainViewMessage::TriggerAction(action_id) => {
-                if let Some(action_func) = services
-                    .service_mut::<ActionFunctionRegistry>()
+                if let Some(action_func) = globals
+                    .global_mut::<ActionFunctionRegistry>()
                     .get(action_id.clone())
                 {
-                    action_func.trigger(services).map(move |message| {
+                    action_func.trigger(globals).map(move |message| {
                         MainViewMessage::ActionMessage(action_id.clone(), message)
                     })
                 } else {
@@ -592,12 +605,12 @@ impl WindowView for MainView {
                 }
             }
             MainViewMessage::ActionMessage(action_id, message) => {
-                if let Some(action_func) = services
-                    .service_mut::<ActionFunctionRegistry>()
+                if let Some(action_func) = globals
+                    .global_mut::<ActionFunctionRegistry>()
                     .get(action_id.clone())
                 {
                     action_func
-                        .handle_message(message, services)
+                        .handle_message(message, globals)
                         .map(move |message| {
                             MainViewMessage::ActionMessage(action_id.clone(), message)
                         })
@@ -605,9 +618,9 @@ impl WindowView for MainView {
                     Task::none()
                 }
             }
-            MainViewMessage::ToolFunctionMessage(message) => services
-                .update_current_tool_proxy(|tool_proxy, services| {
-                    tool_proxy.handle_message(message, services)
+            MainViewMessage::ToolFunctionMessage(message) => globals
+                .update_current_tool_proxy(|tool_proxy, globals| {
+                    tool_proxy.handle_message(message, globals)
                 })
                 .unwrap_or_else(Task::none)
                 .map(MainViewMessage::ToolFunctionMessage),
@@ -618,7 +631,7 @@ impl WindowView for MainView {
             #[cfg(not(target_os = "android"))]
             MainViewMessage::CloseWindow(id) => window::close(id),
             MainViewMessage::MenuBar(MenuBarMessage::SetTheme(theme)) => {
-                services.service_mut::<ApplicationTheme>().0 = theme;
+                globals.global_mut::<ApplicationTheme>().0 = theme;
                 Task::none()
             }
             MainViewMessage::MenuBar(MenuBarMessage::SetLanguage(id)) => {
@@ -634,11 +647,11 @@ impl WindowView for MainView {
         }
     }
 
-    fn close(self, _services: &mut Services) -> Task<()> {
+    fn close(self, _globals: &mut Globals) -> Task<()> {
         iced::exit()
     }
 
-    fn subscription(&self, services: &Services) -> Subscription<Self::Message> {
+    fn subscription(&self, globals: &Globals) -> Subscription<Self::Message> {
         let external = listen_with(|event, _status, window| match event {
             iced::Event::Window(e) => Some(MainViewMessage::WindowEvent(window, e)),
             iced::Event::Keyboard(e) => Some(MainViewMessage::KeyboardEvent(window, e)),
@@ -648,7 +661,7 @@ impl WindowView for MainView {
 
         let dock = self
             .dock_manager
-            .subscription(services)
+            .subscription(globals)
             .map(MainViewMessage::Dock);
         let canvas_create = CanvasCreated::listen_to().map(MainViewMessage::CanvasCreated);
         let canvas_remove = CanvasRemoved::listen_to().map(MainViewMessage::CanvasRemoved);

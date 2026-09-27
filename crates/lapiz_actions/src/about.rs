@@ -5,7 +5,7 @@ use iced_runtime::Task;
 use lapiz_dirs::reports_dir;
 use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{
-    Services,
+    global::Globals,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},
 };
 use lapiz_utils::log_err::LogErr as _;
@@ -22,9 +22,9 @@ impl ActionFunction for OpenAboutAction {
         ActionId::new("open_about_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        services
-            .service_mut::<WindowCommandBuffer>()
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
+        globals
+            .global_mut::<WindowCommandBuffer>()
             .push(OpenWindowViewCommand::new(WindowViewId::new(
                 lapiz_about::ABOUT_VIEW_ID,
             )));
@@ -42,8 +42,8 @@ impl ActionFunction for GenerateReportAction {
         ActionId("generate_report_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        let Ok(report) = lapiz_report::report(services.render_device()).logged_err() else {
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
+        let Ok(report) = lapiz_report::report(globals.render_device()).logged_err() else {
             return Task::none();
         };
 
@@ -73,7 +73,7 @@ impl ActionFunction for DebugManualPanicAction {
         ActionId("debug_manual_panic_action".into())
     }
 
-    fn trigger(&self, _services: &mut Services) -> Task<Self::Message> {
+    fn trigger(&self, _globals: &mut Globals) -> Task<Self::Message> {
         panic!("Debug panic");
     }
 }

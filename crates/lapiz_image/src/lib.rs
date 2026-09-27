@@ -10,7 +10,7 @@ use bevy_math::IRect;
 use glam::{IVec2, UVec2};
 use imagers::{ImageDecoder as _, ImageReader};
 use lapiz_i18n::t;
-use lapiz_runtime::{Application, plugin::Plugin};
+use lapiz_runtime::{Runtime, plugin::Plugin};
 use moxcms::ColorProfile;
 // TODO move CImage to another place to avoid this.
 extern crate image as imagers;
@@ -44,21 +44,21 @@ lapiz_i18n::define_i18n!("image");
 pub struct ImagePlugin;
 
 impl Plugin for ImagePlugin {
-    fn build(&self, app: &mut Application) {
+    fn build(&self, app: &mut Runtime) {
         i18n::init();
-        app.add_service::<GpuTileStorage>()
-            .add_service::<LayerPreviewOverriders>();
+        app.add_global::<GpuTileStorage>()
+            .add_global::<LayerPreviewOverriders>();
 
         let mut blend_functions = BlendFunctionRegistry::default();
         for blend_mode in BlendMode::ALL {
             blend_functions.register(Arc::new(blend_mode));
         }
-        app.add_service_instance(blend_functions);
+        app.add_global_instance(blend_functions);
 
         let mut layer_types = LayerTypeRegistry::default();
         layer_types.register::<PixelLayer>();
         layer_types.register::<GroupLayer>();
-        app.add_service_instance(layer_types);
+        app.add_global_instance(layer_types);
     }
 }
 

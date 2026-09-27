@@ -4,10 +4,10 @@ use iced_core::{Element, Length, Theme, window};
 use iced_runtime::Task;
 use lapiz_assets::AssetAppExt as _;
 use lapiz_brush::{
-    asset::BrushPreset, tool::BrushServicesExt as _, widget::BrushPresetListDelegate,
+    asset::BrushPreset, tool::BrushglobalsExt as _, widget::BrushPresetListDelegate,
 };
 use lapiz_dock::dock::{Dock, DockId};
-use lapiz_runtime::{Renderer, Services};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_widgets::{button, flex::Flex, label, scrollable};
 
 pub static BRUSH_PRESETS_DOCK_ID: LazyLock<DockId> =
@@ -23,10 +23,10 @@ pub enum BrushPresetDockMessage {
 }
 
 impl BrushPresetDock {
-    pub fn new(services: &Services) -> Self {
+    pub fn new(globals: &Globals) -> Self {
         Self {
             brushes: BrushPresetListDelegate::new(
-                services.assets().all_handles_of::<BrushPreset>().unwrap(),
+                globals.assets().all_handles_of::<BrushPreset>().unwrap(),
             ),
         }
     }
@@ -42,7 +42,7 @@ impl Dock for BrushPresetDock {
     fn view<'a>(
         &'a self,
         _window_id: window::Id,
-        _services: &'a Services,
+        _globals: &'a Globals,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
         let buttons = self
             .brushes
@@ -64,13 +64,13 @@ impl Dock for BrushPresetDock {
             .into()
     }
 
-    fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
+    fn update(&mut self, message: Self::Message, globals: &mut Globals) -> Task<Self::Message> {
         match message {
             BrushPresetDockMessage::SelectBrush(index) => {
                 self.brushes.select(index);
                 let handle = self.brushes.get(index).map(|item| item.brush.clone());
                 if let Some(handle) = handle {
-                    services.set_current_brush_preset(handle);
+                    globals.set_current_brush_preset(handle);
                 }
                 Task::none()
             }

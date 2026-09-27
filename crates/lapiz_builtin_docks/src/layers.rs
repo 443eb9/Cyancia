@@ -23,7 +23,7 @@ use lapiz_image::{
     tile::TileStorageAppExt as _,
 };
 use lapiz_input::key::KeyboardState;
-use lapiz_runtime::{Renderer, Services};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_utils::log_err::LogErr as _;
 
 pub static LAYER_DOCK_ID: LazyLock<DockId> = LazyLock::new(|| DockId::new("layer_dock".into()));
@@ -37,14 +37,14 @@ pub struct LayersDock {
 
 impl LayersDock {
     fn push_property_change(
-        services: &mut Services,
+        globals: &mut Globals,
         layer_id: LayerId,
         apply: impl FnOnce(&mut LayerProperties),
     ) {
-        let Some(canvas_id) = services.current_canvas_id() else {
+        let Some(canvas_id) = globals.current_canvas_id() else {
             return;
         };
-        let cmd = services.update_canvas(&canvas_id, |canvas, _services| {
+        let cmd = globals.update_canvas(&canvas_id, |canvas, _globals| {
             let layer = canvas.image.layer_stack().get_layer(&layer_id)?;
             let old = layer.properties().clone();
             let new = {
@@ -60,7 +60,7 @@ impl LayersDock {
             })
         });
         if let Some(cmd) = cmd.flatten() {
-            services.push_undo_command(&canvas_id, cmd).log_err();
+            globals.push_undo_command(&canvas_id, cmd).log_err();
         }
     }
 }
@@ -81,13 +81,13 @@ impl Dock for LayersDock {
     fn view<'a>(
         &'a self,
         _window_id: window::Id,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return Void.into();
         };
-        let blend_functions = services.service::<BlendFunctionRegistry>();
-        let tile_storage = services.tile_storage();
+        let blend_functions = globals.global::<BlendFunctionRegistry>();
+        let tile_storage = globals.tile_storage();
         LayerStackView::new(
             canvas,
             blend_functions,
@@ -100,7 +100,7 @@ impl Dock for LayersDock {
         .into()
     }
 
-    fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
+    fn update(&mut self, message: Self::Message, globals: &mut Globals) -> Task<Self::Message> {
         match message {
             LayersDockMessage::EscapePressed => {
                 if self.renaming_layer.is_some() {
@@ -110,17 +110,17 @@ impl Dock for LayersDock {
             }
             LayersDockMessage::Layer(LayerStackMessage::LayerPropertyChanged(command)) => {
                 let canvas_id = command.canvas;
-                services.push_undo_command(&canvas_id, command).log_err();
+                globals.push_undo_command(&canvas_id, command).log_err();
             }
             LayersDockMessage::Layer(LayerStackMessage::DropPreview(drop_preview)) => {
                 self.drop_preview = drop_preview;
             }
             LayersDockMessage::Layer(LayerStackMessage::SelectLayer(layer_id)) => {
-                let Some(canvas_id) = services.current_canvas_id() else {
+                let Some(canvas_id) = globals.current_canvas_id() else {
                     return Task::none();
                 };
-                let modifiers = services.service::<KeyboardState>().modifiers();
-                services.update_canvas(&canvas_id, |canvas, _| {
+                let modifiers = globals.global::<KeyboardState>().modifiers();
+                globals.update_canvas(&canvas_id, |canvas, _| {
                     if modifiers.contains(Modifiers::CTRL) {
                         canvas.toggle_layer_selection_and_active(layer_id);
                     } else if modifiers.contains(Modifiers::SHIFT) {
@@ -157,10 +157,10 @@ impl Dock for LayersDock {
                 new_position,
             }) => {
                 self.drop_preview = None;
-                let Some(canvas_id) = services.current_canvas_id() else {
+                let Some(canvas_id) = globals.current_canvas_id() else {
                     return Task::none();
                 };
-                let cmd = services.update_canvas(&canvas_id, |canvas, _services| {
+                let cmd = globals.update_canvas(&canvas_id, |canvas, _globals| {
                     let dragged = layer_ids.first()?;
                     let original_parent = canvas
                         .image
@@ -192,11 +192,11 @@ impl Dock for LayersDock {
                     ))
                 });
                 if let Some(cmd) = cmd.flatten() {
-                    services.push_undo_command(&canvas_id, cmd).log_err();
+                    globals.push_undo_command(&canvas_id, cmd).log_err();
                 }
             }
             LayersDockMessage::Layer(LayerStackMessage::RenameLayer(layer_id)) => {
-                let name = services.current_canvas().and_then(|canvas| {
+                let name = globals.current_canvas().and_then(|canvas| {
                     canvas
                         .image
                         .layer_stack()
@@ -220,7 +220,7 @@ impl Dock for LayersDock {
                 }
                 let name = mem::take(&mut self.rename_value);
                 self.renaming_layer = None;
-                Self::push_property_change(services, layer_id, move |props| {
+                Self::push_property_change(globals, layer_id, move |props| {
                     props.set_name(name);
                 });
             }
@@ -228,7 +228,7 @@ impl Dock for LayersDock {
         Task::none()
     }
 
-    fn subscription(&self, _services: &Services) -> Subscription<Self::Message> {
+    fn subscription(&self, _globals: &Globals) -> Subscription<Self::Message> {
         listen_with(|event, _status, _window| match event {
             iced_core::Event::Keyboard(keyboard::Event::KeyPressed {
                 key: keyboard::Key::Named(keyboard::key::Named::Escape),

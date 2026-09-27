@@ -11,7 +11,7 @@ use lapiz_canvas::CCanvas;
 use lapiz_i18n::{Translated, t};
 use lapiz_image::tile::TileStorageAppExt as _;
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Renderer, Services};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_widgets::{checkbox, combo_box, form};
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
@@ -123,7 +123,7 @@ impl ImageFormatExporter for PngExporter {
         t!("png_image_description")
     }
 
-    fn dialog_view(&self, _: &Services) -> Element<'_, PngExportMessage, Theme, Renderer> {
+    fn dialog_view(&self, _: &Globals) -> Element<'_, PngExportMessage, Theme, Renderer> {
         form()
             .push(
                 t!("compression"),
@@ -151,7 +151,7 @@ impl ImageFormatExporter for PngExporter {
     fn dialog_update(
         &mut self,
         message: PngExportMessage,
-        _: &mut Services,
+        _: &mut Globals,
     ) -> Task<PngExportMessage> {
         match message {
             PngExportMessage::CompressionChanged(compression) => self.compression = compression,
@@ -162,12 +162,12 @@ impl ImageFormatExporter for PngExporter {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn export(&self, services: &Services, canvas: &CCanvas, path: &Path) -> Result<()> {
+    async fn export(&self, globals: &Globals, canvas: &CCanvas, path: &Path) -> Result<()> {
         let rgba = pixels::readback_root_layer(
             canvas,
-            services.tile_storage(),
-            services.render_device(),
-            services.render_queue(),
+            globals.tile_storage(),
+            globals.render_device(),
+            globals.render_queue(),
         )
         .await?;
         let file = File::create(path)?;

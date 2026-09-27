@@ -12,7 +12,7 @@ use lapiz_color::{
     platform,
 };
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Application, Renderer, Services, plugin::Plugin};
+use lapiz_runtime::{Renderer, Runtime, global::Globals, plugin::Plugin};
 use lapiz_widgets::{column, flex::Flex, fluent_builder::When as _, radio, row, spin_slider};
 use moxcms::ColorProfile;
 use parse_display::Display;
@@ -35,7 +35,7 @@ mod render;
 pub struct ColorSelectorPlugin;
 
 impl Plugin for ColorSelectorPlugin {
-    fn build(&self, _app: &mut Application) {
+    fn build(&self, _app: &mut Runtime) {
         i18n::init();
     }
 }
@@ -440,9 +440,9 @@ impl ColorSelectorState {
         profile: ColorProfile,
         presets: Vec<ColorSelectorConfig>,
         selected_preset: usize,
-        services: &Services,
+        globals: &Globals,
     ) -> Self {
-        let device = services.render_device();
+        let device = globals.render_device();
         let selected_preset = if presets.is_empty() {
             0
         } else {
@@ -469,15 +469,15 @@ impl ColorSelectorState {
             profile,
             output_profile,
         };
-        this.rebuild_plane_state(services);
-        this.rebuild_bar_states(services);
+        this.rebuild_plane_state(globals);
+        this.rebuild_bar_states(globals);
         this
     }
 
     pub fn set_output_profile(
         &mut self,
         raw_window_id: u64,
-        services: &Services,
+        globals: &Globals,
     ) -> Task<ColorSelectorMessage> {
         let Ok(output_profile) = platform::get_window_color_profile(raw_window_id) else {
             return Task::none();
@@ -485,16 +485,16 @@ impl ColorSelectorState {
 
         self.output_profile = output_profile;
         self.output_profile_version += 1;
-        self.refresh_clip_bounds(services)
+        self.refresh_clip_bounds(globals)
     }
 
     pub fn color(&self) -> Color {
         self.color
     }
 
-    pub fn set_color(&mut self, color: Color, services: &Services) -> Task<ColorSelectorMessage> {
+    pub fn set_color(&mut self, color: Color, globals: &Globals) -> Task<ColorSelectorMessage> {
         self.color = color;
-        self.refresh_clip_bounds(services)
+        self.refresh_clip_bounds(globals)
     }
 
     pub fn configs(&self) -> &[ColorSelectorConfig] {
@@ -508,14 +508,14 @@ impl ColorSelectorState {
     pub fn set_configs(
         &mut self,
         configs: Vec<ColorSelectorConfig>,
-        services: &Services,
+        globals: &Globals,
     ) -> Task<ColorSelectorMessage> {
         self.presets = configs;
         self.selected_preset = self.selected_preset.min(self.presets.len() - 1);
         self.active_selection = None;
-        self.rebuild_plane_state(services);
-        self.rebuild_bar_states(services);
-        self.refresh_clip_bounds(services)
+        self.rebuild_plane_state(globals);
+        self.rebuild_bar_states(globals);
+        self.refresh_clip_bounds(globals)
     }
 
     fn bar_display_value(&self, model: ColorModel, channel: u8) -> f32 {
@@ -528,7 +528,7 @@ impl ColorSelectorState {
         model: ColorModel,
         channel: u8,
         value: f32,
-        services: &Services,
+        globals: &Globals,
     ) -> Task<ColorSelectorMessage> {
         let channel = channel as usize;
         let scale = model.display_scale()[channel];
@@ -536,7 +536,7 @@ impl ColorSelectorState {
         let mut channels = model.channels(self.color, &self.profile);
         channels[channel] = (value / scale).clamp(range.x, range.y);
         self.color = model.color_from_channels(channels);
-        self.refresh_clip_bounds(services)
+        self.refresh_clip_bounds(globals)
     }
 
     fn plane_primary_channel(&self, index: usize, config: &GradientPlaneConfig) -> u8 {
@@ -572,7 +572,7 @@ impl ColorSelectorState {
         &mut self,
         model: ColorModel,
         channel: u8,
-        services: &Services,
+        globals: &Globals,
     ) -> Task<ColorSelectorMessage> {
         let enabled = self.bar_primary_channel_locked(model, channel);
         let mut changed = false;
@@ -587,7 +587,7 @@ impl ColorSelectorState {
             }
         }
         if changed {
-            self.refresh_clip_bounds(services)
+            self.refresh_clip_bounds(globals)
         } else {
             Task::none()
         }
@@ -611,49 +611,47 @@ impl ColorSelectorState {
             .unwrap_or((Vec2::new(0.0, 1.0), Vec2::new(0.0, 1.0)))
     }
 
-    fn switch_preset(&mut self, index: usize, services: &Services) -> Task<ColorSelectorMessage> {
+    fn switch_preset(&mut self, index: usize, globals: &Globals) -> Task<ColorSelectorMessage> {
         if index >= self.presets.len() || index == self.selected_preset {
             return Task::none();
         }
 
         self.selected_preset = index;
         self.active_selection = None;
-        self.rebuild_plane_state(services);
-        self.rebuild_bar_states(services);
-        self.refresh_clip_bounds(services)
+        self.rebuild_plane_state(globals);
+        self.rebuild_bar_states(globals);
+        self.refresh_clip_bounds(globals)
     }
 
     pub fn update(
         &mut self,
         message: ColorSelectorMessage,
-        services: &Services,
+        globals: &Globals,
     ) -> Task<ColorSelectorMessage> {
         match message {
             ColorSelectorMessage::SurfacePress(target, position) => {
                 self.cursor_position = position;
                 match target {
                     SurfaceTarget::Plane(index) => {
-                        self.start_plane_selection(index, position, services)
+                        self.start_plane_selection(index, position, globals)
                     }
-                    SurfaceTarget::Bar(index) => {
-                        self.start_bar_selection(index, position, services)
-                    }
+                    SurfaceTarget::Bar(index) => self.start_bar_selection(index, position, globals),
                 }
             }
             ColorSelectorMessage::SurfaceMove(position) => {
                 self.cursor_position = position;
-                self.update_active_selection(position, services)
+                self.update_active_selection(position, globals)
             }
             ColorSelectorMessage::SurfaceRelease => {
                 let Some(target) = self.active_selection.map(ActiveSelection::surface_target)
                 else {
                     return Task::none();
                 };
-                self.finish_active_selection(target, self.cursor_position, services)
+                self.finish_active_selection(target, self.cursor_position, globals)
             }
             ColorSelectorMessage::SurfaceBoundsChanged(target, bounds) => match target {
                 SurfaceTarget::Plane(index) => {
-                    self.update_plane_bounds(index, bounds, services.render_device());
+                    self.update_plane_bounds(index, bounds, globals.render_device());
                     Task::none()
                 }
                 SurfaceTarget::Bar(index) => {
@@ -669,11 +667,11 @@ impl ColorSelectorState {
                 else {
                     return Task::none();
                 };
-                self.set_bar_display_value(config.model, config.channel, value, services)
+                self.set_bar_display_value(config.model, config.channel, value, globals)
             }
-            ColorSelectorMessage::SwitchPreset(index) => self.switch_preset(index, services),
+            ColorSelectorMessage::SwitchPreset(index) => self.switch_preset(index, globals),
             ColorSelectorMessage::PrimaryChannelLock(model, channel) => {
-                self.toggle_primary_channel_override(model, channel, services)
+                self.toggle_primary_channel_override(model, channel, globals)
             }
             ColorSelectorMessage::ClipBoundsComputed {
                 index,

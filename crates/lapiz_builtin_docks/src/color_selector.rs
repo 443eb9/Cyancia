@@ -19,7 +19,7 @@ use lapiz_color_selector::{
 use lapiz_config::Config;
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;
-use lapiz_runtime::{Renderer, Services, event::Event as _};
+use lapiz_runtime::{Renderer, event::Event as _, global::Globals};
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{button, column, label, panel, scrollable, title_bar};
 use moxcms::ColorProfile;
@@ -53,7 +53,7 @@ pub struct ColorSelectorDock {
 }
 
 impl ColorSelectorDock {
-    pub fn new(services: &Services) -> Self {
+    pub fn new(globals: &Globals) -> Self {
         let cached_config = Config::<ColorSelectorConfigGroup>::read_or_init_or_fallback();
         let configs = cached_config.get();
 
@@ -63,13 +63,13 @@ impl ColorSelectorDock {
                 ColorProfile::new_srgb(),
                 configs.configs.clone(),
                 0,
-                services,
+                globals,
             ),
             config_editor: ColorSelectorConfigEditorState::new(configs.configs.clone(), Some(0)),
             window_id: RefCell::new(window::Id::unique()),
             settings_window_id: None,
             cached_config,
-            last_color: **services.foreground_color(),
+            last_color: **globals.foreground_color(),
             is_foreground_color: true,
         }
     }
@@ -85,7 +85,7 @@ impl Dock for ColorSelectorDock {
     fn view<'a>(
         &'a self,
         window_id: window::Id,
-        _services: &'a Services,
+        _globals: &'a Globals,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
         self.window_id.replace(window_id);
 
@@ -119,7 +119,7 @@ impl Dock for ColorSelectorDock {
         }
     }
 
-    fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
+    fn update(&mut self, message: Self::Message, globals: &mut Globals) -> Task<Self::Message> {
         match message {
             ColorSelectorDockMessage::WindowMoved => {
                 let window_id = *self.window_id.borrow();
@@ -127,17 +127,17 @@ impl Dock for ColorSelectorDock {
             }
             ColorSelectorDockMessage::RawWindowId(id) => self
                 .selector
-                .set_output_profile(id, services)
+                .set_output_profile(id, globals)
                 .map(ColorSelectorDockMessage::ColorSelector),
             ColorSelectorDockMessage::ColorSelector(ColorSelectorMessage::Confirmed(color)) => {
                 if self.is_foreground_color {
-                    **services.foreground_color_mut() = color;
+                    **globals.foreground_color_mut() = color;
                     ForegroundColorChanged::broadcast(ForegroundColorChanged::new(
                         self.last_color,
                         color,
                     ));
                 } else {
-                    **services.background_color_mut() = color;
+                    **globals.background_color_mut() = color;
                     BackgroundColorChanged::broadcast(BackgroundColorChanged::new(
                         self.last_color,
                         color,
@@ -148,7 +148,7 @@ impl Dock for ColorSelectorDock {
             }
             ColorSelectorDockMessage::ColorSelector(m) => self
                 .selector
-                .update(m, services)
+                .update(m, globals)
                 .map(ColorSelectorDockMessage::ColorSelector),
             ColorSelectorDockMessage::OpenSettings => {
                 if let Some(id) = self.settings_window_id {
@@ -215,7 +215,7 @@ impl Dock for ColorSelectorDock {
                 }
                 self.last_color = event.new;
                 self.selector
-                    .set_color(event.new, services)
+                    .set_color(event.new, globals)
                     .map(ColorSelectorDockMessage::ColorSelector)
             }
             ColorSelectorDockMessage::BackgroundColorChanged(event) => {
@@ -224,23 +224,23 @@ impl Dock for ColorSelectorDock {
                 }
                 self.last_color = event.new;
                 self.selector
-                    .set_color(event.new, services)
+                    .set_color(event.new, globals)
                     .map(ColorSelectorDockMessage::ColorSelector)
             }
             ColorSelectorDockMessage::ConfigChanged => {
                 let new_config = self.cached_config.get();
                 self.selector
-                    .set_configs(new_config.configs.clone(), services)
+                    .set_configs(new_config.configs.clone(), globals)
                     .map(ColorSelectorDockMessage::ColorSelector)
             }
         }
     }
 
-    fn on_open(&mut self, _services: &mut Services) -> Task<Self::Message> {
+    fn on_open(&mut self, _globals: &mut Globals) -> Task<Self::Message> {
         Task::done(ColorSelectorDockMessage::WindowMoved)
     }
 
-    fn subscription(&self, _services: &Services) -> Subscription<Self::Message> {
+    fn subscription(&self, _globals: &Globals) -> Subscription<Self::Message> {
         let cur_window = *self.window_id.borrow();
 
         let window_moved =

@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use lapiz_runtime::service::Service;
+use lapiz_runtime::global::Global;
 
 use crate::{
     asset::{Asset, ErasedAsset},
@@ -22,7 +22,7 @@ pub struct AssetRegistryBuilder {
     serializers: HashMap<&'static str, Box<dyn ErasedAssetSerializer>>,
 }
 
-impl Service for AssetRegistryBuilder {}
+impl Global for AssetRegistryBuilder {}
 
 impl AssetRegistryBuilder {
     pub fn set_root(&mut self, root: PathBuf) {
@@ -65,7 +65,7 @@ pub struct AssetSerializerRegistry {
     serializers: HashMap<&'static str, Arc<dyn ErasedAssetSerializer>>,
 }
 
-impl Service for AssetSerializerRegistry {}
+impl Global for AssetSerializerRegistry {}
 
 impl AssetSerializerRegistry {
     pub fn get(&self, ext: &str) -> Option<Arc<dyn ErasedAssetSerializer>> {
