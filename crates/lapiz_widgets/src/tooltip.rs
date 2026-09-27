@@ -1,11 +1,8 @@
 use std::time::Duration;
 
 use iced_core::{Border, Color, Element, Pixels, Shadow, Theme, Vector};
-use iced_widget::{
-    container,
-    container::{Catalog, Style},
-    tooltip::Position,
-};
+use iced_widget::container::{self, Catalog, Style};
+pub use iced_widget::tooltip::Position;
 use lapiz_runtime::Renderer;
 
 pub struct Tooltip<'a, Message> {

@@ -5,7 +5,6 @@ use bevy_math::IRect;
 use encase::ShaderType;
 use glam::{IVec2, Mat3, UVec2, UVec3};
 use iced_core::Rectangle;
-use iced_widget::shader;
 use lapiz_color::{platform::get_window_color_profile, shader::IccTransformShader};
 use lapiz_image::{
     image::PACKAGE,
@@ -20,6 +19,7 @@ use lapiz_render::{
     resources::{FullscreenVertex, GlobalSamplers},
     wesl_jit::compile_wesl,
 };
+use lapiz_widgets::shader;
 use moxcms::{ColorProfile, Layout};
 use wesl::include_wesl;
 use wgpu::{

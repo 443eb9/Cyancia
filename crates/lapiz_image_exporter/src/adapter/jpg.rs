@@ -9,7 +9,7 @@ use lapiz_i18n::t;
 use lapiz_image::tile::TileStorageAppExt as _;
 use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{Renderer, Services};
-use lapiz_widgets::{checkbox::Checkbox, form::Form, spin_slider::SpinSlider};
+use lapiz_widgets::{checkbox, form, spin_slider};
 use serde::{Deserialize, Serialize};
 
 use super::pixels;
@@ -53,16 +53,16 @@ impl ImageFormatExporter for JpgExporter {
     }
 
     fn dialog_view(&self, _: &Services) -> Element<'_, JpgExportMessage, Theme, Renderer> {
-        Form::new()
+        form()
             .push(
                 t!("quality"),
-                SpinSlider::new(1..=100, self.quality)
+                spin_slider(1..=100, self.quality)
                     .precision(0)
                     .on_confirm(JpgExportMessage::QualityChanged),
             )
             .push(
                 t!("embed_icc_profile"),
-                Checkbox::new(self.embed_profile).on_toggle(JpgExportMessage::EmbedProfileToggled),
+                checkbox(self.embed_profile).on_toggle(JpgExportMessage::EmbedProfileToggled),
             )
             .into()
     }

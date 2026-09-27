@@ -1,13 +1,12 @@
 use std::{collections::HashMap, mem, sync::Arc};
 
 use anyhow::Result;
-use iced_core::{Alignment, Event, Length, Size, Theme, keyboard, window};
+use iced_core::{Event, Length, Size, Theme, keyboard, window};
 use iced_futures::{Subscription, subscription};
 use iced_runtime::{
     Task,
     window::{close, drag, open},
 };
-use iced_widget::{Space, column, row};
 use indexmap::IndexMap;
 use lapiz_assets::{AssetAppExt as _, asset::AssetHandle};
 use lapiz_canvas::{
@@ -33,10 +32,7 @@ use lapiz_runtime::{
 };
 use lapiz_shader_graph::graph::slot::{ErasedGraphLiteralUpdateMessage, GraphInputSlotId};
 use lapiz_undo::BatchedUndoCommand;
-use lapiz_widgets::{
-    button::Button, flex::Flex, label::Label, panel::Panel, scrollable::Scrollable,
-    title_bar::TitleBar,
-};
+use lapiz_widgets::{button, column, flex::Flex, label, panel, row, scrollable, space, title_bar};
 
 use crate::{
     asset::FilterPreset,
@@ -150,7 +146,7 @@ impl WindowView for FilterPanel {
     }
 
     fn view<'a>(&'a self, _: window::Id, services: &'a Services) -> impl Into<Element<'a>> {
-        let title_bar = TitleBar::new(Label::new(t!("filter_panel_title")).window_title())
+        let title_bar = title_bar(label(t!("filter_panel_title")).window_title())
             .on_drag(FilterPanelMessage::Drag)
             .on_close(FilterPanelMessage::Close);
 
@@ -163,28 +159,26 @@ impl WindowView for FilterPanel {
                     .get()
                     .map(|f| f.metadata.name.clone())
                     .unwrap_or_else(|_| "<loading>".to_string());
-                Button::new(Label::new(name))
+                button(label(name))
                     .width(Length::Fill)
                     .on_press(FilterPanelMessage::FilterSelected(index))
                     .into()
             })
             .collect::<Vec<_>>();
 
-        let sidebar = Panel::new(
+        let sidebar = panel(
             column![
-                Label::new(t!("filters")).strong(),
-                Scrollable::new(column(filter_list).spacing(2))
+                label(t!("filters")).strong(),
+                scrollable(Flex::column(filter_list).gap(2.0))
                     .width(Length::Fill)
                     .height(Length::Fill),
                 row![
-                    Button::new(Label::new(t!("new_filter")))
-                        .on_press(FilterPanelMessage::NewFilter),
-                    Button::new(Label::new(t!("edit_filter")))
-                        .on_press(FilterPanelMessage::EditFilter),
+                    button(label(t!("new_filter"))).on_press(FilterPanelMessage::NewFilter),
+                    button(label(t!("edit_filter"))).on_press(FilterPanelMessage::EditFilter),
                 ]
-                .spacing(4),
+                .gap(4.0),
             ]
-            .spacing(6),
+            .gap(6.0),
         )
         .padding(8)
         .width(220);
@@ -195,7 +189,7 @@ impl WindowView for FilterPanel {
                 .iter()
                 .map(|(id, parameter)| {
                     row![
-                        Label::new(parameter.name.clone()).width(Length::Fill),
+                        label(parameter.name.clone()).width(Length::Fill),
                         parameter
                             .value
                             .ty()
@@ -208,50 +202,47 @@ impl WindowView for FilterPanel {
                                 FilterPanelMessage::ParameterUpdated(*id, message)
                             }),
                     ]
-                    .spacing(6)
+                    .gap(6.0)
                     .into()
                 })
                 .collect::<Vec<_>>();
             if parameter_rows.is_empty() {
-                column![Label::new(t!("no_external_variables")).muted()].spacing(6)
+                column![label(t!("no_external_variables")).muted()].gap(6.0)
             } else {
                 column![
-                    Label::new(t!("parameters")).strong(),
-                    Scrollable::new(column(parameter_rows).spacing(6))
+                    label(t!("parameters")).strong(),
+                    scrollable(Flex::column(parameter_rows).gap(6.0))
                         .width(Length::Fill)
                         .height(Length::Fill),
                 ]
-                .spacing(6)
+                .gap(6.0)
             }
         } else {
-            column![Label::new(t!("select_a_filter_to_adjust")).muted()]
+            column![label(t!("select_a_filter_to_adjust")).muted()]
         };
 
         let ok_enabled = self.selected.is_some() && !self.rendering;
         let ok_label = if self.rendering { "Rendering..." } else { "OK" };
 
         let footer = row![
-            Space::new().width(Length::Fill),
-            Button::new(Label::new(t!("cancel"))).on_press(FilterPanelMessage::Cancel),
-            Button::new(Label::new(ok_label))
+            space().width(Length::Fill),
+            button(label(t!("cancel"))).on_press(FilterPanelMessage::Cancel),
+            button(label(ok_label))
                 .primary()
                 .on_press_maybe(ok_enabled.then_some(FilterPanelMessage::Confirm)),
         ]
-        .align_y(Alignment::Center)
-        .spacing(10)
+        .gap(10.0)
         .padding(16);
 
-        Panel::new(Flex::column([
-            title_bar.into(),
+        panel(column![
+            title_bar,
             column![
-                row![sidebar, Panel::new(params).padding(8).width(Length::Fill)]
-                    .height(Length::Fill),
+                row![sidebar, panel(params).padding(8).width(Length::Fill)].height(Length::Fill),
                 footer,
             ]
             .width(Length::Fill)
             .height(Length::Fill)
-            .into(),
-        ]))
+        ])
     }
 
     fn update(

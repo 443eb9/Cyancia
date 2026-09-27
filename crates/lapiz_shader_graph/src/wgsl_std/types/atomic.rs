@@ -1,12 +1,12 @@
 use anyhow::Result;
 use encase::StorageBuffer;
 use iced_core::Element;
-use iced_widget::space;
 use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
     bind_group_layout_entries::{DynamicBindGroupLayoutEntries, binding_types},
 };
 use lapiz_utils::random_oklch_hue_chroma;
+use lapiz_widgets::space;
 use serde::Deserialize as _;
 use wesl::syntax::{
     AccessMode, AddressSpace, Attribute, CompoundStatement, Declaration, DeclarationKind,

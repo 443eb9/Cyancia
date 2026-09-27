@@ -1,13 +1,12 @@
 use std::sync::LazyLock;
 
 use iced::{Element, Length, Task, Theme, window};
-use iced_widget::space;
 use lapiz_canvas::CanvasToolProxyAppExt as _;
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;
 use lapiz_runtime::Services;
 use lapiz_tools::ErasedToolFunctionMessage;
-use lapiz_widgets::{label::Label, panel::Panel, scrollable::Scrollable};
+use lapiz_widgets::{label, panel, scrollable, space};
 
 pub static TOOL_OPTIONS_DOCK_ID: LazyLock<DockId> =
     LazyLock::new(|| DockId::new("tool_options_dock".into()));
@@ -41,20 +40,18 @@ impl Dock for ToolOptionsDock {
         };
 
         let Some(widget) = tool_proxy.tool_option_widget(services) else {
-            return Panel::new(Label::new(t!("no_tool_options")).muted())
+            return panel(label(t!("no_tool_options")).muted())
                 .padding(8)
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into();
         };
 
-        Panel::new(Scrollable::new(
-            widget.map(ToolOptionsDockMessage::ToolFunction),
-        ))
-        .padding(4)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+        panel(scrollable(widget.map(ToolOptionsDockMessage::ToolFunction)))
+            .padding(4)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     }
 
     fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {

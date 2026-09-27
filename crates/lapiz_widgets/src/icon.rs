@@ -5,6 +5,8 @@ use iced_widget::{
 };
 use lapiz_runtime::Renderer;
 
+use crate::icon;
+
 pub struct Icon<'a> {
     inner: Svg<'a, Theme>,
 }
@@ -88,7 +90,7 @@ macro_rules! icons {
     ($($name:ident => $path:literal),* $(,)?) => {
         $(
             pub fn $name<'a>() -> Icon<'a> {
-                Icon::new(svg::Handle::from_memory(include_bytes!($path).as_slice()))
+                icon(svg::Handle::from_memory(include_bytes!($path).as_slice()))
             }
         )*
 

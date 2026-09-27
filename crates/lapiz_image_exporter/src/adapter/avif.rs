@@ -9,7 +9,7 @@ use lapiz_i18n::t;
 use lapiz_image::tile::TileStorageAppExt as _;
 use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{Renderer, Services};
-use lapiz_widgets::{form::Form, spin_slider::SpinSlider};
+use lapiz_widgets::{form, spin_slider};
 use serde::{Deserialize, Serialize};
 
 use super::pixels;
@@ -46,10 +46,10 @@ impl ImageFormatExporter for AvifExporter {
     }
 
     fn dialog_view(&self, _: &Services) -> Element<'_, AvifExportMessage, Theme, Renderer> {
-        Form::new()
+        form()
             .push(
                 t!("quality"),
-                SpinSlider::new(1..=100, self.quality)
+                spin_slider(1..=100, self.quality)
                     .precision(0)
                     .on_confirm(AvifExportMessage::QualityChanged),
             )

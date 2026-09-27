@@ -3,7 +3,6 @@ use std::sync::Arc;
 use glam::{Vec2, Vec3};
 use iced_core::{Element, Length, Point, Rectangle, Theme};
 use iced_runtime::Task;
-use iced_widget::{Row, column, text};
 use lapiz_color::{
     Color,
     model::{
@@ -14,7 +13,7 @@ use lapiz_color::{
 };
 use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{Application, Renderer, Services, plugin::Plugin};
-use lapiz_widgets::{fluent_builder::When as _, radio::Radio, spin_slider::SpinSlider};
+use lapiz_widgets::{column, flex::Flex, fluent_builder::When as _, radio, row, spin_slider};
 use moxcms::ColorProfile;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
@@ -325,9 +324,11 @@ impl<'a, Message: 'a> From<ColorSelector<'a, Message>> for Element<'a, Message, 
             let label = config.model.channel_labels()[channel];
             let locked = state.bar_primary_channel_locked(config.model, config.channel);
 
-            Row::new()
-                .spacing(4)
-                .when(config.show_channel_label, |r| r.push(text(label).width(12)))
+            row!()
+                .gap(4.0)
+                .when(config.show_channel_label, |r| {
+                    r.push(lapiz_widgets::label(label).width(12))
+                })
                 .push(
                     GradientSurface::bar(
                         index,
@@ -343,7 +344,7 @@ impl<'a, Message: 'a> From<ColorSelector<'a, Message>> for Element<'a, Message, 
                     let scale = config.model.display_scale()[channel];
                     let value = state.bar_display_value(config.model, config.channel);
                     r.push(
-                        SpinSlider::new(range.x * scale..=range.y * scale, value)
+                        spin_slider(range.x * scale..=range.y * scale, value)
                             .on_change(move |value| {
                                 ColorSelectorMessage::BarValueChanged(index, value)
                             })
@@ -354,7 +355,7 @@ impl<'a, Message: 'a> From<ColorSelector<'a, Message>> for Element<'a, Message, 
                 .when(config.show_primary_channel_lock, |r| {
                     let model = config.model;
                     let channel = config.channel;
-                    r.push(Radio::new("", true, locked.then_some(true), move |_| {
+                    r.push(radio("", true, locked.then_some(true), move |_| {
                         ColorSelectorMessage::PrimaryChannelLock(model, channel)
                     }))
                 })
@@ -362,8 +363,8 @@ impl<'a, Message: 'a> From<ColorSelector<'a, Message>> for Element<'a, Message, 
         });
 
         let presets_selector =
-            Row::with_children(state.presets.iter().enumerate().map(|(index, preset)| {
-                Radio::new(
+            Flex::row(state.presets.iter().enumerate().map(|(index, preset)| {
+                radio(
                     preset.name.clone(),
                     index,
                     Some(state.selected_preset),
@@ -371,11 +372,11 @@ impl<'a, Message: 'a> From<ColorSelector<'a, Message>> for Element<'a, Message, 
                 )
                 .into()
             }))
-            .spacing(8);
+            .gap(8.0);
 
         let content = column![
-            column(planes).spacing(5),
-            column(bars).spacing(8).padding(8),
+            Flex::column(planes).gap(5.0),
+            Flex::column(bars).gap(8.0).padding(8),
             presets_selector,
         ]
         .width(Length::Fill);

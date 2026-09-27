@@ -1,5 +1,5 @@
 use iced_core::{
-    Element, Font, Length, Pixels, Theme, alignment, font, text,
+    Color, Element, Font, Length, Pixels, Theme, alignment, font, text,
     widget::text::{Ellipsis, Style, Wrapping},
 };
 use lapiz_runtime::Renderer;
@@ -56,6 +56,11 @@ impl<'a> Label<'a> {
 
     pub fn ellipsis(mut self, ellipsis: Ellipsis) -> Self {
         self.inner = self.inner.ellipsis(ellipsis);
+        self
+    }
+
+    pub fn color(mut self, color: impl Into<Color>) -> Self {
+        self.inner = self.inner.color(color);
         self
     }
 

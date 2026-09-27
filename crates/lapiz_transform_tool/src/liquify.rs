@@ -9,10 +9,6 @@ use iced_core::{
 };
 use iced_graphics::geometry;
 use iced_runtime::{Task, futures::Subscription};
-use iced_widget::{
-    canvas::{Frame, Path, Stroke},
-    column, row, space,
-};
 use lapiz_canvas::{
     CanvasAppExt as _, CanvasId, CanvasUndoStackAppExt as _,
     command::TileReplaceCommand,
@@ -47,7 +43,9 @@ use lapiz_tools::{ChangesTracker, ToolFunction, ToolId};
 use lapiz_undo::BatchedUndoCommand;
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
-    button::Button, combo_box::ComboBox, form::Form, icon, label::Label, panel::Panel,
+    button,
+    canvas::{Frame, Path, Stroke},
+    column, combo_box, form, icon, label, panel, row, space, spin_slider,
     spin_slider::SpinSlider,
 };
 use parse_display::Display;
@@ -547,10 +545,10 @@ impl ToolFunction for LiquifyTransformTool {
         &'a self,
         _: &'a Services,
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
-        let fields = Form::new()
+        let fields = form()
             .push(
                 t!("mode"),
-                ComboBox::new(
+                combo_box(
                     vec![
                         LiquifyMode::Move,
                         LiquifyMode::Scale,
@@ -565,7 +563,7 @@ impl ToolFunction for LiquifyTransformTool {
             )
             .push(
                 t!("size"),
-                SpinSlider::new(1.0..=2048.0, self.props.size)
+                spin_slider(1.0..=2048.0, self.props.size)
                     .step(1.0)
                     .precision(0)
                     .suffix(" px")
@@ -577,31 +575,31 @@ impl ToolFunction for LiquifyTransformTool {
             )
             .push(
                 t!("spacing"),
-                SpinSlider::new(0.01..=2.0, self.props.spacing)
+                spin_slider(0.01..=2.0, self.props.spacing)
                     .on_confirm(LiquifyToolMessage::SpacingChanged),
             )
             .push(
                 t!("reverse_direction"),
-                Button::new(Label::new(t!("toggle")))
+                button(label(t!("toggle")))
                     .activated(self.props.reverse)
                     .on_press(LiquifyToolMessage::ReverseToggled)
                     .width(Length::Fill),
             );
 
         let actions = row![
-            Button::new(Label::new(t!("cancel")))
+            button(label(t!("cancel")))
                 .on_press(LiquifyToolMessage::Cancel)
                 .danger()
                 .width(Length::Fill),
-            Button::new(Label::new(t!("confirm")))
+            button(label(t!("confirm")))
                 .on_press(LiquifyToolMessage::Confirm)
                 .primary()
                 .width(Length::Fill),
         ]
-        .spacing(4);
+        .gap(4.0);
 
         Some(
-            Panel::new(column![fields, actions].spacing(8))
+            panel(column![fields, actions].gap(8.0))
                 .padding(8)
                 .width(Length::Fill)
                 .into(),

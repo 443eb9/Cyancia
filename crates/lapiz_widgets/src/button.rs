@@ -7,10 +7,14 @@ use iced_core::{
     renderer,
     widget::{Operation, Tree, tree},
 };
-use iced_widget::button::{Catalog, Status, Style};
+use iced_widget::button::Catalog;
+pub use iced_widget::button::{Status, Style};
 use lapiz_runtime::Renderer;
 
-use crate::callback::{Callback, publish};
+use crate::{
+    button,
+    callback::{Callback, publish},
+};
 
 pub struct Button<'a, Message> {
     content: Element<'a, Message, Theme, Renderer>,
@@ -486,7 +490,7 @@ fn disabled(mut style: Style) -> Style {
 pub fn icon_button<'a, Message>(
     content: impl Into<Element<'a, Message, Theme, Renderer>>,
 ) -> Button<'a, Message> {
-    Button::new(content)
+    button(content)
         .width(24)
         .height(24)
         .padding(5)
@@ -497,7 +501,7 @@ pub fn toggle_button<'a, Message>(
     content: impl Into<Element<'a, Message, Theme, Renderer>>,
     activated: bool,
 ) -> Button<'a, Message> {
-    Button::new(content)
+    button(content)
         .height(24)
         .padding([0, 10])
         .transparent()

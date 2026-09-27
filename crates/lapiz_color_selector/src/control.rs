@@ -15,8 +15,8 @@ use iced_core::{
 };
 use iced_runtime::Task;
 use iced_wgpu::{graphics::geometry, primitive};
-use iced_widget::canvas::{Frame, Path, Stroke};
 use lapiz_runtime::{Renderer, Services};
+use lapiz_widgets::canvas::{Frame, Path, Stroke};
 
 use crate::{
     ColorSelectorMessage, ColorSelectorState,

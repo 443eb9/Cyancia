@@ -2,12 +2,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use futures::executor::block_on;
-use iced_core::{Alignment, Element, Length, Size, Theme, window};
+use iced_core::{Element, Length, Size, Theme, window};
 use iced_runtime::{
     Task,
     window::{close, open},
 };
-use iced_widget::{Space, column, row};
 use lapiz_canvas::{CCanvas, CanvasAppExt as _};
 use lapiz_config::Config;
 use lapiz_file_dialog::LocalFile;
@@ -18,7 +17,7 @@ use lapiz_runtime::{
     windows::{WindowView, WindowViewId},
 };
 use lapiz_utils::log_err::LogErr as _;
-use lapiz_widgets::{button::Button, label::Label, panel::Panel};
+use lapiz_widgets::{button, column, label, panel, row, space};
 
 use crate::{
     ErasedImportDialogMessage, ImageImporterRegistry, PendingImport, config::ImageImporterConfig,
@@ -95,19 +94,18 @@ impl WindowView for ImportDialogView {
             .dialog_view(services)
             .map(ImportDialogMessage::Importer);
         let footer = row![
-            Space::new().width(Length::Fill),
-            Button::new(Label::new(t!("cancel"))).on_press(ImportDialogMessage::Cancel),
-            Button::new(Label::new(t!("import")))
+            space().width(Length::Fill),
+            button(label(t!("cancel"))).on_press(ImportDialogMessage::Cancel),
+            button(label(t!("import")))
                 .primary()
                 .on_press(ImportDialogMessage::Confirm),
         ]
-        .align_y(Alignment::Center)
-        .spacing(10);
+        .gap(10.0);
 
         column![
-            Panel::new(
+            panel(
                 column![
-                    Label::new(
+                    label(
                         self.local_file
                             .as_ref()
                             .expect("import is active")
@@ -118,7 +116,7 @@ impl WindowView for ImportDialogView {
                     .muted(),
                     options
                 ]
-                .spacing(10),
+                .gap(10.0),
             )
             .width(Length::Fill)
             .height(Length::Fill)
@@ -127,7 +125,7 @@ impl WindowView for ImportDialogView {
         ]
         .width(Length::Fill)
         .height(Length::Fill)
-        .spacing(8)
+        .gap(8.0)
         .padding(8)
     }
 

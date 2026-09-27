@@ -16,10 +16,7 @@ use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;
 use lapiz_runtime::{Renderer, Services, event::Event as _};
 use lapiz_utils::log_err::LogErr as _;
-use lapiz_widgets::{
-    button::Button, flex::Flex, label::Label, panel::Panel, scrollable::Scrollable,
-    title_bar::TitleBar,
-};
+use lapiz_widgets::{button, column, label, panel, scrollable, title_bar};
 use moxcms::ColorProfile;
 
 #[derive(Clone)]
@@ -88,32 +85,29 @@ impl Dock for ColorSelectorDock {
         self.window_id.replace(window_id);
 
         if self.settings_window_id == Some(window_id) {
-            let titlebar =
-                TitleBar::new(Label::new(t!("color_selector_settings_title")).window_title())
-                    .on_close(ColorSelectorDockMessage::ConfigEditor(
-                        ColorSelectorConfigMessage::Cancelled,
-                    ))
-                    .on_drag(ColorSelectorDockMessage::SettingsWindowDrag);
-            Element::from(Panel::new(Flex::column([
-                titlebar.into(),
+            let titlebar = title_bar(label(t!("color_selector_settings_title")).window_title())
+                .on_close(ColorSelectorDockMessage::ConfigEditor(
+                    ColorSelectorConfigMessage::Cancelled,
+                ))
+                .on_drag(ColorSelectorDockMessage::SettingsWindowDrag);
+            Element::from(panel(column![
+                titlebar,
                 self.config_editor
                     .view()
-                    .map(ColorSelectorDockMessage::ConfigEditor),
-            ])))
+                    .map(ColorSelectorDockMessage::ConfigEditor)
+            ]))
         } else {
-            Flex::column([
-                Scrollable::new(ColorSelector::new(
+            column![
+                scrollable(ColorSelector::new(
                     &self.selector,
                     ColorSelectorDockMessage::ColorSelector,
                 ))
                 .width(Length::Fill)
-                .height(Length::Fill)
-                .into(),
-                Button::new(Label::new(t!("settings")))
+                .height(Length::Fill),
+                button(label(t!("settings")))
                     .width(Length::Fill)
                     .on_press(ColorSelectorDockMessage::OpenSettings)
-                    .into(),
-            ])
+            ]
             .gap(4)
             .height(Length::Fill)
             .into()

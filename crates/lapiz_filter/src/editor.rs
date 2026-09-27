@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use iced_core::{Element, Length, Size, Theme, alignment::Vertical, window};
+use iced_core::{Element, Length, Size, Theme, window};
 use iced_futures::Subscription;
 use iced_runtime::{
     Task,
     window::{close, drag, minimize, open, toggle_maximize},
 };
-use iced_widget::{Column, column, component::component, row};
 use lapiz_assets::{AssetAppExt as _, asset::AssetHandle};
 use lapiz_effect::{
     asset::{EffectInputSlotId, EffectOutputSlotId},
@@ -27,8 +26,8 @@ use lapiz_shader_graph::{
     wgsl_std::types::handle::LayerType,
 };
 use lapiz_widgets::{
-    button::Button, flex::Flex, label::Label, panel::Panel, scrollable::Scrollable,
-    text_input::TextInput, title_bar::TitleBar,
+    button, column, component::component, flex::Flex, label, panel, row, scrollable, text_input,
+    title_bar,
 };
 use uuid::Uuid;
 
@@ -123,7 +122,7 @@ impl WindowView for FilterEditor {
         _: window::Id,
         _: &'a Services,
     ) -> impl Into<Element<'a, Self::Message, Theme, lapiz_runtime::Renderer>> {
-        let titlebar = TitleBar::new(Label::new(t!("filter_editor_title")).window_title())
+        let titlebar = title_bar(label(t!("filter_editor_title")).window_title())
             .on_close(FilterEditorMessage::Close)
             .on_maximize(FilterEditorMessage::Maximize)
             .on_minimize(FilterEditorMessage::Minimize)
@@ -138,7 +137,7 @@ impl WindowView for FilterEditor {
                     .get()
                     .map(|preset| preset.metadata.name.clone())
                     .unwrap_or_else(|_| "<loading>".to_string());
-                Button::new(Label::new(name))
+                button(label(name))
                     .width(Length::Fill)
                     .activated(self.selected_index == Some(index))
                     .on_press(FilterEditorMessage::SelectFilter(index))
@@ -147,38 +146,36 @@ impl WindowView for FilterEditor {
             .collect::<Vec<_>>();
 
         // Region 1: pick or create a filter.
-        let sidebar = Panel::new(
+        let sidebar = panel(
             column![
-                Label::new(t!("filters")).strong(),
-                Scrollable::new(Column::with_children(filter_list).spacing(2))
+                label(t!("filters")).strong(),
+                scrollable(Flex::column(filter_list).gap(2.0))
                     .width(Length::Fill)
                     .height(Length::Fill),
-                Button::new(Label::new(t!("new_filter"))).on_press(FilterEditorMessage::NewFilter),
+                button(label(t!("new_filter"))).on_press(FilterEditorMessage::NewFilter),
             ]
-            .spacing(6),
+            .gap(6.0),
         )
         .padding(8)
         .width(220);
 
-        let empty = || -> EditorElement<'_> { Label::new("").into() };
+        let empty = || -> EditorElement<'_> { label("").into() };
         let (naming, effect_editor, parameters) = match self.selected.as_ref() {
             Some(selected) => self.view_selected(selected),
             None => (
-                Label::new(t!("select_a_filter_to_adjust")).muted().into(),
+                label(t!("select_a_filter_to_adjust")).muted().into(),
                 empty(),
                 empty(),
             ),
         };
 
         // Region 2: naming on top, effect editor filling the rest.
-        let center = column![naming, effect_editor]
-            .spacing(6)
-            .height(Length::Fill);
+        let center = column![naming, effect_editor].gap(6.0).height(Length::Fill);
 
-        Panel::new(Flex::column([
-            titlebar.into(),
-            row![sidebar, center, parameters].spacing(8).into(),
-        ]))
+        panel(column![
+            titlebar,
+            row![sidebar, center, parameters].gap(8.0)
+        ])
         .height(Length::Fill)
     }
 
@@ -298,34 +295,30 @@ impl FilterEditor {
         selected: &'a SelectedFilter,
     ) -> (EditorElement<'a>, EditorElement<'a>, EditorElement<'a>) {
         let status = if self.dirty {
-            Label::new("*").muted()
+            label("*").muted()
         } else {
-            Label::new("")
+            label("")
         };
         let naming_row = row![
-            Label::new(t!("name")),
-            TextInput::new("", &self.filter_name_buffer)
+            label(t!("name")),
+            text_input("", &self.filter_name_buffer)
                 .on_input(FilterEditorMessage::FilterNameChanged)
                 .width(Length::Fill),
-            Button::new(Label::new(t!("save")))
-                .primary()
-                .on_press_maybe(
-                    (self.dirty && self.validation_error.is_none())
-                        .then_some(FilterEditorMessage::Save),
-                ),
+            button(label(t!("save"))).primary().on_press_maybe(
+                (self.dirty && self.validation_error.is_none())
+                    .then_some(FilterEditorMessage::Save),
+            ),
             status,
         ]
-        .spacing(6)
-        .align_y(Vertical::Center)
+        .gap(6.0)
         .height(Length::Shrink);
 
         let naming = match self.validation_error.as_ref() {
             Some(error) => {
                 let error_text = EditorElement::<'a>::from(
-                    iced_widget::Text::new(error.clone())
-                        .color(iced_core::Color::from_rgb(1.0, 0.3, 0.3)),
+                    label(error.clone()).color(iced_core::Color::from_rgb(1.0, 0.3, 0.3)),
                 );
-                column![naming_row, error_text].spacing(2).into()
+                column![naming_row, error_text].gap(2.0).into()
             }
             None => naming_row.into(),
         };
@@ -349,7 +342,7 @@ impl FilterEditor {
             FilterEditorMessage::Parameters,
         ));
         let parameters =
-            Panel::new(column![Label::new(t!("parameters")).strong(), parameter_editor].spacing(6))
+            panel(column![label(t!("parameters")).strong(), parameter_editor].gap(6.0))
                 .padding(8)
                 .width(320)
                 .height(Length::Fill);

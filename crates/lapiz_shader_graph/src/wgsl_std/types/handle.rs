@@ -4,7 +4,6 @@ use anyhow::{Context as _, Result, bail};
 use bevy_math::{IRect, IVec2, IVec4};
 use encase::{ShaderType as _, StorageBuffer};
 use iced_core::Element;
-use iced_widget::{Column, row, space};
 use lapiz_assets::{
     asset::{AssetHandle, AssetId},
     store::AssetRegistry,
@@ -22,7 +21,7 @@ use lapiz_render::{
     util::DevicePollExt as _,
 };
 use lapiz_utils::random_oklch_hue_chroma;
-use lapiz_widgets::{combo_box::ComboBox, label::Label};
+use lapiz_widgets::{combo_box, flex::Flex, label, row, space};
 use serde::{Deserialize, Serialize};
 use toml::map::Map;
 use uuid::Uuid;
@@ -275,7 +274,7 @@ impl GraphValueType for TextureType {
                 .find(|option| option.handle.id() == handle.id())
                 .cloned()
         });
-        ComboBox::new(options, selected, |option| {
+        combo_box(options, selected, |option| {
             TextureChanged(option.handle.clone())
         })
         .placeholder(t!("select_texture"))
@@ -970,17 +969,17 @@ impl GraphValueType for ArrayType {
             .enumerate()
             .map(|(index, element)| {
                 row![
-                    Label::new(index.to_string()).width(24).muted(),
+                    label(index.to_string()).width(24).muted(),
                     element
                         .ty()
                         .view_literal(GraphInputSlotId::new(Uuid::nil()), element.value(), assets,)
                         .map(move |message| ArrayLiteralUpdateMessage { index, message }),
                 ]
-                .spacing(4)
+                .gap(4.0)
                 .into()
             })
             .collect::<Vec<_>>();
-        Column::with_children(elements).spacing(4).into()
+        Flex::column(elements).gap(4.0).into()
     }
 
     fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message) {

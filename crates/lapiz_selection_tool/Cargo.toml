@@ -14,7 +14,6 @@ glam.workspace = true
 iced_core.workspace = true
 iced_runtime.workspace = true
 iced_wgpu.workspace = true
-iced_widget.workspace = true
 indexmap.workspace = true
 lapiz_anti_aliasing.workspace = true
 lapiz_bucket_tool.workspace = true

@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use iced_core::{Element, Length, Size, Theme, alignment::Vertical, window};
+use iced_core::{Element, Length, Size, Theme, window};
 use iced_futures::Subscription;
 use iced_runtime::{
     Task,
     window::{close, drag, minimize, open, toggle_maximize},
 };
-use iced_widget::{Column, column, component::component, row};
 use lapiz_assets::{AssetAppExt as _, asset::AssetHandle, store::AssetRegistry};
 use lapiz_effect::{
     asset::{EffectInputSlotId, EffectOutputSlotId, EffectPassDispatchStrategy, EffectPassId},
@@ -28,8 +27,8 @@ use lapiz_shader_graph::{
     wgsl_std::types::{handle::LayerType, primitive::F32Type},
 };
 use lapiz_widgets::{
-    button::Button, flex::Flex, label::Label, panel::Panel, scrollable::Scrollable, tabs::TabBar,
-    text_input::TextInput, title_bar::TitleBar,
+    button, column, component::component, flex::Flex, label, panel, row, scrollable, tab_bar,
+    text_input, title_bar,
 };
 use uuid::Uuid;
 
@@ -181,7 +180,7 @@ impl WindowView for BrushEditor {
         _: window::Id,
         _: &'a Services,
     ) -> impl Into<Element<'a, Self::Message, Theme, lapiz_runtime::Renderer>> {
-        let titlebar = TitleBar::new(Label::new(t!("brush_editor_title")).window_title())
+        let titlebar = title_bar(label(t!("brush_editor_title")).window_title())
             .on_close(BrushEditorMessage::Close)
             .on_maximize(BrushEditorMessage::Maximize)
             .on_minimize(BrushEditorMessage::Minimize)
@@ -196,7 +195,7 @@ impl WindowView for BrushEditor {
                     .get()
                     .map(|preset| preset.metadata.name.clone())
                     .unwrap_or_else(|_| "<loading>".to_string());
-                Button::new(Label::new(name))
+                button(label(name))
                     .width(Length::Fill)
                     .activated(self.selected_index == Some(index))
                     .on_press(BrushEditorMessage::SelectBrush(index))
@@ -205,32 +204,31 @@ impl WindowView for BrushEditor {
             .collect::<Vec<_>>();
 
         // Region 1: create a brush preset on top, pick one below.
-        let sidebar = Panel::new(
+        let sidebar = panel(
             column![
-                Button::new(Label::new(t!("new_brush"))).on_press(BrushEditorMessage::NewBrush),
-                Label::new(t!("brushes")).strong(),
-                Scrollable::new(Column::with_children(brush_list).spacing(2))
+                button(label(t!("new_brush"))).on_press(BrushEditorMessage::NewBrush),
+                label(t!("brushes")).strong(),
+                scrollable(Flex::column(brush_list).gap(2.0))
                     .width(Length::Fill)
                     .height(Length::Fill),
             ]
-            .spacing(6),
+            .gap(6.0),
         )
         .padding(8)
         .width(220);
 
-        let empty = || -> EditorElement<'_> { Label::new("").into() };
+        let empty = || -> EditorElement<'_> { label("").into() };
         let (center, parameters) = match self.selected.as_ref() {
             Some(selected) => (self.view_selected(selected), self.view_parameters(selected)),
-            None => (Label::new(t!("select_a_brush")).muted().into(), empty()),
+            None => (label(t!("select_a_brush")).muted().into(), empty()),
         };
 
-        Panel::new(Flex::column([
-            titlebar.into(),
+        panel(column![
+            titlebar,
             row![sidebar, center, parameters]
-                .spacing(8)
+                .gap(8.0)
                 .height(Length::Fill)
-                .into(),
-        ]))
+        ])
     }
 
     fn update(
@@ -305,16 +303,15 @@ impl BrushEditor {
             t!("save")
         };
         let naming = row![
-            Label::new(t!("name")),
-            TextInput::new("", &self.name_buffer)
+            label(t!("name")),
+            text_input("", &self.name_buffer)
                 .on_input(BrushEditorMessage::BrushNameChanged)
                 .width(Length::Fill),
-            Button::new(Label::new(save_label))
+            button(label(save_label))
                 .primary()
                 .on_press_maybe(self.dirty.then_some(BrushEditorMessage::Save)),
         ]
-        .spacing(6)
-        .align_y(Vertical::Center)
+        .gap(6.0)
         .height(Length::Shrink);
 
         let effect_editor = GraphElement::from(EffectEditorView::new(
@@ -325,16 +322,16 @@ impl BrushEditor {
 
         let slots = BrushEffectSlot::ALL
             .into_iter()
-            .fold(TabBar::new(), |tabs, slot| {
+            .fold(tab_bar(), |tabs, slot| {
                 tabs.push(
-                    Label::new(slot.label()),
+                    label(slot.label()),
                     slot == self.active_slot,
                     BrushEditorMessage::SelectEffectSlot(slot),
                 )
             });
 
         column![naming, effect_editor, slots.width(Length::Fill)]
-            .spacing(6)
+            .gap(6.0)
             .height(Length::Fill)
             .into()
     }
@@ -352,7 +349,7 @@ impl BrushEditor {
             BrushEditorMessage::Parameters,
         ));
 
-        Panel::new(column![Label::new(t!("parameters")).strong(), parameters].spacing(6))
+        panel(column![label(t!("parameters")).strong(), parameters].gap(6.0))
             .padding(8)
             .width(320)
             .height(Length::Fill)

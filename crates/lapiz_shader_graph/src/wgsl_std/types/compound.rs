@@ -3,14 +3,13 @@ use bevy_math::Rect;
 use encase::ShaderType;
 use glam::Vec4;
 use iced_core::Element;
-use iced_widget::column;
 use lapiz_assets::store::AssetRegistry;
 use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
     bind_group_layout_entries::DynamicBindGroupLayoutEntries,
 };
 use lapiz_utils::random_oklch_hue_chroma;
-use lapiz_widgets::spin_slider::SpinSlider;
+use lapiz_widgets::{column, spin_slider};
 use serde::Deserialize as _;
 use wesl::syntax::{
     Expression, FunctionCall, Ident, ModulePath, PathOrigin, Span, Spanned, TypeExpression,
@@ -95,16 +94,16 @@ impl GraphValueType for ColorType {
         _assets: &AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         column![
-            SpinSlider::new(0.0..=1.0, data.x)
+            spin_slider(0.0..=1.0, data.x)
                 .on_change(ColorMessage::R)
                 .allow_beyond_range(false),
-            SpinSlider::new(0.0..=1.0, data.y)
+            spin_slider(0.0..=1.0, data.y)
                 .on_change(ColorMessage::G)
                 .allow_beyond_range(false),
-            SpinSlider::new(0.0..=1.0, data.z)
+            spin_slider(0.0..=1.0, data.z)
                 .on_change(ColorMessage::B)
                 .allow_beyond_range(false),
-            SpinSlider::new(0.0..=1.0, data.w)
+            spin_slider(0.0..=1.0, data.w)
                 .on_change(ColorMessage::A)
                 .allow_beyond_range(false),
         ]
@@ -225,10 +224,10 @@ impl GraphValueType for RectType {
         _assets: &AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
         column![
-            SpinSlider::new(0.0..=1.0, data.min.x).on_change(RectMessage::MinX),
-            SpinSlider::new(0.0..=1.0, data.min.y).on_change(RectMessage::MinY),
-            SpinSlider::new(0.0..=1.0, data.max.x).on_change(RectMessage::MaxX),
-            SpinSlider::new(0.0..=1.0, data.max.y).on_change(RectMessage::MaxY),
+            spin_slider(0.0..=1.0, data.min.x).on_change(RectMessage::MinX),
+            spin_slider(0.0..=1.0, data.min.y).on_change(RectMessage::MinY),
+            spin_slider(0.0..=1.0, data.max.x).on_change(RectMessage::MaxX),
+            spin_slider(0.0..=1.0, data.max.y).on_change(RectMessage::MaxY),
         ]
         .padding(2)
         .into()

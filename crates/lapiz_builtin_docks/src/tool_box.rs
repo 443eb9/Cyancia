@@ -1,11 +1,6 @@
 use std::sync::LazyLock;
 
 use iced::{Element, Length, Task, Theme, window};
-use iced_widget::{
-    button::{Status, Style},
-    svg,
-    tooltip::Position,
-};
 use lapiz_canvas::CanvasToolProxyAppExt as _;
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;
@@ -14,8 +9,12 @@ use lapiz_tools::{
     ErasedToolFunctionMessage, ToolFunctionRegistry, ToolId, manifest::ToolBoxManifestConfig,
 };
 use lapiz_widgets::{
-    button::Button, divider::Divider, flex::Flex, icon, label::Label, scrollable::Scrollable,
-    tooltip::Tooltip,
+    button,
+    button::{Button, Status, Style},
+    divider::Divider,
+    flex::Flex,
+    icon, label, row, scrollable, svg, tooltip,
+    tooltip::{Position, Tooltip},
 };
 
 pub static TOOL_BOX_DOCK_ID: LazyLock<DockId> =
@@ -73,7 +72,7 @@ impl Dock for ToolBoxDock {
                         }),
                     }
                 });
-            let button = Button::new(glyph)
+            let button = button(glyph)
                 .width(28)
                 .height(28)
                 .padding(8)
@@ -105,10 +104,10 @@ impl Dock for ToolBoxDock {
                     }
                 })
                 .on_press(ToolBoxDockMessage::Switch(tool.clone()));
-            Tooltip::new(button, Label::new(t!(tool)), Position::Right).into()
+            tooltip(button, label(t!(tool)), Position::Right).into()
         };
         let separator = || {
-            Flex::row([Divider::horizontal(1).into()])
+            row![Divider::horizontal(1)]
                 .height(7)
                 .padding([3, 0])
                 .into()
@@ -131,7 +130,7 @@ impl Dock for ToolBoxDock {
         }
         let content = Flex::column(items).width(Length::Fill).gap(0).padding(4);
 
-        Scrollable::new(content)
+        scrollable(content)
             .width(Length::Fill)
             .height(Length::Fill)
             .into()

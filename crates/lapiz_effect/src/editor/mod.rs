@@ -1,21 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
-use iced_core::{Length, alignment::Vertical};
-use iced_widget::{Column, column, row};
+use iced_core::Length;
 use lapiz_i18n::t;
 use lapiz_shader_graph::{
     GraphElement,
     editor::{GraphEditor, GraphEditorMessage, GraphEditorState},
     graph::{Graph, GraphResources},
 };
-use lapiz_widgets::{
-    button::{self, Button},
-    icon,
-    label::Label,
-    panel::Panel,
-    scrollable::Scrollable,
-    text_input::TextInput,
-};
+use lapiz_widgets::{button, column, flex::Flex, icon, label, panel, row, scrollable, text_input};
 use uuid::Uuid;
 
 use crate::{
@@ -150,26 +142,22 @@ fn view_pass_list<'a>(
     state: &'a EffectEditorState,
 ) -> GraphElement<'a, EffectEditorMessage> {
     let pass_count = instance.passes.len();
-    let mut pass_list = Column::new().spacing(8);
+    let mut pass_list = column!().gap(8.0);
     for (index, pass_id) in instance.passes.keys().enumerate() {
         pass_list = pass_list.push(pass_card(instance, state, *pass_id, index, pass_count));
     }
     pass_list = pass_list.push(
-        Button::new(
-            row![icon::plus().size(13), Label::new(t!("add_pass"))]
-                .spacing(4)
-                .align_y(Vertical::Center),
-        )
-        .outline()
-        .on_press(EffectEditorMessage::PassAddRequested),
+        button(row![icon::plus().size(13), label(t!("add_pass"))].gap(4.0))
+            .outline()
+            .on_press(EffectEditorMessage::PassAddRequested),
     );
 
-    let passes_panel = Panel::new(
+    let passes_panel = panel(
         column![
-            Label::new(t!("passes")).strong(),
-            Scrollable::new(pass_list).height(Length::Fill),
+            label(t!("passes")).strong(),
+            scrollable(pass_list).height(Length::Fill),
         ]
-        .spacing(6),
+        .gap(6.0),
     )
     .padding(8)
     .width(Length::Fill);
@@ -190,32 +178,32 @@ fn pass_card<'a>(
         io_column(t!("inputs"), &io.inputs),
         io_column(t!("outputs"), &io.outputs),
     ]
-    .spacing(8);
+    .gap(8.0);
 
     let renaming = state.renaming_pass == Some(pass_id);
     let content = if renaming {
         GraphElement::from(
             row![
-                TextInput::new("", &pass.name)
+                text_input("", &pass.name)
                     .on_input(move |name| EffectEditorMessage::PassRenamed(pass_id, name))
                     .width(Length::Fill),
                 button::icon_button(icon::check().size(13))
                     .on_press(EffectEditorMessage::PassRenameToggled(pass_id)),
             ]
-            .spacing(4)
+            .gap(4.0)
             .width(Length::Fill),
         )
     } else {
         GraphElement::from(
-            Button::new(column![Label::new(pass.name.clone()).strong(), body].spacing(4))
+            button(column![label(pass.name.clone()).strong(), body].gap(4.0))
                 .width(Length::Fill)
                 .height(Length::Shrink)
                 .on_press(EffectEditorMessage::OpenPass(pass_id)),
         )
     };
 
-    let mut controls = Column::new().spacing(2).push(
-        Button::new(icon::trash().size(13))
+    let mut controls = column!().gap(2.0).push(
+        button(icon::trash().size(13))
             .width(24)
             .height(24)
             .padding(5)
@@ -239,16 +227,16 @@ fn pass_card<'a>(
             .on_press(EffectEditorMessage::PassRenameToggled(pass_id)),
     );
 
-    row![content, controls].spacing(4).into()
+    row![content, controls].gap(4.0).into()
 }
 
 fn io_column<'a>(title: String, labels: &[String]) -> GraphElement<'a, EffectEditorMessage> {
     let rows = labels
         .iter()
-        .map(|label| Label::new(format!("• {label}")).faint().into())
+        .map(|label| lapiz_widgets::label(format!("• {label}")).faint().into())
         .collect::<Vec<_>>();
-    column![Label::new(title).muted(), Column::with_children(rows)]
-        .spacing(2)
+    column![label(title).muted(), Flex::column(rows)]
+        .gap(2.0)
         .width(Length::Fill)
         .into()
 }
@@ -263,25 +251,16 @@ fn view_pass_graph<'a>(
         .graph_editor_states
         .get(&pass_id)
         .expect("graph editor state is created when a pass is opened");
-    let back = Button::new(
-        row![
-            icon::chevron_left().size(13),
-            Label::new(t!("back_to_passes"))
-        ]
-        .spacing(4)
-        .align_y(Vertical::Center),
-    )
-    .transparent()
-    .on_press(EffectEditorMessage::BackToPassList);
+    let back = button(row![icon::chevron_left().size(13), label(t!("back_to_passes"))].gap(4.0))
+        .transparent()
+        .on_press(EffectEditorMessage::BackToPassList);
 
     column![
-        row![back, Label::new(pass.name.clone()).strong()]
-            .spacing(8)
-            .align_y(Vertical::Center),
+        row![back, label(pass.name.clone()).strong()].gap(8.0),
         GraphElement::from(GraphEditor::new(&pass.graph, graph_state))
             .map(EffectEditorMessage::Graph),
     ]
-    .spacing(4)
+    .gap(4.0)
     .width(Length::Fill)
     .height(Length::Fill)
     .into()

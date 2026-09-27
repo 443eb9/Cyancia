@@ -7,7 +7,7 @@ use lapiz_brush::{
 };
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_runtime::{Renderer, Services};
-use lapiz_widgets::{button::Button, flex::Flex, label::Label, scrollable::Scrollable};
+use lapiz_widgets::{button, flex::Flex, label, scrollable};
 
 pub static BRUSH_PRESETS_DOCK_ID: LazyLock<DockId> =
     LazyLock::new(|| DockId::new("brush_presets_dock".into()));
@@ -49,7 +49,7 @@ impl Dock for BrushPresetDock {
             .iter()
             .enumerate()
             .map(|(index, item)| {
-                Button::new(Label::new(item.name.clone()))
+                button(label(item.name.clone()))
                     .width(Length::Fill)
                     .activated(item.selected)
                     .on_press(BrushPresetDockMessage::SelectBrush(index))
@@ -57,7 +57,7 @@ impl Dock for BrushPresetDock {
             })
             .collect::<Vec<Element<'a, _, Theme, Renderer>>>();
 
-        Scrollable::new(Flex::column(buttons).gap(2).padding(4))
+        scrollable(Flex::column(buttons).gap(2).padding(4))
             .width(Length::Fill)
             .height(Length::Fill)
             .into()

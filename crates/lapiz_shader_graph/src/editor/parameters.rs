@@ -1,11 +1,12 @@
 use std::{borrow::Cow, mem, sync::Arc};
 
 use iced_core::Length;
-use iced_widget::{Column, Component, column, component::component, container, row};
 use lapiz_assets::store::AssetRegistry;
 use lapiz_i18n::t;
 use lapiz_widgets::{
-    button::Button, icon, label::Label, scrollable::Scrollable, text_input::TextInput,
+    button, column,
+    component::{Component, component},
+    container, icon, label, row, scrollable, text_input,
 };
 use uuid::Uuid;
 
@@ -99,7 +100,7 @@ impl<'a, Message> Component<'a, Message, GraphTheme, GraphRenderer>
                     });
                 column![
                     row![
-                        TextInput::new(&t!("name"), name)
+                        text_input(&t!("name"), name)
                             .on_input(move |name| {
                                 ParametersEditorEvent::Apply(ParametersEditorMessage::Rename {
                                     index,
@@ -107,8 +108,8 @@ impl<'a, Message> Component<'a, Message, GraphTheme, GraphRenderer>
                                 })
                             })
                             .width(Length::Fill),
-                        Label::new(value.ty().id().id).size(10).faint(),
-                        Button::new(icon::trash().size(13))
+                        label(value.ty().id().id).size(10).faint(),
+                        button(icon::trash().size(13))
                             .width(24)
                             .height(24)
                             .padding(5)
@@ -117,43 +118,38 @@ impl<'a, Message> Component<'a, Message, GraphTheme, GraphRenderer>
                                 ParametersEditorMessage::Remove { index },
                             )),
                     ]
-                    .spacing(4),
+                    .gap(4.0),
                     literal,
                 ]
-                .spacing(4)
+                .gap(4.0)
                 .into()
             })
             .collect::<Vec<_>>();
 
         let parameters = if parameter_rows.is_empty() {
-            GraphElement::from(
-                container(Label::new(t!("no_parameters")).muted()).height(Length::Fill),
-            )
+            GraphElement::from(container(label(t!("no_parameters")).muted()).height(Length::Fill))
         } else {
-            GraphElement::from(
-                Scrollable::new(Column::with_children(parameter_rows).spacing(8))
-                    .height(Length::Fill),
-            )
+            GraphElement::from(scrollable(column(parameter_rows).gap(8.0)).height(Length::Fill))
         };
 
         let add_row = column![
-            TextInput::new(&t!("name"), &state.new_name)
+            text_input(&t!("name"), &state.new_name)
                 .on_input(ParametersEditorEvent::NewNameChanged)
                 .width(Length::Fill),
             component(GraphTypeSelector::new(
                 self.type_registry,
                 ParametersEditorEvent::NewTypeSelected,
             )),
-            Button::new(row![icon::plus().size(13), Label::new(t!("add_parameter"))].spacing(4))
+            button(row![icon::plus().size(13), label(t!("add_parameter"))].gap(4.0))
                 .on_press_maybe(
                     (!state.new_name.trim().is_empty() && state.new_type.is_some())
                         .then_some(ParametersEditorEvent::AddPressed),
                 ),
         ]
-        .spacing(4);
+        .gap(4.0);
 
         column![parameters, add_row]
-            .spacing(8)
+            .gap(8.0)
             .height(Length::Fill)
             .into()
     }

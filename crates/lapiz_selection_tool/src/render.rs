@@ -8,7 +8,6 @@ use iced_core::{
     renderer, widget,
 };
 use iced_wgpu::{Primitive, graphics::Viewport, primitive};
-use iced_widget::shader::Pipeline;
 use indexmap::IndexSet;
 use lapiz_anti_aliasing::fxaa::{FxaaParams, FxaaPipeline};
 use lapiz_canvas::{CanvasAppExt as _, command::TileReplaceCommand, control::CanvasTransform};
@@ -26,6 +25,7 @@ use lapiz_render::{
     render_context::RenderContextAppExt as _,
 };
 use lapiz_runtime::{Renderer, Services};
+use lapiz_widgets::shader::Pipeline;
 use lyon::{
     geom::point,
     path::Path,

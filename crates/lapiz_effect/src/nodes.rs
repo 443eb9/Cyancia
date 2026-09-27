@@ -5,7 +5,6 @@ use std::{
 
 use anyhow::{Context as _, Result};
 use iced_core::{Length, widget::Void};
-use iced_widget::{Column, column, row};
 use lapiz_i18n::t;
 use lapiz_shader_graph::{
     GraphElement,
@@ -29,7 +28,7 @@ use lapiz_shader_graph::{
     },
 };
 use lapiz_utils::random_oklch_hue_chroma;
-use lapiz_widgets::{combo_box::ComboBox, label::Label, text_input::TextInput};
+use lapiz_widgets::{column, combo_box, flex::Flex, label, row, text_input};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use wesl::syntax::{
@@ -229,7 +228,7 @@ impl GraphNode for PassInputNode {
             .iter()
             .find(|choice| choice.input == state.input)
             .cloned();
-        let selector = ComboBox::new(
+        let selector = combo_box(
             state.available_sources.iter().cloned().collect::<Vec<_>>(),
             selected,
             PassInputNodeMessage::SourceSelected,
@@ -237,13 +236,10 @@ impl GraphNode for PassInputNode {
         .placeholder(t!("unbound"))
         .width(Length::Fill);
 
-        column![
-            selector,
-            Column::with_children(ctx.view_all_outputs()).spacing(2),
-        ]
-        .spacing(4)
-        .width(Length::Fill)
-        .into()
+        column![selector, Flex::column(ctx.view_all_outputs()).gap(2.0),]
+            .gap(4.0)
+            .width(Length::Fill)
+            .into()
     }
 
     fn update(
@@ -459,7 +455,7 @@ impl GraphNode for PassOutputNode {
                 _ => false,
             })
             .cloned();
-        let selector = ComboBox::new(
+        let selector = combo_box(
             state.available_targets.iter().cloned().collect::<Vec<_>>(),
             selected,
             PassOutputNodeMessage::TargetSelected,
@@ -477,13 +473,13 @@ impl GraphNode for PassOutputNode {
                 Some(
                     column![
                         row![
-                            Label::new(t!("name")),
-                            TextInput::new("", &def.name)
+                            label(t!("name")),
+                            text_input("", &def.name)
                                 .on_input(PassOutputNodeMessage::LocalNameChanged)
                                 .width(Length::Fill),
                         ]
-                        .spacing(4),
-                        ComboBox::new(
+                        .gap(4.0),
+                        combo_box(
                             state.available_types.iter().cloned().collect::<Vec<_>>(),
                             selected_type,
                             PassOutputNodeMessage::LocalTypeSelected,
@@ -491,19 +487,19 @@ impl GraphNode for PassOutputNode {
                         .placeholder(t!("type"))
                         .width(Length::Fill),
                     ]
-                    .spacing(2),
+                    .gap(2.0),
                 )
             }
             _ => None,
         };
 
-        let content = column![selector].spacing(4).width(Length::Fill);
+        let content = column![selector].gap(4.0).width(Length::Fill);
         let content = match local_editor {
             Some(editor) => content.push(editor),
             None => content,
         };
         content
-            .push(Column::with_children(
+            .push(Flex::column(
                 ctx.view_all_inputs(PassOutputNodeMessage::LiteralUpdate),
             ))
             .into()

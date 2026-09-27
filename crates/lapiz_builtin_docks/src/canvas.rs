@@ -6,7 +6,6 @@ use std::{
 use bevy_math::{IRect, Rect, UVec2};
 use iced::{Element, Subscription, Task, Theme, pointer, widget::Space, window};
 use iced_core::Point;
-use iced_widget::stack;
 use image::{ImageEncoder as _, codecs::png::PngEncoder};
 use lapiz_canvas::{
     CanvasAppExt as _, CanvasId, CanvasManager, CanvasToolProxyAppExt as _,
@@ -28,6 +27,7 @@ use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{Renderer, Services, event::Event as _, platform::get_window_monitor_name};
 use lapiz_tools::ErasedToolFunctionMessage;
 use lapiz_utils::log_err::LogErr as _;
+use lapiz_widgets::stack;
 
 pub fn construct_canvas_dock_id(canvas: CanvasId) -> String {
     format!("canvas_{}", canvas)
