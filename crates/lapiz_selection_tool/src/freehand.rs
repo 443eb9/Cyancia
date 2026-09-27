@@ -4,7 +4,6 @@ use bevy_math::Rect;
 use glam::Vec2;
 use iced_core::{Element, Length, Theme};
 use iced_runtime::Task;
-use iced_widget::space;
 use lapiz_canvas::{CanvasAppExt as _, CanvasUndoStackAppExt as _};
 use lapiz_i18n::t;
 use lapiz_input::{
@@ -14,9 +13,7 @@ use lapiz_input::{
 use lapiz_runtime::{Renderer, Services};
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_utils::log_err::LogErr as _;
-use lapiz_widgets::{
-    form::Form, icon, label::Label, panel::Panel, segmented_control::SegmentedControl,
-};
+use lapiz_widgets::{form, icon, label, panel, segmented_control, space};
 use lyon::tessellation::FillRule;
 use tracing::info;
 
@@ -158,23 +155,23 @@ impl ToolFunction for FreehandSelectionTool {
         &'a self,
         _: &'a Services,
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
-        let fields = Form::new().push(
+        let fields = form().push(
             t!("fill_rule"),
-            SegmentedControl::new()
+            segmented_control()
                 .push(
-                    Label::new(t!("even_odd")),
+                    label(t!("even_odd")),
                     self.fill_rule == FillRule::EvenOdd,
                     FreehandSelectionToolMessage::FillRuleChanged(FillRule::EvenOdd),
                 )
                 .push(
-                    Label::new(t!("non_zero")),
+                    label(t!("non_zero")),
                     self.fill_rule == FillRule::NonZero,
                     FreehandSelectionToolMessage::FillRuleChanged(FillRule::NonZero),
                 ),
         );
 
         Some(
-            Panel::new(fields)
+            panel(fields)
                 .transparent()
                 .padding(2)
                 .width(Length::Fill)
@@ -338,23 +335,23 @@ impl ToolFunction for PolygonSelectionTool {
         &'a self,
         _: &'a Services,
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
-        let fields = Form::new().push(
+        let fields = form().push(
             t!("fill_rule"),
-            SegmentedControl::new()
+            segmented_control()
                 .push(
-                    Label::new(t!("even_odd")),
+                    label(t!("even_odd")),
                     self.fill_rule == FillRule::EvenOdd,
                     PolygonSelectionToolMessage::FillRuleChanged(FillRule::EvenOdd),
                 )
                 .push(
-                    Label::new(t!("non_zero")),
+                    label(t!("non_zero")),
                     self.fill_rule == FillRule::NonZero,
                     PolygonSelectionToolMessage::FillRuleChanged(FillRule::NonZero),
                 ),
         );
 
         Some(
-            Panel::new(fields)
+            panel(fields)
                 .transparent()
                 .padding(2)
                 .width(Length::Fill)

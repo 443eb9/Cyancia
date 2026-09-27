@@ -8,15 +8,11 @@ use bevy_math::{IRect, Rect};
 use encase::ShaderType;
 use glam::{Mat3, Vec2};
 use iced_core::{
-    Alignment, Color, Element, Length, Point, Rectangle, Size, Theme, Vector, Widget,
-    keyboard::Modifiers, layout, pointer::mouse, renderer, widget,
+    Color, Element, Length, Point, Rectangle, Size, Theme, Vector, Widget, keyboard::Modifiers,
+    layout, pointer::mouse, renderer, widget,
 };
 use iced_graphics::geometry;
 use iced_runtime::{Task, futures::Subscription};
-use iced_widget::{
-    canvas::{Frame, Path, Stroke},
-    column, row, space, text,
-};
 use lapiz_canvas::{
     CanvasAppExt as _, CanvasId, CanvasUndoStackAppExt as _,
     command::TileReplaceCommand,
@@ -51,8 +47,9 @@ use lapiz_tools::{ChangesTracker, ToolFunction, ToolId};
 use lapiz_undo::BatchedUndoCommand;
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
-    button::Button, combo_box::ComboBox, form::Form, icon, label::Label, panel::Panel,
-    spin_box::SpinBox,
+    button,
+    canvas::{Frame, Path, Stroke},
+    column, combo_box, form, icon, label, panel, row, space, spin_box,
 };
 use tracing::warn;
 use wgpu::{
@@ -1077,10 +1074,10 @@ impl ToolFunction for FreeTransformTool {
             _ => ShearAxis::Horizontal,
         };
 
-        let fields = Form::new()
+        let fields = form()
             .push(
                 t!("sampling"),
-                ComboBox::new(
+                combo_box(
                     vec![SamplingMethod::NearestNeighbor],
                     Some(SamplingMethod::NearestNeighbor),
                     FreeTransformToolMessage::SamplingChanged,
@@ -1090,16 +1087,16 @@ impl ToolFunction for FreeTransformTool {
             .push(
                 t!("translation"),
                 row![
-                    text(t!("x")),
-                    SpinBox::new(
+                    label(t!("x")),
+                    spin_box(
                         &session.translate.x,
                         f32::MIN..=f32::MAX,
                         FreeTransformToolMessage::TranslationXChanged,
                     )
                     .step(1.0)
                     .width(Length::FillPortion(1)),
-                    text(t!("y")),
-                    SpinBox::new(
+                    label(t!("y")),
+                    spin_box(
                         &session.translate.y,
                         f32::MIN..=f32::MAX,
                         FreeTransformToolMessage::TranslationYChanged,
@@ -1107,12 +1104,11 @@ impl ToolFunction for FreeTransformTool {
                     .step(1.0)
                     .width(Length::FillPortion(1)),
                 ]
-                .align_y(Alignment::Center)
-                .spacing(4),
+                .gap(4.0),
             )
             .push(
                 t!("rotation"),
-                SpinBox::new(
+                spin_box(
                     &session.rotate,
                     f32::MIN..=f32::MAX,
                     FreeTransformToolMessage::RotationChanged,
@@ -1123,16 +1119,16 @@ impl ToolFunction for FreeTransformTool {
             .push(
                 t!("scale"),
                 row![
-                    text(t!("x")),
-                    SpinBox::new(
+                    label(t!("x")),
+                    spin_box(
                         &session.scale.x,
                         f32::MIN..=f32::MAX,
                         FreeTransformToolMessage::ScaleXChanged,
                     )
                     .step(0.01)
                     .width(Length::FillPortion(1)),
-                    text(t!("y")),
-                    SpinBox::new(
+                    label(t!("y")),
+                    spin_box(
                         &session.scale.y,
                         f32::MIN..=f32::MAX,
                         FreeTransformToolMessage::ScaleYChanged,
@@ -1140,12 +1136,11 @@ impl ToolFunction for FreeTransformTool {
                     .step(0.01)
                     .width(Length::FillPortion(1)),
                 ]
-                .align_y(Alignment::Center)
-                .spacing(4),
+                .gap(4.0),
             )
             .push(
                 t!("shear"),
-                SpinBox::new(
+                spin_box(
                     &session.shear,
                     f32::MIN..=f32::MAX,
                     FreeTransformToolMessage::ShearChanged,
@@ -1155,7 +1150,7 @@ impl ToolFunction for FreeTransformTool {
             )
             .push(
                 t!("shear_direction"),
-                ComboBox::new(
+                combo_box(
                     vec![ShearAxis::Horizontal, ShearAxis::Vertical],
                     Some(shear_axis),
                     FreeTransformToolMessage::ShearAxisChanged,
@@ -1164,28 +1159,28 @@ impl ToolFunction for FreeTransformTool {
             );
 
         let mirrors = row![
-            Button::new(Label::new(t!("mirror_horizontally")))
+            button(label(t!("mirror_horizontally")))
                 .on_press(FreeTransformToolMessage::MirrorHorizontally)
                 .width(Length::Fill),
-            Button::new(Label::new(t!("mirror_vertically")))
+            button(label(t!("mirror_vertically")))
                 .on_press(FreeTransformToolMessage::MirrorVertically)
                 .width(Length::Fill),
         ]
-        .spacing(4);
+        .gap(4.0);
         let actions = row![
-            Button::new(Label::new(t!("cancel")))
+            button(label(t!("cancel")))
                 .on_press(FreeTransformToolMessage::Cancel)
                 .danger()
                 .width(Length::Fill),
-            Button::new(Label::new(t!("confirm")))
+            button(label(t!("confirm")))
                 .on_press(FreeTransformToolMessage::Confirm)
                 .primary()
                 .width(Length::Fill),
         ]
-        .spacing(4);
+        .gap(4.0);
 
         Some(
-            Panel::new(column![fields, mirrors, actions].spacing(8))
+            panel(column![fields, mirrors, actions].gap(8.0))
                 .padding(8)
                 .width(Length::Fill)
                 .into(),

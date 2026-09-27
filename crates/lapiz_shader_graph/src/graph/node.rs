@@ -14,10 +14,10 @@ use anyhow::Result;
 use downcast_rs::Downcast;
 use dyn_clone::DynClone;
 use iced_core::{Length, Point};
-use iced_widget::Column;
 use lapiz_i18n::t;
 pub use lapiz_shader_graph_derive::stateless;
 use lapiz_utils::{cloneable_any::ClonableAnySync, wrapper};
+use lapiz_widgets::{column, flex::Flex};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use wesl::syntax::{Expression, Ident};
@@ -496,19 +496,19 @@ impl GraphNodeViewContext<'_> {
         &self,
         map_literal: impl Fn(ErasedGraphLiteralUpdateMessage) -> Message + Copy + 'static,
     ) -> GraphElement<'a, Message> {
-        Column::new()
+        column!()
             .push(
-                Column::with_children(self.view_all_inputs(map_literal))
+                Flex::column(self.view_all_inputs(map_literal))
                     .width(Length::Fill)
-                    .spacing(4),
+                    .gap(4.0),
             )
             .push(
-                Column::with_children(self.view_all_outputs())
+                Flex::column(self.view_all_outputs())
                     .width(Length::Fill)
-                    .spacing(4),
+                    .gap(4.0),
             )
             .width(Length::Fill)
-            .spacing(2)
+            .gap(2.0)
             .into()
     }
 
@@ -517,10 +517,10 @@ impl GraphNodeViewContext<'_> {
         header: impl Into<GraphElement<'a, Message>>,
         map_literal: impl Fn(ErasedGraphLiteralUpdateMessage) -> Message + Copy + 'static,
     ) -> GraphElement<'a, Message> {
-        Column::new()
+        column!()
             .push(header)
             .push(self.view_all_slots(map_literal))
-            .spacing(2)
+            .gap(2.0)
             .into()
     }
 

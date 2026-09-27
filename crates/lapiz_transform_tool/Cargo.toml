@@ -16,7 +16,6 @@ iced_core.workspace = true
 iced_graphics.workspace = true
 iced_runtime.workspace = true
 iced_wgpu.workspace = true
-iced_widget.workspace = true
 lapiz_canvas.workspace = true
 lapiz_i18n.workspace = true
 lapiz_image.workspace = true

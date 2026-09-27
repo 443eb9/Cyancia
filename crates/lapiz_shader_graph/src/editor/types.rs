@@ -1,9 +1,8 @@
 use std::{fmt, sync::Arc};
 
 use iced_core::Length;
-use iced_widget::{Component, column, row};
 use lapiz_i18n::t;
-use lapiz_widgets::{checkbox::Checkbox, combo_box::ComboBox, text_input::TextInput};
+use lapiz_widgets::{checkbox, column, combo_box, component::Component, row, text_input};
 
 use crate::{
     GraphElement, GraphRenderer, GraphTheme,
@@ -117,25 +116,25 @@ impl<'a, Message> Component<'a, Message, GraphTheme, GraphRenderer>
             .as_ref()
             .filter(|selected| options.contains(selected))
             .cloned();
-        let selector = ComboBox::new(options, selected, GraphTypeSelectorEvent::TypeSelected)
+        let selector = combo_box(options, selected, GraphTypeSelectorEvent::TypeSelected)
             .placeholder(t!("type"))
             .width(Length::Fill);
 
         let mut array_controls = row![
-            Checkbox::new(state.array)
+            checkbox(state.array)
                 .label(t!("array"))
                 .on_toggle(GraphTypeSelectorEvent::ArrayToggled),
         ]
-        .spacing(6);
+        .gap(6.0);
         if state.array {
             array_controls = array_controls.push(
-                TextInput::new(&t!("element_count"), &state.element_count)
+                text_input(&t!("element_count"), &state.element_count)
                     .on_input(GraphTypeSelectorEvent::ElementCountChanged)
                     .width(80),
             );
         }
 
-        column![array_controls, selector].spacing(4).into()
+        column![array_controls, selector].gap(4.0).into()
     }
 }
 

@@ -2,14 +2,13 @@ use std::{any::Any, collections::HashMap, rc::Rc, sync::Arc};
 
 use iced_core::{Element, Length, Theme};
 use iced_runtime::{Task, futures::Subscription};
-use iced_widget::{Stack, space};
 use lapiz_input::{
     key::{KeySequence, KeyboardState},
     mouse::{HoverMouseState, PressedMouseState},
 };
 use lapiz_runtime::{Application, Renderer, Services, plugin::Plugin, service::Service};
 use lapiz_utils::{Deref, DerefMut, wrapper};
-use lapiz_widgets::icon::Icon;
+use lapiz_widgets::{icon::Icon, space, stack};
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -602,7 +601,7 @@ impl ToolProxy {
         &'a self,
         services: &'a Services,
     ) -> Element<'a, ErasedToolFunctionMessage, Theme, Renderer> {
-        let mut overlays = Stack::new();
+        let mut overlays = stack![];
 
         if let Some(state) = &self.current_state {
             overlays = overlays.push(

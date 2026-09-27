@@ -12,7 +12,6 @@ futures.workspace = true
 iced_core.workspace = true
 iced_futures.workspace = true
 iced_runtime.workspace = true
-iced_widget.workspace = true
 image.workspace = true
 lapiz_canvas.workspace = true
 lapiz_config.workspace = true

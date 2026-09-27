@@ -9,7 +9,7 @@ use lapiz_render::{
     bind_group_layout_entries::DynamicBindGroupLayoutEntries,
 };
 use lapiz_utils::random_oklch_hue_chroma;
-use lapiz_widgets::{checkbox::Checkbox, spin_slider::SpinSlider};
+use lapiz_widgets::{checkbox, spin_slider};
 use serde::Deserialize as _;
 use wesl::syntax::{
     BinaryExpression, BinaryOperator, Expression, Ident, LiteralExpression, Span, Spanned,
@@ -86,7 +86,7 @@ impl GraphValueType for F32Type {
         data: &Self::AssociatedLiteralType,
         _assets: &AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
-        SpinSlider::new(0.0..=1.0, *data)
+        spin_slider(0.0..=1.0, *data)
             .on_change(identity)
             .step(0.01)
             .into()
@@ -180,7 +180,7 @@ impl GraphValueType for I32Type {
         data: &Self::AssociatedLiteralType,
         _assets: &AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
-        SpinSlider::new(-10..=10, *data).on_change(identity).into()
+        spin_slider(-10..=10, *data).on_change(identity).into()
     }
 
     fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message) {
@@ -266,7 +266,7 @@ impl GraphValueType for U32Type {
         data: &Self::AssociatedLiteralType,
         _assets: &AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
-        SpinSlider::new(0..=10, *data).on_change(identity).into()
+        spin_slider(0..=10, *data).on_change(identity).into()
     }
 
     fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message) {
@@ -381,7 +381,7 @@ impl GraphValueType for BoolType {
         data: &Self::AssociatedLiteralType,
         _assets: &AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
-        Checkbox::new(*data).on_toggle(identity).into()
+        checkbox(*data).on_toggle(identity).into()
     }
 
     fn update_literal(&self, data: &mut Self::AssociatedLiteralType, message: Self::Message) {

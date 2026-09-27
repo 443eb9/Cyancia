@@ -8,6 +8,7 @@ use lapiz_canvas::CCanvas;
 use lapiz_image::tile::TileStorageAppExt as _;
 use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{Renderer, Services};
+use lapiz_widgets::column;
 
 use super::pixels;
 use crate::ImageFormatExporter;
@@ -38,7 +39,7 @@ macro_rules! simple_exporters {
                 }
 
                 fn dialog_view(&self, _: &Services) -> Element<'_, (), Theme, Renderer> {
-                    iced_widget::Column::new().into()
+                    column!().into()
                 }
 
                 fn dialog_update(&mut self, _: (), _: &mut Services) -> Task<()> {

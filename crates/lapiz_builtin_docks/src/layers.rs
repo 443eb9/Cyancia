@@ -1,12 +1,13 @@
 use std::{mem, sync::LazyLock};
 
-use iced::{
-    Element, Subscription, Task, Theme,
-    event::listen_with,
+use iced_core::{
+    Element, Theme,
     keyboard::{self, Modifiers},
-    widget::Space,
+    widget::Void,
     window,
 };
+use iced_futures::{Subscription, event::listen_with};
+use iced_runtime::Task;
 use lapiz_canvas::{
     CanvasAppExt as _, CanvasUndoStackAppExt as _,
     command::{LayerPropertyChangeCommand, MoveLayersCommand},
@@ -83,7 +84,7 @@ impl Dock for LayersDock {
         services: &'a Services,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
         let Some(canvas) = services.current_canvas() else {
-            return Space::new().into();
+            return Void.into();
         };
         let blend_functions = services.service::<BlendFunctionRegistry>();
         let tile_storage = services.tile_storage();
@@ -229,7 +230,7 @@ impl Dock for LayersDock {
 
     fn subscription(&self, _services: &Services) -> Subscription<Self::Message> {
         listen_with(|event, _status, _window| match event {
-            iced::Event::Keyboard(keyboard::Event::KeyPressed {
+            iced_core::Event::Keyboard(keyboard::Event::KeyPressed {
                 key: keyboard::Key::Named(keyboard::key::Named::Escape),
                 ..
             }) => Some(LayersDockMessage::EscapePressed),

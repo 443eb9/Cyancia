@@ -12,7 +12,7 @@ use lapiz_i18n::{Translated, t};
 use lapiz_image::tile::TileStorageAppExt as _;
 use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{Renderer, Services};
-use lapiz_widgets::{checkbox::Checkbox, combo_box::ComboBox, form::Form};
+use lapiz_widgets::{checkbox, combo_box, form};
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
 
@@ -124,10 +124,10 @@ impl ImageFormatExporter for PngExporter {
     }
 
     fn dialog_view(&self, _: &Services) -> Element<'_, PngExportMessage, Theme, Renderer> {
-        Form::new()
+        form()
             .push(
                 t!("compression"),
-                ComboBox::new(
+                combo_box(
                     COMPRESSIONS.map(Translated).to_vec(),
                     Some(Translated(self.compression)),
                     |option| PngExportMessage::CompressionChanged(option.into_inner()),
@@ -135,7 +135,7 @@ impl ImageFormatExporter for PngExporter {
             )
             .push(
                 t!("filter"),
-                ComboBox::new(
+                combo_box(
                     FILTERS.map(Translated).to_vec(),
                     Some(Translated(self.filter)),
                     |option| PngExportMessage::FilterChanged(option.into_inner()),
@@ -143,7 +143,7 @@ impl ImageFormatExporter for PngExporter {
             )
             .push(
                 t!("embed_icc_profile"),
-                Checkbox::new(self.embed_profile).on_toggle(PngExportMessage::EmbedProfileToggled),
+                checkbox(self.embed_profile).on_toggle(PngExportMessage::EmbedProfileToggled),
             )
             .into()
     }

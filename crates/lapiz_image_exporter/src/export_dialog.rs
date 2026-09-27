@@ -2,12 +2,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use futures::executor::block_on;
-use iced_core::{Alignment, Element, Length, Size, Theme, window};
+use iced_core::{Element, Length, Size, Theme, window};
 use iced_runtime::{
     Task,
     window::{close, open},
 };
-use iced_widget::{Space, column, row};
 use lapiz_canvas::{CanvasAppExt as _, CanvasId};
 use lapiz_config::Config;
 use lapiz_file_dialog::LocalFile;
@@ -18,7 +17,7 @@ use lapiz_runtime::{
 };
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
-    button::Button, checkbox::Checkbox, fluent_builder::When as _, label::Label, panel::Panel,
+    button, checkbox, column, fluent_builder::When as _, label, panel, row, space,
 };
 
 use crate::{
@@ -110,31 +109,30 @@ impl WindowView for ExportDialogView {
         let footer = row![]
             .when(self.allow_silent_export, |r| {
                 r.push(
-                    Checkbox::new(self.dont_ask_again)
+                    checkbox(self.dont_ask_again)
                         .label(t!("dont_ask_again"))
                         .on_toggle(ExportDialogMessage::DontAskAgainToggled),
                 )
             })
             .extend([
-                Space::new().width(Length::Fill).into(),
-                Button::new(Label::new(t!("cancel")))
+                space().width(Length::Fill).into(),
+                button(label(t!("cancel")))
                     .on_press(ExportDialogMessage::Cancel)
                     .into(),
-                Button::new(Label::new(t!("export")))
+                button(label(t!("export")))
                     .primary()
                     .on_press(ExportDialogMessage::Confirm)
                     .into(),
             ])
-            .align_y(Alignment::Center)
-            .spacing(10);
+            .gap(10.0);
 
         column![
-            Panel::new(
+            panel(
                 column![
-                    Label::new(self.local_file.path().display().to_string()).muted(),
+                    label(self.local_file.path().display().to_string()).muted(),
                     options,
                 ]
-                .spacing(10),
+                .gap(10.0),
             )
             .width(Length::Fill)
             .height(Length::Fill)
@@ -143,7 +141,7 @@ impl WindowView for ExportDialogView {
         ]
         .width(Length::Fill)
         .height(Length::Fill)
-        .spacing(8)
+        .gap(8.0)
         .padding(8)
     }
 

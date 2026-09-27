@@ -11,7 +11,6 @@ anyhow.workspace = true
 futures.workspace = true
 iced_core.workspace = true
 iced_runtime.workspace = true
-iced_widget.workspace = true
 lapiz_canvas.workspace = true
 lapiz_config.workspace = true
 lapiz_file_dialog.workspace = true

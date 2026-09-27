@@ -13,7 +13,6 @@ dyn-clone.workspace = true
 encase.workspace = true
 iced_core.workspace = true
 iced_runtime.workspace = true
-iced_widget.workspace = true
 indexmap.workspace = true
 lapiz_assets.workspace = true
 lapiz_i18n.workspace = true

@@ -2,13 +2,12 @@ use anyhow::Result;
 use encase::ShaderType;
 use glam::{IVec2, IVec3, IVec4, UVec2, UVec3, UVec4, Vec2, Vec3, Vec4};
 use iced_core::Element;
-use iced_widget::Column;
 use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
     bind_group_layout_entries::DynamicBindGroupLayoutEntries,
 };
 use lapiz_utils::random_oklch_hue_chroma;
-use lapiz_widgets::spin_slider::SpinSlider;
+use lapiz_widgets::{flex::Flex, spin_slider};
 use serde::Deserialize as _;
 use wesl::syntax::{Expression, ExpressionNode, FunctionCall, Ident, TypeExpression};
 use wgpu::{Buffer, Device, Queue};
@@ -103,12 +102,12 @@ macro_rules! vector_type {
             ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
                 let controls = (0..$len)
                     .map(|index| {
-                        SpinSlider::new($range, data[index])
+                        spin_slider($range, data[index])
                             .on_change(move |value| VectorMessage { index, value })
                             .into()
                     })
                     .collect::<Vec<Element<'static, Self::Message, GraphTheme, GraphRenderer>>>();
-                Column::with_children(controls).padding(2).into()
+                Flex::column(controls).padding(2).into()
             }
 
             fn update_literal(

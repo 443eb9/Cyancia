@@ -1,4 +1,4 @@
-use iced_widget::pane_grid;
+use lapiz_widgets::pane_grid;
 
 use crate::{
     dock::{DockId, PaneEvent},

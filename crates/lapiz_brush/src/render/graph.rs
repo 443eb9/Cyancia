@@ -44,7 +44,7 @@ use lapiz_shader_graph::{
     },
 };
 use lapiz_utils::random_oklch_hue_chroma;
-use lapiz_widgets::combo_box::ComboBox;
+use lapiz_widgets::combo_box;
 use serde::{Deserialize, Serialize};
 use wesl::syntax::{
     BinaryExpression, BinaryOperator, Declaration, DeclarationKind, Expression, FunctionCall,
@@ -753,7 +753,7 @@ impl GraphNode for BlendColorNode {
         ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
-            ComboBox::new(
+            combo_box(
                 BlendMode::ALL
                     .to_vec()
                     .into_iter()
@@ -845,7 +845,7 @@ impl GraphNode for BlendWithInputNode {
         ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
-            ComboBox::new(
+            combo_box(
                 BlendMode::ALL
                     .to_vec()
                     .into_iter()
@@ -932,7 +932,7 @@ impl GraphNode for BlendWithLayerNode {
         ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
-            ComboBox::new(
+            combo_box(
                 BlendMode::ALL
                     .to_vec()
                     .into_iter()

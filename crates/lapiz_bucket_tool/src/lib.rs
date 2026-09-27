@@ -5,7 +5,6 @@ use iced_core::{
 };
 use iced_futures::{Subscription, keyboard::listen};
 use iced_runtime::Task;
-use iced_widget::row;
 use lapiz_canvas::{CanvasAppExt as _, CanvasUndoStackAppExt as _, command::TileReplaceCommand};
 use lapiz_color::ForegroundBackgroundColorExt as _;
 use lapiz_i18n::{Translated, t};
@@ -21,8 +20,8 @@ use lapiz_runtime::{Application, Renderer, Services, plugin::Plugin};
 use lapiz_tools::{ToolFunction, ToolId, ToolsAppExt as _};
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
-    button::Button, checkbox::Checkbox, combo_box::ComboBox, fluent_builder::When as _, form::Form,
-    icon, label::Label, panel::Panel, spin_slider::SpinSlider,
+    button, checkbox, combo_box, fluent_builder::When as _, form, icon, label, panel, row,
+    spin_slider, spin_slider::SpinSlider,
 };
 use tracing::error;
 
@@ -239,7 +238,7 @@ impl ToolFunction for BucketTool {
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
         let blend_functions = services.service::<BlendFunctionRegistry>();
 
-        let fields = Form::new()
+        let fields = form()
             .push(
                 t!("threshold"),
                 SpinSlider::new_01(self.threshold).on_confirm(BucketToolMessage::ThresholdChanged),
@@ -251,20 +250,19 @@ impl ToolFunction for BucketTool {
             )
             .push(
                 t!("grow"),
-                SpinSlider::new(-64..=64, self.grow).on_confirm(BucketToolMessage::GrowChanged),
+                spin_slider(-64..=64, self.grow).on_confirm(BucketToolMessage::GrowChanged),
             )
             .push(
                 t!("contiguous"),
-                Checkbox::new(self.contiguous).on_toggle(BucketToolMessage::ContiguousChanged),
+                checkbox(self.contiguous).on_toggle(BucketToolMessage::ContiguousChanged),
             )
             .push(
                 t!("close_gap"),
-                SpinSlider::new(0..=64, self.close_gap)
-                    .on_confirm(BucketToolMessage::CloseGapChanged),
+                spin_slider(0..=64, self.close_gap).on_confirm(BucketToolMessage::CloseGapChanged),
             )
             .push(
                 t!("blend_function"),
-                ComboBox::new(
+                combo_box(
                     blend_functions
                         .all_ids()
                         .cloned()
@@ -277,17 +275,17 @@ impl ToolFunction for BucketTool {
             .push(
                 t!("antialiasing_approach"),
                 row![
-                    Button::new(Label::new(t!("none")))
+                    button(label(t!("none")))
                         .on_press(BucketToolMessage::AaApproachSelected(
                             BucketAntialiasApproach::None
                         ))
                         .activated(matches!(self.aa_approach, BucketAntialiasApproach::None)),
-                    Button::new(Label::new(t!("fxaa")))
+                    button(label(t!("fxaa")))
                         .on_press(BucketToolMessage::AaApproachSelected(
                             BucketAntialiasApproach::Fxaa
                         ))
                         .activated(matches!(self.aa_approach, BucketAntialiasApproach::Fxaa)),
-                    Button::new(Label::new(t!("feather")))
+                    button(label(t!("feather")))
                         .on_press(BucketToolMessage::AaApproachSelected(
                             BucketAntialiasApproach::Feather(self.cached_feather)
                         ))
@@ -302,14 +300,14 @@ impl ToolFunction for BucketTool {
                 |form| {
                     form.push(
                         t!("feather"),
-                        SpinSlider::new(0..=64, self.cached_feather)
+                        spin_slider(0..=64, self.cached_feather)
                             .on_confirm(BucketToolMessage::FeatherChanged)
                             .precision(0),
                     )
                 },
             );
 
-        Some(Panel::new(fields).padding(8).width(Length::Fill).into())
+        Some(panel(fields).padding(8).width(Length::Fill).into())
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {

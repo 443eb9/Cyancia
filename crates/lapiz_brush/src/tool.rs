@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use iced_core::{Element, Theme};
 use iced_runtime::Task;
-use iced_widget::column;
 use lapiz_assets::{AssetAppExt as _, asset::AssetHandle};
 use lapiz_canvas::{
     CanvasAppExt as _, CanvasUndoStackAppExt as _, command::TileReplaceCommand,
@@ -18,7 +17,7 @@ use lapiz_shader_graph::graph::slot::{ErasedGraphLiteralUpdateMessage, GraphInpu
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_undo::QueuedUndoCommand;
 use lapiz_utils::log_err::LogErr as _;
-use lapiz_widgets::{icon, label::Label, panel::Panel};
+use lapiz_widgets::{column, flex::Flex, icon, label, panel};
 use log::error;
 
 use crate::{
@@ -273,23 +272,23 @@ impl ToolFunction for BrushTool {
             .map(|(id, parameter)| {
                 let slot_id = GraphInputSlotId::new(id.into_inner());
                 column![
-                    Label::new(parameter.name.clone()),
+                    label(parameter.name.clone()),
                     parameter
                         .value
                         .ty()
                         .view_literal(slot_id, parameter.value.value(), services.assets())
                         .map(move |message| BrushToolMessage::UpdateParameter { id: *id, message }),
                 ]
-                .spacing(4)
+                .gap(4.0)
                 .into()
             })
             .collect::<Vec<_>>();
 
         Some(
-            Panel::new(
-                column(parameters)
-                    .spacing(8)
-                    .push(Label::new(t!("variables")).strong()),
+            panel(
+                Flex::column(parameters)
+                    .gap(8.0)
+                    .push(label(t!("variables")).strong()),
             )
             .padding(8)
             .width(iced_core::Length::Fill)

@@ -9,8 +9,8 @@ use group::DockGroupData;
 use iced_core::{Element, Point, Size, Theme, Vector, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
-use iced_widget::pane_grid;
 use lapiz_runtime::{Renderer, Services, service::Service};
+use lapiz_widgets::pane_grid;
 use state::DockState;
 
 use crate::{

@@ -1,7 +1,6 @@
 use glam::{Vec2, Vec4};
 use iced_core::{Element, Length, Theme};
 use iced_runtime::Task;
-use iced_widget::row;
 use lapiz_bucket_tool::{
     BucketTool,
     bucket::{Bucket, BucketAntialiasApproach, BucketParams},
@@ -15,7 +14,7 @@ use lapiz_runtime::{Renderer, Services};
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
-    button::Button, fluent_builder::When as _, form::Form, icon, label::Label, panel::Panel,
+    button, fluent_builder::When as _, form, icon, label, panel, row, spin_slider,
     spin_slider::SpinSlider,
 };
 
@@ -204,7 +203,7 @@ impl ToolFunction for MagicWandSelectionTool {
         &'a self,
         _: &'a Services,
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
-        let fields = Form::new()
+        let fields = form()
             .push(
                 t!("threshold"),
                 SpinSlider::new_01(self.threshold)
@@ -217,28 +216,28 @@ impl ToolFunction for MagicWandSelectionTool {
             )
             .push(
                 t!("grow"),
-                SpinSlider::new(-64..=64, self.grow)
+                spin_slider(-64..=64, self.grow)
                     .on_confirm(MagicWandSelectionToolMessage::GrowChanged),
             )
             .push(
                 t!("close_gap"),
-                SpinSlider::new(0..=64, self.close_gap)
+                spin_slider(0..=64, self.close_gap)
                     .on_confirm(MagicWandSelectionToolMessage::CloseGapChanged),
             )
             .push(
                 t!("antialiasing_approach"),
                 row![
-                    Button::new(Label::new(t!("none")))
+                    button(label(t!("none")))
                         .on_press(MagicWandSelectionToolMessage::AaApproachSelected(
                             BucketAntialiasApproach::None
                         ))
                         .activated(matches!(self.aa_approach, BucketAntialiasApproach::None)),
-                    Button::new(Label::new(t!("fxaa")))
+                    button(label(t!("fxaa")))
                         .on_press(MagicWandSelectionToolMessage::AaApproachSelected(
                             BucketAntialiasApproach::Fxaa
                         ))
                         .activated(matches!(self.aa_approach, BucketAntialiasApproach::Fxaa)),
-                    Button::new(Label::new(t!("feather")))
+                    button(label(t!("feather")))
                         .on_press(MagicWandSelectionToolMessage::AaApproachSelected(
                             BucketAntialiasApproach::Feather(self.cached_feather)
                         ))
@@ -253,12 +252,12 @@ impl ToolFunction for MagicWandSelectionTool {
                 |form| {
                     form.push(
                         t!("feather"),
-                        SpinSlider::new(0..=64, self.cached_feather)
+                        spin_slider(0..=64, self.cached_feather)
                             .on_confirm(MagicWandSelectionToolMessage::FeatherChanged),
                     )
                 },
             );
 
-        Some(Panel::new(fields).padding(8).width(Length::Fill).into())
+        Some(panel(fields).padding(8).width(Length::Fill).into())
     }
 }

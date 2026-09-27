@@ -1,7 +1,7 @@
 use iced_core::{Element, Length, Theme};
 use lapiz_runtime::Renderer;
 
-use crate::{button::Button, callback::Callback, flex::Flex, icon, panel::Panel};
+use crate::{button, callback::Callback, flex::Flex, icon, panel};
 
 pub struct Collapsible<'a, Message> {
     header: Element<'a, Message, Theme, Renderer>,
@@ -41,7 +41,7 @@ impl<'a, Message: 'a> From<Collapsible<'a, Message>> for Element<'a, Message, Th
         } else {
             Element::from(icon::chevron_right().size(13))
         };
-        let header = Button::new(
+        let header = button(
             Flex::row([indicator, value.header])
                 .width(Length::Fill)
                 .gap(6),
@@ -56,8 +56,6 @@ impl<'a, Message: 'a> From<Collapsible<'a, Message>> for Element<'a, Message, Th
         } else {
             Flex::column([header.into()])
         };
-        Panel::new(body.width(Length::Fill))
-            .width(value.width)
-            .into()
+        panel(body.width(Length::Fill)).width(value.width).into()
     }
 }

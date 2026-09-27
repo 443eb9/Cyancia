@@ -1,16 +1,14 @@
 use std::{any::Any, collections::HashMap};
 
 use iced_core::{
-    Border, Element, Length, Point, Rectangle, Size, Widget,
-    alignment::Vertical,
-    layout,
+    Border, Element, Length, Point, Rectangle, Size, Widget, layout,
     pointer::mouse,
     renderer::{self, Quad},
     text::IntoFragment,
     widget::{Operation, Tree},
 };
-use iced_widget::{row, text};
 use lapiz_assets::store::AssetRegistry;
+use lapiz_widgets::{Id, label, row, space};
 
 use crate::{
     GraphRenderer, GraphTheme,
@@ -49,7 +47,7 @@ impl Operation for GraphSlotPinPositionCollection {
         operate(self);
     }
 
-    fn custom(&mut self, _id: Option<&iced_widget::Id>, bounds: Rectangle, state: &mut dyn Any) {
+    fn custom(&mut self, _id: Option<&Id>, bounds: Rectangle, state: &mut dyn Any) {
         if let Some(state) = state.downcast_ref::<SlotPinState>() {
             self.slots.insert(state.id, bounds.center());
         }
@@ -203,7 +201,7 @@ pub fn empty_slot<'a, Message>(
 where
     Message: 'a,
 {
-    let text = text(name).size(12);
+    let text = label(name).size(12);
     let pin = Element::new(SlotPin {
         id,
         hue,
@@ -213,15 +211,10 @@ where
     });
 
     match slot_side {
-        SlotSide::Left => row![pin, text]
+        SlotSide::Left => row![pin, text].width(Length::Fill).gap(4.0).into(),
+        SlotSide::Right => row![space().width(Length::Fill), text, pin]
             .width(Length::Fill)
-            .align_y(Vertical::Center)
-            .spacing(4)
-            .into(),
-        SlotSide::Right => row![iced_widget::space().width(Length::Fill), text, pin]
-            .width(Length::Fill)
-            .align_y(Vertical::Center)
-            .spacing(4)
+            .gap(4.0)
             .into(),
     }
 }
@@ -237,7 +230,7 @@ pub fn valued_slot<'a, Message>(
 where
     Message: 'a,
 {
-    let text = text(name).size(12);
+    let text = label(name).size(12);
     let pin = Element::new(SlotPin {
         id,
         hue,
@@ -247,15 +240,10 @@ where
     });
 
     match slot_side {
-        SlotSide::Left => row![pin, text, widget]
+        SlotSide::Left => row![pin, text, widget].width(Length::Fill).gap(4.0).into(),
+        SlotSide::Right => row![space().width(Length::Fill), widget, text, pin]
             .width(Length::Fill)
-            .align_y(Vertical::Center)
-            .spacing(4)
-            .into(),
-        SlotSide::Right => row![iced_widget::space().width(Length::Fill), widget, text, pin]
-            .width(Length::Fill)
-            .align_y(Vertical::Center)
-            .spacing(4)
+            .gap(4.0)
             .into(),
     }
 }

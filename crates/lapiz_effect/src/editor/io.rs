@@ -1,7 +1,6 @@
 use std::{mem, sync::Arc};
 
 use iced_core::Length;
-use iced_widget::{Column, Component, column, row};
 use indexmap::IndexMap;
 use lapiz_i18n::t;
 use lapiz_shader_graph::{
@@ -9,12 +8,8 @@ use lapiz_shader_graph::{
     graph::{slot::ErasedGraphValueType, variable::GraphTypeRegistry},
 };
 use lapiz_widgets::{
-    button::{self, Button},
-    combo_box::ComboBox,
-    icon,
-    label::Label,
-    scrollable::Scrollable,
-    text_input::TextInput,
+    button, column, combo_box, component::Component, flex::Flex, icon, icon_button, label, row,
+    scrollable, text_input,
 };
 use uuid::Uuid;
 
@@ -72,7 +67,7 @@ impl<'a> EffectIoEditor<'a> {
                 )
             })
             .collect::<Vec<_>>();
-        Scrollable::new(Column::with_children(rows).spacing(4))
+        scrollable(Flex::column(rows).gap(4.0))
             .height(Length::Fill)
             .into()
     }
@@ -98,7 +93,7 @@ impl<'a> EffectIoEditor<'a> {
                 )
             })
             .collect::<Vec<_>>();
-        Scrollable::new(Column::with_children(rows).spacing(4))
+        scrollable(Flex::column(rows).gap(4.0))
             .height(Length::Fill)
             .into()
     }
@@ -114,32 +109,32 @@ impl<'a> EffectIoEditor<'a> {
         move_down: Option<EffectIoEditorMessage>,
     ) -> GraphElement<'a, EffectIoEditorEvent> {
         let mut controls = row![
-            TextInput::new(&t!("name"), name)
+            text_input(&t!("name"), name)
                 .on_input(move |name| EffectIoEditorEvent::Apply(rename(name)))
                 .width(Length::Fill),
-            ComboBox::new(
+            combo_box(
                 self.type_options.clone(),
                 self.selected_type(ty),
                 move |choice| EffectIoEditorEvent::Apply(retype(choice)),
             )
             .placeholder(t!("type")),
         ]
-        .spacing(4);
+        .gap(4.0);
         if let Some(message) = move_up {
             controls = controls.push(
-                button::icon_button(icon::chevron_up().size(13))
+                icon_button(icon::chevron_up().size(13))
                     .on_press(EffectIoEditorEvent::Apply(message)),
             );
         }
         if let Some(message) = move_down {
             controls = controls.push(
-                button::icon_button(icon::chevron_down().size(13))
+                icon_button(icon::chevron_down().size(13))
                     .on_press(EffectIoEditorEvent::Apply(message)),
             );
         }
         controls
             .push(
-                Button::new(icon::trash().size(13))
+                button(icon::trash().size(13))
                     .width(24)
                     .height(24)
                     .padding(5)
@@ -160,13 +155,13 @@ impl<'a> EffectIoEditor<'a> {
         label: String,
     ) -> GraphElement<'a, EffectIoEditorEvent> {
         row![
-            TextInput::new(&t!("name"), name)
+            text_input(&t!("name"), name)
                 .on_input(on_name)
                 .width(Length::Fill),
-            ComboBox::new(self.type_options.clone(), selected, on_type).placeholder(t!("type")),
-            Button::new(Label::new(label)).on_press_maybe(enabled.then_some(add)),
+            combo_box(self.type_options.clone(), selected, on_type).placeholder(t!("type")),
+            button(lapiz_widgets::label(label)).on_press_maybe(enabled.then_some(add)),
         ]
-        .spacing(4)
+        .gap(4.0)
         .into()
     }
 }
@@ -214,7 +209,7 @@ impl<'a> Component<'a, EffectIoEditorMessage, GraphTheme, GraphRenderer> for Eff
 
     fn view(&self, state: &Self::State) -> GraphElement<'a, Self::Event> {
         column![
-            Label::new(t!("inputs")).strong(),
+            label(t!("inputs")).strong(),
             self.view_inputs(),
             self.add_row(
                 &state.new_input_name,
@@ -225,7 +220,7 @@ impl<'a> Component<'a, EffectIoEditorMessage, GraphTheme, GraphRenderer> for Eff
                 !state.new_input_name.trim().is_empty() && state.new_input_type.is_some(),
                 t!("add_input"),
             ),
-            Label::new(t!("outputs")).strong(),
+            label(t!("outputs")).strong(),
             self.view_outputs(),
             self.add_row(
                 &state.new_output_name,
@@ -237,7 +232,7 @@ impl<'a> Component<'a, EffectIoEditorMessage, GraphTheme, GraphRenderer> for Eff
                 t!("add_output"),
             ),
         ]
-        .spacing(6)
+        .gap(6.0)
         .into()
     }
 }

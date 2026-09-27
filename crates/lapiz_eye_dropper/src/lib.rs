@@ -3,9 +3,10 @@ use std::{collections::HashMap, result, sync::Arc};
 use anyhow::Result;
 use async_trait::async_trait;
 use glam::{IVec2, Vec2};
-use iced_core::{Background, Element, Length, Padding, Point, Theme, keyboard::Modifiers};
+use iced_core::{
+    Background, Element, Length, Padding, Point, Theme, keyboard::Modifiers, widget::Void,
+};
 use iced_runtime::Task;
-use iced_widget::{Space, container, row};
 use lapiz_canvas::{CanvasAppExt as _, CanvasId};
 use lapiz_color::{
     Color, ForegroundBackgroundColorExt as _, ForegroundColorChanged, model::rgb::Rgb,
@@ -30,8 +31,8 @@ use lapiz_runtime::{
 use lapiz_tools::{ToolFunction, ToolId, ToolsAppExt as _};
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
-    fluent_builder::When as _, form::Form, icon, label::Label, panel::Panel,
-    segmented_control::SegmentedControl, spin_slider::SpinSlider,
+    container, fluent_builder::When as _, form, icon, label, panel, row, segmented_control, space,
+    spin_slider,
 };
 use wgpu::{Device, Queue};
 
@@ -345,28 +346,27 @@ impl ToolFunction for EyeDropperTool {
             },
         );
         let preview = row![
-            container(Space::new().width(Length::Fill).height(32)).style(move |_| {
+            container(space().width(Length::Fill).height(32)).style(move |_| {
                 container::Style {
                     background: Some(Background::Color(preview_color)),
                     ..Default::default()
                 }
             }),
-            Label::new(color_text),
+            label(color_text),
         ]
-        .spacing(8)
-        .align_y(iced_core::Alignment::Center);
+        .gap(8.0);
 
-        let fields = Form::new()
+        let fields = form()
             .push(
                 t!("sample_mode"),
-                SegmentedControl::new()
+                segmented_control()
                     .push(
-                        Label::new(t!("single")),
+                        label(t!("single")),
                         matches!(self.sample_mode, EyeDropperSampleMode::Single),
                         EyeDropperToolMessage::SampleModeChanged(EyeDropperSampleMode::Single),
                     )
                     .push(
-                        Label::new(t!("average")),
+                        label(t!("average")),
                         matches!(self.sample_mode, EyeDropperSampleMode::Average { .. }),
                         EyeDropperToolMessage::SampleModeChanged(EyeDropperSampleMode::Average {
                             radius,
@@ -378,28 +378,28 @@ impl ToolFunction for EyeDropperTool {
                 |form| {
                     form.push(
                         t!("radius"),
-                        SpinSlider::new(1..=64, radius)
+                        spin_slider(1..=64, radius)
                             .on_confirm(EyeDropperToolMessage::RadiusChanged),
                     )
                 },
             )
             .push(
                 t!("sample_target"),
-                SegmentedControl::new()
+                segmented_control()
                     .push(
-                        Label::new(t!("current_layer")),
+                        label(t!("current_layer")),
                         self.target_mode == EyeDropperTargetMode::Current,
                         EyeDropperToolMessage::TargetModeChanged(EyeDropperTargetMode::Current),
                     )
                     .push(
-                        Label::new(t!("all_layers")),
+                        label(t!("all_layers")),
                         self.target_mode == EyeDropperTargetMode::Merged,
                         EyeDropperToolMessage::TargetModeChanged(EyeDropperTargetMode::Merged),
                     ),
             )
             .push(t!("sampled_color"), preview);
 
-        Some(Panel::new(fields).padding(8).width(Length::Fill).into())
+        Some(panel(fields).padding(8).width(Length::Fill).into())
     }
 
     fn canvas_overlay<'a>(
@@ -413,13 +413,13 @@ impl ToolFunction for EyeDropperTool {
             self.sampled_rgb(services),
             services.current_canvas(),
         ) else {
-            return Space::new().into();
+            return Void.into();
         };
         let Some(position) = canvas
             .transform
             .window_to_in_widget(Vec2::new(cursor.x, cursor.y))
         else {
-            return Space::new().into();
+            return Void.into();
         };
 
         let preview_color = iced_core::Color::from_rgb(
@@ -427,7 +427,7 @@ impl ToolFunction for EyeDropperTool {
             color.g.clamp(0.0, 1.0),
             color.b.clamp(0.0, 1.0),
         );
-        let swatch = container(Space::new().width(SWATCH_SIZE).height(SWATCH_SIZE))
+        let swatch = container(space().width(SWATCH_SIZE).height(SWATCH_SIZE))
             .width(SWATCH_SIZE)
             .height(SWATCH_SIZE)
             .style(move |_| container::Style {

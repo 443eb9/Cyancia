@@ -171,10 +171,6 @@ impl<'a, Message> Flex<'a, Message> {
         self
     }
 
-    pub fn panel(self) -> Self {
-        self.style(panel)
-    }
-
     pub fn surface(self) -> Self {
         self.style(surface)
     }
@@ -214,6 +210,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Flex<'_, Message> {
             self.taffy_style.flex_wrap == FlexWrap::Wrap && matches!(self.height, Length::Fit);
 
         let mut taffy = TaffyTree::<()>::new();
+        taffy.disable_rounding();
         let leaves = self.taffy_leaves(&mut taffy, &measured, horizontal);
         let root = taffy
             .new_with_children(self.root_style(resolved, measure_height), &leaves)
@@ -561,18 +558,6 @@ impl<'a, Message: 'a> From<Flex<'a, Message>> for Element<'a, Message, Theme, Re
 
 pub fn transparent(_theme: &Theme, _status: Status) -> Style {
     Style::default()
-}
-
-pub fn panel(theme: &Theme, _status: Status) -> Style {
-    let p = theme.palette();
-    Style::default()
-        .background(p.background.base.color)
-        .color(p.background.base.text)
-        .border(Border {
-            radius: 0.0.into(),
-            width: 1.0,
-            color: p.background.strong.color,
-        })
 }
 
 pub fn surface(theme: &Theme, status: Status) -> Style {

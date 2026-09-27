@@ -10,10 +10,6 @@ use iced_core::{
 };
 use iced_graphics::geometry;
 use iced_runtime::{Task, futures::Subscription};
-use iced_widget::{
-    canvas::{Frame, Path, Stroke},
-    column, row, space,
-};
 use lapiz_canvas::{
     CanvasAppExt as _, CanvasId, CanvasUndoStackAppExt as _,
     command::TileReplaceCommand,
@@ -46,7 +42,11 @@ use lapiz_runtime::{Renderer, Services, event::Event as _};
 use lapiz_tools::{ChangesTracker, ToolFunction, ToolId};
 use lapiz_undo::BatchedUndoCommand;
 use lapiz_utils::log_err::LogErr as _;
-use lapiz_widgets::{button::Button, icon, label::Label, panel::Panel};
+use lapiz_widgets::{
+    button,
+    canvas::{Frame, Path, Stroke},
+    column, icon, label, panel, row, space,
+};
 use tracing::warn;
 use wgpu::{
     BindGroupDescriptor, BindGroupLayout, BindGroupLayoutDescriptor, BufferUsages,
@@ -574,19 +574,19 @@ impl ToolFunction for PerspectiveTransformTool {
         _services: &'a Services,
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
         let actions = row![
-            Button::new(Label::new(t!("cancel")))
+            button(label(t!("cancel")))
                 .on_press(PerspectiveTransformToolMessage::Cancel)
                 .danger()
                 .width(Length::Fill),
-            Button::new(Label::new(t!("confirm")))
+            button(label(t!("confirm")))
                 .on_press(PerspectiveTransformToolMessage::Confirm)
                 .primary()
                 .width(Length::Fill),
         ]
-        .spacing(4);
+        .gap(4.0);
 
         Some(
-            Panel::new(column![actions].spacing(8))
+            panel(column![actions].gap(8.0))
                 .padding(8)
                 .width(Length::Fill)
                 .into(),

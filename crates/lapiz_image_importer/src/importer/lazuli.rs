@@ -6,6 +6,7 @@ use iced_runtime::Task;
 use lapiz_i18n::t;
 use lapiz_lazuli::LazuliArchive;
 use lapiz_runtime::{Renderer, Services};
+use lapiz_widgets::column;
 
 use crate::ImageFormatImporter;
 
@@ -28,7 +29,7 @@ impl ImageFormatImporter for LazuliImporter {
     }
 
     fn dialog_view(&self, _: &Services) -> Element<'_, (), Theme, Renderer> {
-        iced_widget::Column::new().into()
+        column!().into()
     }
 
     fn dialog_update(&mut self, _: (), _: &mut Services) -> Task<()> {

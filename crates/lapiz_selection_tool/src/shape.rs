@@ -7,13 +7,12 @@ use bevy_math::IRect;
 use glam::{IVec2, Vec2};
 use iced_core::{Element, Theme};
 use iced_runtime::Task;
-use iced_widget::space;
 use lapiz_canvas::{CanvasAppExt as _, CanvasUndoStackAppExt as _};
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
 use lapiz_runtime::{Renderer, Services};
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_utils::log_err::LogErr as _;
-use lapiz_widgets::icon;
+use lapiz_widgets::{icon, space};
 use lyon::tessellation::FillRule;
 use tracing::info;
 

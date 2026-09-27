@@ -19,7 +19,6 @@ use iced_core::{
     text::parser::PlainText,
     widget::{Operation, Tree, tree},
 };
-use iced_widget::{column, container, row, text, text_editor, text_input};
 use indexmap::IndexMap;
 use lapiz_assets::{
     asset::{AssetHandle, AssetId},
@@ -30,8 +29,8 @@ use lapiz_math::curve::CubicCurve;
 use lapiz_shader_graph_derive::stateless;
 use lapiz_utils::{random_oklch_hue_chroma, wrapper};
 use lapiz_widgets::{
-    button::Button, combo_box::ComboBox, curve_edit::CurveEdit, fluent_builder::When as _,
-    label::Label, popover::Popover, text_input::default,
+    button, column, combo_box, container, curve_edit, flex::Flex, fluent_builder::When as _, label,
+    popover, row, text_editor, text_input, text_input::default,
 };
 use parking_lot::Mutex;
 use parse_display::Display;
@@ -255,7 +254,7 @@ impl GraphNode for ScalarMathNode {
         ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
-            ComboBox::new(
+            combo_box(
                 ScalarMathNodeMode::ALL
                     .to_vec()
                     .into_iter()
@@ -608,7 +607,7 @@ impl GraphNode for VectorMathNode {
         ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
-            ComboBox::new(
+            combo_box(
                 VectorMathNodeMode::ALL
                     .to_vec()
                     .into_iter()
@@ -802,7 +801,7 @@ impl GraphNode for RectMathNode {
         ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
-            ComboBox::new(
+            combo_box(
                 RectMathNodeMode::ALL
                     .to_vec()
                     .into_iter()
@@ -958,7 +957,7 @@ impl GraphNode for CompareNode {
         ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
-            ComboBox::new(
+            combo_box(
                 CompareNodeMode::ALL
                     .to_vec()
                     .into_iter()
@@ -1668,7 +1667,7 @@ impl GraphNode for GraphFunctionNode {
             .find(|reference| Some(&reference.handle) == state.handle.as_ref())
             .cloned();
         ctx.view_all_slots_with_header(
-            ComboBox::new(
+            combo_box(
                 functions,
                 selected,
                 GraphFunctionNodeMessage::FunctionChanged,
@@ -1804,14 +1803,14 @@ impl GraphNode for GraphInputNode {
             .collect::<Vec<_>>();
         ctx.view_all_slots_with_header(
             column![
-                text_input(t!("name"), state.name.clone())
+                text_input(&t!("name"), &state.name)
                     .size(12.0)
                     .style(default)
                     .on_input(GraphInputNodeMessage::NameChanged),
-                ComboBox::new(types, state.ty.clone(), GraphInputNodeMessage::TypeChanged)
+                combo_box(types, state.ty.clone(), GraphInputNodeMessage::TypeChanged)
                     .width(Length::Fill),
             ]
-            .spacing(2),
+            .gap(2.0),
             GraphInputNodeMessage::LiteralUpdate,
         )
     }
@@ -1912,14 +1911,14 @@ impl GraphNode for GraphOutputNode {
             .collect::<Vec<_>>();
         ctx.view_all_slots_with_header(
             column![
-                text_input(t!("name"), state.name.clone())
+                text_input(&t!("name"), &state.name)
                     .size(12.0)
                     .style(default)
                     .on_input(GraphOutputNodeMessage::NameChanged),
-                ComboBox::new(types, state.ty.clone(), GraphOutputNodeMessage::TypeChanged)
+                combo_box(types, state.ty.clone(), GraphOutputNodeMessage::TypeChanged)
                     .width(Length::Fill),
             ]
-            .spacing(2),
+            .gap(2.0),
             GraphOutputNodeMessage::LiteralUpdate,
         )
     }
@@ -2014,7 +2013,7 @@ impl GraphNode for CurveNode {
         ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
         ctx.view_all_slots_with_header(
-            CurveEdit::new(CubicCurve::new(state.control_points.clone()))
+            curve_edit(CubicCurve::new(state.control_points.clone()))
                 .width(Length::Fill)
                 .height(Length::Fixed(128.0))
                 .on_change(CurveNodeMessage::CurveChanged),
@@ -2489,7 +2488,7 @@ impl GraphNode for RepeatInputNode {
             .variable
             .and_then(|id| locals.iter().find(|reference| reference.id == id).cloned());
         ctx.view_all_slots_with_header(
-            ComboBox::new(locals, selected, |reference| {
+            combo_box(locals, selected, |reference| {
                 RepeatInputNodeMessage::VariableChanged(reference.id)
             })
             .width(Length::Fill),
@@ -2591,7 +2590,7 @@ impl GraphNode for RepeatOutputNode {
             .variable
             .and_then(|id| locals.iter().find(|reference| reference.id == id).cloned());
         ctx.view_all_slots_with_header(
-            ComboBox::new(locals, selected, |reference| {
+            combo_box(locals, selected, |reference| {
                 RepeatOutputNodeMessage::VariableChanged(reference.id)
             })
             .width(Length::Fill),
@@ -2685,27 +2684,24 @@ fn repeat_schema_editor_view(
         .map(|local| {
             let id = local.id;
             column![
-                text_input(t!("variable_name"), local.name.clone())
+                text_input(&t!("variable_name"), &local.name)
                     .size(12.0)
                     .style(default)
                     .on_input(move |name| { RepeatNodeMessage::EditorRenameLocal(id, name) }),
                 row![
-                    ComboBox::new(
+                    combo_box(
                         type_names.clone(),
                         local.ty.as_ref().map(|ty| ty.id().id),
                         move |ty| { RepeatNodeMessage::EditorChangeLocalType(id, ty.to_string()) },
                     )
                     .width(Length::Fill),
-                    Button::new(Label::new("Up"))
-                        .on_press(RepeatNodeMessage::EditorMoveLocalUp(id)),
-                    Button::new(Label::new("Down"))
-                        .on_press(RepeatNodeMessage::EditorMoveLocalDown(id)),
-                    Button::new(Label::new("Delete"))
-                        .on_press(RepeatNodeMessage::EditorRemoveLocal(id)),
+                    button(label("Up")).on_press(RepeatNodeMessage::EditorMoveLocalUp(id)),
+                    button(label("Down")).on_press(RepeatNodeMessage::EditorMoveLocalDown(id)),
+                    button(label("Delete")).on_press(RepeatNodeMessage::EditorRemoveLocal(id)),
                 ]
-                .spacing(4),
+                .gap(4.0),
             ]
-            .spacing(4)
+            .gap(4.0)
             .into()
         })
         .collect::<Vec<GraphElement<'static, RepeatNodeMessage>>>();
@@ -2723,23 +2719,21 @@ fn repeat_schema_editor_view(
                 == 1
         });
 
-    let panel = column(rows)
+    let panel = Flex::column(rows)
         .width(Length::Fixed(300.0))
         .padding(4)
-        .spacing(6)
+        .gap(6.0)
         .push(
-            row![
-                Button::new(Label::new("Add Variable")).on_press(RepeatNodeMessage::EditorAddLocal)
-            ]
-            .spacing(6),
+            row![button(label("Add Variable")).on_press(RepeatNodeMessage::EditorAddLocal)]
+                .gap(6.0),
         )
         .push(
             row![
-                Button::new(Label::new("Cancel")).on_press(RepeatNodeMessage::EditorCancel),
-                Button::new(Label::new("Confirm"))
+                button(label("Cancel")).on_press(RepeatNodeMessage::EditorCancel),
+                button(label("Confirm"))
                     .when(valid, |b| b.on_press(RepeatNodeMessage::EditorConfirm))
             ]
-            .spacing(4),
+            .gap(4.0),
         );
 
     container(panel)
@@ -2826,12 +2820,12 @@ impl GraphNode for RepeatNode {
         state: &Self::State,
         ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'static, Self::Message> {
-        let trigger = Button::new(Label::new("Edit")).on_press(RepeatNodeMessage::ToggleEditor);
+        let trigger = button(label("Edit")).on_press(RepeatNodeMessage::ToggleEditor);
         let content = state
             .schema_draft
             .as_ref()
             .map(|_| repeat_schema_editor_view(state, ctx.resources));
-        let popover = Popover::new(trigger).content(content);
+        let popover = popover(trigger).content(content);
         ctx.view_all_slots_with_header(popover, RepeatNodeMessage::LiteralUpdate)
     }
 
@@ -3492,22 +3486,22 @@ fn custom_expression_variable_rows(
             let id = variable.id;
             column![
                 row![
-                    text_input("Slot Name", variable.display_name.clone())
+                    text_input("Slot Name", &variable.display_name)
                         .size(12.0)
                         .style(default)
                         .on_input(move |name| {
                             CustomExpressionNodeMessage::ChangeDisplayName(kind, id, name)
                         }),
-                    text_input("WGSL Name", variable.name.clone())
+                    text_input("WGSL Name", &variable.name)
                         .size(12.0)
                         .style(default)
                         .on_input(move |name| {
                             CustomExpressionNodeMessage::ChangeName(kind, id, name)
                         }),
                 ]
-                .spacing(4),
+                .gap(4.0),
                 row![
-                    ComboBox::new(
+                    combo_box(
                         type_names.clone(),
                         variable.ty.as_ref().map(|ty| ty.id().id),
                         move |ty| {
@@ -3515,16 +3509,16 @@ fn custom_expression_variable_rows(
                         }
                     )
                     .width(Length::Fill),
-                    Button::new(Label::new("Up"))
+                    button(label("Up"))
                         .on_press(CustomExpressionNodeMessage::MoveVariableUp(kind, id)),
-                    Button::new(Label::new("Down"))
+                    button(label("Down"))
                         .on_press(CustomExpressionNodeMessage::MoveVariableDown(kind, id)),
-                    Button::new(Label::new("Delete"))
+                    button(label("Delete"))
                         .on_press(CustomExpressionNodeMessage::RemoveVariable(kind, id)),
                 ]
-                .spacing(4),
+                .gap(4.0),
             ]
-            .spacing(4)
+            .gap(4.0)
             .into()
         })
         .collect()
@@ -3572,25 +3566,29 @@ fn custom_expression_editor_view(
     let panel = column![]
         .width(Length::Fixed(500.0))
         .padding(4)
-        .spacing(6)
-        .push(text(t!("inputs")).size(12))
+        .gap(6.0)
+        .push(label(t!("inputs")).size(12))
         .extend(input_rows)
-        .push(Button::new(Label::new("Add Input")).on_press(
-            CustomExpressionNodeMessage::AddVariable(CustomExpressionVariableKind::Input),
-        ))
-        .push(text(t!("outputs")).size(12))
+        .push(
+            button(label("Add Input")).on_press(CustomExpressionNodeMessage::AddVariable(
+                CustomExpressionVariableKind::Input,
+            )),
+        )
+        .push(label(t!("outputs")).size(12))
         .extend(output_rows)
-        .push(Button::new(Label::new("Add Output")).on_press(
-            CustomExpressionNodeMessage::AddVariable(CustomExpressionVariableKind::Output),
-        ))
+        .push(
+            button(label("Add Output")).on_press(CustomExpressionNodeMessage::AddVariable(
+                CustomExpressionVariableKind::Output,
+            )),
+        )
         .push(
             row![
-                Button::new(Label::new("Cancel")).on_press(CustomExpressionNodeMessage::Cancel),
-                Button::new(Label::new("Confirm")).when(valid, |button| {
+                button(label("Cancel")).on_press(CustomExpressionNodeMessage::Cancel),
+                button(label("Confirm")).when(valid, |button| {
                     button.on_press(CustomExpressionNodeMessage::Confirm)
                 }),
             ]
-            .spacing(4),
+            .gap(4.0),
         );
     container(panel)
         .style(|theme| container::Style {
@@ -3658,18 +3656,17 @@ impl GraphNode for CustomExpressionNode {
         state: &'a Self::State,
         ctx: GraphNodeViewContext<'_>,
     ) -> GraphElement<'a, Self::Message> {
-        let trigger =
-            Button::new(Label::new("Edit")).on_press(CustomExpressionNodeMessage::ToggleEditor);
+        let trigger = button(label("Edit")).on_press(CustomExpressionNodeMessage::ToggleEditor);
         let content = state
             .draft
             .as_ref()
             .map(|_| custom_expression_editor_view(state, ctx.resources));
         ctx.view_all_slots_with_header(
             column![
-                Popover::new(trigger).content(content),
+                popover(trigger).content(content),
                 GraphElement::new(CustomExpressionCodeEditor { code: &state.code })
             ]
-            .spacing(4),
+            .gap(4.0),
             CustomExpressionNodeMessage::LiteralUpdate,
         )
     }

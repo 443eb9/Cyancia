@@ -2,7 +2,7 @@ use iced_core::{Element, Length, Theme};
 use iced_widget::scrollable;
 use lapiz_runtime::Renderer;
 
-use crate::{button::Button, callback::Callback, flex::Flex, icon, label::Label, panel::Panel};
+use crate::{button, callback::Callback, flex::Flex, icon, panel};
 
 struct Item<'a, Message> {
     content: Element<'a, Message, Theme, Renderer>,
@@ -94,13 +94,13 @@ impl<'a, Message: 'a> From<PickList<'a, Message>> for Element<'a, Message, Theme
         let left = list_panel(value.available_label, value.available, item_button);
         let right = list_panel(value.selected_label, value.selected, item_button);
         let controls = Flex::column([
-            Button::new(icon::chevron_right().size(13))
+            button(icon::chevron_right().size(13))
                 .width(24)
                 .height(24)
                 .padding(5.5)
                 .on_press_with_callback(value.move_to_selected)
                 .into(),
-            Button::new(icon::chevron_left().size(13))
+            button(icon::chevron_left().size(13))
                 .width(24)
                 .height(24)
                 .padding(5.5)
@@ -122,13 +122,13 @@ fn list_panel<'a, Message: 'a>(
     item_button: fn(Item<'a, Message>) -> Element<'a, Message, Theme, Renderer>,
 ) -> Element<'a, Message, Theme, Renderer> {
     let header = Flex::row([
-        Label::new(label).muted().into(),
-        Label::new(items.len().to_string()).faint().into(),
+        crate::label(label).muted().into(),
+        crate::label(items.len().to_string()).faint().into(),
     ])
     .width(Length::Fill)
     .space_between()
     .padding([4, 8]);
-    Panel::new(Flex::column([
+    panel(Flex::column([
         header.into(),
         scrollable(Flex::column(items.into_iter().map(item_button)).width(Length::Fill))
             .height(Length::Fill)
@@ -141,7 +141,7 @@ fn list_panel<'a, Message: 'a>(
 }
 
 fn item_button<'a, Message: 'a>(item: Item<'a, Message>) -> Element<'a, Message, Theme, Renderer> {
-    Button::new(item.content)
+    button(item.content)
         .width(Length::Fill)
         .height(24)
         .padding([0, 8])

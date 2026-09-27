@@ -6,11 +6,10 @@ use iced_core::{
 };
 use iced_futures::Subscription;
 use iced_runtime::Task;
-use iced_widget::{pane_grid, space, stack};
 use lapiz_i18n::t;
 use lapiz_runtime::{Renderer, Services};
 use lapiz_utils::wrapper;
-use lapiz_widgets::menu::{ContextMenu, Menu};
+use lapiz_widgets::{column, context_menu, menu, pane_grid, space, stack};
 use parse_display::Display;
 use serde::Serialize;
 
@@ -226,9 +225,9 @@ impl<'a, Message: 'a> From<DockWidget<'a, Message>> for Element<'a, Message, The
                 let Some(active) = group_data.active() else {
                     return space().into();
                 };
-                let ctx_menu = ContextMenu::new(
+                let ctx_menu = context_menu(
                     Element::new(tabs),
-                    Menu::new()
+                    menu()
                         .item("Close Active", TabEvent::Close(active.clone()))
                         .item("Close Group", TabEvent::CloseGroup),
                 );
@@ -256,7 +255,7 @@ impl<'a, Message: 'a> From<DockWidget<'a, Message>> for Element<'a, Message, The
                 attach_info: split_info,
                 spacing,
             };
-            iced_widget::stack![grid, Element::new(overlay)]
+            stack![grid, Element::new(overlay)]
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into()
@@ -330,7 +329,7 @@ impl<'a, Message: 'a> From<FloatingDockWidget<'a, Message>>
             .and_then(|id| content.map(|c| c(id.clone())))
             .unwrap_or_else(|| Element::new(space()));
 
-        let content = iced_widget::column![Element::from(tab_row), body]
+        let content = column![Element::from(tab_row), body]
             .width(Length::Fill)
             .height(Length::Fill);
 

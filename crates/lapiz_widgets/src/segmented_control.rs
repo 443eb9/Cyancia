@@ -1,7 +1,7 @@
 use iced_core::{Element, Length, Theme};
 use lapiz_runtime::Renderer;
 
-use crate::{button::Button, callback::Callback, flex::Flex};
+use crate::{button, callback::Callback, flex::Flex};
 
 struct Segment<'a, Message> {
     content: Element<'a, Message, Theme, Renderer>,
@@ -87,7 +87,7 @@ impl<'a, Message: 'a> From<SegmentedControl<'a, Message>>
 {
     fn from(value: SegmentedControl<'a, Message>) -> Self {
         let buttons = value.segments.into_iter().map(|segment| {
-            let b = Button::new(segment.content)
+            let b = button(segment.content)
                 .height(Length::Fill)
                 .padding([0, 12])
                 .transparent()

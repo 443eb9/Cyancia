@@ -1,8 +1,7 @@
 use iced_core::{Element, Padding, Pixels, Theme, text};
-use iced_widget::{Column, column};
 use lapiz_runtime::Renderer;
 
-use crate::label::Label;
+use crate::column;
 
 pub struct Form<'a, Message> {
     items: Vec<(
@@ -33,7 +32,7 @@ impl<'a, Message> Form<'a, Message> {
         Message: 'a,
         V: Into<Element<'a, Message, Theme, Renderer>>,
     {
-        self.items.push((Label::new(label).into(), value.into()));
+        self.items.push((crate::label(label).into(), value.into()));
         self
     }
 
@@ -63,14 +62,13 @@ impl<'a, Message: 'a> From<Form<'a, Message>> for Element<'a, Message, Theme, Re
             padding,
             spacing,
         } = form;
-        Column::new()
-            .padding(padding)
-            .spacing(spacing)
-            .extend(
-                items
-                    .into_iter()
-                    .map(|(label, value)| column![label, value].spacing(spacing * 0.5).into()),
-            )
-            .into()
+        column(
+            items
+                .into_iter()
+                .map(|(label, value)| column![label, value].gap(spacing * 0.5).into()),
+        )
+        .padding(padding)
+        .gap(spacing)
+        .into()
     }
 }

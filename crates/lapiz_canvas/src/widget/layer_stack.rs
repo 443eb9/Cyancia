@@ -1,12 +1,11 @@
 use iced_core::{
-    Alignment, Element, Font, Layout, Length, Point, Rectangle, Size,
+    Element, Font, Layout, Length, Point, Rectangle, Size,
     font::Weight,
     layout::{self, Limits},
     pointer::mouse,
     renderer,
     widget::Tree,
 };
-use iced_widget::{button, column, container, row, stack};
 use indexmap::IndexMap;
 use lapiz_i18n::Translated;
 use lapiz_image::{
@@ -25,16 +24,9 @@ use lapiz_image::{
     tile::GpuTileStorage,
 };
 use lapiz_widgets::{
-    button::Button,
-    checkbox::Checkbox,
-    combo_box::ComboBox,
-    drag_drop_column::{DragDropColumn, DragDropInfo},
-    icon,
-    label::Label,
-    menu::{ContextMenu, Menu},
-    panel::Panel,
-    spin_slider::SpinSlider,
-    text_input::TextInput,
+    button, checkbox, column, combo_box, container, context_menu, drag_drop_column,
+    drag_drop_column::DragDropInfo, flex::Flex, icon, label, menu, panel, row, space,
+    spin_slider::SpinSlider, stack, text_input,
 };
 
 use crate::{CCanvas, command::LayerPropertyChangeCommand};
@@ -422,7 +414,7 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
 
             if let Some(visible) = properties.get_visible() {
                 children.push(
-                    Checkbox::new(visible)
+                    checkbox(visible)
                         .on_toggle(move |checked| {
                             on_message(LayerStackMessage::LayerPropertyChanged(property_command(
                                 canvas,
@@ -436,31 +428,26 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
             }
 
             let name_element = if is_renaming {
-                TextInput::new("", view.rename_value)
-                    .on_input(move |value| on_message(LayerStackMessage::RenameChanged(value)))
-                    .on_submit(on_message(LayerStackMessage::RenameCommit(layer_id)))
-                    .into()
+                Element::from(
+                    text_input("", view.rename_value)
+                        .on_input(move |value| on_message(LayerStackMessage::RenameChanged(value)))
+                        .on_submit(on_message(LayerStackMessage::RenameCommit(layer_id))),
+                )
             } else {
-                Label::new(name)
-                    .size(12)
-                    .width(Length::Fill)
-                    .font(if is_active {
-                        Font {
-                            weight: Weight::Bold,
-                            ..Font::default()
-                        }
-                    } else {
-                        Font::default()
-                    })
-                    .into()
+                Element::from(label(name).size(12).width(Length::Fill).font(if is_active {
+                    Font {
+                        weight: Weight::Bold,
+                        ..Font::default()
+                    }
+                } else {
+                    Font::default()
+                }))
             };
             children.push(
-                row([
-                    iced_widget::Space::new()
-                        .width(Length::Fixed(20.0 * *depth as f32))
-                        .into(),
+                row![
+                    space().width(Length::Fixed(20.0 * *depth as f32)),
                     name_element,
-                ])
+                ]
                 .width(Length::Fill)
                 .into(),
             );
@@ -473,7 +460,7 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
                     move |p| p.set_locked(!locked),
                 ));
                 children.push(
-                    Button::new(icon::lock().size(13))
+                    button(icon::lock().size(13))
                         .width(22)
                         .height(22)
                         .padding(4)
@@ -501,7 +488,7 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
                     },
                 ));
                 children.push(
-                    Button::new(icon::inherit_alpha().size(13))
+                    button(icon::inherit_alpha().size(13))
                         .width(22)
                         .height(22)
                         .padding(4)
@@ -520,7 +507,7 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
                     p.set_locked_channels(channels)
                 });
                 children.push(
-                    Button::new(icon::alpha_lock().size(13))
+                    button(icon::alpha_lock().size(13))
                         .width(22)
                         .height(22)
                         .padding(4)
@@ -532,28 +519,22 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
                 );
             }
 
-            let content = Panel::new(
-                row(children)
-                    .spacing(3)
-                    .align_y(Alignment::Center)
-                    .padding([3, 5])
-                    .height(30),
-            )
-            .width(Length::Fill)
-            .style(move |theme: &iced_core::Theme| container::Style {
-                background: if is_selected {
-                    Some(theme.palette().primary.weak.color.into())
-                } else {
-                    None
-                },
-                ..Default::default()
-            });
+            let content = panel(Flex::row(children).gap(3.0).padding([3.0, 5.0]).height(30))
+                .width(Length::Fill)
+                .style(move |theme: &iced_core::Theme| container::Style {
+                    background: if is_selected {
+                        Some(theme.palette().primary.weak.color.into())
+                    } else {
+                        None
+                    },
+                    ..Default::default()
+                });
 
-            let menu = Menu::new().item(
+            let menu = menu().item(
                 "Rename",
                 on_message(LayerStackMessage::RenameLayer(layer_id)),
             );
-            rows.push(ContextMenu::new(content, menu).into());
+            rows.push(context_menu(content, menu).into());
         }
 
         let on_press_layers = layers.clone();
@@ -581,7 +562,7 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
             }
         };
 
-        let list = DragDropColumn::new(rows)
+        let list = drag_drop_column(rows)
             .spacing(1.0)
             .on_press(on_press)
             .on_drag(on_drag)
@@ -603,7 +584,7 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
                 .map(Translated)
                 .collect::<Vec<_>>();
             params.push(
-                ComboBox::new(all, Some(Translated(blend.clone())), move |option| {
+                combo_box(all, Some(Translated(blend.clone())), move |option| {
                     let id = option.into_inner();
                     let message = property_command(canvas, active_id, active_layer, |p| {
                         p.set_blend_function(id.clone())
@@ -631,17 +612,13 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
         }
 
         let params = if params.is_empty() {
-            Element::from(
-                iced_widget::Space::new()
-                    .width(Length::Fill)
-                    .height(Length::Shrink),
-            )
+            Element::from(space().width(Length::Fill).height(Length::Shrink))
         } else {
-            Element::from(Panel::new(column(params).spacing(4.0)).padding(6.0))
+            Element::from(panel(Flex::column(params).gap(4.0)).padding(6.0))
         };
 
         column![params, list_with_overlay]
-            .spacing(8.0)
+            .gap(8.0)
             .width(Length::Fill)
             .height(Length::Fill)
             .into()

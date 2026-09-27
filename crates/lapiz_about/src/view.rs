@@ -12,9 +12,8 @@ use lapiz_runtime::{
     windows::{WindowView, WindowViewId},
 };
 use lapiz_widgets::{
-    button::Button, collapsible::Collapsible, flex::Flex, fluent_builder::WhenSome as _,
-    label::Label, panel::Panel, scrollable::Scrollable, tabs::TabbedView, text_input::TextInput,
-    title_bar::TitleBar,
+    button, collapsible, column, flex::Flex, fluent_builder::WhenSome as _, label, panel, row,
+    scrollable, tabbed_view, text_input, title_bar,
 };
 
 use crate::{ABOUT_VIEW_ID, CrateEntry, GPL_LICENSE_TEXT, MIT_LICENSE_TEXT, ThirdPartyLicenses};
@@ -117,17 +116,17 @@ impl WindowView for AboutView {
         _: window::Id,
         _: &'a Services,
     ) -> impl Into<Element<'a, Self::Message, Theme, Renderer>> {
-        let titlebar = TitleBar::new(Label::new(t!("about_title")).window_title())
+        let titlebar = title_bar(label(t!("about_title")).window_title())
             .on_close(AboutMessage::Close)
             .on_maximize(AboutMessage::Maximize)
             .on_minimize(AboutMessage::Minimize)
             .on_drag(AboutMessage::Drag);
 
-        let tabs = TabbedView::new(self.tab.index(), AboutMessage::SelectTab)
+        let tabs = tabbed_view(self.tab.index(), AboutMessage::SelectTab)
             .tab(t!("about_tab"), self.view_about())
             .tab(t!("third_party_licenses_tab"), self.view_third_party());
 
-        Panel::new(Flex::column([titlebar.into(), tabs.into()]))
+        panel(column![titlebar, tabs])
     }
 
     fn update(
@@ -193,34 +192,32 @@ impl AboutView {
     }
 
     fn view_about(&self) -> Element<'_, AboutMessage, Theme, Renderer> {
-        let header = Flex::column([
-            Label::new("Lapiz").strong().size(22).into(),
-            Label::new(t!("about_version", version = env!("CARGO_PKG_VERSION")))
-                .muted()
-                .into(),
-            Label::new(t!("about_license_line")).muted().into(),
-        ])
+        let header = column![
+            label("Lapiz").strong().size(22),
+            label(t!("about_version", version = env!("CARGO_PKG_VERSION"))).muted(),
+            label(t!("about_license_line")).muted()
+        ]
         .gap(4);
 
-        let gpl = Collapsible::new(
-            Label::new(t!("gpl_license_header")).strong(),
-            Panel::new(Label::new(GPL_LICENSE_TEXT).width(Length::Fill))
+        let gpl = collapsible(
+            label(t!("gpl_license_header")).strong(),
+            panel(label(GPL_LICENSE_TEXT).width(Length::Fill))
                 .padding([8, 12])
                 .width(Length::Fill),
             self.gpl_open,
         )
         .on_toggle(AboutMessage::ToggleGpl);
-        let mit = Collapsible::new(
-            Label::new(t!("mit_license_header")).strong(),
-            Panel::new(Label::new(MIT_LICENSE_TEXT).width(Length::Fill))
+        let mit = collapsible(
+            label(t!("mit_license_header")).strong(),
+            panel(label(MIT_LICENSE_TEXT).width(Length::Fill))
                 .padding([8, 12])
                 .width(Length::Fill),
             self.mit_open,
         )
         .on_toggle(AboutMessage::ToggleMit);
 
-        Scrollable::new(
-            Flex::column([header.into(), gpl.into(), mit.into()])
+        scrollable(
+            column![header, gpl, mit]
                 .gap(10)
                 .padding(12)
                 .width(Length::Fill),
@@ -232,13 +229,13 @@ impl AboutView {
 
     fn view_third_party(&self) -> Element<'_, AboutMessage, Theme, Renderer> {
         let items = if self.filtered.is_empty() {
-            vec![Label::new(t!("about_no_results")).muted().into()]
+            vec![label(t!("about_no_results")).muted().into()]
         } else {
             self.filtered
                 .iter()
                 .map(|&index| {
                     let entry = &self.licenses.crates[index];
-                    Button::new(Label::new(entry.name.clone()))
+                    button(label(entry.name.clone()))
                         .width(Length::Fill)
                         .activated(self.selected == Some(index))
                         .on_press(AboutMessage::SelectCrate(index))
@@ -247,17 +244,15 @@ impl AboutView {
                 .collect::<Vec<_>>()
         };
 
-        let sidebar = Panel::new(
-            Flex::column([
-                TextInput::new(&t!("about_search_placeholder"), &self.search)
+        let sidebar = panel(
+            column![
+                text_input(&t!("about_search_placeholder"), &self.search)
                     .on_input(AboutMessage::SearchChanged)
-                    .width(Length::Fill)
-                    .into(),
-                Scrollable::new(Flex::column(items).gap(2).width(Length::Fill))
+                    .width(Length::Fill),
+                scrollable(Flex::column(items).gap(2).width(Length::Fill))
                     .width(Length::Fill)
                     .height(Length::Fill)
-                    .into(),
-            ])
+            ]
             .gap(6),
         )
         .padding(8)
@@ -268,7 +263,7 @@ impl AboutView {
             None => Void.into(),
         };
 
-        Flex::row([sidebar.into(), details])
+        row![sidebar, details]
             .gap(8)
             .padding(8)
             .width(Length::Fill)
@@ -285,20 +280,19 @@ impl AboutView {
             .map(|license| license.text.clone())
             .unwrap_or_default();
 
-        let header = Flex::column(vec![
-            Label::new(format!("{} {}", entry.name, entry.version))
+        let header = column![
+            label(format!("{} {}", entry.name, entry.version))
                 .strong()
-                .size(14)
-                .into(),
-            Label::new(license_name).muted().into(),
-        ])
+                .size(14),
+            label(license_name).muted()
+        ]
         .gap(2)
         .when_some(entry.repository.clone(), |column, url| {
-            column.push(Label::new(url).muted())
+            column.push(label(url).muted())
         });
 
-        let text = Panel::new(
-            Scrollable::new(Label::new(license_text).width(Length::Fill))
+        let text = panel(
+            scrollable(label(license_text).width(Length::Fill))
                 .width(Length::Fill)
                 .height(Length::Fill),
         )
@@ -306,7 +300,7 @@ impl AboutView {
         .width(Length::Fill)
         .height(Length::Fill);
 
-        Flex::column([header.into(), text.into()])
+        column![header, text]
             .gap(8)
             .width(Length::Fill)
             .height(Length::Fill)

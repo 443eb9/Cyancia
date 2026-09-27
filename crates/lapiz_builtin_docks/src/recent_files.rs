@@ -6,7 +6,6 @@ use std::{
 use iced_core::{Element, Length, image::Handle, text::Ellipsis, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
-use iced_widget::{Image, container, scrollable};
 use lapiz_canvas::recent::{RecentFiles, recent_file_thumbnail_path};
 use lapiz_config::Config;
 use lapiz_dock::dock::{Dock, DockId};
@@ -15,7 +14,7 @@ use lapiz_image_importer::start_import;
 #[cfg(target_os = "android")]
 use lapiz_runtime::android::AndroidAppExt as _;
 use lapiz_runtime::{Renderer, Services, Theme};
-use lapiz_widgets::{button::Button, flex::Flex, label::Label};
+use lapiz_widgets::{button, column, container, flex::Flex, image::Image, label, scrollable};
 
 pub struct LandingDock {
     config: Config<RecentFiles>,
@@ -69,19 +68,17 @@ impl Dock for LandingDock {
                     } else {
                         &f.name
                     };
-                    Button::new(
-                        Flex::column([
+                    button(
+                        column![
                             Image::new(Handle::from_path(recent_file_thumbnail_path(
                                 &f.path_or_uri,
-                            )))
-                            .into(),
+                            ))),
                             // FIXME Ellipsis not working
-                            Label::new(file_name)
+                            label(file_name)
                                 .width(Length::Fill)
                                 .height(Length::Fill)
-                                .ellipsis(Ellipsis::End)
-                                .into(),
-                        ])
+                                .ellipsis(Ellipsis::End),
+                        ]
                         .gap(4.0)
                         .padding(2.0),
                     )

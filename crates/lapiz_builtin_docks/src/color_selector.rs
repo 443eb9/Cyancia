@@ -1,6 +1,11 @@
 use std::{cell::RefCell, sync::LazyLock};
 
-use iced::{Element, Length, Size, Subscription, Task, Theme, window};
+use iced_core::{Element, Length, Size, Theme, window};
+use iced_futures::Subscription;
+use iced_runtime::{
+    Task,
+    window::{close, drag, events, gain_focus, open, raw_id},
+};
 use lapiz_color::{
     BackgroundColorChanged, Color, ForegroundBackgroundColorExt as _, ForegroundColorChanged,
     model::rgb::Rgb,
@@ -16,10 +21,7 @@ use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;
 use lapiz_runtime::{Renderer, Services, event::Event as _};
 use lapiz_utils::log_err::LogErr as _;
-use lapiz_widgets::{
-    button::Button, flex::Flex, label::Label, panel::Panel, scrollable::Scrollable,
-    title_bar::TitleBar,
-};
+use lapiz_widgets::{button, column, label, panel, scrollable, title_bar};
 use moxcms::ColorProfile;
 
 #[derive(Clone)]
@@ -88,32 +90,29 @@ impl Dock for ColorSelectorDock {
         self.window_id.replace(window_id);
 
         if self.settings_window_id == Some(window_id) {
-            let titlebar =
-                TitleBar::new(Label::new(t!("color_selector_settings_title")).window_title())
-                    .on_close(ColorSelectorDockMessage::ConfigEditor(
-                        ColorSelectorConfigMessage::Cancelled,
-                    ))
-                    .on_drag(ColorSelectorDockMessage::SettingsWindowDrag);
-            Element::from(Panel::new(Flex::column([
-                titlebar.into(),
+            let titlebar = title_bar(label(t!("color_selector_settings_title")).window_title())
+                .on_close(ColorSelectorDockMessage::ConfigEditor(
+                    ColorSelectorConfigMessage::Cancelled,
+                ))
+                .on_drag(ColorSelectorDockMessage::SettingsWindowDrag);
+            Element::from(panel(column![
+                titlebar,
                 self.config_editor
                     .view()
-                    .map(ColorSelectorDockMessage::ConfigEditor),
-            ])))
+                    .map(ColorSelectorDockMessage::ConfigEditor)
+            ]))
         } else {
-            Flex::column([
-                Scrollable::new(ColorSelector::new(
+            column![
+                scrollable(ColorSelector::new(
                     &self.selector,
                     ColorSelectorDockMessage::ColorSelector,
                 ))
                 .width(Length::Fill)
-                .height(Length::Fill)
-                .into(),
-                Button::new(Label::new(t!("settings")))
+                .height(Length::Fill),
+                button(label(t!("settings")))
                     .width(Length::Fill)
                     .on_press(ColorSelectorDockMessage::OpenSettings)
-                    .into(),
-            ])
+            ]
             .gap(4)
             .height(Length::Fill)
             .into()
@@ -124,7 +123,7 @@ impl Dock for ColorSelectorDock {
         match message {
             ColorSelectorDockMessage::WindowMoved => {
                 let window_id = *self.window_id.borrow();
-                window::raw_id::<()>(window_id).map(ColorSelectorDockMessage::RawWindowId)
+                raw_id::<()>(window_id).map(ColorSelectorDockMessage::RawWindowId)
             }
             ColorSelectorDockMessage::RawWindowId(id) => self
                 .selector
@@ -153,9 +152,9 @@ impl Dock for ColorSelectorDock {
                 .map(ColorSelectorDockMessage::ColorSelector),
             ColorSelectorDockMessage::OpenSettings => {
                 if let Some(id) = self.settings_window_id {
-                    window::gain_focus(id)
+                    gain_focus(id)
                 } else {
-                    let (id, task) = window::open(window::Settings {
+                    let (id, task) = open(window::Settings {
                         decorations: false,
                         size: Size {
                             width: 700.0,
@@ -183,14 +182,14 @@ impl Dock for ColorSelectorDock {
             }
             ColorSelectorDockMessage::SettingsWindowDrag => {
                 if let Some(id) = self.settings_window_id {
-                    window::drag(id)
+                    drag(id)
                 } else {
                     Task::none()
                 }
             }
             ColorSelectorDockMessage::ConfigEditor(ColorSelectorConfigMessage::Cancelled) => {
                 if let Some(id) = self.settings_window_id {
-                    window::close(id)
+                    close(id)
                 } else {
                     Task::none()
                 }
@@ -245,7 +244,7 @@ impl Dock for ColorSelectorDock {
         let cur_window = *self.window_id.borrow();
 
         let window_moved =
-            window::events()
+            events()
                 .with(cur_window)
                 .filter_map(|(cur_window, (window_id, event))| {
                     if matches!(event, window::Event::Moved(_)) && cur_window == window_id {
@@ -255,7 +254,7 @@ impl Dock for ColorSelectorDock {
                     }
                 });
 
-        let settings_window_closed = window::events().with(self.settings_window_id).filter_map(
+        let settings_window_closed = events().with(self.settings_window_id).filter_map(
             |(settings_window_id, (window_id, event))| {
                 if matches!(event, window::Event::Closed) && Some(window_id) == settings_window_id {
                     Some(ColorSelectorDockMessage::SettingsWindowClosed)

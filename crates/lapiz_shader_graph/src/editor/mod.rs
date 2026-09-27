@@ -7,17 +7,13 @@ use std::{
 
 use bevy_color::{Oklcha, Srgba};
 use iced_core::{
-    Background, Border, Color, Element, Event, Layout, Length, Point, Renderer as _, Shell, Size,
-    Transformation, Vector,
-    alignment::Vertical,
+    Background, Border, Color, Element, Event, Layout, Length, Point, Rectangle, Renderer as _,
+    Shell, Size, Transformation, Vector, Widget,
     gradient::ColorStop,
     keyboard::{self, key},
     layout::{self, Limits, Node},
     overlay, pointer,
-    pointer::{
-        button,
-        mouse::{self, Interaction},
-    },
+    pointer::mouse::{self, Cursor, Interaction},
     renderer::{self, Quad},
     shell::Bus,
     theme::{Base as _, Mode},
@@ -27,15 +23,9 @@ use iced_graphics::{
     geometry::{self, Frame, Renderer as _, Stroke},
     gradient::Linear,
 };
-use iced_widget::{
-    column, container,
-    core::{Rectangle, Widget, pointer::mouse::Cursor},
-    overlay::menu,
-    row, stack,
-};
 use indexmap::IndexMap;
 use lapiz_i18n::t;
-use lapiz_widgets::{button::Button, icon, label::Label};
+use lapiz_widgets::{button, column, container, icon, label, overlay::menu, row, space, stack};
 use uuid::Uuid;
 
 use crate::{
@@ -145,15 +135,15 @@ impl<'a> From<GraphEditor<'a>> for Element<'a, GraphEditorMessage, GraphTheme, G
                 .into_iter()
                 .nth(comp.subgraph_index)
                 .unwrap();
-            Button::new(Label::new(t!(node.data.id())))
+            button(label(t!(node.data.id())))
                 .on_press(GraphEditorMessage::Editor(
                     GraphEditorEditorMessage::BackToSubgraphOrMain(Some(index)),
                 ))
                 .into()
         });
-        let main_graph_path = Button::new(Label::new(t!("main_graph"))).on_press(
-            GraphEditorMessage::Editor(GraphEditorEditorMessage::BackToSubgraphOrMain(None)),
-        );
+        let main_graph_path = button(label(t!("main_graph"))).on_press(GraphEditorMessage::Editor(
+            GraphEditorEditorMessage::BackToSubgraphOrMain(None),
+        ));
         let path_breadcrumb = row![main_graph_path].extend(subgraph_path);
         stack!(editor_view, path_breadcrumb).into()
     }
@@ -374,18 +364,17 @@ impl<'a> DrawableNode<'a> {
         let (header_hue, header_chroma) = node.data.header_hue_chroma();
         let header = container(
             row![
-                container(iced_widget::Space::new().width(3).height(10)).style(move |theme| {
+                container(space().width(3).height(10)).style(move |theme| {
                     container::Style {
                         background: Some(themed_color(theme, header_hue, header_chroma).into()),
                         ..Default::default()
                     }
                 }),
-                Label::new(t!(node.data.id())).size(12).strong(),
-                iced_widget::space().width(Length::Fill),
+                label(t!(node.data.id())).size(12).strong(),
+                space().width(Length::Fill),
                 icon::grip().size(9).muted(),
             ]
-            .align_y(Vertical::Center)
-            .spacing(6)
+            .gap(6.0)
             .padding([0, 6])
             .height(24),
         )
@@ -561,7 +550,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditorVi
                 shell.request_redraw();
             }
             Event::Pointer(pointer::Event::PointerPressed {
-                button: button::Source::Mouse(mouse::Button::Middle),
+                button: pointer::button::Source::Mouse(mouse::Button::Middle),
                 ..
             }) => {
                 let Some(cursor) = cursor.position_over(layout.bounds()) else {
@@ -575,7 +564,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditorVi
                 shell.capture_event();
             }
             Event::Pointer(pointer::Event::PointerReleased {
-                button: button::Source::Mouse(mouse::Button::Middle),
+                button: pointer::button::Source::Mouse(mouse::Button::Middle),
                 ..
             }) => {
                 if matches!(state.interaction, InteractionState::ViewDragging { .. }) {

@@ -2,11 +2,12 @@ use iced_core::{
     Border, Element, Length, Padding, Rectangle, Size, Theme, Widget, layout, pointer::mouse,
     renderer, widget,
 };
-use iced_widget::{button, container};
+use iced_widget::container;
 use lapiz_runtime::Renderer;
 
 use crate::{
-    button::{Button, transparent},
+    button,
+    button::transparent,
     callback::{Callback, publish},
     flex::{self, Flex},
     icon,
@@ -64,7 +65,7 @@ impl<'a, Message: 'a> From<TitleBar<'a, Message>> for Element<'a, Message, Theme
         #[cfg(not(target_os = "android"))]
         if value.minimize.is_set() {
             controls = controls.push(
-                Button::new(icon::win_minimize().size(12))
+                button(icon::win_minimize().size(12))
                     .width(38)
                     .height(Length::Fill)
                     .padding([10, 13])
@@ -74,7 +75,7 @@ impl<'a, Message: 'a> From<TitleBar<'a, Message>> for Element<'a, Message, Theme
         }
         if value.maximize.is_set() {
             controls = controls.push(
-                Button::new(icon::win_maximize().size(12))
+                button(icon::win_maximize().size(12))
                     .width(38)
                     .height(Length::Fill)
                     .padding([10, 13])
@@ -84,7 +85,7 @@ impl<'a, Message: 'a> From<TitleBar<'a, Message>> for Element<'a, Message, Theme
         }
         if value.close.is_set() {
             controls = controls.push(
-                Button::new(icon::win_close().size(12))
+                button(icon::win_close().size(12))
                     .width(40)
                     .height(Length::Fill)
                     .padding([10, 14])

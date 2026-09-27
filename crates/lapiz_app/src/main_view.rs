@@ -5,7 +5,6 @@ use iced::{
     Element, Length, Subscription, Task, Theme, event::listen_with, keyboard::key, pointer, window,
 };
 use iced_core::keyboard;
-use iced_widget::pane_grid;
 use lapiz_actions::{
     ActionFunctionRegistry, ActionId,
     manifest::{ActionBindingManifestConfig, ActionCollection, MenuBarItem, MenuBarManifestConfig},
@@ -50,13 +49,12 @@ use lapiz_tools::{
 use lapiz_undo::{UndoStack, UndoStacks};
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
-    bar::StatusBar,
+    column,
     divider::Divider,
-    flex::Flex,
     icon::{self, Icon},
-    label::Label,
+    label, menu,
     menu::{Item, Menu, MenuBar},
-    title_bar::TitleBar,
+    menu_bar, pane_grid, row, status_bar, title_bar,
 };
 use moxcms::ProfileText;
 use unic_langid::LanguageIdentifier;
@@ -101,13 +99,10 @@ impl MainView {
         icon: Icon<'a>,
         text: String,
     ) -> Element<'a, MainViewMessage, Theme, Renderer> {
-        Flex::row([
-            icon.size(10).muted().into(),
-            Label::new(text).size(10).muted().into(),
-        ])
-        .gap(4)
-        .padding([0, 6])
-        .into()
+        row![icon.size(10).muted(), label(text).size(10).muted()]
+            .gap(4)
+            .padding([0, 6])
+            .into()
     }
 
     fn menu_bar(&self, current_theme: &Theme) -> MenuBar<MenuBarMessage> {
@@ -115,7 +110,7 @@ impl MainView {
             items: &[MenuBarItem],
             collection: &ActionCollection,
         ) -> Menu<MenuBarMessage> {
-            let mut menu = Menu::new().min_width(236.0);
+            let mut menu = menu().min_width(236.0);
             for item in items {
                 menu = match item {
                     MenuBarItem::Separator => menu.separator(),
@@ -136,7 +131,7 @@ impl MainView {
             menu
         }
 
-        let mut menu_bar = MenuBar::new();
+        let mut menu_bar = menu_bar();
         let menu_manifest = self.menu_manifest.get();
         for category in &menu_manifest.categories {
             menu_bar = menu_bar.menu(
@@ -152,7 +147,7 @@ impl MainView {
         {
             *submenu = Theme::ALL
                 .iter()
-                .fold(Menu::new().min_width(220.0), |menu, theme| {
+                .fold(menu().min_width(220.0), |menu, theme| {
                     let message = MenuBarMessage::SetTheme(theme.clone());
                     if theme == current_theme {
                         menu.selected_item(theme.to_string(), message)
@@ -166,20 +161,20 @@ impl MainView {
             && let Some(Item::Submenu { submenu, .. }) =
                 window.get_item_mut(&t!("menu_language_submenu"))
         {
-            *submenu = lapiz_i18n::AVAILABLE.iter().fold(
-                Menu::new().min_width(220.0),
-                |menu, (id, name)| {
-                    let Ok(langid) = id.parse::<LanguageIdentifier>() else {
-                        return menu;
-                    };
-                    let message = MenuBarMessage::SetLanguage(langid.clone());
-                    if langid == lapiz_i18n::current_language() {
-                        menu.selected_item(*name, message)
-                    } else {
-                        menu.item(*name, message)
-                    }
-                },
-            );
+            *submenu =
+                lapiz_i18n::AVAILABLE
+                    .iter()
+                    .fold(menu().min_width(220.0), |menu, (id, name)| {
+                        let Ok(langid) = id.parse::<LanguageIdentifier>() else {
+                            return menu;
+                        };
+                        let message = MenuBarMessage::SetLanguage(langid.clone());
+                        if langid == lapiz_i18n::current_language() {
+                            menu.selected_item(*name, message)
+                        } else {
+                            menu.item(*name, message)
+                        }
+                    });
         }
 
         menu_bar
@@ -340,25 +335,25 @@ impl WindowView for MainView {
             return Some(dock);
         }
 
-        let title_content = Flex::row([
-            Label::new("LAPIZ").window_title().into(),
+        let title_content = row![
+            label("LAPIZ").window_title(),
             Element::new(
                 self.menu_bar(&services.service::<ApplicationTheme>().0)
                     .height(Length::Fill),
             )
-            .map(MainViewMessage::MenuBar),
-        ])
+            .map(MainViewMessage::MenuBar)
+        ]
         .gap(12);
 
         #[cfg(not(target_os = "android"))]
-        let title = TitleBar::new(title_content)
+        let title = title_bar(title_content)
             .on_minimize(MainViewMessage::MinimizeWindow(window))
             .on_maximize(MainViewMessage::MaximizeWindow(window))
             .on_close(MainViewMessage::CloseWindow(window))
             .on_drag(MainViewMessage::MainWindowDrag);
 
         #[cfg(target_os = "android")]
-        let title = TitleBar::new(title_content);
+        let title = title_bar(title_content);
 
         let preset_name = services
             .get_service::<CurrentBrushPresetHandle>()
@@ -405,10 +400,10 @@ impl WindowView for MainView {
                 Self::status_cell(icon::canvas_size(), String::from("NO CANVAS")),
             ]);
         }
-        let status = StatusBar::new(status_cells);
+        let status = status_bar(status_cells);
 
         let content = Element::from(
-            Flex::column([title.into(), dock, status.into()])
+            column![title, dock, status]
                 .width(Length::Fill)
                 .height(Length::Fill),
         );

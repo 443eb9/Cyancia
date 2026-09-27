@@ -10,7 +10,8 @@ use iced_widget::button::{Status, Style};
 use lapiz_runtime::Renderer;
 
 use crate::{
-    button::{Button, activated_style, transparent},
+    button,
+    button::{activated_style, transparent},
     flex::{self, Flex},
 };
 
@@ -103,7 +104,7 @@ impl<'a, Message: 'a> From<TabBar<'a, Message>> for Element<'a, Message, Theme, 
         let variant = value.variant;
         let tabs = value.tabs.into_iter().map(move |tab| {
             let selected = tab.selected;
-            Button::new(tab.content)
+            button(tab.content)
                 .height(Length::Fill)
                 .padding([0, 12])
                 .style(move |theme, status| style(theme, status, variant, selected))

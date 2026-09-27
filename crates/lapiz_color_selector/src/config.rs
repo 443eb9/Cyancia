@@ -1,15 +1,14 @@
 use std::{f32::consts::TAU, fmt};
 
-use iced_core::{Alignment, Color, Length, Theme, text::IntoFragment};
+use iced_core::{Color, Length, Theme, text::IntoFragment};
 // TODO: Re-add the color picker once it is ported or vendored into `lapiz_widgets`.
-use iced_widget::{Space, column, row, text};
 use lapiz_color::model::rgb::Rgb;
 use lapiz_config::Configuration;
 use lapiz_i18n::{Translated, t};
 use lapiz_runtime::Renderer;
 use lapiz_widgets::{
-    button::Button, checkbox::Checkbox, combo_box::ComboBox, label::Label, panel::Panel,
-    radio::Radio, scrollable::Scrollable, spin_slider::SpinSlider, text_input::TextInput,
+    button, checkbox, column, combo_box, flex::Flex, label, panel, radio, row, scrollable, space,
+    spin_slider, text_input,
 };
 use serde::{Deserialize, Serialize};
 
@@ -408,19 +407,18 @@ impl ColorSelectorConfigEditorState {
         let config_bar = self.config_bar();
         let active = self.active_content();
 
-        let content = Scrollable::new(column![config_bar, active].spacing(16).padding(16))
+        let content = scrollable(column![config_bar, active].gap(16.0).padding(16))
             .width(Length::Fill)
             .height(Length::Fill);
 
         let footer = row![
-            Space::new().width(Length::Fill),
-            Button::new(Label::new(t!("cancel"))).on_press(ColorSelectorConfigMessage::Cancelled),
-            Button::new(Label::new(t!("confirm")))
+            space().width(Length::Fill),
+            button(label(t!("cancel"))).on_press(ColorSelectorConfigMessage::Cancelled),
+            button(label(t!("confirm")))
                 .primary()
                 .on_press(ColorSelectorConfigMessage::Confirmed),
         ]
-        .align_y(Alignment::Center)
-        .spacing(10)
+        .gap(10.0)
         .padding(16);
 
         column![content, footer]
@@ -448,36 +446,34 @@ impl ColorSelectorConfigEditorState {
 
         row![
             self.column_label(t!("config")),
-            ComboBox::new(items, selected, |item| {
+            combo_box(items, selected, |item| {
                 ColorSelectorConfigMessage::ConfigSelected(item.index)
             })
             .placeholder(t!("no_configs"))
             .width(Length::Fill),
-            Button::new(Label::new(t!("add_config")))
-                .on_press(ColorSelectorConfigMessage::AddConfig),
-            Button::new(Label::new(t!("up")))
+            button(label(t!("add_config"))).on_press(ColorSelectorConfigMessage::AddConfig),
+            button(label(t!("up")))
                 .on_press_maybe(not_first.then_some(ColorSelectorConfigMessage::MoveConfigUp)),
-            Button::new(Label::new(t!("down")))
+            button(label(t!("down")))
                 .on_press_maybe(not_last.then_some(ColorSelectorConfigMessage::MoveConfigDown)),
-            Button::new(Label::new(t!("remove")))
+            button(label(t!("remove")))
                 .danger()
                 .on_press_maybe(has_config.then_some(ColorSelectorConfigMessage::RemoveConfig)),
         ]
-        .align_y(Alignment::Center)
-        .spacing(10)
+        .gap(10.0)
         .into()
     }
 
     fn column_label<'a>(&self, label: impl IntoFragment<'a>) -> Element<'a> {
-        text(label).width(Length::Fixed(110.0)).into()
+        lapiz_widgets::label(label)
+            .width(Length::Fixed(110.0))
+            .into()
     }
 
     fn active_content(&self) -> Element<'_> {
         let Some(index) = self.selected_config else {
-            return text(t!("no_configs_hint"))
-                .style(|theme: &Theme| text::Style {
-                    color: Some(theme.palette().background.weak.text),
-                })
+            return label(t!("no_configs_hint"))
+                .muted()
                 .width(Length::Fill)
                 .into();
         };
@@ -500,59 +496,55 @@ impl ColorSelectorConfigEditorState {
 
         let planes_section = column![
             row![
-                text(t!("planes")),
-                Space::new().width(Length::Fill),
-                Button::new(Label::new(t!("add_plane")))
-                    .on_press(ColorSelectorConfigMessage::AddPlane),
+                label(t!("planes")),
+                space().width(Length::Fill),
+                button(label(t!("add_plane"))).on_press(ColorSelectorConfigMessage::AddPlane),
             ]
-            .align_y(Alignment::Center)
-            .spacing(8),
+            .gap(8.0),
         ]
-        .spacing(10)
+        .gap(10.0)
         .extend(planes);
 
         let bars_section = column![
             row![
-                text(t!("bars")),
-                Space::new().width(Length::Fill),
-                Button::new(Label::new(t!("add_bar"))).on_press(ColorSelectorConfigMessage::AddBar),
+                label(t!("bars")),
+                space().width(Length::Fill),
+                button(label(t!("add_bar"))).on_press(ColorSelectorConfigMessage::AddBar),
             ]
-            .align_y(Alignment::Center)
-            .spacing(8),
+            .gap(8.0),
         ]
-        .spacing(10)
+        .gap(10.0)
         .extend(bars);
 
         column![
             row![
                 self.column_label(t!("name")),
-                TextInput::new(&t!("config_name"), &config.name)
+                text_input(&t!("config_name"), &config.name)
                     .on_input(ColorSelectorConfigMessage::ConfigNameChanged)
                     .width(Length::Fill),
             ]
-            .spacing(10),
-            SpinSlider::new(128..=512, config.max_plane_size)
+            .gap(10.0),
+            spin_slider(128..=512, config.max_plane_size)
                 .on_confirm(ColorSelectorConfigMessage::MaxPlaneSizeChanged)
                 .prefix(t!("max_plane_size"))
                 .suffix(" px"),
-            SpinSlider::new(1..=5, config.max_planes_per_row)
+            spin_slider(1..=5, config.max_planes_per_row)
                 .on_confirm(ColorSelectorConfigMessage::MaxPlanesPerRowChanged)
                 .prefix(t!("max_planes_per_row")),
             row![
-                Checkbox::new(config.use_out_of_gamut_color)
+                checkbox(config.use_out_of_gamut_color)
                     .label(t!("out_of_gamut_color"))
                     .on_toggle(ColorSelectorConfigMessage::OutOfGamutColorToggled),
                 // TODO Color picker
-                Checkbox::new(config.clip_to_gamut)
+                checkbox(config.clip_to_gamut)
                     .label(t!("clip_to_gamut"))
                     .on_toggle(ColorSelectorConfigMessage::ClipToGamutToggled),
             ]
-            .align_y(Alignment::Center)
-            .spacing(16),
+            .gap(16.0),
             planes_section,
             bars_section,
         ]
-        .spacing(16)
+        .gap(16.0)
         .into()
     }
 
@@ -567,31 +559,30 @@ impl ColorSelectorConfigEditorState {
         self.panel(
             column![
                 row![
-                    text(t!("plane", index = index + 1)),
-                    Space::new().width(Length::Fill),
-                    Button::new(Label::new(t!("up"))).on_press_maybe(
+                    label(t!("plane", index = index + 1)),
+                    space().width(Length::Fill),
+                    button(label(t!("up"))).on_press_maybe(
                         (index > 0).then_some(ColorSelectorConfigMessage::MovePlaneUp(index))
                     ),
-                    Button::new(Label::new(t!("down"))).on_press_maybe(
+                    button(label(t!("down"))).on_press_maybe(
                         (!is_last).then_some(ColorSelectorConfigMessage::MovePlaneDown(index))
                     ),
-                    Button::new(Label::new(t!("remove")))
+                    button(label(t!("remove")))
                         .danger()
                         .on_press(ColorSelectorConfigMessage::RemovePlane(index)),
                 ]
-                .align_y(Alignment::Center)
-                .spacing(8),
+                .gap(8.0),
                 row![
                     self.column_label(t!("model")),
-                    ComboBox::new(ColorModel::PLANE_MODELS, Some(plane.model), move |model| {
+                    combo_box(ColorModel::PLANE_MODELS, Some(plane.model), move |model| {
                         ColorSelectorConfigMessage::PlaneModelChanged(index, model)
                     },)
                     .width(Length::Fill),
                 ]
-                .spacing(10),
+                .gap(10.0),
                 row![
                     self.column_label(t!("shape")),
-                    ComboBox::new(
+                    combo_box(
                         vec![
                             Translated(GradientPlaneShape::Square),
                             Translated(GradientPlaneShape::Triangle),
@@ -603,11 +594,11 @@ impl ColorSelectorConfigEditorState {
                     )
                     .width(Length::Fill),
                 ]
-                .spacing(10),
+                .gap(10.0),
                 row![
                     self.column_label(t!("primary_channel")),
-                    row(labels.iter().copied().enumerate().map(|(channel, label)| {
-                        Radio::new(
+                    Flex::row(labels.iter().copied().enumerate().map(|(channel, label)| {
+                        radio(
                             label,
                             channel,
                             (channel == primary_channel).then_some(channel),
@@ -619,23 +610,23 @@ impl ColorSelectorConfigEditorState {
                         )
                         .into()
                     }))
-                    .spacing(8),
+                    .gap(8.0),
                 ]
-                .spacing(10),
+                .gap(10.0),
                 row![
-                    Checkbox::new(plane.flip_axis.contains(GradientPlaneFlipAxis::X))
+                    checkbox(plane.flip_axis.contains(GradientPlaneFlipAxis::X))
                         .label(t!("flip_x"))
                         .on_toggle(move |checked| {
                             ColorSelectorConfigMessage::PlaneFlipXChanged(index, checked)
                         }),
-                    Checkbox::new(plane.flip_axis.contains(GradientPlaneFlipAxis::Y))
+                    checkbox(plane.flip_axis.contains(GradientPlaneFlipAxis::Y))
                         .label(t!("flip_y"))
                         .on_toggle(move |checked| {
                             ColorSelectorConfigMessage::PlaneFlipYChanged(index, checked)
                         }),
                 ]
-                .spacing(16),
-                SpinSlider::new(0.0..=TAU, plane.rotation.rem_euclid(TAU))
+                .gap(16.0),
+                spin_slider(0.0..=TAU, plane.rotation.rem_euclid(TAU))
                     .on_confirm(move |rotation| {
                         ColorSelectorConfigMessage::PlaneRotationChanged(index, rotation)
                     })
@@ -643,19 +634,19 @@ impl ColorSelectorConfigEditorState {
                     .prefix(t!("plane_rotation"))
                     .suffix(" rad"),
                 row![
-                    Checkbox::new(plane.show_primary_channel_ring)
+                    checkbox(plane.show_primary_channel_ring)
                         .label(t!("primary_channel_ring"))
                         .on_toggle(move |checked| {
                             ColorSelectorConfigMessage::PlaneShowRingChanged(index, checked)
                         }),
-                    Checkbox::new(plane.ring_bar_saturated_hue_channel)
+                    checkbox(plane.ring_bar_saturated_hue_channel)
                         .label(t!("saturated_primary_channel"))
                         .on_toggle(move |checked| {
                             ColorSelectorConfigMessage::PlaneSaturatedPrimaryChannelChanged(
                                 index, checked,
                             )
                         }),
-                    Checkbox::new(plane.reversed_ring)
+                    checkbox(plane.reversed_ring)
                         .label(t!("reversed_ring"))
                         .on_toggle_maybe(plane.show_primary_channel_ring.then_some({
                             move |checked| {
@@ -663,8 +654,8 @@ impl ColorSelectorConfigEditorState {
                             }
                         })),
                 ]
-                .spacing(16),
-                SpinSlider::new(10.0..=40.0, plane.primary_channel_ring_width,)
+                .gap(16.0),
+                spin_slider(10.0..=40.0, plane.primary_channel_ring_width,)
                     .on_confirm(
                         move |width| ColorSelectorConfigMessage::PlaneRingWidthChanged(
                             index, width
@@ -674,7 +665,7 @@ impl ColorSelectorConfigEditorState {
                     .disabled(!plane.show_primary_channel_ring)
                     .prefix(t!("ring_width"))
                     .suffix(" px"),
-                SpinSlider::new(0.0..=TAU, plane.ring_rotation.rem_euclid(TAU),)
+                spin_slider(0.0..=TAU, plane.ring_rotation.rem_euclid(TAU),)
                     .on_confirm(move |rotation| {
                         ColorSelectorConfigMessage::PlaneRingRotationChanged(index, rotation)
                     })
@@ -683,7 +674,7 @@ impl ColorSelectorConfigEditorState {
                     .prefix(t!("ring_rotation"))
                     .suffix(" rad"),
             ]
-            .spacing(12)
+            .gap(12.0)
             .into(),
         )
     }
@@ -696,29 +687,28 @@ impl ColorSelectorConfigEditorState {
         self.panel(
             column![
                 row![
-                    text(t!("bar", index = index + 1)),
-                    Space::new().width(Length::Fill),
-                    Button::new(Label::new(t!("up"))).on_press_maybe(
+                    label(t!("bar", index = index + 1)),
+                    space().width(Length::Fill),
+                    button(label(t!("up"))).on_press_maybe(
                         (index > 0).then_some(ColorSelectorConfigMessage::MoveBarUp(index))
                     ),
-                    Button::new(Label::new(t!("down"))).on_press_maybe(
+                    button(label(t!("down"))).on_press_maybe(
                         (!is_last).then_some(ColorSelectorConfigMessage::MoveBarDown(index))
                     ),
-                    Button::new(Label::new(t!("remove")))
+                    button(label(t!("remove")))
                         .danger()
                         .on_press(ColorSelectorConfigMessage::RemoveBar(index)),
                 ]
-                .align_y(Alignment::Center)
-                .spacing(8),
+                .gap(8.0),
                 row![
                     self.column_label(t!("model")),
-                    ComboBox::new(ColorModel::ALL, Some(bar.model), move |model| {
+                    combo_box(ColorModel::ALL, Some(bar.model), move |model| {
                         ColorSelectorConfigMessage::BarModelChanged(index, model)
                     },)
                     .width(Length::Fill),
                 ]
-                .spacing(10),
-                SpinSlider::new(10.0..=40.0, bar.bar_height)
+                .gap(10.0),
+                spin_slider(10.0..=40.0, bar.bar_height)
                     .on_confirm(move |height| ColorSelectorConfigMessage::BarHeightChanged(
                         index, height
                     ))
@@ -727,8 +717,8 @@ impl ColorSelectorConfigEditorState {
                     .suffix(" px"),
                 row![
                     self.column_label(t!("channel")),
-                    row(labels.iter().copied().enumerate().map(|(channel, label)| {
-                        Radio::new(
+                    Flex::row(labels.iter().copied().enumerate().map(|(channel, label)| {
+                        radio(
                             label,
                             channel,
                             (channel as u8 == bar.channel).then_some(channel),
@@ -738,21 +728,21 @@ impl ColorSelectorConfigEditorState {
                         )
                         .into()
                     }))
-                    .spacing(8),
+                    .gap(8.0),
                 ]
-                .spacing(10),
+                .gap(10.0),
                 row![
-                    Checkbox::new(bar.show_channel_label)
+                    checkbox(bar.show_channel_label)
                         .label(t!("channel_label"))
                         .on_toggle(move |checked| {
                             ColorSelectorConfigMessage::BarShowChannelLabelChanged(index, checked)
                         }),
-                    Checkbox::new(bar.show_precise_spin_box)
+                    checkbox(bar.show_precise_spin_box)
                         .label(t!("precise_spin_box"))
                         .on_toggle(move |checked| {
                             ColorSelectorConfigMessage::BarShowPreciseSpinBoxChanged(index, checked)
                         }),
-                    Checkbox::new(bar.show_primary_channel_lock)
+                    checkbox(bar.show_primary_channel_lock)
                         .label(t!("primary_channel_lock"))
                         .on_toggle(move |checked| {
                             ColorSelectorConfigMessage::BarShowPrimaryChannelLockChanged(
@@ -760,14 +750,14 @@ impl ColorSelectorConfigEditorState {
                             )
                         }),
                 ]
-                .spacing(16),
+                .gap(16.0),
             ]
-            .spacing(12)
+            .gap(12.0)
             .into(),
         )
     }
 
     fn panel<'a>(&self, content: Element<'a>) -> Element<'a> {
-        Panel::new(content).width(Length::Fill).padding(12).into()
+        panel(content).width(Length::Fill).padding(12).into()
     }
 }

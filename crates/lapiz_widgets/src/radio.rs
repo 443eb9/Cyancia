@@ -1,8 +1,8 @@
 use iced_core::{Background, Color, Element, Length, Pixels, Theme};
-use iced_widget::{button, svg};
+use iced_widget::svg;
 use lapiz_runtime::Renderer;
 
-use crate::{button::Button, flex::Flex, icon::Icon, label::Label};
+use crate::{button, flex::Flex, icon, label};
 
 pub struct Radio<'a, Message> {
     label: String,
@@ -74,31 +74,29 @@ impl<'a, Message: 'a> From<Radio<'a, Message>> for Element<'a, Message, Theme, R
         } else {
             svg::Handle::from_memory(include_bytes!("../assets/icons/radio-off.svg").as_slice())
         };
-        let indicator = Icon::new(handle)
-            .size(value.size.0)
-            .style(move |theme, status| {
-                let status = if status == svg::Status::Hovered {
-                    Status::Hovered {
-                        is_selected: selected,
-                    }
-                } else {
-                    Status::Active {
-                        is_selected: selected,
-                    }
-                };
-                let style = theme.style(&class, status);
-                svg::Style {
-                    color: Some(if selected {
-                        style.dot_color
-                    } else {
-                        style.border_color
-                    }),
+        let indicator = icon(handle).size(value.size.0).style(move |theme, status| {
+            let status = if status == svg::Status::Hovered {
+                Status::Hovered {
+                    is_selected: selected,
                 }
-            });
-        Button::new(
+            } else {
+                Status::Active {
+                    is_selected: selected,
+                }
+            };
+            let style = theme.style(&class, status);
+            svg::Style {
+                color: Some(if selected {
+                    style.dot_color
+                } else {
+                    style.border_color
+                }),
+            }
+        });
+        button(
             Flex::row([
                 indicator.into(),
-                Label::new(value.label).size(value.text_size).into(),
+                label(value.label).size(value.text_size).into(),
             ])
             .gap(value.spacing),
         )
