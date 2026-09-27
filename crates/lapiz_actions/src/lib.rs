@@ -1,7 +1,7 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use iced_runtime::Task;
-use lapiz_runtime::{Application, Services, plugin::Plugin, service::Service};
+use lapiz_runtime::{Runtime, Services, plugin::Plugin, service::Service};
 use lapiz_utils::wrapper;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
@@ -34,11 +34,9 @@ wrapper! {
 pub struct ActionPlugin;
 
 impl Plugin for ActionPlugin {
-    fn build(&self, app: &mut Application) {
-        let mut runtime = app.runtime_mut();
-        runtime.add_service::<ActionFunctionRegistry>();
-        let services = runtime.services_mut();
-        services
+    fn build(&self, app: &mut Runtime) {
+        app.add_service::<ActionFunctionRegistry>();
+        app.services_mut()
             .add_action_function::<DeleteSelectionAction>()
             .add_action_function::<OpenFileAction>()
             .add_action_function::<SaveFileAction>()

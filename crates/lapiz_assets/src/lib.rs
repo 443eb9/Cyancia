@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
-use lapiz_runtime::{Application, Services, plugin::Plugin};
+use lapiz_runtime::{Runtime, Services, plugin::Plugin};
 
 use crate::{
     bundle::ErasedAssetBundle,
@@ -23,7 +23,7 @@ pub struct AssetsPlugin {
 }
 
 impl Plugin for AssetsPlugin {
-    fn build(&self, app: &mut Application) {
+    fn build(&self, app: &mut Runtime) {
         let mut builder = AssetRegistryBuilder::default();
         builder.set_root(self.asset_root.clone());
 
@@ -34,11 +34,8 @@ impl Plugin for AssetsPlugin {
         app.add_service_instance(builder);
     }
 
-    fn finish(&self, app: &mut Application) {
-        let builder = app
-            .runtime_mut()
-            .services_mut()
-            .remove_service::<AssetRegistryBuilder>();
+    fn finish(&self, app: &mut Runtime) {
+        let builder = app.services_mut().remove_service::<AssetRegistryBuilder>();
         app.add_service_instance(builder.build());
     }
 }

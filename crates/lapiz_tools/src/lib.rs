@@ -6,7 +6,7 @@ use lapiz_input::{
     key::{KeySequence, KeyboardState},
     mouse::{HoverMouseState, PressedMouseState},
 };
-use lapiz_runtime::{Application, Renderer, Services, plugin::Plugin, service::Service};
+use lapiz_runtime::{Renderer, Runtime, Services, plugin::Plugin, service::Service};
 use lapiz_utils::{Deref, DerefMut, wrapper};
 use lapiz_widgets::{icon::Icon, space, stack};
 use parse_display::Display;
@@ -20,13 +20,13 @@ pub mod manifest;
 pub struct ToolsPlugin;
 
 impl Plugin for ToolsPlugin {
-    fn build(&self, app: &mut Application) {
+    fn build(&self, app: &mut Runtime) {
         app.add_service::<ToolFunctionRegistry>()
             .add_service::<ToolProxies>()
             .add_service::<GlobalToolBindings>();
     }
 
-    fn finish(&self, app: &mut Application) {
+    fn finish(&self, app: &mut Runtime) {
         let tool_bindings = ToolBindingManifestConfig::read_or_init_or_fallback();
 
         let bindings = tool_bindings
@@ -37,8 +37,7 @@ impl Plugin for ToolsPlugin {
             .map(|binding| (binding.shortcut, binding))
             .collect();
 
-        app.runtime_mut()
-            .services_mut()
+        app.services_mut()
             .service_mut::<GlobalToolBindings>()
             .bindings = bindings;
     }

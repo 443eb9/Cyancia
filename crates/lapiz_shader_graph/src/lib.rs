@@ -1,7 +1,7 @@
 use iced_core::{Element, Theme};
 use lapiz_assets::AssetAppExt as _;
 use lapiz_render::texture::Image;
-use lapiz_runtime::{Application, plugin::Plugin};
+use lapiz_runtime::{Runtime, plugin::Plugin};
 use toml::{Serializer, de::Deserializer};
 
 use crate::{
@@ -29,16 +29,14 @@ pub fn init_i18n() {
 pub struct ShaderGraphPlugin;
 
 impl Plugin for ShaderGraphPlugin {
-    fn build(&self, app: &mut Application) {
+    fn build(&self, app: &mut Runtime) {
         i18n::init();
-        app.runtime_mut()
-            .services_mut()
+        app.services_mut()
             .add_asset_serializer::<SerializableGraphFunctionSerializer>();
     }
 
-    fn finish(&self, app: &mut Application) {
-        let runtime = app.runtime();
-        let services = runtime.services();
+    fn finish(&self, app: &mut Runtime) {
+        let services = app.services();
         let assets = services.assets();
 
         ASSET_GRAPH_TEXTURE_STORAGE

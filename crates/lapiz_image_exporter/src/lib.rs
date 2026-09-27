@@ -13,7 +13,9 @@ use iced_core::Element;
 use iced_runtime::Task;
 use lapiz_canvas::{CCanvas, CanvasId};
 use lapiz_file_dialog::LocalFile;
-use lapiz_runtime::{Application, Renderer, Services, Theme, plugin::Plugin, service::Service};
+use lapiz_runtime::{
+    Renderer, Runtime, Services, Theme, plugin::Plugin, service::Service,
+};
 
 use crate::{
     adapter::{
@@ -39,18 +41,14 @@ pub mod export_dialog;
 pub struct ImageExporterPlugin;
 
 impl Plugin for ImageExporterPlugin {
-    fn build(&self, app: &mut Application) {
+    fn build(&self, app: &mut Runtime) {
         i18n::init();
 
-        let mut runtime = app.runtime_mut();
-        runtime.add_service::<ImageFormatAdapterRegistry>();
-        runtime.add_service::<SilentSaveCanvases>();
-        runtime
-            .window_manager_mut()
+        app.add_service::<ImageFormatAdapterRegistry>()
+            .add_service::<SilentSaveCanvases>()
             .register_view::<ExportDialogView>();
 
-        let services = runtime.services_mut();
-        services
+        app.services_mut()
             .service_mut::<ImageFormatAdapterRegistry>()
             .register::<PngExporter>()
             .register::<JpgExporter>()

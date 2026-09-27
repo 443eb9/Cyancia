@@ -12,7 +12,7 @@ use lapiz_color::{
     platform,
 };
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Application, Renderer, Services, plugin::Plugin};
+use lapiz_runtime::{Renderer, Runtime, Services, plugin::Plugin};
 use lapiz_widgets::{column, flex::Flex, fluent_builder::When as _, radio, row, spin_slider};
 use moxcms::ColorProfile;
 use parse_display::Display;
@@ -35,7 +35,7 @@ mod render;
 pub struct ColorSelectorPlugin;
 
 impl Plugin for ColorSelectorPlugin {
-    fn build(&self, _app: &mut Application) {
+    fn build(&self, _app: &mut Runtime) {
         i18n::init();
     }
 }

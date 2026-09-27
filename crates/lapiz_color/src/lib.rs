@@ -1,4 +1,6 @@
-use lapiz_runtime::{Application, Services, event::Event, plugin::Plugin, service::Service};
+use lapiz_runtime::{
+    Runtime, Services, event::Event, plugin::Plugin, service::Service,
+};
 use lapiz_utils::wrapper;
 use moxcms::Matrix3f;
 
@@ -153,9 +155,8 @@ impl BackgroundColorChanged {
 pub struct ColorPlugin;
 
 impl Plugin for ColorPlugin {
-    fn build(&self, app: &mut Application) {
-        let mut runtime = app.runtime_mut();
-        let services = runtime.services_mut();
+    fn build(&self, app: &mut Runtime) {
+        let services = app.services_mut();
 
         let default_color = Color::Rgb(Rgb::new(0.0, 0.0, 0.0));
         services.insert_service(ForegroundColor::new(default_color));

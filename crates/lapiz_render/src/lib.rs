@@ -1,7 +1,7 @@
 wesl::wesl_pkg!(pub render);
 
 use lapiz_assets::AssetAppExt as _;
-use lapiz_runtime::{Application, plugin::Plugin};
+use lapiz_runtime::{Runtime, plugin::Plugin};
 
 use crate::{
     resources::{FullscreenVertex, GlobalSamplers},
@@ -23,12 +23,10 @@ pub mod wesl_jit;
 pub struct RenderPlugin;
 
 impl Plugin for RenderPlugin {
-    fn build(&self, app: &mut Application) {
-        let mut runtime = app.runtime_mut();
-        runtime.add_service::<GlobalSamplers>();
-        runtime
-            .services_mut()
-            .add_asset_serializer::<ImageSerializer>();
-        runtime.add_service::<FullscreenVertex>();
+    fn build(&self, app: &mut Runtime) {
+        app.add_service::<GlobalSamplers>()
+            .add_service::<FullscreenVertex>();
+
+        app.services_mut().add_asset_serializer::<ImageSerializer>();
     }
 }

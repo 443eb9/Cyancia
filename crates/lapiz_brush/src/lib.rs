@@ -2,7 +2,7 @@ use futures::StreamExt as _;
 use iced_futures::{Executor as _, backend::default};
 use iced_runtime::{Action, Task, task::into_stream};
 use lapiz_assets::AssetAppExt as _;
-use lapiz_runtime::{Application, plugin::Plugin};
+use lapiz_runtime::{Runtime, plugin::Plugin};
 use lapiz_tools::ToolsAppExt as _;
 
 use crate::{
@@ -27,19 +27,18 @@ lapiz_i18n::define_i18n!("brush");
 pub struct BrushPlugin;
 
 impl Plugin for BrushPlugin {
-    fn build(&self, app: &mut Application) {
+    fn build(&self, app: &mut Runtime) {
         i18n::init();
-        let mut runtime = app.runtime_mut();
-        runtime.window_manager_mut().register_view::<BrushEditor>();
 
-        let services = runtime.services_mut();
+        app.register_view::<BrushEditor>();
+
+        let services = app.services_mut();
         services.add_asset_serializer::<BrushPresetSerializer>();
         services.add_tool_function::<BrushTool>();
     }
 
-    fn finish(&self, app: &mut Application) {
-        let runtime = app.runtime();
-        let services = runtime.services();
+    fn finish(&self, app: &mut Runtime) {
+        let services = app.services();
         let assets = services.assets().clone();
 
         let brushes = assets

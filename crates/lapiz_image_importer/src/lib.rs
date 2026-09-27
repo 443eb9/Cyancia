@@ -10,7 +10,7 @@ use lapiz_file_dialog::LocalFile;
 use lapiz_image::CImage;
 use lapiz_lazuli::LazuliArchive;
 use lapiz_runtime::{
-    Application, Renderer, Services, Theme,
+    Renderer, Runtime, Services, Theme,
     plugin::Plugin,
     service::Service,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},
@@ -39,17 +39,13 @@ pub mod importer;
 pub struct ImageImporterPlugin;
 
 impl Plugin for ImageImporterPlugin {
-    fn build(&self, app: &mut Application) {
+    fn build(&self, app: &mut Runtime) {
         i18n::init();
 
-        let mut runtime = app.runtime_mut();
-        runtime.add_service::<ImageImporterRegistry>();
-        runtime
-            .window_manager_mut()
+        app.add_service::<ImageImporterRegistry>()
             .register_view::<ImportDialogView>();
 
-        let services = runtime.services_mut();
-        services
+        app.services_mut()
             .service_mut::<ImageImporterRegistry>()
             .register::<PngImporter>()
             .register::<JpgImporter>()

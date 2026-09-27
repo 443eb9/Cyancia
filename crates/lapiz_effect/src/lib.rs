@@ -1,5 +1,5 @@
 use lapiz_assets::AssetAppExt as _;
-use lapiz_runtime::{Application, plugin::Plugin};
+use lapiz_runtime::{Runtime, plugin::Plugin};
 
 use crate::asset::EffectAssetSerializer;
 
@@ -18,10 +18,9 @@ pub fn init_i18n() {
 pub struct EffectPlugin;
 
 impl Plugin for EffectPlugin {
-    fn build(&self, app: &mut Application) {
+    fn build(&self, app: &mut Runtime) {
         i18n::init();
-        app.runtime_mut()
-            .services_mut()
+        app.services_mut()
             .add_asset_serializer::<EffectAssetSerializer>();
     }
 }

@@ -1,4 +1,4 @@
-use lapiz_runtime::{Application, plugin::Plugin};
+use lapiz_runtime::{Runtime, plugin::Plugin};
 use serde::Deserialize;
 
 lapiz_i18n::define_i18n!("about");
@@ -46,11 +46,9 @@ impl ThirdPartyLicenses {
 pub struct AboutPlugin;
 
 impl Plugin for AboutPlugin {
-    fn build(&self, app: &mut Application) {
+    fn build(&self, app: &mut Runtime) {
         i18n::init();
 
-        app.runtime_mut()
-            .window_manager_mut()
-            .register_view::<view::AboutView>();
+        app.register_view::<view::AboutView>();
     }
 }

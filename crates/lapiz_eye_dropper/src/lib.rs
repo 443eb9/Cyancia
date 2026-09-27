@@ -26,7 +26,7 @@ use lapiz_input::{
 };
 use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{
-    Application, Renderer, Services, event::Event as _, plugin::Plugin, service::Service,
+    Renderer, Runtime, Services, event::Event as _, plugin::Plugin, service::Service,
 };
 use lapiz_tools::{ToolFunction, ToolId, ToolsAppExt as _};
 use lapiz_utils::log_err::LogErr as _;
@@ -45,16 +45,14 @@ lapiz_i18n::define_i18n!("eye_dropper");
 pub struct EyeDropperPlugin;
 
 impl Plugin for EyeDropperPlugin {
-    fn build(&self, app: &mut Application) {
+    fn build(&self, app: &mut Runtime) {
         i18n::init();
-        app.runtime_mut()
-            .services_mut()
-            .add_tool_function::<EyeDropperTool>();
+        app.services_mut().add_tool_function::<EyeDropperTool>();
 
         let mut registry = EyeDropperTargetRegistry::default();
         registry.register::<PixelLayer, PixelLayerEyeDropperTarget>();
         registry.register::<GroupLayer, GroupLayerEyeDropperTarget>();
-        app.runtime_mut().services_mut().insert_service(registry);
+        app.add_service_instance(registry);
     }
 }
 

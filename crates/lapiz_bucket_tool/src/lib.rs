@@ -16,7 +16,7 @@ use lapiz_image::{
 };
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Application, Renderer, Services, plugin::Plugin};
+use lapiz_runtime::{Renderer, Runtime, Services, plugin::Plugin};
 use lapiz_tools::{ToolFunction, ToolId, ToolsAppExt as _};
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
@@ -34,11 +34,9 @@ pub mod bucket;
 pub struct BucketPlugin;
 
 impl Plugin for BucketPlugin {
-    fn build(&self, app: &mut Application) {
+    fn build(&self, app: &mut Runtime) {
         i18n::init();
-        app.runtime_mut()
-            .services_mut()
-            .add_tool_function::<BucketTool>();
+        app.services_mut().add_tool_function::<BucketTool>();
     }
 }
 

@@ -5,7 +5,7 @@
 
 use std::{
     any::{Any, TypeId},
-    cell::{Ref, RefCell, RefMut},
+    cell::RefCell,
     collections::{HashMap, VecDeque},
 };
 
@@ -17,7 +17,7 @@ use iced_winit::program::Program;
 use crate::{
     plugin::Plugin,
     service::{FromServices, Service},
-    windows::{WindowCommandBuffer, WindowViewManager, WindowViewManagerMessage},
+    windows::{WindowCommandBuffer, WindowView, WindowViewManager, WindowViewManagerMessage},
 };
 
 pub mod event;
@@ -61,34 +61,16 @@ impl Application {
         self
     }
 
-    pub fn add_service<T: Service + FromServices>(&mut self) -> &mut Self {
-        self.runtime.borrow_mut().add_service::<T>();
-        self
-    }
-
-    pub fn add_service_instance<T: Service>(&mut self, service: T) -> &mut Self {
-        self.runtime.borrow_mut().add_service_instance(service);
-        self
-    }
-
-    pub fn runtime(&self) -> Ref<'_, Runtime> {
-        self.runtime.borrow()
-    }
-
-    pub fn runtime_mut(&mut self) -> RefMut<'_, Runtime> {
-        self.runtime.borrow_mut()
-    }
-
     pub fn build_plugins(&mut self) {
         let mut plugins = Vec::with_capacity(self.plugins.len());
         while let Some(plugin) = self.plugins.pop_front() {
-            plugin.build(self);
+            plugin.build(&mut self.runtime.borrow_mut());
             plugins.push(plugin);
         }
         self.state = ApplicationState::Built;
 
         for plugin in plugins {
-            plugin.finish(self);
+            plugin.finish(&mut self.runtime.borrow_mut());
         }
         self.state = ApplicationState::Finished;
     }
@@ -282,9 +264,12 @@ impl Runtime {
     }
 
     pub fn add_service_instance<T: Service>(&mut self, service: T) -> &mut Self {
-        self.services
-            .services
-            .insert(TypeId::of::<T>(), Box::new(service));
+        self.services.insert_service(service);
+        self
+    }
+
+    pub fn register_view<T: WindowView>(&mut self) -> &mut Self {
+        self.wm.register_view::<T>();
         self
     }
 

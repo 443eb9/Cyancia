@@ -8,7 +8,9 @@ use lapiz_image::{
     layer::{LayerId, LayerStackNode},
 };
 use lapiz_lazuli::LazuliArchive;
-use lapiz_runtime::{Application, Services, event::Event as _, plugin::Plugin, service::Service};
+use lapiz_runtime::{
+    Runtime, Services, event::Event as _, plugin::Plugin, service::Service,
+};
 use lapiz_tools::{ToolProxies, ToolProxy, ToolsAppExt as _};
 use lapiz_undo::{QueuedUndoCommand, UndoCommand, UndoStack, UndoStacks};
 use lapiz_utils::wrapper;
@@ -176,11 +178,9 @@ impl CCanvas {
 pub struct CanvasPlugin;
 
 impl Plugin for CanvasPlugin {
-    fn build(&self, app: &mut Application) {
+    fn build(&self, app: &mut Runtime) {
         app.add_service::<CanvasManager>();
-        let mut runtime = app.runtime_mut();
-        runtime
-            .services_mut()
+        app.services_mut()
             .add_tool_function::<PanTool>()
             .add_tool_function::<RotateTool>()
             .add_tool_function::<ZoomTool>();
