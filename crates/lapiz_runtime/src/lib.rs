@@ -44,6 +44,10 @@ pub struct Application {
 }
 
 impl Application {
+    #[allow(
+        clippy::new_without_default,
+        reason = "It's invalid to made up an AndroidApp"
+    )]
     pub fn new(#[cfg(target_os = "android")] android_app: AndroidApp) -> Self {
         let mut runtime = Runtime::default();
         runtime
