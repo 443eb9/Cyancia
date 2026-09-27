@@ -13,7 +13,11 @@ use iced_core::Element;
 use iced_runtime::Task;
 use lapiz_canvas::{CCanvas, CanvasId};
 use lapiz_file_dialog::LocalFile;
-use lapiz_runtime::{Globals, Renderer, Runtime, Theme, global::Global, plugin::Plugin};
+use lapiz_runtime::{
+    Renderer, Runtime, Theme,
+    global::{Global, Globals},
+    plugin::Plugin,
+};
 
 use crate::{
     adapter::{

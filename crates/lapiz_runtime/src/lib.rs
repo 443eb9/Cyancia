@@ -1,8 +1,4 @@
-use std::{
-    any::{Any, TypeId},
-    cell::RefCell,
-    collections::{HashMap, VecDeque},
-};
+use std::{cell::RefCell, collections::VecDeque};
 
 use iced_core::{Element, Length, Widget, window};
 use iced_futures::{Subscription, backend::native, event::listen_with};
@@ -12,7 +8,7 @@ use iced_winit::program::Program;
 use winit::platform::android::activity::AndroidApp;
 
 use crate::{
-    global::{FromGlobals, Global},
+    global::{FromGlobals, Global, Globals},
     plugin::Plugin,
     renderer::global_render_context,
     windows::{WindowCommandBuffer, WindowView, WindowViewManager, WindowViewManagerMessage},
@@ -297,105 +293,4 @@ pub enum ApplicationMessage {
     WindowOpened(window::Id),
     WindowRawId(window::Id, u64),
     WindowClosed(window::Id),
-}
-
-#[derive(Default)]
-pub struct Globals {
-    globals: HashMap<TypeId, Box<dyn Any>>,
-}
-
-impl Globals {
-    pub fn global<T: Global>(&self) -> &T {
-        self.globals
-            .get(&TypeId::of::<T>())
-            .unwrap_or_else(|| panic!("Global of type {} not found", std::any::type_name::<T>()))
-            .downcast_ref()
-            .unwrap_or_else(|| {
-                panic!(
-                    "Global of type {} has wrong type. This should not happen.",
-                    std::any::type_name::<T>()
-                )
-            })
-    }
-
-    pub fn global_mut<T: Global>(&mut self) -> &mut T {
-        self.globals
-            .get_mut(&TypeId::of::<T>())
-            .unwrap_or_else(|| panic!("Global of type {} not found", std::any::type_name::<T>()))
-            .downcast_mut()
-            .unwrap_or_else(|| {
-                panic!(
-                    "Global of type {} has wrong type. This should not happen.",
-                    std::any::type_name::<T>()
-                )
-            })
-    }
-
-    pub fn has_global<T: Global>(&self) -> bool {
-        self.globals.contains_key(&TypeId::of::<T>())
-    }
-
-    pub fn get_global<T: Global>(&self) -> Option<&T> {
-        self.globals
-            .get(&TypeId::of::<T>())
-            .and_then(|value| value.downcast_ref())
-    }
-
-    pub fn get_global_mut<T: Global>(&mut self) -> Option<&mut T> {
-        self.globals
-            .get_mut(&TypeId::of::<T>())
-            .and_then(|value| value.downcast_mut())
-    }
-
-    pub fn remove_global<T: Global>(&mut self) -> T {
-        let s = self
-            .globals
-            .remove(&TypeId::of::<T>())
-            .unwrap_or_else(|| panic!("Global of type {} not found", std::any::type_name::<T>()));
-
-        match s.downcast() {
-            Ok(s) => *s,
-            Err(_) => {
-                panic!(
-                    "Global of type {} has wrong type. This should not happen.",
-                    std::any::type_name::<T>()
-                )
-            }
-        }
-    }
-
-    pub fn try_remove_global<T: Global>(&mut self) -> Option<T> {
-        let s = self.globals.remove(&TypeId::of::<T>())?;
-
-        match s.downcast() {
-            Ok(s) => Some(*s),
-            Err(_) => {
-                panic!(
-                    "Global of type {} has wrong type. This should not happen.",
-                    std::any::type_name::<T>()
-                )
-            }
-        }
-    }
-
-    pub fn insert_global<T: Global>(&mut self, value: T) {
-        self.globals.insert(TypeId::of::<T>(), Box::new(value));
-    }
-
-    pub fn update_global<T: Global, O>(&mut self, f: impl FnOnce(&mut T, &mut Self) -> O) -> O {
-        let mut s = self.remove_global::<T>();
-        let result = f(&mut s, self);
-        self.insert_global(s);
-        result
-    }
-
-    pub fn try_update_scope<T: Global, O>(
-        &mut self,
-        f: impl FnOnce(&mut T, &mut Self) -> O,
-    ) -> Option<O> {
-        let mut s = self.try_remove_global::<T>()?;
-        let result = f(&mut s, self);
-        self.insert_global(s);
-        Some(result)
-    }
 }

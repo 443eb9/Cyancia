@@ -10,8 +10,8 @@ use lapiz_file_dialog::LocalFile;
 use lapiz_image::CImage;
 use lapiz_lazuli::LazuliArchive;
 use lapiz_runtime::{
-    Globals, Renderer, Runtime, Theme,
-    global::Global,
+    Renderer, Runtime, Theme,
+    global::{Global, Globals},
     plugin::Plugin,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},
 };

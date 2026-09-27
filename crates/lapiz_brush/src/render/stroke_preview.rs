@@ -25,7 +25,7 @@ use lapiz_render::{
     render_context::RenderContextAppExt as _,
     util::DevicePollExt as _,
 };
-use lapiz_runtime::Globals;
+use lapiz_runtime::global::Globals;
 use lapiz_utils::log_err::LogErr as _;
 use tracing::info;
 use wesl::include_wesl;

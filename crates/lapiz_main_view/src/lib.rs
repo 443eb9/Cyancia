@@ -38,8 +38,9 @@ use lapiz_image::{
 };
 use lapiz_input::key::KeyboardState;
 use lapiz_runtime::{
-    ApplicationTheme, Globals, Renderer, Runtime,
+    ApplicationTheme, Renderer, Runtime,
     event::Event as _,
+    global::Globals,
     plugin::Plugin,
     windows::{WindowView, WindowViewId},
 };
@@ -537,9 +538,7 @@ impl WindowView for MainView {
                     .global_mut::<ToolProxies>()
                     .insert(*e.id, tool_proxy);
                 let undo_stack = UndoStack::new(*e.id, 200);
-                globals
-                    .global_mut::<UndoStacks>()
-                    .insert(*e.id, undo_stack);
+                globals.global_mut::<UndoStacks>().insert(*e.id, undo_stack);
 
                 let canvas = globals.canvas(&e.id).unwrap();
                 globals.tile_storage().declare_layer(

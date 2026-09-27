@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "android")]
 use anyhow::Context as _;
 use anyhow::Result;
-use lapiz_runtime::Globals;
 #[cfg(target_os = "android")]
 use lapiz_runtime::android::AndroidApp;
+use lapiz_runtime::global::Globals;
 #[cfg(not(target_os = "android"))]
 use rfd::AsyncFileDialog;
 

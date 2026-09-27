@@ -15,7 +15,7 @@ use iced_core::{
 };
 use iced_runtime::Task;
 use iced_wgpu::{graphics::geometry, primitive};
-use lapiz_runtime::{Globals, Renderer};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_widgets::canvas::{Frame, Path, Stroke};
 
 use crate::{

@@ -5,7 +5,7 @@ use iced_runtime::Task;
 use lapiz_canvas::CanvasToolProxyAppExt as _;
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;
-use lapiz_runtime::{Globals, Renderer};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_tools::{
     ErasedToolFunctionMessage, ToolFunctionRegistry, ToolId, manifest::ToolBoxManifestConfig,
 };
@@ -144,9 +144,7 @@ impl Dock for ToolBoxDock {
                 .unwrap_or_else(Task::none)
                 .map(ToolBoxDockMessage::ToolFunction),
             ToolBoxDockMessage::ToolFunction(message) => globals
-                .update_current_tool_proxy(|proxy, globals| {
-                    proxy.handle_message(message, globals)
-                })
+                .update_current_tool_proxy(|proxy, globals| proxy.handle_message(message, globals))
                 .unwrap_or_else(Task::none)
                 .map(ToolBoxDockMessage::ToolFunction),
         }

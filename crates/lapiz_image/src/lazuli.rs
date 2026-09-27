@@ -12,7 +12,7 @@ use imagers::{DynamicImage, GenericImageView as _};
 use lapiz_i18n::t;
 use lapiz_lazuli::{LazuliArchive, image_props::ImageProperties, layer_tree::LayerNode};
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::Globals;
+use lapiz_runtime::global::Globals;
 use moxcms::ColorProfile;
 use serde::{Serialize, Serializer, ser};
 use uuid::Uuid;

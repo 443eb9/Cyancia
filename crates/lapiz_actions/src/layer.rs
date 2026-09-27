@@ -15,7 +15,7 @@ use lapiz_image::layer::{
     pixel_layer::PixelLayer,
     properties::{LayerProperties, builtin::NameProp},
 };
-use lapiz_runtime::Globals;
+use lapiz_runtime::global::Globals;
 use lapiz_utils::log_err::LogErr as _;
 
 use crate::{ActionFunction, ActionId};

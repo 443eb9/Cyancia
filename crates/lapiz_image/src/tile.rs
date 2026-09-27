@@ -20,10 +20,7 @@ use lapiz_render::{
     buffer::BufferVec, readback::readback_buffer_raw_on_submit_async,
     render_context::RenderContextAppExt as _, util::DevicePollExt as _,
 };
-use lapiz_runtime::{
-    Globals,
-    global::{FromGlobals, Global},
-};
+use lapiz_runtime::global::{FromGlobals, Global, Globals};
 use lapiz_utils::Deref;
 use moxcms::{ColorProfile, TransformOptions};
 use wgpu::{

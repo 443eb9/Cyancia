@@ -13,7 +13,8 @@ use lapiz_file_dialog::LocalFile;
 use lapiz_i18n::t;
 use lapiz_image::CImage;
 use lapiz_runtime::{
-    Globals, Renderer,
+    Renderer,
+    global::Globals,
     windows::{WindowView, WindowViewId},
 };
 use lapiz_utils::log_err::LogErr as _;

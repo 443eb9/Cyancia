@@ -7,7 +7,7 @@ use lapiz_brush::{
     asset::BrushPreset, tool::BrushglobalsExt as _, widget::BrushPresetListDelegate,
 };
 use lapiz_dock::dock::{Dock, DockId};
-use lapiz_runtime::{Globals, Renderer};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_widgets::{button, flex::Flex, label, scrollable};
 
 pub static BRUSH_PRESETS_DOCK_ID: LazyLock<DockId> =

@@ -19,7 +19,7 @@ use lapiz_color_selector::{
 use lapiz_config::Config;
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;
-use lapiz_runtime::{Globals, Renderer, event::Event as _};
+use lapiz_runtime::{Renderer, event::Event as _, global::Globals};
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{button, column, label, panel, scrollable, title_bar};
 use moxcms::ColorProfile;

@@ -34,7 +34,7 @@ use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries, buffer::DynamicBuffer,
     readback::readback_buffer_on_submit_async,
 };
-use lapiz_runtime::Globals;
+use lapiz_runtime::global::Globals;
 use lapiz_shader_graph::{
     graph::{
         slot::{ErasedGraphValueType, GraphShaderStage, GraphValueType},

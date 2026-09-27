@@ -11,7 +11,7 @@ use iced_runtime::{Task, futures::Subscription};
 use lapiz_utils::{log_err::LogErr, wrapper};
 use parse_display::Display;
 
-use crate::{Globals, global::Global};
+use crate::global::{Global, Globals};
 
 wrapper! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display)]
@@ -255,15 +255,12 @@ where
                     return Task::none();
                 };
 
-                let task = view
-                    .state
-                    .update(message.message, globals)
-                    .map(move |msg| {
-                        WindowViewManagerMessage::ViewUpdate(ErasedWindowViewMessage {
-                            view: message.view,
-                            message: msg,
-                        })
-                    });
+                let task = view.state.update(message.message, globals).map(move |msg| {
+                    WindowViewManagerMessage::ViewUpdate(ErasedWindowViewMessage {
+                        view: message.view,
+                        message: msg,
+                    })
+                });
 
                 update_view_windows(message.view, view, &mut self.window_to_view);
 

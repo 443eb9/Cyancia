@@ -2,7 +2,7 @@ use glam::Vec2;
 use iced_runtime::Task;
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
 use lapiz_math::number::AngleDifference as _;
-use lapiz_runtime::Globals;
+use lapiz_runtime::global::Globals;
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_widgets::icon;
 

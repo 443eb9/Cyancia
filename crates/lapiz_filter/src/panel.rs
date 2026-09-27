@@ -26,8 +26,8 @@ use lapiz_image::{
 };
 use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{
-    Globals,
     event::Event as _,
+    global::Globals,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowView, WindowViewId},
 };
 use lapiz_shader_graph::graph::slot::{ErasedGraphLiteralUpdateMessage, GraphInputSlotId};
@@ -314,11 +314,7 @@ impl WindowView for FilterPanel {
 }
 
 impl FilterPanel {
-    fn filter_selected(
-        &mut self,
-        index: usize,
-        globals: &mut Globals,
-    ) -> Task<FilterPanelMessage> {
+    fn filter_selected(&mut self, index: usize, globals: &mut Globals) -> Task<FilterPanelMessage> {
         let Some(handle) = self.filters.get(index).cloned() else {
             return Task::none();
         };

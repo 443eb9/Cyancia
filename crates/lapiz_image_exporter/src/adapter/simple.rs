@@ -7,7 +7,7 @@ use image::{DynamicImage, ImageFormat};
 use lapiz_canvas::CCanvas;
 use lapiz_image::tile::TileStorageAppExt as _;
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Globals, Renderer};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_widgets::column;
 
 use super::pixels;

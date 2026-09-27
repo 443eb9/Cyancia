@@ -16,7 +16,7 @@ use lapiz_image::{
 };
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Globals, Renderer, Runtime, plugin::Plugin};
+use lapiz_runtime::{Renderer, Runtime, global::Globals, plugin::Plugin};
 use lapiz_tools::{ToolFunction, ToolId, ToolsAppExt as _};
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{

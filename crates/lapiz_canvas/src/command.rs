@@ -12,7 +12,7 @@ use lapiz_image::{
     tile::{DynamicLayerStorage, GpuLayerInfo, GpuTileStorage, TileStorageAppExt as _},
 };
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Globals, event::Event as _};
+use lapiz_runtime::{event::Event as _, global::Globals};
 use lapiz_undo::UndoCommand;
 use lapiz_utils::log_err::LogErr as _;
 use wgpu::{

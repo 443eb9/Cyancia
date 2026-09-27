@@ -12,7 +12,11 @@ use lapiz_i18n::t;
 use lapiz_image::{composite::LayerPreviewOverriders, tile::TileStorageAppExt as _};
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Globals, Renderer, event::Event as _, global::Global};
+use lapiz_runtime::{
+    Renderer,
+    event::Event as _,
+    global::{Global, Globals},
+};
 use lapiz_shader_graph::graph::slot::{ErasedGraphLiteralUpdateMessage, GraphInputSlotId};
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_undo::QueuedUndoCommand;

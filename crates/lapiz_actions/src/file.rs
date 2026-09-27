@@ -12,7 +12,7 @@ use lapiz_image_exporter::{
 };
 use lapiz_image_importer::{ImageImporterRegistry, start_import};
 use lapiz_runtime::{
-    Globals,
+    global::Globals,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},
 };
 use lapiz_utils::log_err::LogErr as _;
@@ -62,11 +62,7 @@ impl ActionFunction for OpenFileAction {
         })
     }
 
-    fn handle_message(
-        &self,
-        message: Self::Message,
-        globals: &mut Globals,
-    ) -> Task<Self::Message> {
+    fn handle_message(&self, message: Self::Message, globals: &mut Globals) -> Task<Self::Message> {
         let OpenFileMessage::Opened(local_file) = message else {
             return Task::none();
         };
@@ -150,11 +146,7 @@ impl ActionFunction for ExportFileAction {
         })
     }
 
-    fn handle_message(
-        &self,
-        message: Self::Message,
-        globals: &mut Globals,
-    ) -> Task<Self::Message> {
+    fn handle_message(&self, message: Self::Message, globals: &mut Globals) -> Task<Self::Message> {
         let ExportFileMessage::PathChosen(Some(local_file)) = message else {
             return Task::none();
         };
@@ -186,9 +178,7 @@ fn start_export(globals: &mut Globals, allow_silent_export: bool, local_file: Ar
         return;
     };
 
-    let can_silent_export = globals
-        .global::<SilentSaveCanvases>()
-        .contains(canvas.id());
+    let can_silent_export = globals.global::<SilentSaveCanvases>().contains(canvas.id());
     if adapter.has_options() && !(allow_silent_export && can_silent_export) {
         let params = PendingExport {
             local_file,

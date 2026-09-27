@@ -10,7 +10,7 @@ use lapiz_image::{
     layer::{LayerPosition, pixel_layer::PixelLayer},
     tile::TileStorageAppExt as _,
 };
-use lapiz_runtime::Globals;
+use lapiz_runtime::global::Globals;
 use lapiz_undo::{BatchedUndoCommand, UndoStacks};
 use lapiz_utils::log_err::LogErr as _;
 
@@ -27,8 +27,7 @@ impl ActionFunction for UndoAction {
     }
 
     fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
-        if globals.update_current_tool_proxy(|proxy, globals| proxy.undo(globals)) == Some(true)
-        {
+        if globals.update_current_tool_proxy(|proxy, globals| proxy.undo(globals)) == Some(true) {
             return Task::none();
         }
 
@@ -55,8 +54,7 @@ impl ActionFunction for RedoAction {
     }
 
     fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
-        if globals.update_current_tool_proxy(|proxy, globals| proxy.redo(globals)) == Some(true)
-        {
+        if globals.update_current_tool_proxy(|proxy, globals| proxy.redo(globals)) == Some(true) {
             return Task::none();
         }
 
@@ -90,11 +88,7 @@ impl ActionFunction for PasteIntoNewLayerAction {
         clipboard::read(Kind::Files).map(PasteMessage::Clipboard)
     }
 
-    fn handle_message(
-        &self,
-        message: Self::Message,
-        globals: &mut Globals,
-    ) -> Task<Self::Message> {
+    fn handle_message(&self, message: Self::Message, globals: &mut Globals) -> Task<Self::Message> {
         let PasteMessage::Clipboard(Ok(content)) = message else {
             return Task::none();
         };

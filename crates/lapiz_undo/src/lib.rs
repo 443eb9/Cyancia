@@ -8,7 +8,11 @@ use std::{
 use anyhow::{Result, bail};
 use downcast_rs::Downcast;
 use futures::channel::oneshot::{self, Canceled, Receiver, Sender};
-use lapiz_runtime::{Globals, Runtime, global::Global, plugin::Plugin};
+use lapiz_runtime::{
+    Runtime,
+    global::{Global, Globals},
+    plugin::Plugin,
+};
 use lapiz_utils::{Deref, DerefMut, log_err::LogErr as _};
 use tracing::info;
 use uuid::Uuid;

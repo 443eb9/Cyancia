@@ -1,7 +1,7 @@
 use lapiz_utils::wrapper;
 use winit::platform::android::activity;
 
-use crate::{Globals, global::Global};
+use crate::global::{Global, Globals};
 
 wrapper! {
     #[derive(Debug, Clone)]

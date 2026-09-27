@@ -5,7 +5,7 @@ use iced_core::{Element, Theme};
 use iced_runtime::Task;
 use lapiz_image::CImage;
 use lapiz_lazuli::LazuliArchive;
-use lapiz_runtime::{Globals, Renderer};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_widgets::column;
 
 use crate::ImageFormatImporter;

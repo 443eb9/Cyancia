@@ -28,7 +28,9 @@ use lapiz_input::{
     mouse::{HoverMouseState, PressedMouseState},
 };
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Globals, Renderer, event::Event as _, platform::get_window_monitor_name};
+use lapiz_runtime::{
+    Renderer, event::Event as _, global::Globals, platform::get_window_monitor_name,
+};
 use lapiz_tools::ErasedToolFunctionMessage;
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::stack;

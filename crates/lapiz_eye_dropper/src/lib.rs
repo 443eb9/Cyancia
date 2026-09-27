@@ -26,7 +26,10 @@ use lapiz_input::{
 };
 use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{
-    Globals, Renderer, Runtime, event::Event as _, global::Global, plugin::Plugin,
+    Renderer, Runtime,
+    event::Event as _,
+    global::{Global, Globals},
+    plugin::Plugin,
 };
 use lapiz_tools::{ToolFunction, ToolId, ToolsAppExt as _};
 use lapiz_utils::log_err::LogErr as _;

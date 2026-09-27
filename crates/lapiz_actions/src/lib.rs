@@ -1,7 +1,11 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use iced_runtime::Task;
-use lapiz_runtime::{Globals, Runtime, global::Global, plugin::Plugin};
+use lapiz_runtime::{
+    Runtime,
+    global::{Global, Globals},
+    plugin::Plugin,
+};
 use lapiz_utils::wrapper;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};

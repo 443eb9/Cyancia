@@ -9,7 +9,7 @@ use bevy_math::IRect;
 use dyn_clone::DynClone;
 use encase::ShaderType;
 use glam::IVec2;
-use lapiz_runtime::{Globals, global::Global};
+use lapiz_runtime::global::{Global, Globals};
 use lapiz_utils::wrapper;
 use log::error;
 use parse_display::Display;

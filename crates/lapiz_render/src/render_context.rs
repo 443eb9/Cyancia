@@ -1,4 +1,4 @@
-use lapiz_runtime::{Globals, renderer::RenderContext};
+use lapiz_runtime::{global::Globals, renderer::RenderContext};
 use wgpu::{Device, Queue};
 
 pub trait RenderContextAppExt {

@@ -1,4 +1,9 @@
-use lapiz_runtime::{Globals, Runtime, event::Event, global::Global, plugin::Plugin};
+use lapiz_runtime::{
+    Runtime,
+    event::Event,
+    global::{Global, Globals},
+    plugin::Plugin,
+};
 use lapiz_utils::wrapper;
 use moxcms::Matrix3f;
 

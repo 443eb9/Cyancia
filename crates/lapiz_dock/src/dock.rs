@@ -7,7 +7,7 @@ use iced_core::{
 use iced_futures::Subscription;
 use iced_runtime::Task;
 use lapiz_i18n::t;
-use lapiz_runtime::{Globals, Renderer};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_utils::wrapper;
 use lapiz_widgets::{column, context_menu, menu, pane_grid, space, stack};
 use parse_display::Display;

@@ -5,7 +5,7 @@ use iced_runtime::Task;
 use lapiz_canvas::CanvasToolProxyAppExt as _;
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;
-use lapiz_runtime::Globals;
+use lapiz_runtime::global::Globals;
 use lapiz_tools::ErasedToolFunctionMessage;
 use lapiz_widgets::{label, panel, scrollable, space};
 

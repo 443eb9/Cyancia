@@ -10,7 +10,7 @@ use lapiz_i18n::t;
 use lapiz_image::tile::TileStorageAppExt as _;
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Globals, Renderer};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{

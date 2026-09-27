@@ -9,7 +9,10 @@ use group::DockGroupData;
 use iced_core::{Element, Point, Size, Theme, Vector, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
-use lapiz_runtime::{Globals, Renderer, global::Global};
+use lapiz_runtime::{
+    Renderer,
+    global::{Global, Globals},
+};
 use lapiz_widgets::pane_grid;
 use state::DockState;
 

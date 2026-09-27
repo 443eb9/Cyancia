@@ -13,7 +13,7 @@ use lapiz_file_dialog::LocalFile;
 use lapiz_image_importer::start_import;
 #[cfg(target_os = "android")]
 use lapiz_runtime::android::AndroidAppExt as _;
-use lapiz_runtime::{Globals, Renderer, Theme};
+use lapiz_runtime::{Renderer, Theme, global::Globals};
 use lapiz_widgets::{button, column, container, flex::Flex, image::Image, label, scrollable};
 
 pub struct LandingDock {

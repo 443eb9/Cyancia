@@ -1,7 +1,4 @@
-use lapiz_runtime::{
-    Globals,
-    global::{FromGlobals, Global},
-};
+use lapiz_runtime::global::{FromGlobals, Global, Globals};
 use wesl::include_wesl;
 use wgpu::{
     AddressMode, Device, FilterMode, Sampler, SamplerDescriptor, ShaderModule,

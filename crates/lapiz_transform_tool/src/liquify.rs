@@ -38,7 +38,7 @@ use lapiz_render::{
     render_context::RenderContextAppExt as _,
     wesl_jit,
 };
-use lapiz_runtime::{Globals, Renderer, event::Event as _};
+use lapiz_runtime::{Renderer, event::Event as _, global::Globals};
 use lapiz_tools::{ChangesTracker, ToolFunction, ToolId};
 use lapiz_undo::BatchedUndoCommand;
 use lapiz_utils::log_err::LogErr as _;
@@ -723,9 +723,7 @@ fn commit_liquify(session: LiquifySession, globals: &mut Globals) {
     }
 
     let cmd = BatchedUndoCommand::new("Liquify".into(), replace_commands);
-    globals
-        .push_undo_command(&session.canvas_id, cmd)
-        .log_err();
+    globals.push_undo_command(&session.canvas_id, cmd).log_err();
 }
 
 fn cancel_liquify(session: LiquifySession, globals: &mut Globals) {

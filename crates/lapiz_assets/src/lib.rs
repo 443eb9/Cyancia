@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
-use lapiz_runtime::{Globals, Runtime, plugin::Plugin};
+use lapiz_runtime::{Runtime, global::Globals, plugin::Plugin};
 
 use crate::{
     bundle::ErasedAssetBundle,

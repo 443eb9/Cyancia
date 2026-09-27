@@ -9,7 +9,7 @@ use iced_core::{Element, Theme};
 use iced_runtime::Task;
 use lapiz_canvas::{CanvasAppExt as _, CanvasUndoStackAppExt as _};
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
-use lapiz_runtime::{Globals, Renderer};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{icon, space};

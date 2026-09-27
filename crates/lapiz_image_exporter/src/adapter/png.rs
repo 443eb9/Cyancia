@@ -11,7 +11,7 @@ use lapiz_canvas::CCanvas;
 use lapiz_i18n::{Translated, t};
 use lapiz_image::tile::TileStorageAppExt as _;
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Globals, Renderer};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_widgets::{checkbox, combo_box, form};
 use parse_display::Display;
 use serde::{Deserialize, Serialize};

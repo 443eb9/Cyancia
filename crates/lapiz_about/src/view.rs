@@ -8,7 +8,8 @@ use iced_runtime::{
 };
 use lapiz_i18n::t;
 use lapiz_runtime::{
-    Globals, Renderer,
+    Renderer,
+    global::Globals,
     windows::{WindowView, WindowViewId},
 };
 use lapiz_widgets::{

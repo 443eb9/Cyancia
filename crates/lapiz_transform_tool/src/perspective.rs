@@ -38,7 +38,7 @@ use lapiz_render::{
     util::DevicePollExt as _,
     wesl_jit,
 };
-use lapiz_runtime::{Globals, Renderer, event::Event as _};
+use lapiz_runtime::{Renderer, event::Event as _, global::Globals};
 use lapiz_tools::{ChangesTracker, ToolFunction, ToolId};
 use lapiz_undo::BatchedUndoCommand;
 use lapiz_utils::log_err::LogErr as _;
@@ -918,9 +918,7 @@ fn commit_transform(session: PerspectiveSession, globals: &mut Globals) {
         .collect();
 
     let cmd = BatchedUndoCommand::new("Perspective Transform".into(), replace_commands);
-    globals
-        .push_undo_command(&session.canvas_id, cmd)
-        .log_err();
+    globals.push_undo_command(&session.canvas_id, cmd).log_err();
 }
 
 pub struct PerspectiveTransformToolOverlay<'a> {

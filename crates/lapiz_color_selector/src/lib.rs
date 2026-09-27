@@ -12,7 +12,7 @@ use lapiz_color::{
     platform,
 };
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Globals, Renderer, Runtime, plugin::Plugin};
+use lapiz_runtime::{Renderer, Runtime, global::Globals, plugin::Plugin};
 use lapiz_widgets::{column, flex::Flex, fluent_builder::When as _, radio, row, spin_slider};
 use moxcms::ColorProfile;
 use parse_display::Display;
@@ -635,9 +635,7 @@ impl ColorSelectorState {
                     SurfaceTarget::Plane(index) => {
                         self.start_plane_selection(index, position, globals)
                     }
-                    SurfaceTarget::Bar(index) => {
-                        self.start_bar_selection(index, position, globals)
-                    }
+                    SurfaceTarget::Bar(index) => self.start_bar_selection(index, position, globals),
                 }
             }
             ColorSelectorMessage::SurfaceMove(position) => {

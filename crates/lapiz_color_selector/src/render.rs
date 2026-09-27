@@ -13,7 +13,7 @@ use lapiz_render::{
     buffer::DynamicBuffer,
     render_context::RenderContextAppExt as _,
 };
-use lapiz_runtime::Globals;
+use lapiz_runtime::global::Globals;
 use lapiz_widgets::shader;
 use moxcms::ColorProfile;
 use wgpu::{

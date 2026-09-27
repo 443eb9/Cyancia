@@ -5,7 +5,7 @@ use iced_runtime::Task;
 use lapiz_dirs::reports_dir;
 use lapiz_render::render_context::RenderContextAppExt as _;
 use lapiz_runtime::{
-    Globals,
+    global::Globals,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},
 };
 use lapiz_utils::log_err::LogErr as _;

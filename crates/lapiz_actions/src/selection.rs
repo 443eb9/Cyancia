@@ -2,7 +2,7 @@ use iced_runtime::Task;
 use lapiz_canvas::{CanvasAppExt as _, CanvasUndoStackAppExt as _, command::TileReplaceCommand};
 use lapiz_image::tile::TileStorageAppExt as _;
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::Globals;
+use lapiz_runtime::global::Globals;
 use lapiz_utils::log_err::LogErr as _;
 
 use crate::{ActionFunction, ActionId};

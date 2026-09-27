@@ -23,7 +23,7 @@ use lapiz_image::{
     tile::TileStorageAppExt as _,
 };
 use lapiz_input::key::KeyboardState;
-use lapiz_runtime::{Globals, Renderer};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_utils::log_err::LogErr as _;
 
 pub static LAYER_DOCK_ID: LazyLock<DockId> = LazyLock::new(|| DockId::new("layer_dock".into()));

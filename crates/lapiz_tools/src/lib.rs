@@ -6,7 +6,11 @@ use lapiz_input::{
     key::{KeySequence, KeyboardState},
     mouse::{HoverMouseState, PressedMouseState},
 };
-use lapiz_runtime::{Globals, Renderer, Runtime, global::Global, plugin::Plugin};
+use lapiz_runtime::{
+    Renderer, Runtime,
+    global::{Global, Globals},
+    plugin::Plugin,
+};
 use lapiz_utils::{Deref, DerefMut, wrapper};
 use lapiz_widgets::{icon::Icon, space, stack};
 use parse_display::Display;

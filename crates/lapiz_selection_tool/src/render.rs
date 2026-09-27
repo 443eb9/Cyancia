@@ -24,7 +24,7 @@ use lapiz_render::{
     buffer::DynamicBuffer,
     render_context::RenderContextAppExt as _,
 };
-use lapiz_runtime::{Globals, Renderer};
+use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_widgets::shader::Pipeline;
 use lyon::{
     geom::point,

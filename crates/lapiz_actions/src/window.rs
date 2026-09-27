@@ -1,6 +1,6 @@
 use iced_runtime::Task;
 use lapiz_runtime::{
-    Globals,
+    global::Globals,
     windows::{OpenWindowViewCommand, ToggleWindowViewCommand, WindowCommandBuffer, WindowViewId},
 };
 

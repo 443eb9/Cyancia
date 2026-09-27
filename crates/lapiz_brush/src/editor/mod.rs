@@ -17,7 +17,7 @@ use lapiz_effect::{
 use lapiz_i18n::t;
 use lapiz_image::texel::TexelType;
 use lapiz_runtime::{
-    Globals,
+    global::Globals,
     windows::{WindowView, WindowViewId},
 };
 use lapiz_shader_graph::{
