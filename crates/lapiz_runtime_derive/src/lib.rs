@@ -10,17 +10,17 @@ pub fn derive_event(input: TokenStream) -> TokenStream {
     let static_name = format_ident!("__{}_EVENT_CHANNEL", name.to_string().to_uppercase());
 
     quote! {
-        static #static_name: ::lapiz_runtime::__private::LazyLock<(
-            ::lapiz_runtime::__private::Sender<#name>,
-            ::lapiz_runtime::__private::InactiveReceiver<#name>,
-        )> = ::lapiz_runtime::__private::LazyLock::new(
-            ::lapiz_runtime::__private::event_channel::<#name>,
+        static #static_name: ::lapiz_runtime::event::__private::LazyLock<(
+            ::lapiz_runtime::event::__private::Sender<#name>,
+            ::lapiz_runtime::event::__private::InactiveReceiver<#name>,
+        )> = ::lapiz_runtime::event::__private::LazyLock::new(
+            ::lapiz_runtime::event::__private::event_channel::<#name>,
         );
 
         impl ::lapiz_runtime::event::Event for #name {
-            fn channel() -> &'static ::lapiz_runtime::__private::LazyLock<(
-                ::lapiz_runtime::__private::Sender<#name>,
-                ::lapiz_runtime::__private::InactiveReceiver<#name>,
+            fn channel() -> &'static ::lapiz_runtime::event::__private::LazyLock<(
+                ::lapiz_runtime::event::__private::Sender<#name>,
+                ::lapiz_runtime::event::__private::InactiveReceiver<#name>,
             )> {
                 &#static_name
             }

@@ -1,8 +1,3 @@
-#![expect(
-    clippy::pub_use,
-    reason = "Event derive expansions use the root __private path"
-)]
-
 use std::{
     any::{Any, TypeId},
     cell::RefCell,
@@ -20,11 +15,9 @@ use crate::{
     windows::{WindowCommandBuffer, WindowView, WindowViewManager, WindowViewManagerMessage},
 };
 
-pub mod event;
-#[doc(hidden)]
-pub use event::__private;
 #[cfg(target_os = "android")]
 pub mod android;
+pub mod event;
 pub mod platform;
 pub mod plugin;
 pub mod renderer;
