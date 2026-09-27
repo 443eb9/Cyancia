@@ -38,8 +38,9 @@ use lapiz_image::{
 };
 use lapiz_input::key::KeyboardState;
 use lapiz_runtime::{
-    ApplicationTheme, Renderer, Services,
+    ApplicationTheme, Renderer, Runtime, Services,
     event::Event as _,
+    plugin::Plugin,
     windows::{WindowView, WindowViewId},
 };
 use lapiz_tools::{
@@ -58,6 +59,19 @@ use lapiz_widgets::{
 };
 use moxcms::ProfileText;
 use unic_langid::LanguageIdentifier;
+
+lapiz_i18n::define_i18n!("main_view");
+
+pub struct MainViewPlugin;
+
+impl Plugin for MainViewPlugin {
+    fn build(&self, app: &mut Runtime) {
+        i18n::init();
+
+        app.window_manager_mut().set_root_view::<MainView>();
+        app.register_view::<MainView>();
+    }
+}
 
 pub struct MainView {
     dock_manager: DockManager,

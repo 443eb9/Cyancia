@@ -1,13 +1,10 @@
 [package]
-name = "lapiz_app"
+name = "lapiz_main_view"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-
-[lib]
-crate-type = ["cdylib"]
 
 [dependencies]
 anyhow.workspace = true
@@ -41,7 +38,6 @@ lapiz_image.workspace = true
 lapiz_image_exporter.workspace = true
 lapiz_image_importer.workspace = true
 lapiz_input.workspace = true
-lapiz_main_view.workspace = true
 lapiz_render.workspace = true
 lapiz_report.workspace = true
 lapiz_runtime.workspace = true
@@ -60,12 +56,6 @@ toml.workspace = true
 tracing-subscriber.workspace = true
 unic-langid.workspace = true
 wgpu.workspace = true
-
-[build-dependencies]
-fs_extra.workspace = true
-
-[target.'cfg(target_os = "android")'.dependencies]
-winit = { workspace = true, features = ["android-native-activity"] }
 
 [lints]
 workspace = true

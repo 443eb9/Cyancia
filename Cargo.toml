@@ -28,6 +28,7 @@ members = [
     "crates/lapiz_image_importer",
     "crates/lapiz_input",
     "crates/lapiz_lazuli",
+    "crates/lapiz_main_view",
     "crates/lapiz_math",
     "crates/lapiz_render",
     "crates/lapiz_report",
@@ -81,6 +82,7 @@ lapiz_image_exporter = { path = "crates/lapiz_image_exporter", version = "0.1.0"
 lapiz_image_importer = { path = "crates/lapiz_image_importer", version = "0.1.0" }
 lapiz_input = { path = "crates/lapiz_input", version = "0.1.0" }
 lapiz_lazuli = { path = "crates/lapiz_lazuli", version = "0.1.0" }
+lapiz_main_view = { path = "crates/lapiz_main_view", version = "0.1.0" }
 lapiz_math = { path = "crates/lapiz_math", version = "0.1.0" }
 lapiz_render = { path = "crates/lapiz_render", version = "0.1.0" }
 lapiz_report = { path = "crates/lapiz_report", version = "0.1.0" }

@@ -8,9 +8,12 @@ use iced_core::{Element, Length, Widget, window};
 use iced_futures::{Subscription, backend::native, event::listen_with};
 use iced_runtime::{Task, window::raw_id};
 use iced_winit::program::Program;
+#[cfg(target_os = "android")]
+use winit::platform::android::activity::AndroidApp;
 
 use crate::{
     plugin::Plugin,
+    renderer::global_render_context,
     service::{FromServices, Service},
     windows::{WindowCommandBuffer, WindowView, WindowViewManager, WindowViewManagerMessage},
 };
@@ -45,6 +48,23 @@ pub struct Application {
 }
 
 impl Application {
+    pub fn new(#[cfg(target_os = "android")] android_app: AndroidApp) -> Self {
+        let mut runtime = Runtime::default();
+        runtime
+            .add_service_instance(global_render_context())
+            .add_service::<WindowCommandBuffer>()
+            .add_service_instance(ApplicationTheme(Theme::Dark));
+
+        #[cfg(target_os = "android")]
+        runtime.add_service_instance(android::AndroidApp::new(android_app.clone()));
+
+        Self {
+            state: ApplicationState::Adding,
+            runtime: RefCell::new(runtime),
+            plugins: VecDeque::new(),
+        }
+    }
+
     pub fn add_plugin<P: Plugin>(&mut self, plugin: P) -> &mut Self {
         if !matches!(self.state, ApplicationState::Adding) {
             panic!("Plugins can only be added in the Adding state");
@@ -92,18 +112,6 @@ impl Application {
 
         #[cfg(not(target_os = "android"))]
         iced_winit::run(self)
-    }
-}
-
-impl Default for Application {
-    fn default() -> Self {
-        let mut runtime = Runtime::default();
-        runtime.add_service_instance(ApplicationTheme(Theme::Dark));
-        Self {
-            state: ApplicationState::Adding,
-            runtime: RefCell::new(runtime),
-            plugins: VecDeque::new(),
-        }
     }
 }
 
