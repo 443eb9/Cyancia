@@ -1,5 +1,6 @@
 use std::io::{self, Cursor, Read, Write};
 
+use anyhow::Result;
 use indexmap::IndexMap;
 use lapiz_assets::{asset::Asset, loader::AssetSerializer};
 use lapiz_effect::asset::{
@@ -60,13 +61,11 @@ pub enum BrushPresetSerializerError {
 impl AssetSerializer for BrushPresetSerializer {
     type Asset = BrushPreset;
 
-    type Error = BrushPresetSerializerError;
-
     fn file_extension() -> &'static str {
         "lapiz"
     }
 
-    fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset, Self::Error> {
+    fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf)?;
         let mut archive = ZipArchive::new(Cursor::new(buf.as_slice()))?;
@@ -77,12 +76,10 @@ impl AssetSerializer for BrushPresetSerializer {
             .read_to_string(&mut brush_buffer)?;
         let brush_toml = toml::from_str::<BrushToml>(&brush_buffer)?;
 
-        let mut read_effect = |name: &str| {
+        let mut read_effect = |name: &str| -> Result<EffectAsset> {
             let mut buffer = String::new();
             archive.by_name(name)?.read_to_string(&mut buffer)?;
-            Result::<_, BrushPresetSerializerError>::Ok(
-                EffectAssetSerializer.read(&mut Cursor::new(buffer))?,
-            )
+            EffectAssetSerializer.read(&mut Cursor::new(buffer))
         };
 
         let spacing_effect = read_effect("spacing.lef")?;
@@ -111,7 +108,7 @@ impl AssetSerializer for BrushPresetSerializer {
         })
     }
 
-    fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<(), Self::Error> {
+    fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<()> {
         let mut buf = Vec::new();
         {
             let mut zip = ZipWriter::new(Cursor::new(&mut buf));

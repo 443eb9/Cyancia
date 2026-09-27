@@ -7,6 +7,7 @@ use std::{
     sync::Arc,
 };
 
+use anyhow::{Result, anyhow, bail};
 use chrono::{DateTime, Utc};
 use downcast_rs::DowncastSync;
 use lapiz_utils::wrapper;
@@ -17,7 +18,6 @@ use uuid::Uuid;
 
 use crate::{
     bundle::{AssetBundleCache, BundleId},
-    error::{AssetErrorKind, AssetResult},
     index_db::AssetIndexDb,
     tag::TagId,
 };
@@ -200,7 +200,7 @@ impl<T: Asset> AssetHandle<T> {
         self.bundle.as_ref()
     }
 
-    pub fn get(&self) -> AssetResult<Arc<T>> {
+    pub fn get(&self) -> Result<Arc<T>> {
         let dynamic = match self.bundle.get_cached_asset(&self.untyped_id()) {
             Ok(cached) => cached,
             Err(_) => {
@@ -210,12 +210,15 @@ impl<T: Asset> AssetHandle<T> {
             }
         };
 
-        Ok(dynamic
-            .downcast_arc::<T>()
-            .map_err(|_| AssetErrorKind::CastAssetError(T::TYPE_NAME.to_string()))?)
+        dynamic.downcast_arc::<T>().map_err(|_| {
+            anyhow!(
+                "Failed to downcast asset into desired type: {}",
+                T::TYPE_NAME
+            )
+        })
     }
 
-    pub fn update(&self, asset: T) -> AssetResult<()> {
+    pub fn update(&self, asset: T) -> Result<()> {
         self.bundle
             .update_asset(self.untyped_id(), Arc::new(asset))?;
         self.index_db.update_asset(&self.untyped_id())?;
@@ -223,7 +226,7 @@ impl<T: Asset> AssetHandle<T> {
         Ok(())
     }
 
-    pub fn write(&self) -> AssetResult<()> {
+    pub fn write(&self) -> Result<()> {
         let metadata = self.metadata()?;
         if !metadata.in_memory {
             return Ok(());
@@ -241,26 +244,22 @@ impl<T: Asset> AssetHandle<T> {
         Ok(())
     }
 
-    pub fn delete(&self) -> AssetResult<()> {
+    pub fn delete(&self) -> Result<()> {
         let id = self.untyped_id();
         self.bundle.delete_cached_asset(&id)?;
         self.index_db.delete_asset(&id)?;
         Ok(())
     }
 
-    pub fn read_tags(&self) -> AssetResult<BTreeSet<TagId>> {
+    pub fn read_tags(&self) -> Result<BTreeSet<TagId>> {
         Ok(self.bundle.read_asset_tags(&self.untyped_id())?.tags)
     }
 
-    pub fn add_tag(&self, tag_id: &TagId) -> AssetResult<()> {
+    pub fn add_tag(&self, tag_id: &TagId) -> Result<()> {
         let asset_id = self.untyped_id();
         let mut tags = self.read_tags()?;
         if !tags.insert(*tag_id) {
-            return Err(AssetErrorKind::TagAlreadyAssigned {
-                asset_id,
-                tag_id: *tag_id,
-            }
-            .into());
+            bail!("Tag {tag_id} is already assigned to asset {asset_id}");
         }
 
         let tags = tags.into_iter().collect::<Vec<_>>();
@@ -268,15 +267,11 @@ impl<T: Asset> AssetHandle<T> {
         self.index_db.add_tag_to_asset(&asset_id, tag_id)
     }
 
-    pub fn remove_tag(&self, tag_id: &TagId) -> AssetResult<()> {
+    pub fn remove_tag(&self, tag_id: &TagId) -> Result<()> {
         let asset_id = self.untyped_id();
         let mut tags = self.read_tags()?;
         if !tags.remove(tag_id) {
-            return Err(AssetErrorKind::TagNotAssigned {
-                asset_id,
-                tag_id: *tag_id,
-            }
-            .into());
+            bail!("Tag {tag_id} is not assigned to asset {asset_id}");
         }
 
         let tags = tags.into_iter().collect::<Vec<_>>();
@@ -284,7 +279,7 @@ impl<T: Asset> AssetHandle<T> {
         self.index_db.remove_tag_from_asset(&asset_id, tag_id)
     }
 
-    pub fn metadata(&self) -> AssetResult<AssetMetadata> {
+    pub fn metadata(&self) -> Result<AssetMetadata> {
         self.index_db.get_asset(&self.untyped_id())
     }
 }

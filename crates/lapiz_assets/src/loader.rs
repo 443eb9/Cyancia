@@ -1,17 +1,16 @@
 use std::{
     collections::{HashMap, HashSet},
-    error::Error,
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
+use anyhow::{Result, anyhow};
 use lapiz_runtime::global::Global;
 
 use crate::{
     asset::{Asset, ErasedAsset},
     bundle::ErasedAssetBundle,
-    error::{AssetErrorKind, AssetResult},
     store::AssetRegistry,
 };
 
@@ -42,7 +41,7 @@ impl AssetRegistryBuilder {
         self.try_build().unwrap()
     }
 
-    pub fn try_build(self) -> AssetResult<AssetRegistry> {
+    pub fn try_build(self) -> Result<AssetRegistry> {
         let mut serializers = AssetSerializerRegistry::default();
         for (ext, loader) in self.serializers {
             serializers.serializers.insert(ext, Arc::from(loader));
@@ -72,41 +71,29 @@ impl AssetSerializerRegistry {
         self.serializers.get(ext).cloned()
     }
 
-    pub fn get_for_path(
-        &self,
-        path: impl AsRef<Path>,
-    ) -> AssetResult<Arc<dyn ErasedAssetSerializer>> {
+    pub fn get_for_path(&self, path: impl AsRef<Path>) -> Result<Arc<dyn ErasedAssetSerializer>> {
         let path = path.as_ref();
         let ext = path
             .extension()
             .and_then(|e| e.to_str())
-            .ok_or_else(|| AssetErrorKind::MissingExtension(path.to_path_buf()))?;
-        Ok(self
-            .get(ext)
-            .ok_or_else(|| AssetErrorKind::SerializerNotFound(ext.to_string()))?)
+            .ok_or_else(|| anyhow!("Missing extension for asset path: {}", path.display()))?;
+        self.get(ext)
+            .ok_or_else(|| anyhow!("No serializer found for asset extension: {ext}"))
     }
 }
 
 pub trait AssetSerializer: Send + Sync + 'static {
     type Asset: Asset;
-    type Error: Error + Send + Sync + 'static;
     fn file_extension() -> &'static str;
-    fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset, Self::Error>;
-    fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<(), Self::Error>;
+    fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset>;
+    fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<()>;
 }
 
 pub trait ErasedAssetSerializer: Send + Sync + 'static {
     fn file_extension(&self) -> &'static str;
     fn asset_type_name(&self) -> &'static str;
-    fn read(
-        &self,
-        reader: &mut dyn Read,
-    ) -> Result<Box<dyn ErasedAsset>, Box<dyn Error + Send + Sync + 'static>>;
-    fn write(
-        &self,
-        asset: &dyn ErasedAsset,
-        writer: &mut dyn Write,
-    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>>;
+    fn read(&self, reader: &mut dyn Read) -> Result<Box<dyn ErasedAsset>>;
+    fn write(&self, asset: &dyn ErasedAsset, writer: &mut dyn Write) -> Result<()>;
 }
 
 impl<T: AssetSerializer> ErasedAssetSerializer for T {
@@ -118,33 +105,46 @@ impl<T: AssetSerializer> ErasedAssetSerializer for T {
         <<Self as AssetSerializer>::Asset>::TYPE_NAME
     }
 
-    fn read(
-        &self,
-        reader: &mut dyn Read,
-    ) -> Result<Box<dyn ErasedAsset>, Box<dyn Error + Send + Sync + 'static>> {
-        match <Self as AssetSerializer>::read(self, reader) {
-            Ok(a) => Ok(Box::new(a)),
-            Err(e) => Err(Box::new(e)),
-        }
+    fn read(&self, reader: &mut dyn Read) -> Result<Box<dyn ErasedAsset>> {
+        Ok(Box::new(<Self as AssetSerializer>::read(self, reader)?))
     }
 
-    fn write(
-        &self,
-        asset: &dyn ErasedAsset,
-        writer: &mut dyn Write,
-    ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
+    fn write(&self, asset: &dyn ErasedAsset, writer: &mut dyn Write) -> Result<()> {
         let asset = asset
             .as_any()
             .downcast_ref::<<Self as AssetSerializer>::Asset>()
             .ok_or_else(|| {
-                format!(
+                anyhow!(
                     "Asset type mismatch for serializer {}",
                     <Self as AssetSerializer>::file_extension()
                 )
             })?;
-        match <Self as AssetSerializer>::write(self, asset, writer) {
-            Ok(()) => Ok(()),
-            Err(e) => Err(Box::new(e)),
-        }
+        <Self as AssetSerializer>::write(self, asset, writer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serializer_lookup_errors_keep_path_and_extension() {
+        let registry = AssetSerializerRegistry::default();
+        assert_eq!(
+            registry
+                .get_for_path("brushes/preset")
+                .err()
+                .unwrap()
+                .to_string(),
+            "Missing extension for asset path: brushes/preset"
+        );
+        assert_eq!(
+            registry
+                .get_for_path("brushes/preset.lapiz")
+                .err()
+                .unwrap()
+                .to_string(),
+            "No serializer found for asset extension: lapiz"
+        );
     }
 }

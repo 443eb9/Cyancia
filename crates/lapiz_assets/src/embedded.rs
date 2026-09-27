@@ -1,5 +1,6 @@
 use std::{fs, io, path::Path};
 
+use anyhow::Result;
 use rust_embed::RustEmbed;
 
 #[derive(RustEmbed)]
@@ -11,7 +12,7 @@ use rust_embed::RustEmbed;
 #[include = "**/*.abr"]
 struct EmbeddedAssets;
 
-pub fn extract_if_empty(root: &Path) -> io::Result<()> {
+pub fn extract_if_empty(root: &Path) -> Result<()> {
     match fs::read_dir(root) {
         Ok(mut entries) => {
             if entries.next().is_some() {
@@ -19,7 +20,7 @@ pub fn extract_if_empty(root: &Path) -> io::Result<()> {
             }
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
+        Err(error) => return Err(error.into()),
     }
 
     fs::create_dir_all(root)?;

@@ -1,23 +1,21 @@
 use std::{
-    error::Error,
     ffi::OsStr,
     fs::{self, File, create_dir_all, metadata, read_to_string},
-    io::{self, Write as _},
+    io::Write as _,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
+use anyhow::Result;
 use chrono::DateTime;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use toml::{de, ser};
 use uuid::Uuid;
 use xxhash_rust::xxh3::xxh3_128;
 
 use crate::{
     asset::{ErasedAsset, UntypedAssetId},
     bundle::{AssetBundle, AssetBundleMetadata, BundleId, BundleManifest},
-    error::AssetResult,
     loader::ErasedAssetSerializer,
     tag::{ASSET_TAGS_EXT, AssetTags, TAG_EXT, TagFile},
 };
@@ -37,7 +35,7 @@ pub struct AssetDirectory {
 }
 
 impl AssetDirectory {
-    pub fn new(root: impl AsRef<Path>) -> AssetResult<Self> {
+    pub fn new(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref();
         let name = root
             .file_name()
@@ -68,24 +66,10 @@ impl AssetDirectory {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum DataDirectoryError {
-    #[error("IO error: {0}")]
-    Io(#[from] io::Error),
-    #[error("Serializer error: {0}")]
-    SerializerError(Box<dyn Error + Send + Sync + 'static>),
-    #[error("Toml serialization error: {0}")]
-    TomlSerError(#[from] ser::Error),
-    #[error("Toml deserialization error: {0}")]
-    TomlDeError(#[from] de::Error),
-}
-
 impl AssetBundle for AssetDirectory {
     const READONLY: bool = false;
 
-    type Error = DataDirectoryError;
-
-    fn metadata(&self) -> Result<AssetBundleMetadata, DataDirectoryError> {
+    fn metadata(&self) -> Result<AssetBundleMetadata> {
         let last_modified = DateTime::from(metadata(&self.root)?.modified()?);
 
         Ok(AssetBundleMetadata {
@@ -95,7 +79,7 @@ impl AssetBundle for AssetDirectory {
         })
     }
 
-    fn manifest(&self) -> Result<BundleManifest, DataDirectoryError> {
+    fn manifest(&self) -> Result<BundleManifest> {
         Ok(self.manifest.lock().clone())
     }
 
@@ -103,12 +87,10 @@ impl AssetBundle for AssetDirectory {
         &self,
         path: &Path,
         serializer: &dyn ErasedAssetSerializer,
-    ) -> Result<Arc<dyn ErasedAsset>, Self::Error> {
+    ) -> Result<Arc<dyn ErasedAsset>> {
         let asset_path = self.root.join(path);
         let mut file = File::open(&asset_path)?;
-        let asset = serializer
-            .read(&mut file)
-            .map_err(DataDirectoryError::SerializerError)?;
+        let asset = serializer.read(&mut file)?;
         Ok(asset.into())
     }
 
@@ -117,27 +99,25 @@ impl AssetBundle for AssetDirectory {
         path: &Path,
         asset: &dyn ErasedAsset,
         serializer: &dyn ErasedAssetSerializer,
-    ) -> Result<UntypedAssetId, DataDirectoryError> {
+    ) -> Result<UntypedAssetId> {
         let path = path_clean::clean(path);
         let asset_path = self.root.join(&path);
         if let Some(parent) = asset_path.parent() {
             fs::create_dir_all(parent)?;
         }
         let mut file = File::create(&asset_path)?;
-        serializer
-            .write(asset, &mut file)
-            .map_err(DataDirectoryError::SerializerError)?;
+        serializer.write(asset, &mut file)?;
         let asset_id = asset_id_from_relative_path(&self.id, &path);
         self.manifest.lock().assets.insert(asset_id, path);
         Ok(asset_id)
     }
 
-    fn read_tag(&self, tag: &Path) -> Result<TagFile, Self::Error> {
+    fn read_tag(&self, tag: &Path) -> Result<TagFile> {
         let path = self.root.join(tag);
         Ok(toml::from_str(&read_to_string(path)?)?)
     }
 
-    fn add_tag(&self, path: &Path, tag: &TagFile) -> Result<(), Self::Error> {
+    fn add_tag(&self, path: &Path, tag: &TagFile) -> Result<()> {
         let path = path_clean::clean(path);
         let tag_path = self.root.join(&path);
         if let Some(parent) = tag_path.parent() {
@@ -150,7 +130,7 @@ impl AssetBundle for AssetDirectory {
         Ok(())
     }
 
-    fn read_asset_tags(&self, path: &Path) -> Result<Option<AssetTags>, Self::Error> {
+    fn read_asset_tags(&self, path: &Path) -> Result<Option<AssetTags>> {
         let path = self.root.join(path).with_added_extension(ASSET_TAGS_EXT);
         if !path.exists() {
             return Ok(None);
@@ -159,7 +139,7 @@ impl AssetBundle for AssetDirectory {
         Ok(Some(toml::from_str(&read_to_string(path)?)?))
     }
 
-    fn write_asset_tags(&self, path: &Path, tags: &AssetTags) -> Result<(), Self::Error> {
+    fn write_asset_tags(&self, path: &Path, tags: &AssetTags) -> Result<()> {
         let path = self.root.join(path).with_added_extension(ASSET_TAGS_EXT);
         if let Some(parent) = path.parent() {
             create_dir_all(parent)?;
@@ -174,7 +154,7 @@ fn scan_dir_dfs(
     root: &Path,
     bundle_id: &BundleId,
     manifest: &mut BundleManifest,
-) -> AssetResult<()> {
+) -> Result<()> {
     let entries = fs::read_dir(current_path)?;
     for entry in entries {
         let Ok(entry) = entry else {
@@ -224,7 +204,7 @@ fn asset_id_from_relative_path(bundle_id: &BundleId, path: &Path) -> UntypedAsse
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeSet, env, error::Error, fs};
+    use std::{collections::BTreeSet, env, fs};
 
     use super::*;
     use crate::tag::TagId;
@@ -244,7 +224,7 @@ mod tests {
     }
 
     #[test]
-    fn asset_tags_are_read_written_and_overwritten() -> Result<(), Box<dyn Error>> {
+    fn asset_tags_are_read_written_and_overwritten() -> Result<()> {
         let root = env::temp_dir().join(format!("lapiz-asset-tags-{}", Uuid::new_v4()));
         fs::create_dir_all(&root)?;
         let bundle = AssetDirectory::new(&root)?;

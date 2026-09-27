@@ -7,6 +7,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+anyhow.workspace = true
 chrono.workspace = true
 dashmap.workspace = true
 downcast-rs.workspace = true
@@ -21,7 +22,6 @@ path-clean.workspace = true
 rusqlite.workspace = true
 rust-embed = { workspace = true, features = ["include-exclude"] }
 serde.workspace = true
-thiserror.workspace = true
 toml.workspace = true
 uuid.workspace = true
 xxhash-rust.workspace = true

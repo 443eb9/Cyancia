@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use anyhow::{Result, anyhow};
 use chrono::Utc;
 use dashmap::DashMap;
 use lapiz_runtime::global::Global;
@@ -15,7 +16,6 @@ use crate::{
         AssetBundle, AssetBundleCache, BundleId, BundleManifest, BundleSnapshot, ErasedAssetBundle,
         read_asset_tags_file, read_tag_file, scan_bundle_assets,
     },
-    error::{AssetErrorKind, AssetResult},
     index_db::{AssetFilter, AssetIndexDb, TagFilter, UntypedAssetFilter},
     loader::AssetSerializerRegistry,
     tag::{AssetTags, Tag, TagId},
@@ -36,10 +36,7 @@ pub struct AssetRegistryInner {
 }
 
 impl AssetRegistry {
-    pub fn new(
-        root: impl AsRef<Path>,
-        serializers: Arc<AssetSerializerRegistry>,
-    ) -> AssetResult<Self> {
+    pub fn new(root: impl AsRef<Path>, serializers: Arc<AssetSerializerRegistry>) -> Result<Self> {
         let root = root.as_ref();
         let index_db = AssetIndexDb::connect(root.join("index.sqlite3"))?;
 
@@ -77,12 +74,12 @@ impl AssetRegistry {
         bundle_id: BundleId,
         path: impl AsRef<Path>,
         asset: Arc<T>,
-    ) -> AssetResult<AssetId<T>> {
+    ) -> Result<AssetId<T>> {
         let bundle = self
             .inner
             .bundles
             .get(&bundle_id)
-            .ok_or_else(|| AssetErrorKind::BundleNotFound(bundle_id))?
+            .ok_or_else(|| anyhow!("Asset bundle not found for bundle ID: {bundle_id}"))?
             .clone();
         let asset_id = bundle.add_asset(&path, asset.clone())?;
         self.inner.index_db.add_asset(&AssetMetadata {
@@ -102,11 +99,11 @@ impl AssetRegistry {
     pub fn add_erased_bundles(
         &self,
         bundles: impl IntoIterator<Item = Arc<dyn ErasedAssetBundle>>,
-    ) -> AssetResult<()> {
+    ) -> Result<()> {
         let snapshots = bundles
             .into_iter()
             .map(|bundle| self.scan_bundle(bundle))
-            .collect::<AssetResult<Vec<_>>>()?;
+            .collect::<Result<Vec<_>>>()?;
         if snapshots.is_empty() {
             return Ok(());
         }
@@ -126,9 +123,9 @@ impl AssetRegistry {
         Ok(())
     }
 
-    fn scan_bundle(&self, bundle: Arc<dyn ErasedAssetBundle>) -> AssetResult<BundleSnapshot> {
-        let metadata = bundle.metadata().map_err(AssetErrorKind::BundleError)?;
-        let manifest = bundle.manifest().map_err(AssetErrorKind::BundleError)?;
+    fn scan_bundle(&self, bundle: Arc<dyn ErasedAssetBundle>) -> Result<BundleSnapshot> {
+        let metadata = bundle.metadata()?;
+        let manifest = bundle.manifest()?;
         let assets = scan_bundle_assets(
             &self.inner.root,
             metadata.clone(),
@@ -154,11 +151,11 @@ impl AssetRegistry {
         })
     }
 
-    pub fn add_bundle<B: AssetBundle>(&self, bundle: B) -> AssetResult<()> {
+    pub fn add_bundle<B: AssetBundle>(&self, bundle: B) -> Result<()> {
         self.add_erased_bundles([Arc::new(bundle) as _])
     }
 
-    pub fn handle<T: Asset>(&self, asset_id: AssetId<T>) -> AssetResult<AssetHandle<T>> {
+    pub fn handle<T: Asset>(&self, asset_id: AssetId<T>) -> Result<AssetHandle<T>> {
         let bundle_id = self
             .inner
             .index_db
@@ -168,7 +165,7 @@ impl AssetRegistry {
             .inner
             .bundles
             .get(&bundle_id)
-            .ok_or_else(|| AssetErrorKind::BundleNotFound(bundle_id))?
+            .ok_or_else(|| anyhow!("Asset bundle not found for bundle ID: {bundle_id}"))?
             .clone();
 
         Ok(AssetHandle::new(
@@ -178,7 +175,7 @@ impl AssetRegistry {
         ))
     }
 
-    pub fn all_handles_of<T: Asset>(&self) -> AssetResult<Vec<AssetHandle<T>>> {
+    pub fn all_handles_of<T: Asset>(&self) -> Result<Vec<AssetHandle<T>>> {
         Ok(
             self.metadata_to_handles(self.inner.index_db.get_assets(UntypedAssetFilter {
                 ty: Some(T::TYPE_NAME.to_string()),
@@ -190,31 +187,31 @@ impl AssetRegistry {
     pub fn all_handles_of_filtered<T: Asset>(
         &self,
         filter: AssetFilter<T>,
-    ) -> AssetResult<Vec<AssetHandle<T>>> {
+    ) -> Result<Vec<AssetHandle<T>>> {
         Ok(self.metadata_to_handles(self.inner.index_db.get_assets(filter.into_untyped())?))
     }
 
-    pub fn all_tags(&self) -> AssetResult<Vec<Tag>> {
+    pub fn all_tags(&self) -> Result<Vec<Tag>> {
         self.inner.index_db.get_tags(TagFilter::default())
     }
 
-    pub fn all_tags_of<T: Asset>(&self) -> AssetResult<Vec<Tag>> {
+    pub fn all_tags_of<T: Asset>(&self) -> Result<Vec<Tag>> {
         self.inner.index_db.get_tags(TagFilter {
             asset_ty: Some(Some(T::TYPE_NAME.to_string())),
             ..Default::default()
         })
     }
 
-    pub fn all_tags_filtered(&self, filter: TagFilter) -> AssetResult<Vec<Tag>> {
+    pub fn all_tags_filtered(&self, filter: TagFilter) -> Result<Vec<Tag>> {
         self.inner.index_db.get_tags(filter)
     }
 
-    pub fn add_tag(&self, mut tag: Tag) -> AssetResult<()> {
+    pub fn add_tag(&self, mut tag: Tag) -> Result<()> {
         let bundle = self
             .inner
             .bundles
             .get(&tag.bundle_id)
-            .ok_or_else(|| AssetErrorKind::BundleNotFound(tag.bundle_id))?
+            .ok_or_else(|| anyhow!("Asset bundle not found for bundle ID: {}", tag.bundle_id))?
             .clone();
         tag.relative_path = PathBuf::from(&tag.relative_path)
             .clean()
@@ -224,7 +221,7 @@ impl AssetRegistry {
         self.inner.index_db.add_tag(tag)
     }
 
-    pub fn delete_tag(&self, tag_id: &TagId) -> AssetResult<()> {
+    pub fn delete_tag(&self, tag_id: &TagId) -> Result<()> {
         self.inner.index_db.delete_tag(tag_id)
     }
 
@@ -250,7 +247,7 @@ fn scan_tags(
     bundle: &dyn ErasedAssetBundle,
     manifest: &BundleManifest,
     bundle_id: BundleId,
-) -> AssetResult<Vec<Tag>> {
+) -> Result<Vec<Tag>> {
     manifest
         .tags
         .values()
@@ -273,14 +270,14 @@ fn scan_asset_tags(
     bundle: &dyn ErasedAssetBundle,
     manifest: &BundleManifest,
     assets: &[AssetMetadata],
-) -> AssetResult<HashMap<UntypedAssetId, AssetTags>> {
+) -> Result<HashMap<UntypedAssetId, AssetTags>> {
     let mut asset_tags = HashMap::new();
 
     for asset in assets {
         let asset_path = manifest
             .assets
             .get(&asset.asset_id)
-            .ok_or_else(|| AssetErrorKind::AssetPathNotFound(asset.asset_id))?;
+            .ok_or_else(|| anyhow!("Asset path not found for asset ID: {}", asset.asset_id))?;
         let tags = read_asset_tags_file(assets_root, asset_path, bundle_id, bundle)?;
         asset_tags.insert(asset.asset_id, tags.unwrap_or_default());
     }
@@ -320,13 +317,12 @@ mod tests {
 
     impl AssetSerializer for TestAssetSerializer {
         type Asset = TestAsset;
-        type Error = io::Error;
 
         fn file_extension() -> &'static str {
             "storetest"
         }
 
-        fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset, Self::Error> {
+        fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset> {
             let mut value = String::new();
             reader.read_to_string(&mut value)?;
             Ok(TestAsset {
@@ -334,13 +330,14 @@ mod tests {
             })
         }
 
-        fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<(), Self::Error> {
-            write!(writer, "{}", asset.value)
+        fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<()> {
+            write!(writer, "{}", asset.value)?;
+            Ok(())
         }
     }
 
     #[test]
-    fn batch_sync_resolves_cross_bundle_tags_independent_of_order() -> AssetResult<()> {
+    fn batch_sync_resolves_cross_bundle_tags_independent_of_order() -> Result<()> {
         let root = temp_root("cross-bundle");
         let assets_root = root.join("assets-bundle");
         let tags_root = root.join("tags-bundle");
@@ -361,13 +358,9 @@ mod tests {
         fs::write(tags_root.join("test.tag"), toml::to_string(&tag)?)?;
 
         let assets_bundle = AssetDirectory::new(&assets_root)?;
-        let assets_bundle_id = AssetBundle::metadata(&assets_bundle)
-            .map_err(|error| AssetErrorKind::BundleError(Box::new(error)))?
-            .bundle_id;
+        let assets_bundle_id = AssetBundle::metadata(&assets_bundle)?.bundle_id;
         let tags_bundle = AssetDirectory::new(&tags_root)?;
-        let tags_bundle_id = AssetBundle::metadata(&tags_bundle)
-            .map_err(|error| AssetErrorKind::BundleError(Box::new(error)))?
-            .bundle_id;
+        let tags_bundle_id = AssetBundle::metadata(&tags_bundle)?.bundle_id;
         let mut builder = registry_builder(&root);
         builder.add_bundle(Arc::new(assets_bundle));
         builder.add_bundle(Arc::new(tags_bundle));
@@ -423,7 +416,7 @@ mod tests {
     }
 
     #[test]
-    fn bundle_sync_removes_tags_missing_from_disk() -> AssetResult<()> {
+    fn bundle_sync_removes_tags_missing_from_disk() -> Result<()> {
         let root = temp_root("missing-tag-sync");
         let bundle_root = root.join("tag-bundle");
         fs::create_dir_all(&bundle_root)?;
@@ -451,7 +444,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_tag_ids_across_bundles_are_rejected() -> AssetResult<()> {
+    fn duplicate_tag_ids_across_bundles_are_rejected() -> Result<()> {
         let root = temp_root("duplicate-tag-id");
         let first_root = root.join("first-tags");
         let second_root = root.join("second-tags");
@@ -472,16 +465,14 @@ mod tests {
     }
 
     #[test]
-    fn startup_removes_tags_from_unloaded_bundles() -> AssetResult<()> {
+    fn startup_removes_tags_from_unloaded_bundles() -> Result<()> {
         let root = temp_root("unloaded-tag-bundle");
         let bundle_root = root.join("tag-bundle");
         fs::create_dir_all(&bundle_root)?;
         let tag = TagFile::new("Unloaded tag".to_string(), None);
         fs::write(bundle_root.join("unloaded.tag"), toml::to_string(&tag)?)?;
         let bundle = AssetDirectory::new(&bundle_root)?;
-        let bundle_id = AssetBundle::metadata(&bundle)
-            .map_err(|error| AssetErrorKind::BundleError(Box::new(error)))?
-            .bundle_id;
+        let bundle_id = AssetBundle::metadata(&bundle)?.bundle_id;
 
         let mut builder = registry_builder(&root);
         builder.add_bundle(Arc::new(bundle));
@@ -499,7 +490,7 @@ mod tests {
     }
 
     #[test]
-    fn bundle_sync_does_not_restore_deleted_assets() -> AssetResult<()> {
+    fn bundle_sync_does_not_restore_deleted_assets() -> Result<()> {
         let root = temp_root("deleted-asset-sync");
         let bundle_root = root.join("asset-bundle");
         fs::create_dir_all(&bundle_root)?;
@@ -531,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn bundle_sync_keeps_active_assets_and_removes_missing_assets() -> AssetResult<()> {
+    fn bundle_sync_keeps_active_assets_and_removes_missing_assets() -> Result<()> {
         let root = temp_root("missing-asset-sync");
         let bundle_root = root.join("asset-bundle");
         fs::create_dir_all(&bundle_root)?;
@@ -565,15 +556,13 @@ mod tests {
     }
 
     #[test]
-    fn corrupt_sidecar_does_not_advance_bundle_metadata() -> AssetResult<()> {
+    fn corrupt_sidecar_does_not_advance_bundle_metadata() -> Result<()> {
         let root = temp_root("corrupt-sidecar");
         let bundle_root = root.join("asset-bundle");
         fs::create_dir_all(&bundle_root)?;
         fs::write(bundle_root.join("sample.storetest"), "9")?;
         let bundle = AssetDirectory::new(&bundle_root)?;
-        let bundle_id = AssetBundle::metadata(&bundle)
-            .map_err(|error| AssetErrorKind::BundleError(Box::new(error)))?
-            .bundle_id;
+        let bundle_id = AssetBundle::metadata(&bundle)?.bundle_id;
 
         let mut builder = registry_builder(&root);
         builder.add_bundle(Arc::new(bundle));

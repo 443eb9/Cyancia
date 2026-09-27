@@ -1,15 +1,14 @@
 use std::{
-    error::Error,
     fs::{self, File, metadata},
-    io::{self, Cursor, Read as _, read_to_string},
+    io::{Cursor, Read as _, read_to_string},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
+use anyhow::{Error, Result, bail};
 use chrono::DateTime;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use toml::de;
 use zip::{ZipArchive, result::ZipError};
 
 use crate::{
@@ -25,7 +24,7 @@ pub struct StandardAssetBundle {
 }
 
 impl StandardAssetBundle {
-    pub fn new(path: impl AsRef<Path>) -> Result<Self, StandardAssetBundleError> {
+    pub fn new(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         let archive = ZipArchive::new(File::open(&path)?)?;
 
@@ -35,7 +34,7 @@ impl StandardAssetBundle {
         })
     }
 
-    pub fn scan_bundles(root: impl AsRef<Path>) -> (Vec<Self>, Vec<StandardAssetBundleError>) {
+    pub fn scan_bundles(root: impl AsRef<Path>) -> (Vec<Self>, Vec<Error>) {
         let mut bundles = Vec::new();
         let mut errors = Vec::new();
         scan_bundles(root, &mut bundles, &mut errors);
@@ -50,12 +49,12 @@ impl StandardAssetBundle {
 fn scan_bundles(
     root: impl AsRef<Path>,
     bundles: &mut Vec<StandardAssetBundle>,
-    errors: &mut Vec<StandardAssetBundleError>,
+    errors: &mut Vec<Error>,
 ) {
     let entries = match fs::read_dir(root) {
         Ok(entries) => entries,
         Err(e) => {
-            errors.push(StandardAssetBundleError::Io(e));
+            errors.push(e.into());
             return;
         }
     };
@@ -80,22 +79,6 @@ fn scan_bundles(
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum StandardAssetBundleError {
-    #[error("Unsupported writing to standard asset bundle")]
-    UnsupportedWriting,
-    #[error("IO error: {0}")]
-    Io(#[from] io::Error),
-    #[error("Zip error: {0}")]
-    Zip(#[from] ZipError),
-    #[error("Missing serializer for extension: {0}")]
-    MissingSerializer(String),
-    #[error("Serializer error: {0}")]
-    SerializerError(Box<dyn Error + Send + Sync + 'static>),
-    #[error("Toml error: {0}")]
-    TomlError(#[from] de::Error),
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct StandardAssetBundleMetadata {
     pub bundle_id: BundleId,
@@ -105,9 +88,7 @@ pub struct StandardAssetBundleMetadata {
 impl AssetBundle for StandardAssetBundle {
     const READONLY: bool = true;
 
-    type Error = StandardAssetBundleError;
-
-    fn metadata(&self) -> Result<AssetBundleMetadata, Self::Error> {
+    fn metadata(&self) -> Result<AssetBundleMetadata> {
         let mut archive = self.archive.write();
         let content = read_to_string(archive.by_name("metadata.toml")?)?;
         let bundle_meta = toml::from_str::<StandardAssetBundleMetadata>(&content)?;
@@ -120,7 +101,7 @@ impl AssetBundle for StandardAssetBundle {
         })
     }
 
-    fn manifest(&self) -> Result<BundleManifest, Self::Error> {
+    fn manifest(&self) -> Result<BundleManifest> {
         let mut archive = self.archive.write();
         let content = read_to_string(archive.by_name("manifest.toml")?)?;
         Ok(toml::from_str(&content)?)
@@ -130,14 +111,12 @@ impl AssetBundle for StandardAssetBundle {
         &self,
         path: &Path,
         serializer: &dyn ErasedAssetSerializer,
-    ) -> Result<Arc<dyn ErasedAsset>, Self::Error> {
+    ) -> Result<Arc<dyn ErasedAsset>> {
         let mut archive = self.archive.write();
         let mut file = archive.by_name(path.to_str().unwrap_or_default())?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
-        let asset = serializer
-            .read(&mut Cursor::new(buffer))
-            .map_err(StandardAssetBundleError::SerializerError)?;
+        let asset = serializer.read(&mut Cursor::new(buffer))?;
         Ok(asset.into())
     }
 
@@ -146,22 +125,22 @@ impl AssetBundle for StandardAssetBundle {
         _: &Path,
         _: &dyn ErasedAsset,
         _: &dyn ErasedAssetSerializer,
-    ) -> Result<UntypedAssetId, StandardAssetBundleError> {
-        Err(StandardAssetBundleError::UnsupportedWriting)
+    ) -> Result<UntypedAssetId> {
+        bail!("Unsupported writing to standard asset bundle")
     }
 
-    fn read_tag(&self, tag: &Path) -> Result<TagFile, Self::Error> {
+    fn read_tag(&self, tag: &Path) -> Result<TagFile> {
         let path = tag.to_string_lossy().replace('\\', "/");
         let mut archive = self.archive.write();
         let mut file = archive.by_name(&path)?;
         Ok(toml::from_str(&read_to_string(&mut file)?)?)
     }
 
-    fn add_tag(&self, _: &Path, _: &TagFile) -> Result<(), Self::Error> {
-        Err(StandardAssetBundleError::UnsupportedWriting)
+    fn add_tag(&self, _: &Path, _: &TagFile) -> Result<()> {
+        bail!("Unsupported writing to standard asset bundle")
     }
 
-    fn read_asset_tags(&self, path: &Path) -> Result<Option<AssetTags>, Self::Error> {
+    fn read_asset_tags(&self, path: &Path) -> Result<Option<AssetTags>> {
         let path = path
             .with_added_extension(ASSET_TAGS_EXT)
             .to_string_lossy()
@@ -176,7 +155,7 @@ impl AssetBundle for StandardAssetBundle {
         Ok(Some(toml::from_str(&content)?))
     }
 
-    fn write_asset_tags(&self, _: &Path, _: &AssetTags) -> Result<(), Self::Error> {
-        Err(StandardAssetBundleError::UnsupportedWriting)
+    fn write_asset_tags(&self, _: &Path, _: &AssetTags) -> Result<()> {
+        bail!("Unsupported writing to standard asset bundle")
     }
 }
