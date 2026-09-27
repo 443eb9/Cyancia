@@ -1,6 +1,3 @@
-//! Built-in assets embedded in the binary and extracted to the user's assets
-//! directory when it is still empty.
-
 use std::{fs, io, path::Path};
 
 use rust_embed::RustEmbed;

@@ -286,7 +286,7 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabbedViewWidget<'
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        let layouts: Vec<_> = layout.children().collect();
+        let layouts = layout.children().collect::<Vec<_>>();
         self.children[0].as_widget_mut().update(
             &mut tree.children[0],
             event,
@@ -319,7 +319,7 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabbedViewWidget<'
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        let layouts: Vec<_> = layout.children().collect();
+        let layouts = layout.children().collect::<Vec<_>>();
         let row = self.children[0].as_widget().mouse_interaction(
             &tree.children[0],
             layouts[0],
@@ -351,7 +351,7 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabbedViewWidget<'
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        let layouts: Vec<_> = layout.children().collect();
+        let layouts = layout.children().collect::<Vec<_>>();
         self.children[0].as_widget().draw(
             &tree.children[0],
             renderer,
@@ -379,7 +379,7 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabbedViewWidget<'
         renderer: &Renderer,
         operation: &mut dyn widget::Operation,
     ) {
-        let layouts: Vec<_> = layout.children().collect();
+        let layouts = layout.children().collect::<Vec<_>>();
         let page_index = self.selected + 1;
         for index in [0, page_index] {
             let (Some(child), Some(state), Some(layout)) = (

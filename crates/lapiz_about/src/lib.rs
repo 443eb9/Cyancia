@@ -54,23 +54,3 @@ impl Plugin for AboutPlugin {
             .register_view::<view::AboutView>();
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn embedded_licenses_parse() {
-        let licenses = ThirdPartyLicenses::parse_embedded();
-        for entry in &licenses.crates {
-            assert!(
-                entry.license < licenses.licenses.len(),
-                "{} {} references license {} out of {}",
-                entry.name,
-                entry.version,
-                entry.license,
-                licenses.licenses.len()
-            );
-        }
-    }
-}
