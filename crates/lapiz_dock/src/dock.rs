@@ -9,11 +9,7 @@ use iced_runtime::Task;
 use lapiz_i18n::t;
 use lapiz_runtime::{Renderer, Services};
 use lapiz_utils::wrapper;
-use lapiz_widgets::{
-    column, context_menu, menu,
-    menu::{ContextMenu, Menu},
-    pane_grid, space, stack,
-};
+use lapiz_widgets::{column, context_menu, menu, pane_grid, space, stack};
 use parse_display::Display;
 use serde::Serialize;
 

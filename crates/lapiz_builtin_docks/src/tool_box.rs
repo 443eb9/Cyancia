@@ -11,11 +11,11 @@ use lapiz_tools::{
 };
 use lapiz_widgets::{
     button,
-    button::{Button, Status, Style},
+    button::{Status, Style},
     divider::Divider,
     flex::Flex,
     icon, label, row, scrollable, svg, tooltip,
-    tooltip::{Position, Tooltip},
+    tooltip::Position,
 };
 
 pub static TOOL_BOX_DOCK_ID: LazyLock<DockId> =

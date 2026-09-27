@@ -29,11 +29,8 @@ use lapiz_math::curve::CubicCurve;
 use lapiz_shader_graph_derive::stateless;
 use lapiz_utils::{random_oklch_hue_chroma, wrapper};
 use lapiz_widgets::{
-    button, column, combo_box, container, curve_edit,
-    flex::Flex,
-    fluent_builder::When as _,
-    label, popover, row, tag, text_editor, text_input,
-    text_input::{TextInput, default},
+    button, column, combo_box, container, curve_edit, flex::Flex, fluent_builder::When as _, label,
+    popover, row, text_editor, text_input, text_input::default,
 };
 use parking_lot::Mutex;
 use parse_display::Display;

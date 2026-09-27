@@ -25,13 +25,8 @@ use lapiz_image::{
 };
 use lapiz_widgets::{
     button, checkbox, column, combo_box, container, context_menu, drag_drop_column,
-    drag_drop_column::{DragDropColumn, DragDropInfo},
-    flex::Flex,
-    icon, label, menu,
-    menu::{ContextMenu, Menu},
-    panel, row, space,
-    spin_slider::SpinSlider,
-    stack, text_input,
+    drag_drop_column::DragDropInfo, flex::Flex, icon, label, menu, panel, row, space,
+    spin_slider::SpinSlider, stack, text_input,
 };
 
 use crate::{CCanvas, command::LayerPropertyChangeCommand};
@@ -432,26 +427,22 @@ impl<'a, Message: Clone + 'a> From<LayerStackView<'a, Message>>
                 );
             }
 
-            let name_element: Element<'_, Message, iced_core::Theme, lapiz_runtime::Renderer> =
-                if is_renaming {
+            let name_element = if is_renaming {
+                Element::from(
                     text_input("", view.rename_value)
                         .on_input(move |value| on_message(LayerStackMessage::RenameChanged(value)))
-                        .on_submit(on_message(LayerStackMessage::RenameCommit(layer_id)))
-                        .into()
+                        .on_submit(on_message(LayerStackMessage::RenameCommit(layer_id))),
+                )
+            } else {
+                Element::from(label(name).size(12).width(Length::Fill).font(if is_active {
+                    Font {
+                        weight: Weight::Bold,
+                        ..Font::default()
+                    }
                 } else {
-                    label(name)
-                        .size(12)
-                        .width(Length::Fill)
-                        .font(if is_active {
-                            Font {
-                                weight: Weight::Bold,
-                                ..Font::default()
-                            }
-                        } else {
-                            Font::default()
-                        })
-                        .into()
-                };
+                    Font::default()
+                }))
+            };
             children.push(
                 row![
                     space().width(Length::Fixed(20.0 * *depth as f32)),

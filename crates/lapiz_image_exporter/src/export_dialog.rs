@@ -16,7 +16,9 @@ use lapiz_runtime::{
     windows::{WindowView, WindowViewId},
 };
 use lapiz_utils::log_err::LogErr as _;
-use lapiz_widgets::{button, checkbox, column, fluent_builder::When as _, label, panel, row, space};
+use lapiz_widgets::{
+    button, checkbox, column, fluent_builder::When as _, label, panel, row, space,
+};
 
 use crate::{
     ErasedExportDialogMessage, ImageExporterConfig, ImageFormatAdapterRegistry, PendingExport,

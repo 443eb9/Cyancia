@@ -5,7 +5,7 @@ use std::{
 };
 
 use iced_core::{Element, Theme, text};
-use iced_widget::{Stack, svg};
+use iced_widget::svg;
 use lapiz_math::curve::CubicCurve;
 use lapiz_runtime::Renderer;
 use num_traits::AsPrimitive;
