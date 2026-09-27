@@ -88,10 +88,7 @@ impl Application {
         self.state = ApplicationState::Finished;
     }
 
-    pub fn run(
-        self,
-        #[cfg(target_os = "android")] android_app: winit::platform::android::activity::AndroidApp,
-    ) -> Result<(), iced_winit::Error> {
+    pub fn run(self) -> Result<(), iced_winit::Error> {
         if !matches!(self.state, ApplicationState::Finished) {
             panic!("Plugins must be built before running the application");
         }
@@ -106,6 +103,10 @@ impl Application {
             db.set_sans_serif_family("Roboto");
             log::info!("Loaded {} Android font faces", db.len());
             drop(font_system);
+
+            let runtime = self.runtime.borrow();
+            let android_app = runtime.services.service::<android::AndroidApp>().0.clone();
+            drop(runtime);
 
             iced_winit::run_android(self, android_app)
         }

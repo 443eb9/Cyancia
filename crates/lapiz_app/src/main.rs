@@ -136,9 +136,5 @@ pub(crate) fn run(#[cfg(target_os = "android")] android_app: AndroidApp) {
 
     lapiz_i18n::init();
 
-    app.run(
-        #[cfg(target_os = "android")]
-        android_app,
-    )
-    .unwrap();
+    app.run().unwrap();
 }
