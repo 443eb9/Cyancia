@@ -46,19 +46,19 @@ pub struct ImagePlugin;
 impl Plugin for ImagePlugin {
     fn build(&self, app: &mut Runtime) {
         i18n::init();
-        app.add_service::<GpuTileStorage>()
-            .add_service::<LayerPreviewOverriders>();
+        app.add_global::<GpuTileStorage>()
+            .add_global::<LayerPreviewOverriders>();
 
         let mut blend_functions = BlendFunctionRegistry::default();
         for blend_mode in BlendMode::ALL {
             blend_functions.register(Arc::new(blend_mode));
         }
-        app.add_service_instance(blend_functions);
+        app.add_global_instance(blend_functions);
 
         let mut layer_types = LayerTypeRegistry::default();
         layer_types.register::<PixelLayer>();
         layer_types.register::<GroupLayer>();
-        app.add_service_instance(layer_types);
+        app.add_global_instance(layer_types);
     }
 }
 

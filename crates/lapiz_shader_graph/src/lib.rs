@@ -31,13 +31,13 @@ pub struct ShaderGraphPlugin;
 impl Plugin for ShaderGraphPlugin {
     fn build(&self, app: &mut Runtime) {
         i18n::init();
-        app.services_mut()
+        app.globals_mut()
             .add_asset_serializer::<SerializableGraphFunctionSerializer>();
     }
 
     fn finish(&self, app: &mut Runtime) {
-        let services = app.services();
-        let assets = services.assets();
+        let globals = app.globals();
+        let assets = globals.assets();
 
         ASSET_GRAPH_TEXTURE_STORAGE
             .store(GraphTextureStorage::new(assets.all_handles_of::<Image>().unwrap()).into());

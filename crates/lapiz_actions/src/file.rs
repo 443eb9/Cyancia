@@ -12,7 +12,7 @@ use lapiz_image_exporter::{
 };
 use lapiz_image_importer::{ImageImporterRegistry, start_import};
 use lapiz_runtime::{
-    Services,
+    Globals,
     windows::{OpenWindowViewCommand, WindowCommandBuffer, WindowViewId},
 };
 use lapiz_utils::log_err::LogErr as _;
@@ -34,10 +34,10 @@ impl ActionFunction for OpenFileAction {
         ActionId::new("open_file_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        let mut dialog = FileDialog::new_maybe_from_service(services);
-        let formats = services
-            .service::<ImageImporterRegistry>()
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
+        let mut dialog = FileDialog::new_maybe_from_global(globals);
+        let formats = globals
+            .global::<ImageImporterRegistry>()
             .iter_formats()
             .collect::<Vec<_>>();
         let all_extensions = formats
@@ -65,13 +65,13 @@ impl ActionFunction for OpenFileAction {
     fn handle_message(
         &self,
         message: Self::Message,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
         let OpenFileMessage::Opened(local_file) = message else {
             return Task::none();
         };
 
-        start_import(services, local_file);
+        start_import(globals, local_file);
 
         Task::none()
     }
@@ -87,16 +87,16 @@ impl ActionFunction for SaveFileAction {
         ActionId::new("save_file_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        let Some(canvas_id) = services.current_canvas_id() else {
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
+        let Some(canvas_id) = globals.current_canvas_id() else {
             return Task::none();
         };
-        let Some(canvas) = services.canvas(&canvas_id) else {
+        let Some(canvas) = globals.canvas(&canvas_id) else {
             return Task::none();
         };
 
         // TODO incremental saving for lazuli file. Saving should happen at every canvas command.
-        start_export(services, true, canvas.local_file().clone());
+        start_export(globals, true, canvas.local_file().clone());
 
         Task::none()
     }
@@ -116,11 +116,11 @@ impl ActionFunction for ExportFileAction {
         ActionId::new("export_file_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        let Some(canvas) = services.current_canvas() else {
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
+        let Some(canvas) = globals.current_canvas() else {
             return Task::none();
         };
-        let mut dialog = FileDialog::new_maybe_from_service(services);
+        let mut dialog = FileDialog::new_maybe_from_global(globals);
         let name = canvas.local_file().name();
         if !name.is_empty() {
             dialog = dialog.set_file_name(name);
@@ -130,8 +130,8 @@ impl ActionFunction for ExportFileAction {
                 dialog = dialog.set_file_name("Untitled.png");
             }
         }
-        for format in services
-            .service::<ImageFormatAdapterRegistry>()
+        for format in globals
+            .global::<ImageFormatAdapterRegistry>()
             .iter_formats()
         {
             let mut extensions = vec![format.extension];
@@ -153,18 +153,18 @@ impl ActionFunction for ExportFileAction {
     fn handle_message(
         &self,
         message: Self::Message,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
         let ExportFileMessage::PathChosen(Some(local_file)) = message else {
             return Task::none();
         };
-        start_export(services, false, local_file.into());
+        start_export(globals, false, local_file.into());
         Task::none()
     }
 }
 
-fn start_export(services: &mut Services, allow_silent_export: bool, local_file: Arc<LocalFile>) {
-    let Some(canvas) = services.current_canvas() else {
+fn start_export(globals: &mut Globals, allow_silent_export: bool, local_file: Arc<LocalFile>) {
+    let Some(canvas) = globals.current_canvas() else {
         return;
     };
     let path = local_file.path();
@@ -172,7 +172,7 @@ fn start_export(services: &mut Services, allow_silent_export: bool, local_file: 
         return;
     };
 
-    let adapters = services.service::<ImageFormatAdapterRegistry>();
+    let adapters = globals.global::<ImageFormatAdapterRegistry>();
     let Some(extension) = adapters.find_extension(path_extension) else {
         log::warn!(
             "No image format adapter matches {}, cannot export",
@@ -186,8 +186,8 @@ fn start_export(services: &mut Services, allow_silent_export: bool, local_file: 
         return;
     };
 
-    let can_silent_export = services
-        .service::<SilentSaveCanvases>()
+    let can_silent_export = globals
+        .global::<SilentSaveCanvases>()
         .contains(canvas.id());
     if adapter.has_options() && !(allow_silent_export && can_silent_export) {
         let params = PendingExport {
@@ -195,15 +195,15 @@ fn start_export(services: &mut Services, allow_silent_export: bool, local_file: 
             allow_silent_export,
             canvas_id: canvas.id(),
         };
-        services
-            .service_mut::<WindowCommandBuffer>()
+        globals
+            .global_mut::<WindowCommandBuffer>()
             .push(OpenWindowViewCommand::new_with_params(
                 WindowViewId::new(EXPORT_DIALOG_VIEW_ID),
                 params,
             ));
     } else {
         // TODO nonononono use async
-        block_on(adapter.export(services, canvas, local_file.path()))
+        block_on(adapter.export(globals, canvas, local_file.path()))
             .and_then(|_| local_file.commit())
             .log_err();
     }

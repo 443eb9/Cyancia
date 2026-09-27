@@ -7,7 +7,7 @@ use image::{DynamicImage, ImageFormat};
 use lapiz_canvas::CCanvas;
 use lapiz_image::tile::TileStorageAppExt as _;
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Renderer, Services};
+use lapiz_runtime::{Globals, Renderer};
 use lapiz_widgets::column;
 
 use super::pixels;
@@ -38,26 +38,26 @@ macro_rules! simple_exporters {
                     false
                 }
 
-                fn dialog_view(&self, _: &Services) -> Element<'_, (), Theme, Renderer> {
+                fn dialog_view(&self, _: &Globals) -> Element<'_, (), Theme, Renderer> {
                     column!().into()
                 }
 
-                fn dialog_update(&mut self, _: (), _: &mut Services) -> Task<()> {
+                fn dialog_update(&mut self, _: (), _: &mut Globals) -> Task<()> {
                     Task::none()
                 }
 
                 #[tracing::instrument(skip_all)]
                 async fn export(
                     &self,
-                    services: &Services,
+                    globals: &Globals,
                     canvas: &CCanvas,
                     path: &Path,
                 ) -> Result<()> {
                     let rgba = pixels::readback_root_layer(
                         canvas,
-                        services.tile_storage(),
-                        services.render_device(),
-                        services.render_queue(),
+                        globals.tile_storage(),
+                        globals.render_device(),
+                        globals.render_queue(),
                     )
                     .await?;
                     DynamicImage::ImageRgba8(rgba)

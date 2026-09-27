@@ -1,6 +1,6 @@
 use lapiz_runtime::{
-    Services,
-    service::{FromServices, Service},
+    Globals,
+    global::{FromGlobals, Global},
 };
 use wesl::include_wesl;
 use wgpu::{
@@ -18,11 +18,11 @@ pub struct GlobalSamplers {
     linear_wrap: Sampler,
 }
 
-impl Service for GlobalSamplers {}
+impl Global for GlobalSamplers {}
 
-impl FromServices for GlobalSamplers {
-    fn from_services(services: &Services) -> Self {
-        Self::new(services.render_device())
+impl FromGlobals for GlobalSamplers {
+    fn from_globals(globals: &Globals) -> Self {
+        Self::new(globals.render_device())
     }
 }
 
@@ -102,11 +102,11 @@ pub struct FullscreenVertex {
     shader: ShaderModule,
 }
 
-impl Service for FullscreenVertex {}
+impl Global for FullscreenVertex {}
 
-impl FromServices for FullscreenVertex {
-    fn from_services(services: &Services) -> Self {
-        Self::new(services.render_device())
+impl FromGlobals for FullscreenVertex {
+    fn from_globals(globals: &Globals) -> Self {
+        Self::new(globals.render_device())
     }
 }
 

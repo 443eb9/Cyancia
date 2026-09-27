@@ -1,6 +1,6 @@
 use iced_runtime::Task;
 use lapiz_runtime::{
-    Services,
+    Globals,
     windows::{OpenWindowViewCommand, ToggleWindowViewCommand, WindowCommandBuffer, WindowViewId},
 };
 
@@ -16,9 +16,9 @@ impl ActionFunction for OpenBrushEditorAction {
         ActionId::new("open_brush_editor_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        services
-            .service_mut::<WindowCommandBuffer>()
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
+        globals
+            .global_mut::<WindowCommandBuffer>()
             .push(OpenWindowViewCommand::new(WindowViewId::new(
                 "brush_editor",
             )));
@@ -36,9 +36,9 @@ impl ActionFunction for ToggleFilterPanelAction {
         ActionId::new("toggle_filter_panel_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        services
-            .service_mut::<WindowCommandBuffer>()
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
+        globals
+            .global_mut::<WindowCommandBuffer>()
             .push(ToggleWindowViewCommand::new(WindowViewId::new(
                 "filter_panel",
             )));

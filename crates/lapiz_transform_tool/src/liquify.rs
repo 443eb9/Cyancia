@@ -38,7 +38,7 @@ use lapiz_render::{
     render_context::RenderContextAppExt as _,
     wesl_jit,
 };
-use lapiz_runtime::{Renderer, Services, event::Event as _};
+use lapiz_runtime::{Globals, Renderer, event::Event as _};
 use lapiz_tools::{ChangesTracker, ToolFunction, ToolId};
 use lapiz_undo::BatchedUndoCommand;
 use lapiz_utils::log_err::LogErr as _;
@@ -140,7 +140,7 @@ impl LiquifySession {
         &mut self,
         props: &LiquifyProperties,
         cursor_ps: Vec2,
-        services: &mut Services,
+        globals: &mut Globals,
     ) {
         if !self.stroking {
             return;
@@ -157,24 +157,24 @@ impl LiquifySession {
             let dir = delta / dist;
             let next = last + dir * spacing;
             let seg = next - last;
-            self.apply_dab(props, services, next, seg, dir);
+            self.apply_dab(props, globals, next, seg, dir);
             last = next;
         }
         self.last_dab = last;
 
-        self.render_preview(services);
+        self.render_preview(globals);
     }
 
     fn apply_dab(
         &mut self,
         props: &LiquifyProperties,
-        services: &Services,
+        globals: &Globals,
         center: Vec2,
         drag_delta: Vec2,
         stroke_dir: Vec2,
     ) {
-        let device = services.render_device();
-        let queue = services.render_queue();
+        let device = globals.render_device();
+        let queue = globals.render_queue();
         let sigma = props.size * 0.5;
 
         let sign = if props.reverse { -1.0 } else { 1.0 };
@@ -272,14 +272,14 @@ impl LiquifySession {
         }
     }
 
-    fn finish_stroke(&mut self, services: &mut Services) {
+    fn finish_stroke(&mut self, globals: &mut Globals) {
         if self.stroke_before.is_empty() && self.empty_before.is_empty() {
             return;
         }
 
         let mut after = DynamicLayerStorage::new(
-            services.render_device().clone(),
-            services.render_queue().clone(),
+            globals.render_device().clone(),
+            globals.render_queue().clone(),
             GpuLayerInfo {
                 texel_type: TexelType::RGBA8,
             },
@@ -291,8 +291,8 @@ impl LiquifySession {
         after.copy_tiles_from(&self.disp, touched);
 
         let fresh_stroke_before = DynamicLayerStorage::new(
-            services.render_device().clone(),
-            services.render_queue().clone(),
+            globals.render_device().clone(),
+            globals.render_queue().clone(),
             GpuLayerInfo {
                 texel_type: TexelType::RGBA8,
             },
@@ -305,10 +305,10 @@ impl LiquifySession {
         });
     }
 
-    fn render_preview(&mut self, services: &mut Services) {
-        let device = services.render_device().clone();
-        let queue = services.render_queue().clone();
-        let tiles = services.tile_storage().clone();
+    fn render_preview(&mut self, globals: &mut Globals) {
+        let device = globals.render_device().clone();
+        let queue = globals.render_queue().clone();
+        let tiles = globals.tile_storage().clone();
         let dirty_tiles = self.disp.compute_tile_bounds();
 
         let selection_binding = tiles
@@ -335,8 +335,8 @@ impl LiquifySession {
                 &selection_binding,
             );
 
-            services
-                .service_mut::<LayerPreviewOverriders>()
+            globals
+                .global_mut::<LayerPreviewOverriders>()
                 .insert_overrider(*layer_id, PixelPreviewOverrider::from_layer_storage(result));
         }
 
@@ -378,7 +378,7 @@ impl ToolFunction for LiquifyTransformTool {
         icon::smudge()
     }
 
-    fn activate(&mut self, _: &mut Services) -> Task<Self::Message> {
+    fn activate(&mut self, _: &mut Globals) -> Task<Self::Message> {
         Task::done(LiquifyToolMessage::RequestInit)
     }
 
@@ -386,9 +386,9 @@ impl ToolFunction for LiquifyTransformTool {
         &mut self,
         _: &KeyboardState,
         mouse: &HoverMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        self.hover_ps = services.current_canvas().map(|canvas| {
+        self.hover_ps = globals.current_canvas().map(|canvas| {
             canvas
                 .transform
                 .window_to_pixel(Vec2::new(mouse.position.x, mouse.position.y))
@@ -400,12 +400,12 @@ impl ToolFunction for LiquifyTransformTool {
         &mut self,
         _: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
         let Some(session) = self.session.as_mut() else {
             return Task::none();
         };
-        let Some(canvas) = services.canvas(&session.canvas_id) else {
+        let Some(canvas) = globals.canvas(&session.canvas_id) else {
             return Task::none();
         };
         let cursor_ps = canvas
@@ -421,9 +421,9 @@ impl ToolFunction for LiquifyTransformTool {
         &mut self,
         _: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        let Some(cursor_ps) = services.current_canvas().map(|canvas| {
+        let Some(cursor_ps) = globals.current_canvas().map(|canvas| {
             canvas
                 .transform
                 .window_to_pixel(Vec2::new(mouse.position.x, mouse.position.y))
@@ -435,7 +435,7 @@ impl ToolFunction for LiquifyTransformTool {
         let Some(session) = self.session.as_mut() else {
             return Task::none();
         };
-        session.apply_stroke(&self.props, cursor_ps, services);
+        session.apply_stroke(&self.props, cursor_ps, globals);
         Task::none()
     }
 
@@ -443,16 +443,16 @@ impl ToolFunction for LiquifyTransformTool {
         &mut self,
         _: &KeyboardState,
         _: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
         if let Some(session) = self.session.as_mut() {
             session.stroking = false;
-            session.finish_stroke(services);
+            session.finish_stroke(globals);
         }
         Task::none()
     }
 
-    fn undo(&mut self, services: &mut Services) -> bool {
+    fn undo(&mut self, globals: &mut Globals) -> bool {
         let Some(session) = self.session.as_mut() else {
             return false;
         };
@@ -465,12 +465,12 @@ impl ToolFunction for LiquifyTransformTool {
                 .disp
                 .copy_tiles_from(&step.before, step.before.iter_tile_indices());
             session.disp.clear_tiles(step.empty_before.iter().copied());
-            session.render_preview(services);
+            session.render_preview(globals);
         }
         true
     }
 
-    fn redo(&mut self, services: &mut Services) -> bool {
+    fn redo(&mut self, globals: &mut Globals) -> bool {
         let Some(session) = self.session.as_mut() else {
             return false;
         };
@@ -482,14 +482,14 @@ impl ToolFunction for LiquifyTransformTool {
             session
                 .disp
                 .copy_tiles_from(&step.after, step.after.iter_tile_indices());
-            session.render_preview(services);
+            session.render_preview(globals);
         }
         true
     }
 
-    fn deactivate(&mut self, services: &mut Services) -> Task<Self::Message> {
+    fn deactivate(&mut self, globals: &mut Globals) -> Task<Self::Message> {
         if let Some(session) = self.session.take() {
-            commit_liquify(session, services);
+            commit_liquify(session, globals);
         }
         Task::none()
     }
@@ -497,14 +497,14 @@ impl ToolFunction for LiquifyTransformTool {
     fn handle_message(
         &mut self,
         message: Self::Message,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
         match message {
             LiquifyToolMessage::RequestInit => {
                 if let Some(session) = self.session.take() {
-                    commit_liquify(session, services);
+                    commit_liquify(session, globals);
                 }
-                self.session = init_liquify_session(&mut self.scan_pixels, services);
+                self.session = init_liquify_session(&mut self.scan_pixels, globals);
                 Task::none()
             }
             LiquifyToolMessage::ModeChanged(mode) => {
@@ -530,7 +530,7 @@ impl ToolFunction for LiquifyTransformTool {
             LiquifyToolMessage::Confirm => Task::done(LiquifyToolMessage::RequestInit),
             LiquifyToolMessage::Cancel => {
                 if let Some(session) = self.session.take() {
-                    cancel_liquify(session, services);
+                    cancel_liquify(session, globals);
                 }
                 Task::done(LiquifyToolMessage::RequestInit)
             }
@@ -543,7 +543,7 @@ impl ToolFunction for LiquifyTransformTool {
 
     fn tool_option_widget<'a>(
         &'a self,
-        _: &'a Services,
+        _: &'a Globals,
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
         let fields = form()
             .push(
@@ -608,9 +608,9 @@ impl ToolFunction for LiquifyTransformTool {
 
     fn canvas_overlay<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return space().into();
         };
         let Some(hover_ps) = self.hover_ps else {
@@ -627,9 +627,9 @@ impl ToolFunction for LiquifyTransformTool {
 
 fn init_liquify_session(
     scan_pixels: &mut HashMap<TexelType, ScanPixelsPipeline>,
-    services: &Services,
+    globals: &Globals,
 ) -> Option<LiquifySession> {
-    let canvas = services.current_canvas()?;
+    let canvas = globals.current_canvas()?;
     let canvas_id = canvas.id();
     let selection_layer_id = canvas.image.selection_layer();
 
@@ -643,9 +643,9 @@ fn init_liquify_session(
         return None;
     }
 
-    let device = services.render_device();
-    let queue = services.render_queue();
-    let tiles = services.tile_storage();
+    let device = globals.render_device();
+    let queue = globals.render_queue();
+    let tiles = globals.tile_storage();
 
     let selection_layer = tiles.get_layer(selection_layer_id).unwrap();
     let selection_texel_type = selection_layer.layer_info().texel_type;
@@ -694,22 +694,22 @@ fn init_liquify_session(
     })
 }
 
-fn commit_liquify(session: LiquifySession, services: &mut Services) {
+fn commit_liquify(session: LiquifySession, globals: &mut Globals) {
     let replace_commands = session
         .result_buffers
         .into_iter()
         .filter_map(|(layer_id, result_buffer)| {
-            services
-                .service_mut::<LayerPreviewOverriders>()
+            globals
+                .global_mut::<LayerPreviewOverriders>()
                 .remove_overrider(&layer_id);
 
             let result_texture = result_buffer.texture()?;
-            let target_layer = services.tile_storage().get_layer(layer_id)?;
+            let target_layer = globals.tile_storage().get_layer(layer_id)?;
             Some(TileReplaceCommand::new(
                 "Liquify".into(),
                 session.canvas_id,
-                services.render_device(),
-                services.render_queue(),
+                globals.render_device(),
+                globals.render_queue(),
                 layer_id,
                 &target_layer,
                 result_buffer.iter_tile_indices().collect(),
@@ -723,15 +723,15 @@ fn commit_liquify(session: LiquifySession, services: &mut Services) {
     }
 
     let cmd = BatchedUndoCommand::new("Liquify".into(), replace_commands);
-    services
+    globals
         .push_undo_command(&session.canvas_id, cmd)
         .log_err();
 }
 
-fn cancel_liquify(session: LiquifySession, services: &mut Services) {
+fn cancel_liquify(session: LiquifySession, globals: &mut Globals) {
     for layer_id in &session.target_layers {
-        services
-            .service_mut::<LayerPreviewOverriders>()
+        globals
+            .global_mut::<LayerPreviewOverriders>()
             .remove_overrider(layer_id);
     }
 

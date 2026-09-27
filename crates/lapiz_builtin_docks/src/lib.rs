@@ -27,17 +27,17 @@ impl Plugin for BuiltinDocksPlugin {
         let mut registry = DockRegistry::default();
 
         {
-            let services = app.services_mut();
+            let globals = app.globals_mut();
 
-            registry.register(BrushPresetDock::new(services));
-            registry.register(ColorSelectorDock::new(services));
-            registry.register(ToolOptionsDock::new(services));
+            registry.register(BrushPresetDock::new(globals));
+            registry.register(ColorSelectorDock::new(globals));
+            registry.register(ToolOptionsDock::new(globals));
         }
 
         registry.register(LandingDock::new());
         registry.register(LayersDock::default());
         registry.register(ToolBoxDock::new());
 
-        app.add_service_instance(registry);
+        app.add_global_instance(registry);
     }
 }

@@ -7,7 +7,7 @@ use iced_core::{
 use iced_futures::Subscription;
 use iced_runtime::Task;
 use lapiz_i18n::t;
-use lapiz_runtime::{Renderer, Services};
+use lapiz_runtime::{Globals, Renderer};
 use lapiz_utils::wrapper;
 use lapiz_widgets::{column, context_menu, menu, pane_grid, space, stack};
 use parse_display::Display;
@@ -28,16 +28,16 @@ pub trait Dock: 'static {
     fn view<'a>(
         &'a self,
         window_id: window::Id,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Self::Message, Theme, Renderer>;
-    fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message>;
-    fn subscription(&self, _services: &Services) -> Subscription<Self::Message> {
+    fn update(&mut self, message: Self::Message, globals: &mut Globals) -> Task<Self::Message>;
+    fn subscription(&self, _globals: &Globals) -> Subscription<Self::Message> {
         Subscription::none()
     }
-    fn on_open(&mut self, _services: &mut Services) -> Task<Self::Message> {
+    fn on_open(&mut self, _globals: &mut Globals) -> Task<Self::Message> {
         Task::none()
     }
-    fn on_close(&mut self, _services: &mut Services) -> Task<Self::Message> {
+    fn on_close(&mut self, _globals: &mut Globals) -> Task<Self::Message> {
         Task::none()
     }
     fn sub_windows(&self) -> Vec<window::Id> {
@@ -51,16 +51,16 @@ pub trait ErasedDock: 'static {
     fn view<'a>(
         &'a self,
         window_id: window::Id,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Box<dyn Any + Send>, Theme, Renderer>;
     fn update(
         &mut self,
         message: Box<dyn Any + Send>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Box<dyn Any + Send>>;
-    fn subscription(&self, services: &Services) -> Subscription<Box<dyn Any + Send>>;
-    fn on_open(&mut self, services: &mut Services) -> Task<Box<dyn Any + Send>>;
-    fn on_close(&mut self, services: &mut Services) -> Task<Box<dyn Any + Send>>;
+    fn subscription(&self, globals: &Globals) -> Subscription<Box<dyn Any + Send>>;
+    fn on_open(&mut self, globals: &mut Globals) -> Task<Box<dyn Any + Send>>;
+    fn on_close(&mut self, globals: &mut Globals) -> Task<Box<dyn Any + Send>>;
     fn sub_windows(&self) -> Vec<window::Id>;
 }
 
@@ -76,36 +76,36 @@ impl<T: Dock> ErasedDock for T {
     fn view<'a>(
         &'a self,
         window_id: window::Id,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Box<dyn Any + Send>, Theme, Renderer> {
-        self.view(window_id, services)
+        self.view(window_id, globals)
             .map(|m| Box::new(m) as Box<dyn Any + Send>)
     }
 
     fn update(
         &mut self,
         message: Box<dyn Any + Send>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Box<dyn Any + Send>> {
         let msg = *message
             .downcast::<T::Message>()
             .expect("invalid message type");
-        self.update(msg, services)
+        self.update(msg, globals)
             .map(|m| Box::new(m) as Box<dyn Any + Send>)
     }
 
-    fn subscription(&self, services: &Services) -> Subscription<Box<dyn Any + Send>> {
-        self.subscription(services)
+    fn subscription(&self, globals: &Globals) -> Subscription<Box<dyn Any + Send>> {
+        self.subscription(globals)
             .map(|m| Box::new(m) as Box<dyn Any + Send>)
     }
 
-    fn on_open(&mut self, services: &mut Services) -> Task<Box<dyn Any + Send>> {
-        self.on_open(services)
+    fn on_open(&mut self, globals: &mut Globals) -> Task<Box<dyn Any + Send>> {
+        self.on_open(globals)
             .map(|m| Box::new(m) as Box<dyn Any + Send>)
     }
 
-    fn on_close(&mut self, services: &mut Services) -> Task<Box<dyn Any + Send>> {
-        self.on_close(services)
+    fn on_close(&mut self, globals: &mut Globals) -> Task<Box<dyn Any + Send>> {
+        self.on_close(globals)
             .map(|m| Box::new(m) as Box<dyn Any + Send>)
     }
 

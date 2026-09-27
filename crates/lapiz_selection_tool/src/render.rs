@@ -24,7 +24,7 @@ use lapiz_render::{
     buffer::DynamicBuffer,
     render_context::RenderContextAppExt as _,
 };
-use lapiz_runtime::{Renderer, Services};
+use lapiz_runtime::{Globals, Renderer};
 use lapiz_widgets::shader::Pipeline;
 use lyon::{
     geom::point,
@@ -51,14 +51,14 @@ pub fn generate_cmd(
     indices: &[u32],
     aabb_ps: IRect,
     op: SelectionOperation,
-    services: &mut Services,
+    globals: &mut Globals,
 ) -> Option<TileReplaceCommand> {
-    let canvas = services.current_canvas()?;
+    let canvas = globals.current_canvas()?;
     let canvas_id = canvas.id();
 
-    let tiles = services.tile_storage();
-    let device = services.render_device();
-    let queue = services.render_queue();
+    let tiles = globals.tile_storage();
+    let device = globals.render_device();
+    let queue = globals.render_queue();
 
     let selection_layer_id = canvas.image.selection_layer();
 

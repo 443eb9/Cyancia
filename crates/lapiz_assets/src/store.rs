@@ -6,7 +6,7 @@ use std::{
 
 use chrono::Utc;
 use dashmap::DashMap;
-use lapiz_runtime::service::Service;
+use lapiz_runtime::global::Global;
 use path_clean::PathClean as _;
 
 use crate::{
@@ -26,7 +26,7 @@ pub struct AssetRegistry {
     inner: Arc<AssetRegistryInner>,
 }
 
-impl Service for AssetRegistry {}
+impl Global for AssetRegistry {}
 
 pub struct AssetRegistryInner {
     root: PathBuf,

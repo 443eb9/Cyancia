@@ -19,7 +19,7 @@ pub struct SelectionPlugin;
 impl Plugin for SelectionPlugin {
     fn build(&self, app: &mut Runtime) {
         i18n::init();
-        app.services_mut()
+        app.globals_mut()
             .add_tool_function::<RectangularSelectionTool>()
             .add_tool_function::<EllipticalSelectionTool>()
             .add_tool_function::<FreehandSelectionTool>()

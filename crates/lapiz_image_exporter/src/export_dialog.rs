@@ -12,7 +12,7 @@ use lapiz_config::Config;
 use lapiz_file_dialog::LocalFile;
 use lapiz_i18n::t;
 use lapiz_runtime::{
-    Renderer, Services,
+    Globals, Renderer,
     windows::{WindowView, WindowViewId},
 };
 use lapiz_utils::log_err::LogErr as _;
@@ -56,10 +56,10 @@ impl WindowView for ExportDialogView {
 
     fn boot(
         params: Option<Self::BootParams>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Result<(Self, Task<Self::Message>)> {
         let pending = params.ok_or(anyhow::anyhow!("No pending export"))?;
-        let registry = services.service::<ImageFormatAdapterRegistry>();
+        let registry = globals.global::<ImageFormatAdapterRegistry>();
         let extension = pending
             .local_file
             .path()
@@ -71,8 +71,8 @@ impl WindowView for ExportDialogView {
         let adapter = registry
             .create_with_saved_settings(extension, &config.get())
             .expect("Export dialog opened for a path without a registered format");
-        let dont_ask_again = services
-            .service::<SilentSaveCanvases>()
+        let dont_ask_again = globals
+            .global::<SilentSaveCanvases>()
             .contains(pending.canvas_id);
 
         let (window, open) = open(window::Settings {
@@ -100,11 +100,11 @@ impl WindowView for ExportDialogView {
     fn view<'a>(
         &'a self,
         _: window::Id,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> impl Into<Element<'a, Self::Message, Theme, Renderer>> {
         let options = self
             .adapter
-            .dialog_view(services)
+            .dialog_view(globals)
             .map(ExportDialogMessage::Adapter);
         let footer = row![]
             .when(self.allow_silent_export, |r| {
@@ -148,26 +148,26 @@ impl WindowView for ExportDialogView {
     fn update(
         &mut self,
         message: Self::Message,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> impl Into<Task<Self::Message>> {
         match message {
             ExportDialogMessage::Adapter(message) => self
                 .adapter
-                .dialog_update(message, services)
+                .dialog_update(message, globals)
                 .map(ExportDialogMessage::Adapter),
             ExportDialogMessage::DontAskAgainToggled(checked) => {
                 self.dont_ask_again = checked;
                 Task::none()
             }
             ExportDialogMessage::Confirm => {
-                let Some(canvas) = services.canvas(&self.canvas_id) else {
+                let Some(canvas) = globals.canvas(&self.canvas_id) else {
                     return Task::done(ExportDialogMessage::Cancel);
                 };
 
                 // TODO use async
                 if block_on(
                     self.adapter
-                        .export(services, canvas, self.local_file.path()),
+                        .export(globals, canvas, self.local_file.path()),
                 )
                 .and_then(|_| self.local_file.commit())
                 .logged_err()
@@ -176,7 +176,7 @@ impl WindowView for ExportDialogView {
                     return Task::none();
                 }
 
-                let silent_saves = services.service_mut::<SilentSaveCanvases>();
+                let silent_saves = globals.global_mut::<SilentSaveCanvases>();
                 if self.dont_ask_again {
                     silent_saves.insert(self.canvas_id);
                 } else {
@@ -198,7 +198,7 @@ impl WindowView for ExportDialogView {
         }
     }
 
-    fn close(self, _: &mut Services) -> Task<()> {
+    fn close(self, _: &mut Globals) -> Task<()> {
         close(self.window)
     }
 

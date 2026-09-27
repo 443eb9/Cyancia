@@ -16,7 +16,7 @@ use lapiz_image::{
     tile::{DynamicLayerStorage, GpuTileStorage},
 };
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::Services;
+use lapiz_runtime::Globals;
 use lapiz_shader_graph::{
     graph::{slot::GraphValueType as _, variable::GraphShaderLiteral},
     wgsl_std::types::handle::{LayerReference, LayerType, PreparedLayer, PreparedLayerPixels},
@@ -50,9 +50,9 @@ pub struct FilterRenderer {
 
 impl FilterRenderer {
     #[tracing::instrument(skip_all, name = "new_filter_renderer")]
-    pub fn new(services: &Services, instance: &FilterInstance) -> Result<Self> {
-        let device = services.render_device().clone();
-        let queue = services.render_queue().clone();
+    pub fn new(globals: &Globals, instance: &FilterInstance) -> Result<Self> {
+        let device = globals.render_device().clone();
+        let queue = globals.render_queue().clone();
         Self::from_context(instance, device, queue)
     }
 

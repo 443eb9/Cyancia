@@ -10,7 +10,7 @@ use lapiz_i18n::t;
 use lapiz_image::tile::TileStorageAppExt as _;
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Renderer, Services};
+use lapiz_runtime::{Globals, Renderer};
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
@@ -68,9 +68,9 @@ impl ToolFunction for MagicWandSelectionTool {
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return Task::none();
         };
         let canvas_id = canvas.id();
@@ -85,8 +85,8 @@ impl ToolFunction for MagicWandSelectionTool {
             return Task::none();
         }
 
-        let tiles = services.tile_storage();
-        let render_context = services.render_context();
+        let tiles = globals.tile_storage();
+        let render_context = globals.render_context();
         // TODO Reference other layers
         let ref_layer_id = canvas.active_layer_id();
         let ref_layer_info = tiles.get_layer_tiles(ref_layer_id).unwrap();
@@ -167,12 +167,12 @@ impl ToolFunction for MagicWandSelectionTool {
             )
         };
         drop(selection_layer);
-        services.push_undo_command_to_current(cmd).log_err();
+        globals.push_undo_command_to_current(cmd).log_err();
 
         Task::none()
     }
 
-    fn handle_message(&mut self, message: Self::Message, _: &mut Services) -> Task<Self::Message> {
+    fn handle_message(&mut self, message: Self::Message, _: &mut Globals) -> Task<Self::Message> {
         match message {
             MagicWandSelectionToolMessage::ThresholdChanged(value) => self.threshold = value,
             MagicWandSelectionToolMessage::AlphaThresholdChanged(value) => {
@@ -201,7 +201,7 @@ impl ToolFunction for MagicWandSelectionTool {
 
     fn tool_option_widget<'a>(
         &'a self,
-        _: &'a Services,
+        _: &'a Globals,
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
         let fields = form()
             .push(

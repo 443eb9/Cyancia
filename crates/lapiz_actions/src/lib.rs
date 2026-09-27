@@ -1,7 +1,7 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use iced_runtime::Task;
-use lapiz_runtime::{Runtime, Services, plugin::Plugin, service::Service};
+use lapiz_runtime::{Globals, Runtime, global::Global, plugin::Plugin};
 use lapiz_utils::wrapper;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
@@ -35,8 +35,8 @@ pub struct ActionPlugin;
 
 impl Plugin for ActionPlugin {
     fn build(&self, app: &mut Runtime) {
-        app.add_service::<ActionFunctionRegistry>();
-        app.services_mut()
+        app.add_global::<ActionFunctionRegistry>();
+        app.globals_mut()
             .add_action_function::<DeleteSelectionAction>()
             .add_action_function::<OpenFileAction>()
             .add_action_function::<SaveFileAction>()
@@ -63,9 +63,9 @@ pub trait ActionAppExt {
     fn add_action_function<A: ActionFunction + Default>(&mut self) -> &mut Self;
 }
 
-impl ActionAppExt for Services {
+impl ActionAppExt for Globals {
     fn add_action_function<A: ActionFunction + Default>(&mut self) -> &mut Self {
-        self.service_mut::<ActionFunctionRegistry>().register::<A>();
+        self.global_mut::<ActionFunctionRegistry>().register::<A>();
         self
     }
 }
@@ -74,11 +74,11 @@ pub trait ActionFunction: Send + Sync + 'static {
     type Message: Send + Sync + 'static;
 
     fn id(&self) -> ActionId;
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message>;
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message>;
     fn handle_message(
         &self,
         _message: Self::Message,
-        _services: &mut Services,
+        _globals: &mut Globals,
     ) -> Task<Self::Message> {
         Task::none()
     }
@@ -86,11 +86,11 @@ pub trait ActionFunction: Send + Sync + 'static {
 
 pub trait ErasedActionFunction: Send + Sync + 'static {
     fn id(&self) -> ActionId;
-    fn trigger(&self, services: &mut Services) -> Task<Box<dyn Any + Send + Sync>>;
+    fn trigger(&self, globals: &mut Globals) -> Task<Box<dyn Any + Send + Sync>>;
     fn handle_message(
         &self,
         _message: Box<dyn Any + Send + Sync>,
-        _services: &mut Services,
+        _globals: &mut Globals,
     ) -> Task<Box<dyn Any + Send + Sync>> {
         Task::none()
     }
@@ -101,20 +101,20 @@ impl<T: ActionFunction> ErasedActionFunction for T {
         self.id()
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Box<dyn Any + Send + Sync>> {
-        self.trigger(services)
+    fn trigger(&self, globals: &mut Globals) -> Task<Box<dyn Any + Send + Sync>> {
+        self.trigger(globals)
             .map(|message| Box::new(message) as Box<dyn Any + Send + Sync>)
     }
 
     fn handle_message(
         &self,
         message: Box<dyn Any + Send + Sync>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Box<dyn Any + Send + Sync>> {
         let message = message
             .downcast::<T::Message>()
             .expect("Invalid message type");
-        self.handle_message(*message, services)
+        self.handle_message(*message, globals)
             .map(|message| Box::new(message) as Box<dyn Any + Send + Sync>)
     }
 }
@@ -124,7 +124,7 @@ pub struct ActionFunctionRegistry {
     functions: HashMap<ActionId, Arc<dyn ErasedActionFunction>>,
 }
 
-impl Service for ActionFunctionRegistry {}
+impl Global for ActionFunctionRegistry {}
 
 impl ActionFunctionRegistry {
     pub fn register<A: ActionFunction + Default>(&mut self) {

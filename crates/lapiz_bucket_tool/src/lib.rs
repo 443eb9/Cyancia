@@ -16,7 +16,7 @@ use lapiz_image::{
 };
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Renderer, Runtime, Services, plugin::Plugin};
+use lapiz_runtime::{Globals, Renderer, Runtime, plugin::Plugin};
 use lapiz_tools::{ToolFunction, ToolId, ToolsAppExt as _};
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{
@@ -36,7 +36,7 @@ pub struct BucketPlugin;
 impl Plugin for BucketPlugin {
     fn build(&self, app: &mut Runtime) {
         i18n::init();
-        app.services_mut().add_tool_function::<BucketTool>();
+        app.globals_mut().add_tool_function::<BucketTool>();
     }
 }
 
@@ -93,12 +93,12 @@ impl ToolFunction for BucketTool {
         &mut self,
         _: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        let Some(canvas_id) = services.current_canvas_id() else {
+        let Some(canvas_id) = globals.current_canvas_id() else {
             return Task::none();
         };
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return Task::none();
         };
 
@@ -113,12 +113,12 @@ impl ToolFunction for BucketTool {
         }
 
         let profile = canvas.image.profile();
-        let fg_color = services
+        let fg_color = globals
             .foreground_color()
             .get()
             .into_rgb(profile.rgb_to_xyz_matrix().to_f32().inverse());
 
-        let tiles = services.tile_storage();
+        let tiles = globals.tile_storage();
         // TODO Reference other layers
         let ref_layer_id = canvas.active_layer_id();
         let ref_layer_info = tiles.get_layer_tiles(ref_layer_id).unwrap();
@@ -158,10 +158,10 @@ impl ToolFunction for BucketTool {
             image_size,
         };
 
-        let device = services.render_device();
-        let queue = services.render_queue();
-        let Some(blend_function) = services
-            .service::<BlendFunctionRegistry>()
+        let device = globals.render_device();
+        let queue = globals.render_queue();
+        let Some(blend_function) = globals
+            .global::<BlendFunctionRegistry>()
             .get(&self.blend_function)
         else {
             error!("Failed to get blend function: {}", self.blend_function);
@@ -197,13 +197,13 @@ impl ToolFunction for BucketTool {
                 new_tiles.texture().unwrap().clone(),
             );
             drop(output_layer);
-            services.push_undo_command_to_current(cmd).log_err();
+            globals.push_undo_command_to_current(cmd).log_err();
         }
 
         Task::none()
     }
 
-    fn handle_message(&mut self, message: Self::Message, _: &mut Services) -> Task<Self::Message> {
+    fn handle_message(&mut self, message: Self::Message, _: &mut Globals) -> Task<Self::Message> {
         match message {
             BucketToolMessage::ThresholdChanged(value) => self.threshold = value,
             BucketToolMessage::AlphaThresholdChanged(value) => self.alpha_threshold = value,
@@ -232,9 +232,9 @@ impl ToolFunction for BucketTool {
 
     fn tool_option_widget<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
-        let blend_functions = services.service::<BlendFunctionRegistry>();
+        let blend_functions = globals.global::<BlendFunctionRegistry>();
 
         let fields = form()
             .push(

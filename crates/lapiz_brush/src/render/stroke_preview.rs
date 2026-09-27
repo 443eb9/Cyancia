@@ -25,7 +25,7 @@ use lapiz_render::{
     render_context::RenderContextAppExt as _,
     util::DevicePollExt as _,
 };
-use lapiz_runtime::Services;
+use lapiz_runtime::Globals;
 use lapiz_utils::log_err::LogErr as _;
 use tracing::info;
 use wesl::include_wesl;
@@ -49,7 +49,7 @@ pub const CACHED_STROKE_PREVIEW_SIZE: (u32, u32) = (512, 256);
 pub fn load_cached_stroke_preview_or_generate(
     brush: &AssetHandle<BrushPreset>,
     assets: &AssetRegistry,
-    services: &Services,
+    globals: &Globals,
 ) -> Result<Task<Result<RgbaImage>>> {
     let cache_path = cache_dir()
         .join("brush_stroke_preview")
@@ -72,15 +72,15 @@ pub fn load_cached_stroke_preview_or_generate(
         &predefined_curve_samples(CACHED_STROKE_PREVIEW_SIZE.0, CACHED_STROKE_PREVIEW_SIZE.1),
         CACHED_STROKE_PREVIEW_SIZE.0,
         CACHED_STROKE_PREVIEW_SIZE.1,
-        services,
+        globals,
         &CanvasResources {
             foreground_color: Vec4::ONE,
             background_color: Vec4::ZERO,
         },
     )?;
 
-    let device = services.render_device().clone();
-    let queue = services.render_queue().clone();
+    let device = globals.render_device().clone();
+    let queue = globals.render_queue().clone();
 
     Ok(texture
         .then(move |texture| readback_preview(device.clone(), queue.clone(), texture))
@@ -156,7 +156,7 @@ pub fn create_stroke_preview(
     samples: &[RawPenInput],
     width: u32,
     height: u32,
-    services: &Services,
+    globals: &Globals,
     canvas_resources: &CanvasResources,
 ) -> Result<Task<Texture>> {
     create_stroke_preview_with(
@@ -164,8 +164,8 @@ pub fn create_stroke_preview(
         samples,
         width,
         height,
-        services.render_device(),
-        services.render_queue(),
+        globals.render_device(),
+        globals.render_queue(),
         canvas_resources,
     )
 }
@@ -203,7 +203,7 @@ pub fn create_stroke_preview_on_target(
     samples: &[RawPenInput],
     width: u32,
     height: u32,
-    services: &Services,
+    globals: &Globals,
     canvas_resources: &CanvasResources,
     target_layer: DynamicLayerStorage,
 ) -> Result<Task<Texture>> {
@@ -212,8 +212,8 @@ pub fn create_stroke_preview_on_target(
         samples,
         width,
         height,
-        services.render_device(),
-        services.render_queue(),
+        globals.render_device(),
+        globals.render_queue(),
         canvas_resources,
         target_layer,
     )

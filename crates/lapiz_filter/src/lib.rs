@@ -19,7 +19,7 @@ impl Plugin for FilterPlugin {
         app.register_view::<FilterPanel>()
             .register_view::<FilterEditor>();
 
-        app.services_mut()
+        app.globals_mut()
             .add_asset_serializer::<FilterPresetSerializer>();
     }
 }

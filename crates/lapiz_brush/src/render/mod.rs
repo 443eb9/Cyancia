@@ -34,7 +34,7 @@ use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries, buffer::DynamicBuffer,
     readback::readback_buffer_on_submit_async,
 };
-use lapiz_runtime::Services;
+use lapiz_runtime::Globals;
 use lapiz_shader_graph::{
     graph::{
         slot::{ErasedGraphValueType, GraphShaderStage, GraphValueType},
@@ -130,9 +130,9 @@ impl CanvasBrushPresetOperator {
         input: &PressedMouseState,
         stroke_id: u64,
         canvas_id: CanvasId,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<()> {
-        let canvas = services
+        let canvas = globals
             .canvas(&canvas_id)
             .expect("Current canvas should exist");
         let position = canvas
@@ -156,8 +156,8 @@ impl CanvasBrushPresetOperator {
             .rgb_to_xyz_matrix()
             .to_f32()
             .inverse();
-        let foreground = services.foreground_color().get().into_rgb(xyz_to_rgb);
-        let background = services.background_color().get().into_rgb(xyz_to_rgb);
+        let foreground = globals.foreground_color().get().into_rgb(xyz_to_rgb);
+        let background = globals.background_color().get().into_rgb(xyz_to_rgb);
         self.foreground_color.clear();
         self.foreground_color
             .push(&Vec4::new(foreground.r, foreground.g, foreground.b, 1.0));
@@ -169,7 +169,7 @@ impl CanvasBrushPresetOperator {
         self.background_color
             .write_buffer(&self.device, &self.queue);
 
-        let tiles = services.tile_storage();
+        let tiles = globals.tile_storage();
         let target_layer_info = tiles
             .get_layer_info(active_layer_id)
             .expect("Active pixel layer should have GPU storage");
@@ -215,7 +215,7 @@ impl CanvasBrushPresetOperator {
         let renderer = self.renderer.as_mut().unwrap();
 
         self.input_processor.reset();
-        let tiles = services.tile_storage();
+        let tiles = globals.tile_storage();
         let target_layer = tiles
             .get_layer_binding_or_empty(session.target_layer_id)
             .expect("Failed to bind active pixel layer");
@@ -235,12 +235,12 @@ impl CanvasBrushPresetOperator {
         worker
     }
 
-    pub fn update_stroke(&mut self, input: &PressedMouseState, services: &Services) -> Task<()> {
+    pub fn update_stroke(&mut self, input: &PressedMouseState, globals: &Globals) -> Task<()> {
         let (Some(renderer), Some(session)) = (&mut self.renderer, &self.session) else {
             return Task::none();
         };
         renderer.record_raw_inputs(1);
-        let canvas = services.canvas(&session.canvas_id).unwrap();
+        let canvas = globals.canvas(&session.canvas_id).unwrap();
         let position = canvas
             .transform
             .window_to_pixel(Vec2::new(input.position.x, input.position.y));
@@ -256,13 +256,13 @@ impl CanvasBrushPresetOperator {
     pub fn end_stroke(
         &mut self,
         input: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<BrushStrokeResult> {
         let (Some(renderer), Some(session)) = (&mut self.renderer, self.session.take()) else {
             return Task::none();
         };
         renderer.record_raw_inputs(1);
-        let canvas = services
+        let canvas = globals
             .canvas(&session.canvas_id)
             .expect("Stroke canvas should exist");
         let position = canvas

@@ -13,9 +13,7 @@ use iced_core::Element;
 use iced_runtime::Task;
 use lapiz_canvas::{CCanvas, CanvasId};
 use lapiz_file_dialog::LocalFile;
-use lapiz_runtime::{
-    Renderer, Runtime, Services, Theme, plugin::Plugin, service::Service,
-};
+use lapiz_runtime::{Globals, Renderer, Runtime, Theme, global::Global, plugin::Plugin};
 
 use crate::{
     adapter::{
@@ -44,12 +42,12 @@ impl Plugin for ImageExporterPlugin {
     fn build(&self, app: &mut Runtime) {
         i18n::init();
 
-        app.add_service::<ImageFormatAdapterRegistry>()
-            .add_service::<SilentSaveCanvases>()
+        app.add_global::<ImageFormatAdapterRegistry>()
+            .add_global::<SilentSaveCanvases>()
             .register_view::<ExportDialogView>();
 
-        app.services_mut()
-            .service_mut::<ImageFormatAdapterRegistry>()
+        app.globals_mut()
+            .global_mut::<ImageFormatAdapterRegistry>()
             .register::<PngExporter>()
             .register::<JpgExporter>()
             .register::<WebPExporter>()
@@ -91,20 +89,20 @@ pub trait ImageFormatExporter: 'static {
 
     fn dialog_view<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Self::DialogMessage, Theme, Renderer>;
 
     fn dialog_update(
         &mut self,
         message: Self::DialogMessage,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::DialogMessage>;
 
     #[allow(
         async_fn_in_trait,
         reason = "callers await this method directly; the erased trait boxes the future"
     )]
-    async fn export(&self, services: &Services, canvas: &CCanvas, path: &Path) -> Result<()>;
+    async fn export(&self, globals: &Globals, canvas: &CCanvas, path: &Path) -> Result<()>;
 
     fn to_toml(&self) -> Result<toml::Value>;
 
@@ -124,18 +122,18 @@ pub trait ErasedImageFormatAdapter: Send + Sync + 'static {
 
     fn dialog_view<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, ErasedExportDialogMessage, Theme, Renderer>;
 
     fn dialog_update(
         &mut self,
         message: ErasedExportDialogMessage,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedExportDialogMessage>;
 
     fn export<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
         canvas: &'a CCanvas,
         path: &'a Path,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + 'a>>;
@@ -167,31 +165,31 @@ where
 
     fn dialog_view<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, ErasedExportDialogMessage, Theme, Renderer> {
-        self.dialog_view(services)
+        self.dialog_view(globals)
             .map(|message| Box::new(message) as ErasedExportDialogMessage)
     }
 
     fn dialog_update(
         &mut self,
         message: ErasedExportDialogMessage,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<ErasedExportDialogMessage> {
         let message = *message
             .downcast::<T::DialogMessage>()
             .expect("Invalid export dialog message type");
-        self.dialog_update(message, services)
+        self.dialog_update(message, globals)
             .map(|message| Box::new(message) as ErasedExportDialogMessage)
     }
 
     fn export<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
         canvas: &'a CCanvas,
         path: &'a Path,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + 'a>> {
-        Box::pin(ImageFormatExporter::export(self, services, canvas, path))
+        Box::pin(ImageFormatExporter::export(self, globals, canvas, path))
     }
 
     fn to_toml(&self) -> Result<toml::Value> {
@@ -222,7 +220,7 @@ pub struct ImageFormatAdapterRegistry {
     lookup: HashMap<String, usize>,
 }
 
-impl Service for ImageFormatAdapterRegistry {}
+impl Global for ImageFormatAdapterRegistry {}
 
 impl ImageFormatAdapterRegistry {
     pub fn register<A: ImageFormatExporter + Send + Sync + Default>(&mut self) -> &mut Self {
@@ -299,7 +297,7 @@ pub struct SilentSaveCanvases {
     canvases: HashSet<CanvasId>,
 }
 
-impl Service for SilentSaveCanvases {}
+impl Global for SilentSaveCanvases {}
 
 impl SilentSaveCanvases {
     pub fn insert(&mut self, canvas: CanvasId) {

@@ -15,7 +15,7 @@ use lapiz_image::layer::{
     pixel_layer::PixelLayer,
     properties::{LayerProperties, builtin::NameProp},
 };
-use lapiz_runtime::Services;
+use lapiz_runtime::Globals;
 use lapiz_utils::log_err::LogErr as _;
 
 use crate::{ActionFunction, ActionId};
@@ -30,12 +30,12 @@ impl ActionFunction for CreateNewLayerAction {
         ActionId::new("create_new_layer_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        let Some(canvas_id) = services.current_canvas_id() else {
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
+        let Some(canvas_id) = globals.current_canvas_id() else {
             return Task::none();
         };
 
-        let cmd = services
+        let cmd = globals
             .update_canvas(&canvas_id, |canvas, _| {
                 let (parent, position) = {
                     let mut cur_parent = canvas.active_layer_node();
@@ -68,7 +68,7 @@ impl ActionFunction for CreateNewLayerAction {
             .flatten();
 
         if let Some(cmd) = cmd {
-            services.push_undo_command_to_current(cmd).log_err();
+            globals.push_undo_command_to_current(cmd).log_err();
         }
 
         Task::none()
@@ -85,12 +85,12 @@ impl ActionFunction for GroupSelectedLayersAction {
         ActionId::new("group_selected_layers_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        let Some(canvas_id) = services.current_canvas_id() else {
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
+        let Some(canvas_id) = globals.current_canvas_id() else {
             return Task::none();
         };
 
-        let cmd = services.update_canvas(&canvas_id, |canvas, _| {
+        let cmd = globals.update_canvas(&canvas_id, |canvas, _| {
             let group_name = canvas.image.next_name_of_layer(t!("default_group_name"));
             let reduced_layers = canvas
                 .image
@@ -137,7 +137,7 @@ impl ActionFunction for GroupSelectedLayersAction {
         });
 
         if let Some(cmd) = cmd {
-            services.push_undo_command_to_current(cmd).log_err();
+            globals.push_undo_command_to_current(cmd).log_err();
         }
 
         Task::none()
@@ -154,12 +154,12 @@ impl ActionFunction for MoveLayerUpAction {
         ActionId::new("move_layer_up_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        let Some(canvas_id) = services.current_canvas_id() else {
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
+        let Some(canvas_id) = globals.current_canvas_id() else {
             return Task::none();
         };
 
-        let cmd = services
+        let cmd = globals
             .update_canvas(&canvas_id, |canvas, _| {
                 let mut layers = canvas
                     .selected_layer_ids()
@@ -203,7 +203,7 @@ impl ActionFunction for MoveLayerUpAction {
             .flatten();
 
         if let Some(cmd) = cmd {
-            services.push_undo_command_to_current(cmd).log_err();
+            globals.push_undo_command_to_current(cmd).log_err();
         }
 
         Task::none()
@@ -220,12 +220,12 @@ impl ActionFunction for MoveLayerDownAction {
         ActionId::new("move_layer_down_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        let Some(canvas_id) = services.current_canvas_id() else {
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
+        let Some(canvas_id) = globals.current_canvas_id() else {
             return Task::none();
         };
 
-        let cmd = services
+        let cmd = globals
             .update_canvas(&canvas_id, |canvas, _| {
                 let mut layers = canvas
                     .selected_layer_ids()
@@ -269,7 +269,7 @@ impl ActionFunction for MoveLayerDownAction {
             .flatten();
 
         if let Some(cmd) = cmd {
-            services.push_undo_command_to_current(cmd).log_err();
+            globals.push_undo_command_to_current(cmd).log_err();
         }
 
         Task::none()
@@ -286,12 +286,12 @@ impl ActionFunction for DeleteSelectedLayersAction {
         ActionId::new("delete_selected_layers_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        let Some(canvas_id) = services.current_canvas_id() else {
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
+        let Some(canvas_id) = globals.current_canvas_id() else {
             return Task::none();
         };
 
-        let cmd = services
+        let cmd = globals
             .update_canvas(&canvas_id, |canvas, _| {
                 DeleteLayersCommand::new(
                     canvas,
@@ -303,7 +303,7 @@ impl ActionFunction for DeleteSelectedLayersAction {
             .flatten();
 
         if let Some(cmd) = cmd {
-            services.push_undo_command_to_current(cmd).log_err();
+            globals.push_undo_command_to_current(cmd).log_err();
         }
 
         Task::none()
@@ -320,11 +320,11 @@ impl ActionFunction for SelectPreviousLayerAction {
         ActionId::new("select_previous_layer_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        let Some(canvas_id) = services.current_canvas_id() else {
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
+        let Some(canvas_id) = globals.current_canvas_id() else {
             return Task::none();
         };
-        services.update_canvas(&canvas_id, |canvas, _| {
+        globals.update_canvas(&canvas_id, |canvas, _| {
             let active_node = canvas.active_layer_node();
             let active_parent_node = canvas
                 .image
@@ -355,11 +355,11 @@ impl ActionFunction for SelectNextLayerAction {
         ActionId::new("select_next_layer_action".into())
     }
 
-    fn trigger(&self, services: &mut Services) -> Task<Self::Message> {
-        let Some(canvas_id) = services.current_canvas_id() else {
+    fn trigger(&self, globals: &mut Globals) -> Task<Self::Message> {
+        let Some(canvas_id) = globals.current_canvas_id() else {
             return Task::none();
         };
-        services.update_canvas(&canvas_id, |canvas, _| {
+        globals.update_canvas(&canvas_id, |canvas, _| {
             let active_node = canvas.active_layer_node();
 
             if let Some(child) = active_node.children().last() {

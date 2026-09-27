@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "android")]
 use anyhow::Context as _;
 use anyhow::Result;
-use lapiz_runtime::Services;
+use lapiz_runtime::Globals;
 #[cfg(target_os = "android")]
 use lapiz_runtime::android::AndroidApp;
 #[cfg(not(target_os = "android"))]
@@ -24,16 +24,16 @@ pub struct FileDialog {
 
 impl FileDialog {
     // quick helper
-    pub fn new_maybe_from_service(services: &Services) -> Self {
+    pub fn new_maybe_from_global(globals: &Globals) -> Self {
         #[cfg(target_os = "android")]
         {
             use lapiz_runtime::android::AndroidAppExt as _;
 
-            FileDialog::new_android(services.android_app().clone())
+            FileDialog::new_android(globals.android_app().clone())
         }
         #[cfg(not(target_os = "android"))]
         {
-            let _ = services;
+            let _ = globals;
             FileDialog::new()
         }
     }

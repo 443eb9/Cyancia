@@ -11,7 +11,7 @@ use iced_runtime::{Task, futures::Subscription};
 use lapiz_utils::{log_err::LogErr, wrapper};
 use parse_display::Display;
 
-use crate::{Services, service::Service};
+use crate::{Globals, global::Global};
 
 wrapper! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display)]
@@ -28,20 +28,20 @@ pub trait WindowView: 'static + Sized {
     fn id() -> WindowViewId;
     fn boot(
         params: Option<Self::BootParams>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Result<(Self, Task<Self::Message>)>;
     fn view<'a>(
         &'a self,
         window: window::Id,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> impl Into<Element<'a, Self::Message, Theme, crate::Renderer>>;
     fn update(
         &mut self,
         message: Self::Message,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> impl Into<Task<Self::Message>>;
-    fn close(self, services: &mut Services) -> Task<()>;
-    fn subscription(&self, _services: &Services) -> Subscription<Self::Message> {
+    fn close(self, globals: &mut Globals) -> Task<()>;
+    fn subscription(&self, _globals: &Globals) -> Subscription<Self::Message> {
         Subscription::none()
     }
     fn windows(&self) -> Arc<[window::Id]>;
@@ -55,15 +55,15 @@ pub trait ErasedWindowView: 'static {
     fn view<'a>(
         &'a self,
         window: window::Id,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Box<dyn Any + Send>, Theme, crate::Renderer>;
     fn update(
         &mut self,
         message: Box<dyn Any + Send>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Box<dyn Any + Send>>;
-    fn close(self: Box<Self>, services: &mut Services) -> Task<()>;
-    fn subscription(&self, services: &Services) -> Subscription<Box<dyn Any + Send>>;
+    fn close(self: Box<Self>, globals: &mut Globals) -> Task<()>;
+    fn subscription(&self, globals: &Globals) -> Subscription<Box<dyn Any + Send>>;
     fn windows(&self) -> Arc<[window::Id]>;
     fn root_window(&self) -> Option<window::Id>;
 }
@@ -79,9 +79,9 @@ where
     fn view<'a>(
         &'a self,
         window: window::Id,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Box<dyn Any + Send>, Theme, crate::Renderer> {
-        <T as WindowView>::view(self, window, services)
+        <T as WindowView>::view(self, window, globals)
             .into()
             .map(|msg| Box::new(msg) as Box<dyn Any + Send>)
     }
@@ -89,22 +89,22 @@ where
     fn update(
         &mut self,
         message: Box<dyn Any + Send>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Box<dyn Any + Send>> {
         let msg = *message
             .downcast::<T::Message>()
             .expect("Cast window message failed");
-        <T as WindowView>::update(self, msg, services)
+        <T as WindowView>::update(self, msg, globals)
             .into()
             .map(|msg| Box::new(msg) as Box<dyn Any + Send>)
     }
 
-    fn close(self: Box<Self>, services: &mut Services) -> Task<()> {
-        <T as WindowView>::close(*self, services)
+    fn close(self: Box<Self>, globals: &mut Globals) -> Task<()> {
+        <T as WindowView>::close(*self, globals)
     }
 
-    fn subscription(&self, services: &Services) -> Subscription<Box<dyn Any + Send>> {
-        <T as WindowView>::subscription(self, services)
+    fn subscription(&self, globals: &Globals) -> Subscription<Box<dyn Any + Send>> {
+        <T as WindowView>::subscription(self, globals)
             .map(|msg| Box::new(msg) as Box<dyn Any + Send>)
     }
 
@@ -130,7 +130,7 @@ pub enum WindowViewManagerMessage {
 type WindowViewBootFn = Box<
     dyn Fn(
             Option<Box<dyn Any>>,
-            &mut Services,
+            &mut Globals,
         ) -> Result<(Box<dyn ErasedWindowView>, Task<ErasedWindowViewMessage>)>
         + 'static,
 >;
@@ -157,7 +157,7 @@ pub struct WindowViewManager {
     root_view: Option<WindowViewId>,
 }
 
-impl Service for WindowViewManager {}
+impl Global for WindowViewManager {}
 
 impl WindowViewManager
 where
@@ -166,10 +166,10 @@ where
     pub fn register_view<T: WindowView>(&mut self) {
         self.registered_views.insert(
             T::id(),
-            Box::new(|params, services| {
+            Box::new(|params, globals| {
                 let (view, task) = if let Some(params) = params {
                     match params.downcast() {
-                        Ok(params) => T::boot(Some(*params), services)?,
+                        Ok(params) => T::boot(Some(*params), globals)?,
                         Err(params) => {
                             anyhow::bail!(
                                 "Invalid params for view: Expected {}, found {}",
@@ -179,7 +179,7 @@ where
                         }
                     }
                 } else {
-                    T::boot(None, services)?
+                    T::boot(None, globals)?
                 };
 
                 Ok((
@@ -204,12 +204,12 @@ where
     pub fn boot(
         &mut self,
         params: Option<Box<dyn Any>>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<WindowViewManagerMessage> {
         self.open_window_view(
             self.root_view.expect("No root view specified."),
             params,
-            services,
+            globals,
         )
         .unwrap()
     }
@@ -217,7 +217,7 @@ where
     pub fn view<'a>(
         &'a self,
         id: window::Id,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Option<Element<'a, WindowViewManagerMessage, Theme, crate::Renderer>> {
         let Some(window) = self.window_to_view.get(&id).cloned() else {
             log::error!(
@@ -232,7 +232,7 @@ where
             return None;
         };
 
-        Some(view.state.view(id, services).map(move |msg| {
+        Some(view.state.view(id, globals).map(move |msg| {
             WindowViewManagerMessage::ViewUpdate(ErasedWindowViewMessage {
                 view: window,
                 message: msg,
@@ -243,7 +243,7 @@ where
     pub fn update(
         &mut self,
         message: WindowViewManagerMessage,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<WindowViewManagerMessage> {
         match message {
             WindowViewManagerMessage::ViewUpdate(message) => {
@@ -257,7 +257,7 @@ where
 
                 let task = view
                     .state
-                    .update(message.message, services)
+                    .update(message.message, globals)
                     .map(move |msg| {
                         WindowViewManagerMessage::ViewUpdate(ErasedWindowViewMessage {
                             view: message.view,
@@ -272,10 +272,10 @@ where
         }
     }
 
-    pub fn subscription(&self, services: &Services) -> Subscription<WindowViewManagerMessage> {
+    pub fn subscription(&self, globals: &Globals) -> Subscription<WindowViewManagerMessage> {
         Subscription::batch(self.opened_views.iter().map(|(id, view)| {
             view.state
-                .subscription(services)
+                .subscription(globals)
                 .with(*id)
                 .map(|(view, message)| {
                     WindowViewManagerMessage::ViewUpdate(ErasedWindowViewMessage { view, message })
@@ -287,7 +287,7 @@ where
         &mut self,
         view_id: WindowViewId,
         params: Option<Box<dyn Any>>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Result<Task<WindowViewManagerMessage>> {
         if self.opened_views.contains_key(&view_id) {
             bail!("Window view already opened: {}", view_id.0);
@@ -300,7 +300,7 @@ where
             );
         };
 
-        let (view_state, task) = boot(params, services)?;
+        let (view_state, task) = boot(params, globals)?;
         let mut view = OpenedView::new(view_state);
         update_view_windows(view_id, &mut view, &mut self.window_to_view);
         self.opened_views.insert(view_id, view);
@@ -308,19 +308,15 @@ where
         Ok(task.map(WindowViewManagerMessage::ViewUpdate))
     }
 
-    pub fn close_window_view(
-        &mut self,
-        view_id: WindowViewId,
-        services: &mut Services,
-    ) -> Task<()> {
+    pub fn close_window_view(&mut self, view_id: WindowViewId, globals: &mut Globals) -> Task<()> {
         let Some(view) = self.opened_views.remove(&view_id) else {
             return Task::none();
         };
 
-        view.state.close(services)
+        view.state.close(globals)
     }
 
-    pub fn on_window_closed(&mut self, window: window::Id, services: &mut Services) -> Task<()> {
+    pub fn on_window_closed(&mut self, window: window::Id, globals: &mut Globals) -> Task<()> {
         let Some(view_id) = self.window_to_view.remove(&window) else {
             log::error!(
                 "Unable to close a window that doesn't have corresponding view: {}",
@@ -336,7 +332,7 @@ where
 
         if entry.get().state.root_window() == Some(window) {
             log::info!("Root window of view {} closed, closing the view", view_id.0);
-            entry.remove().state.close(services)
+            entry.remove().state.close(globals)
         } else {
             Task::none()
         }
@@ -366,7 +362,7 @@ pub trait WindowCommand: 'static {
     fn execute(
         self: Box<Self>,
         wm: &mut WindowViewManager,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Result<Task<WindowViewManagerMessage>>;
 }
 
@@ -375,7 +371,7 @@ pub struct WindowCommandBuffer {
     commands: Vec<Box<dyn WindowCommand>>,
 }
 
-impl Service for WindowCommandBuffer {}
+impl Global for WindowCommandBuffer {}
 
 impl WindowCommandBuffer {
     pub fn push<T: WindowCommand>(&mut self, command: T) {
@@ -385,11 +381,11 @@ impl WindowCommandBuffer {
     pub fn execute(
         &mut self,
         wm: &mut WindowViewManager,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<WindowViewManagerMessage> {
         let mut tasks = Vec::new();
         for command in self.commands.drain(..) {
-            if let Ok(task) = command.execute(wm, services).logged_err() {
+            if let Ok(task) = command.execute(wm, globals).logged_err() {
                 tasks.push(task);
             }
         }
@@ -406,9 +402,9 @@ impl WindowCommand for OpenWindowViewCommand {
     fn execute(
         self: Box<Self>,
         wm: &mut WindowViewManager,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Result<Task<WindowViewManagerMessage>> {
-        wm.open_window_view(self.view_id, self.open_params, services)
+        wm.open_window_view(self.view_id, self.open_params, globals)
     }
 }
 
@@ -436,9 +432,9 @@ impl WindowCommand for CloseWindowViewCommand {
     fn execute(
         self: Box<Self>,
         wm: &mut WindowViewManager,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Result<Task<WindowViewManagerMessage>> {
-        Ok(wm.close_window_view(self.view_id, services).discard())
+        Ok(wm.close_window_view(self.view_id, globals).discard())
     }
 }
 
@@ -457,12 +453,12 @@ impl WindowCommand for ToggleWindowViewCommand {
     fn execute(
         self: Box<Self>,
         wm: &mut WindowViewManager,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Result<Task<WindowViewManagerMessage>> {
         if wm.opened_views.contains_key(&self.view_id) {
-            Ok(wm.close_window_view(self.view_id, services).discard())
+            Ok(wm.close_window_view(self.view_id, globals).discard())
         } else {
-            wm.open_window_view(self.view_id, self.open_params, services)
+            wm.open_window_view(self.view_id, self.open_params, globals)
         }
     }
 }
@@ -498,7 +494,7 @@ impl WindowCommand for SubWindowOpenedCommand {
     fn execute(
         self: Box<Self>,
         wm: &mut WindowViewManager,
-        _services: &mut Services,
+        _globals: &mut Globals,
     ) -> Result<Task<WindowViewManagerMessage>> {
         wm.window_to_view.insert(self.window, self.view_id);
         Ok(Task::none())

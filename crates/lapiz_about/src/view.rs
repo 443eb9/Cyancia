@@ -8,7 +8,7 @@ use iced_runtime::{
 };
 use lapiz_i18n::t;
 use lapiz_runtime::{
-    Renderer, Services,
+    Globals, Renderer,
     windows::{WindowView, WindowViewId},
 };
 use lapiz_widgets::{
@@ -78,7 +78,7 @@ impl WindowView for AboutView {
 
     fn boot(
         _params: Option<Self::BootParams>,
-        _services: &mut Services,
+        _globals: &mut Globals,
     ) -> Result<(Self, Task<Self::Message>)> {
         let licenses = ThirdPartyLicenses::parse_embedded();
         let filtered = (0..licenses.crates.len()).collect();
@@ -114,7 +114,7 @@ impl WindowView for AboutView {
     fn view<'a>(
         &'a self,
         _: window::Id,
-        _: &'a Services,
+        _: &'a Globals,
     ) -> impl Into<Element<'a, Self::Message, Theme, Renderer>> {
         let titlebar = title_bar(label(t!("about_title")).window_title())
             .on_close(AboutMessage::Close)
@@ -132,7 +132,7 @@ impl WindowView for AboutView {
     fn update(
         &mut self,
         message: Self::Message,
-        _services: &mut Services,
+        _globals: &mut Globals,
     ) -> impl Into<Task<Self::Message>> {
         match message {
             AboutMessage::SelectTab(index) => {
@@ -165,7 +165,7 @@ impl WindowView for AboutView {
         }
     }
 
-    fn close(self, _: &mut Services) -> Task<()> {
+    fn close(self, _: &mut Globals) -> Task<()> {
         close(self.window)
     }
 

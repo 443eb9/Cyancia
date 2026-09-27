@@ -16,7 +16,7 @@ pub struct FreeTransformPlugin;
 impl Plugin for FreeTransformPlugin {
     fn build(&self, app: &mut Runtime) {
         i18n::init();
-        app.services_mut()
+        app.globals_mut()
             .add_tool_function::<FreeTransformTool>()
             .add_tool_function::<LiquifyTransformTool>()
             .add_tool_function::<PerspectiveTransformTool>();

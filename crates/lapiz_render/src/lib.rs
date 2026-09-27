@@ -24,9 +24,9 @@ pub struct RenderPlugin;
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut Runtime) {
-        app.add_service::<GlobalSamplers>()
-            .add_service::<FullscreenVertex>();
+        app.add_global::<GlobalSamplers>()
+            .add_global::<FullscreenVertex>();
 
-        app.services_mut().add_asset_serializer::<ImageSerializer>();
+        app.globals_mut().add_asset_serializer::<ImageSerializer>();
     }
 }

@@ -17,7 +17,7 @@ use lapiz_effect::{
 use lapiz_i18n::t;
 use lapiz_image::texel::TexelType;
 use lapiz_runtime::{
-    Services,
+    Globals,
     windows::{WindowView, WindowViewId},
 };
 use lapiz_shader_graph::{
@@ -140,9 +140,9 @@ impl WindowView for BrushEditor {
 
     fn boot(
         _params: Option<Self::BootParams>,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Result<(Self, Task<Self::Message>)> {
-        let brushes = services
+        let brushes = globals
             .assets()
             .all_handles_of::<BrushPreset>()
             .expect("Failed to list brush presets");
@@ -166,7 +166,7 @@ impl WindowView for BrushEditor {
                 brushes,
                 selected_index: None,
                 selected: None,
-                editor_states: BrushEffectEditorStates::new(services.assets()),
+                editor_states: BrushEffectEditorStates::new(globals.assets()),
                 active_slot: BrushEffectSlot::Main,
                 name_buffer: String::new(),
                 dirty: false,
@@ -178,7 +178,7 @@ impl WindowView for BrushEditor {
     fn view<'a>(
         &'a self,
         _: window::Id,
-        _: &'a Services,
+        _: &'a Globals,
     ) -> impl Into<Element<'a, Self::Message, Theme, lapiz_runtime::Renderer>> {
         let titlebar = title_bar(label(t!("brush_editor_title")).window_title())
             .on_close(BrushEditorMessage::Close)
@@ -234,11 +234,11 @@ impl WindowView for BrushEditor {
     fn update(
         &mut self,
         message: Self::Message,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> impl Into<Task<Self::Message>> {
         match message {
-            BrushEditorMessage::SelectBrush(index) => self.select_brush(index, services),
-            BrushEditorMessage::NewBrush => self.new_brush(services),
+            BrushEditorMessage::SelectBrush(index) => self.select_brush(index, globals),
+            BrushEditorMessage::NewBrush => self.new_brush(globals),
             BrushEditorMessage::BrushNameChanged(name) => {
                 self.name_buffer = name.clone();
                 if let Some(selected) = self.selected.as_mut() {
@@ -247,7 +247,7 @@ impl WindowView for BrushEditor {
                 }
                 Task::none()
             }
-            BrushEditorMessage::Save => self.save(services),
+            BrushEditorMessage::Save => self.save(globals),
             BrushEditorMessage::SelectEffectSlot(slot) => {
                 self.active_slot = slot;
                 Task::none()
@@ -276,11 +276,11 @@ impl WindowView for BrushEditor {
         }
     }
 
-    fn subscription(&self, _services: &Services) -> Subscription<Self::Message> {
+    fn subscription(&self, _globals: &Globals) -> Subscription<Self::Message> {
         Subscription::none()
     }
 
-    fn close(self, _: &mut Services) -> Task<()> {
+    fn close(self, _: &mut Globals) -> Task<()> {
         close(self.main_window)
     }
 
@@ -356,11 +356,11 @@ impl BrushEditor {
             .into()
     }
 
-    fn select_brush(&mut self, index: usize, services: &Services) -> Task<BrushEditorMessage> {
+    fn select_brush(&mut self, index: usize, globals: &Globals) -> Task<BrushEditorMessage> {
         let Some(handle) = self.brushes.get(index).cloned() else {
             return Task::none();
         };
-        let instance = match BrushPresetInstance::from_asset(&handle, services.assets().clone()) {
+        let instance = match BrushPresetInstance::from_asset(&handle, globals.assets().clone()) {
             Ok(instance) => instance,
             Err(error) => {
                 log::error!("Failed to load brush preset: {error:#}");
@@ -370,14 +370,14 @@ impl BrushEditor {
         self.selected_index = Some(index);
         self.name_buffer = instance.metadata().name.clone();
         self.selected = Some(SelectedBrush { handle, instance });
-        self.editor_states = BrushEffectEditorStates::new(services.assets());
+        self.editor_states = BrushEffectEditorStates::new(globals.assets());
         self.active_slot = BrushEffectSlot::Main;
         self.dirty = false;
         Task::none()
     }
 
-    fn new_brush(&mut self, services: &mut Services) -> Task<BrushEditorMessage> {
-        let assets = services.assets().clone();
+    fn new_brush(&mut self, globals: &mut Globals) -> Task<BrushEditorMessage> {
+        let assets = globals.assets().clone();
         let f32_ty = Arc::new(F32Type) as Arc<dyn ErasedGraphValueType>;
         let layer_ty = Arc::new(LayerType {
             texel_type: TexelType::RGBA8,
@@ -413,7 +413,7 @@ impl BrushEditor {
             .expect("freshly built effects always serialize"),
             parameters: Default::default(),
         };
-        let Some(bundle) = services
+        let Some(bundle) = globals
             .assets()
             .bundles()
             .find(|bundle| !bundle.is_readonly())
@@ -423,29 +423,29 @@ impl BrushEditor {
             return Task::none();
         };
         let path = format!("unnamed_brush_{}.lapiz", Uuid::new_v4());
-        let id = match services.assets().add_asset(bundle, path, Arc::new(preset)) {
+        let id = match globals.assets().add_asset(bundle, path, Arc::new(preset)) {
             Ok(id) => id,
             Err(error) => {
                 log::error!("Failed to add new brush preset asset: {error:#}");
                 return Task::none();
             }
         };
-        let Ok(handle) = services.assets().handle(id) else {
+        let Ok(handle) = globals.assets().handle(id) else {
             log::error!("Failed to obtain handle for new brush preset");
             return Task::none();
         };
         let index = self.brushes.len();
         self.brushes.push(handle);
-        let task = self.select_brush(index, services);
+        let task = self.select_brush(index, globals);
         self.dirty = true;
         task
     }
 
-    fn save(&mut self, services: &Services) -> Task<BrushEditorMessage> {
+    fn save(&mut self, globals: &Globals) -> Task<BrushEditorMessage> {
         let Some(selected) = self.selected.as_mut() else {
             return Task::none();
         };
-        let preset = match selected.instance.as_asset(services.assets()) {
+        let preset = match selected.instance.as_asset(globals.assets()) {
             Ok(preset) => preset,
             Err(error) => {
                 log::error!("Failed to serialize brush preset: {error:#}");

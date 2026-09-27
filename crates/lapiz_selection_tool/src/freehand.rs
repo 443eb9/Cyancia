@@ -10,7 +10,7 @@ use lapiz_input::{
     key::KeyboardState,
     mouse::{HoverMouseState, PressedMouseState},
 };
-use lapiz_runtime::{Renderer, Services};
+use lapiz_runtime::{Globals, Renderer};
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{form, icon, label, panel, segmented_control, space};
@@ -61,9 +61,9 @@ impl ToolFunction for FreehandSelectionTool {
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return Task::none();
         };
 
@@ -87,9 +87,9 @@ impl ToolFunction for FreehandSelectionTool {
         &mut self,
         _: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return Task::none();
         };
 
@@ -111,7 +111,7 @@ impl ToolFunction for FreehandSelectionTool {
         &mut self,
         _: &KeyboardState,
         _: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
         let Some(state) = self.state.take() else {
             return Task::none();
@@ -128,11 +128,11 @@ impl ToolFunction for FreehandSelectionTool {
             &geometry.indices,
             state.aabb.as_irect(),
             state.op,
-            services,
+            globals,
         );
 
         if let Some(cmd) = cmd {
-            services.push_undo_command_to_current(cmd).log_err();
+            globals.push_undo_command_to_current(cmd).log_err();
             info!(
                 "Freehand select {} points aabb {:?}",
                 state.points_ps.len(),
@@ -143,7 +143,7 @@ impl ToolFunction for FreehandSelectionTool {
         Task::none()
     }
 
-    fn handle_message(&mut self, message: Self::Message, _: &mut Services) -> Task<Self::Message> {
+    fn handle_message(&mut self, message: Self::Message, _: &mut Globals) -> Task<Self::Message> {
         match message {
             FreehandSelectionToolMessage::FillRuleChanged(fill_rule) => self.fill_rule = fill_rule,
         }
@@ -153,7 +153,7 @@ impl ToolFunction for FreehandSelectionTool {
 
     fn tool_option_widget<'a>(
         &'a self,
-        _: &'a Services,
+        _: &'a Globals,
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
         let fields = form().push(
             t!("fill_rule"),
@@ -181,13 +181,13 @@ impl ToolFunction for FreehandSelectionTool {
 
     fn canvas_overlay<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
         let Some(state) = &self.state else {
             return space().into();
         };
 
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return space().into();
         };
 
@@ -237,7 +237,7 @@ impl ToolFunction for PolygonSelectionTool {
         &mut self,
         keyboard: &KeyboardState,
         _: &PressedMouseState,
-        _: &mut Services,
+        _: &mut Globals,
     ) -> Task<Self::Message> {
         if self.state.is_none() {
             self.state = Some(FreehandSelectionState {
@@ -254,9 +254,9 @@ impl ToolFunction for PolygonSelectionTool {
         &mut self,
         _: &KeyboardState,
         mouse: &HoverMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return Task::none();
         };
 
@@ -270,9 +270,9 @@ impl ToolFunction for PolygonSelectionTool {
         &mut self,
         _: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return Task::none();
         };
 
@@ -299,11 +299,11 @@ impl ToolFunction for PolygonSelectionTool {
                     &geometry.indices,
                     state.aabb.as_irect(),
                     state.op,
-                    services,
+                    globals,
                 );
 
                 if let Some(cmd) = cmd {
-                    services.push_undo_command_to_current(cmd).log_err();
+                    globals.push_undo_command_to_current(cmd).log_err();
                     info!(
                         "Polygon select {} points aabb {:?}",
                         state.points_ps.len(),
@@ -323,7 +323,7 @@ impl ToolFunction for PolygonSelectionTool {
         Task::none()
     }
 
-    fn handle_message(&mut self, message: Self::Message, _: &mut Services) -> Task<Self::Message> {
+    fn handle_message(&mut self, message: Self::Message, _: &mut Globals) -> Task<Self::Message> {
         match message {
             PolygonSelectionToolMessage::FillRuleChanged(fill_rule) => self.fill_rule = fill_rule,
         }
@@ -333,7 +333,7 @@ impl ToolFunction for PolygonSelectionTool {
 
     fn tool_option_widget<'a>(
         &'a self,
-        _: &'a Services,
+        _: &'a Globals,
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
         let fields = form().push(
             t!("fill_rule"),
@@ -361,13 +361,13 @@ impl ToolFunction for PolygonSelectionTool {
 
     fn canvas_overlay<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
         let Some(state) = &self.state else {
             return space().into();
         };
 
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return space().into();
         };
 

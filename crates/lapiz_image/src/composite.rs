@@ -9,7 +9,7 @@ use bevy_math::IRect;
 use dyn_clone::DynClone;
 use encase::ShaderType;
 use glam::IVec2;
-use lapiz_runtime::{Services, service::Service};
+use lapiz_runtime::{Globals, global::Global};
 use lapiz_utils::wrapper;
 use log::error;
 use parse_display::Display;
@@ -38,9 +38,9 @@ pub trait BlendFunctionAppExt {
     fn add_blend_function(&mut self, func: Arc<dyn BlendFunction>);
 }
 
-impl BlendFunctionAppExt for Services {
+impl BlendFunctionAppExt for Globals {
     fn add_blend_function(&mut self, func: Arc<dyn BlendFunction>) {
-        self.service_mut::<BlendFunctionRegistry>().register(func);
+        self.global_mut::<BlendFunctionRegistry>().register(func);
     }
 }
 
@@ -49,7 +49,7 @@ pub struct BlendFunctionRegistry {
     functions: HashMap<BlendFunctionId, Arc<dyn BlendFunction>>,
 }
 
-impl Service for BlendFunctionRegistry {}
+impl Global for BlendFunctionRegistry {}
 
 impl BlendFunctionRegistry {
     pub fn register(&mut self, func: Arc<dyn BlendFunction>) {
@@ -205,7 +205,7 @@ impl LayerPreviewOverriders {
     }
 }
 
-impl Service for LayerPreviewOverriders {}
+impl Global for LayerPreviewOverriders {}
 
 pub struct PixelPreviewOverrider {
     pub texture: TextureView,

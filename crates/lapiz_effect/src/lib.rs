@@ -20,7 +20,7 @@ pub struct EffectPlugin;
 impl Plugin for EffectPlugin {
     fn build(&self, app: &mut Runtime) {
         i18n::init();
-        app.services_mut()
+        app.globals_mut()
             .add_asset_serializer::<EffectAssetSerializer>();
     }
 }

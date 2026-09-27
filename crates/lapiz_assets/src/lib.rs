@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
-use lapiz_runtime::{Runtime, Services, plugin::Plugin};
+use lapiz_runtime::{Globals, Runtime, plugin::Plugin};
 
 use crate::{
     bundle::ErasedAssetBundle,
@@ -31,12 +31,12 @@ impl Plugin for AssetsPlugin {
             builder.add_bundle(bundle.clone());
         }
 
-        app.add_service_instance(builder);
+        app.add_global_instance(builder);
     }
 
     fn finish(&self, app: &mut Runtime) {
-        let builder = app.services_mut().remove_service::<AssetRegistryBuilder>();
-        app.add_service_instance(builder.build());
+        let builder = app.globals_mut().remove_global::<AssetRegistryBuilder>();
+        app.add_global_instance(builder.build());
     }
 }
 
@@ -46,18 +46,17 @@ pub trait AssetAppExt {
     fn assets(&self) -> &AssetRegistry;
 }
 
-impl AssetAppExt for Services {
+impl AssetAppExt for Globals {
     fn add_asset_serializer<A: AssetSerializer + Default>(&mut self) {
-        self.service_mut::<AssetRegistryBuilder>()
+        self.global_mut::<AssetRegistryBuilder>()
             .add_serializer::<A>();
     }
 
     fn add_asset_bundle(&mut self, bundle: Arc<dyn ErasedAssetBundle>) {
-        self.service_mut::<AssetRegistryBuilder>()
-            .add_bundle(bundle);
+        self.global_mut::<AssetRegistryBuilder>().add_bundle(bundle);
     }
 
     fn assets(&self) -> &AssetRegistry {
-        self.service::<AssetRegistry>()
+        self.global::<AssetRegistry>()
     }
 }

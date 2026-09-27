@@ -5,7 +5,7 @@ use iced_runtime::Task;
 use lapiz_canvas::CanvasToolProxyAppExt as _;
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;
-use lapiz_runtime::Services;
+use lapiz_runtime::Globals;
 use lapiz_tools::ErasedToolFunctionMessage;
 use lapiz_widgets::{label, panel, scrollable, space};
 
@@ -19,7 +19,7 @@ pub enum ToolOptionsDockMessage {
 }
 
 impl ToolOptionsDock {
-    pub fn new(_: &Services) -> Self {
+    pub fn new(_: &Globals) -> Self {
         Self
     }
 }
@@ -34,13 +34,13 @@ impl Dock for ToolOptionsDock {
     fn view<'a>(
         &'a self,
         _window_id: window::Id,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Self::Message, Theme, lapiz_runtime::Renderer> {
-        let Some(tool_proxy) = services.current_tool_proxy() else {
+        let Some(tool_proxy) = globals.current_tool_proxy() else {
             return space().into();
         };
 
-        let Some(widget) = tool_proxy.tool_option_widget(services) else {
+        let Some(widget) = tool_proxy.tool_option_widget(globals) else {
             return panel(label(t!("no_tool_options")).muted())
                 .padding(8)
                 .width(Length::Fill)
@@ -55,11 +55,11 @@ impl Dock for ToolOptionsDock {
             .into()
     }
 
-    fn update(&mut self, message: Self::Message, services: &mut Services) -> Task<Self::Message> {
+    fn update(&mut self, message: Self::Message, globals: &mut Globals) -> Task<Self::Message> {
         match message {
-            ToolOptionsDockMessage::ToolFunction(message) => services
-                .update_current_tool_proxy(|tool_proxy, services| {
-                    tool_proxy.handle_message(message, services)
+            ToolOptionsDockMessage::ToolFunction(message) => globals
+                .update_current_tool_proxy(|tool_proxy, globals| {
+                    tool_proxy.handle_message(message, globals)
                 })
                 .unwrap_or_else(Task::none)
                 .map(ToolOptionsDockMessage::ToolFunction),

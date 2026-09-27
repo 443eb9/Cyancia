@@ -32,14 +32,14 @@ impl Plugin for BrushPlugin {
 
         app.register_view::<BrushEditor>();
 
-        let services = app.services_mut();
-        services.add_asset_serializer::<BrushPresetSerializer>();
-        services.add_tool_function::<BrushTool>();
+        let globals = app.globals_mut();
+        globals.add_asset_serializer::<BrushPresetSerializer>();
+        globals.add_tool_function::<BrushTool>();
     }
 
     fn finish(&self, app: &mut Runtime) {
-        let services = app.services();
-        let assets = services.assets().clone();
+        let globals = app.globals();
+        let assets = globals.assets().clone();
 
         let brushes = assets
             .all_handles_of::<BrushPreset>()
@@ -47,7 +47,7 @@ impl Plugin for BrushPlugin {
 
         let preview_tasks = brushes.into_iter().filter_map(|brush| {
             let brush_id = brush.id();
-            match load_cached_stroke_preview_or_generate(&brush, &assets, services) {
+            match load_cached_stroke_preview_or_generate(&brush, &assets, globals) {
                 Ok(task) => Some(task.map(move |result| (brush_id, result))),
                 Err(error) => {
                     log::error!("Failed to prepare preview for brush {brush_id}: {error:#}");

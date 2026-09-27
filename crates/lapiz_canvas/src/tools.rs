@@ -2,7 +2,7 @@ use glam::Vec2;
 use iced_runtime::Task;
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
 use lapiz_math::number::AngleDifference as _;
-use lapiz_runtime::Services;
+use lapiz_runtime::Globals;
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_widgets::icon;
 
@@ -29,9 +29,9 @@ impl ToolFunction for PanTool {
         &mut self,
         _: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return Task::none();
         };
 
@@ -44,9 +44,9 @@ impl ToolFunction for PanTool {
         &mut self,
         _: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        let Some(canvas) = services.current_canvas_mut() else {
+        let Some(canvas) = globals.current_canvas_mut() else {
             return Task::none();
         };
 
@@ -79,9 +79,9 @@ impl ToolFunction for RotateTool {
         &mut self,
         _: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return Task::none();
         };
 
@@ -96,9 +96,9 @@ impl ToolFunction for RotateTool {
         &mut self,
         _: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        let Some(canvas) = services.current_canvas_mut() else {
+        let Some(canvas) = globals.current_canvas_mut() else {
             return Task::none();
         };
 
@@ -134,9 +134,9 @@ impl ToolFunction for ZoomTool {
         &mut self,
         _: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return Task::none();
         };
 
@@ -151,9 +151,9 @@ impl ToolFunction for ZoomTool {
         &mut self,
         _: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        let Some(canvas) = services.current_canvas_mut() else {
+        let Some(canvas) = globals.current_canvas_mut() else {
             return Task::none();
         };
 

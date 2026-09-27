@@ -6,7 +6,7 @@ use iced_runtime::Task;
 use lapiz_canvas::CCanvas;
 use lapiz_i18n::t;
 use lapiz_lazuli::LazuliArchive;
-use lapiz_runtime::{Renderer, Services};
+use lapiz_runtime::{Globals, Renderer};
 use lapiz_widgets::column;
 
 use crate::ImageFormatExporter;
@@ -29,18 +29,18 @@ impl ImageFormatExporter for LazuliExporter {
         false
     }
 
-    fn dialog_view(&self, _: &Services) -> Element<'_, (), Theme, Renderer> {
+    fn dialog_view(&self, _: &Globals) -> Element<'_, (), Theme, Renderer> {
         column!().into()
     }
 
-    fn dialog_update(&mut self, _: (), _: &mut Services) -> Task<()> {
+    fn dialog_update(&mut self, _: (), _: &mut Globals) -> Task<()> {
         Task::none()
     }
 
     #[tracing::instrument(skip_all)]
-    async fn export(&self, services: &Services, canvas: &CCanvas, path: &Path) -> Result<()> {
+    async fn export(&self, globals: &Globals, canvas: &CCanvas, path: &Path) -> Result<()> {
         let archive = LazuliArchive::new(path)?;
-        canvas.image.write_archive(&archive, services).await
+        canvas.image.write_archive(&archive, globals).await
     }
 
     fn to_toml(&self) -> Result<toml::Value> {

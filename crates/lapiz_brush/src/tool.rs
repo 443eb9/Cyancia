@@ -12,7 +12,7 @@ use lapiz_i18n::t;
 use lapiz_image::{composite::LayerPreviewOverriders, tile::TileStorageAppExt as _};
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
 use lapiz_render::render_context::RenderContextAppExt as _;
-use lapiz_runtime::{Renderer, Services, event::Event as _, service::Service};
+use lapiz_runtime::{Globals, Renderer, event::Event as _, global::Global};
 use lapiz_shader_graph::graph::slot::{ErasedGraphLiteralUpdateMessage, GraphInputSlotId};
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_undo::QueuedUndoCommand;
@@ -29,18 +29,18 @@ use crate::{
 
 pub struct CurrentBrushPreset(pub CanvasBrushPresetOperator);
 
-impl Service for CurrentBrushPreset {}
+impl Global for CurrentBrushPreset {}
 
 #[derive(Clone)]
 pub struct CurrentBrushPresetHandle(pub AssetHandle<BrushPreset>);
 
-impl Service for CurrentBrushPresetHandle {}
+impl Global for CurrentBrushPresetHandle {}
 
-pub trait BrushServicesExt {
+pub trait BrushglobalsExt {
     fn set_current_brush_preset(&mut self, handle: AssetHandle<BrushPreset>);
 }
 
-impl BrushServicesExt for Services {
+impl BrushglobalsExt for Globals {
     fn set_current_brush_preset(&mut self, handle: AssetHandle<BrushPreset>) {
         let instance = match BrushPresetInstance::from_asset(&handle, self.assets().clone()) {
             Ok(instance) => instance,
@@ -60,8 +60,8 @@ impl BrushServicesExt for Services {
             operator.instance().metadata().name,
             operator.instance().asset_id()
         );
-        self.insert_service(CurrentBrushPreset(operator));
-        self.insert_service(CurrentBrushPresetHandle(handle));
+        self.insert_global(CurrentBrushPreset(operator));
+        self.insert_global(CurrentBrushPresetHandle(handle));
     }
 }
 
@@ -104,12 +104,12 @@ impl ToolFunction for BrushTool {
         &mut self,
         _: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        let Some(canvas_id) = services.current_canvas_id() else {
+        let Some(canvas_id) = globals.current_canvas_id() else {
             return Task::none();
         };
-        if services.get_service::<CurrentBrushPreset>().is_none() {
+        if globals.get_global::<CurrentBrushPreset>().is_none() {
             return Task::none();
         }
 
@@ -117,13 +117,13 @@ impl ToolFunction for BrushTool {
         let stroke_id = self.next_stroke_id;
         self.active_stroke_id = Some(stroke_id);
         self.queued_commands
-            .insert(stroke_id, services.queue_undo_command(&canvas_id).unwrap());
+            .insert(stroke_id, globals.queue_undo_command(&canvas_id).unwrap());
 
-        services
-            .try_service_scope::<CurrentBrushPreset, _>(|brush, services| {
+        globals
+            .try_update_scope::<CurrentBrushPreset, _>(|brush, globals| {
                 brush
                     .0
-                    .begin_stroke(mouse, stroke_id, canvas_id, services)
+                    .begin_stroke(mouse, stroke_id, canvas_id, globals)
                     .discard()
             })
             .unwrap_or_else(Task::none)
@@ -134,11 +134,11 @@ impl ToolFunction for BrushTool {
         &mut self,
         _: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        services
-            .try_service_scope::<CurrentBrushPreset, _>(|brush, services| {
-                let render = brush.0.update_stroke(mouse, services).discard();
+        globals
+            .try_update_scope::<CurrentBrushPreset, _>(|brush, globals| {
+                let render = brush.0.update_stroke(mouse, globals).discard();
                 if self.preview_ongoing {
                     self.request_preview_when_preview_ongoing = true;
                     return render;
@@ -157,13 +157,13 @@ impl ToolFunction for BrushTool {
         &mut self,
         _: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        services
-            .try_service_scope::<CurrentBrushPreset, _>(|brush, services| {
+        globals
+            .try_update_scope::<CurrentBrushPreset, _>(|brush, globals| {
                 brush
                     .0
-                    .end_stroke(mouse, services)
+                    .end_stroke(mouse, globals)
                     .map(BrushToolMessage::StrokeResult)
             })
             .unwrap_or_else(Task::none)
@@ -172,7 +172,7 @@ impl ToolFunction for BrushTool {
     fn handle_message(
         &mut self,
         message: Self::Message,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
         match message {
             BrushToolMessage::StrokePreview(maybe_preview) => {
@@ -186,8 +186,8 @@ impl ToolFunction for BrushTool {
                 }) = maybe_preview
                     && self.active_stroke_id == Some(stroke_id)
                 {
-                    services
-                        .service_mut::<LayerPreviewOverriders>()
+                    globals
+                        .global_mut::<LayerPreviewOverriders>()
                         .insert_overrider(target_layer_id, overrider);
                     CanvasUpdated::broadcast(CanvasUpdated {
                         id: canvas_id,
@@ -202,8 +202,8 @@ impl ToolFunction for BrushTool {
                 self.request_preview_when_preview_ongoing = false;
                 self.preview_ongoing = true;
 
-                services
-                    .try_service_scope::<CurrentBrushPreset, _>(|brush, _services| {
+                globals
+                    .try_update_scope::<CurrentBrushPreset, _>(|brush, _globals| {
                         brush.0.preview().map(BrushToolMessage::StrokePreview)
                     })
                     .unwrap_or_else(Task::none)
@@ -220,8 +220,8 @@ impl ToolFunction for BrushTool {
                     .take_if(|active_id| *active_id == stroke_id)
                     .is_some()
                 {
-                    services
-                        .service_mut::<LayerPreviewOverriders>()
+                    globals
+                        .global_mut::<LayerPreviewOverriders>()
                         .remove_overrider(&target_layer_id);
                 }
 
@@ -229,27 +229,27 @@ impl ToolFunction for BrushTool {
                     return Task::none();
                 };
                 let cmd = {
-                    let layer_storage = services
+                    let layer_storage = globals
                         .tile_storage()
                         .get_layer(target_layer_id)
                         .expect("Brush target layer should exist");
                     TileReplaceCommand::new(
                         "Brush stroke".into(),
                         canvas_id,
-                        services.render_device(),
-                        services.render_queue(),
+                        globals.render_device(),
+                        globals.render_queue(),
                         target_layer_id,
                         &layer_storage,
                         result.iter_tile_indices().collect(),
                         result_texture,
                     )
                 };
-                command.send(Box::new(cmd), services).log_err();
+                command.send(Box::new(cmd), globals).log_err();
 
                 Task::none()
             }
             BrushToolMessage::UpdateParameter { id, message } => {
-                services.service_scope::<CurrentBrushPreset, _>(|brush, _| {
+                globals.update_global::<CurrentBrushPreset, _>(|brush, _| {
                     brush.0.instance_mut().update_parameter(&id, message);
                 });
 
@@ -260,9 +260,9 @@ impl ToolFunction for BrushTool {
 
     fn tool_option_widget<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Option<Element<'a, Self::Message, Theme, Renderer>> {
-        let brush = services.get_service::<CurrentBrushPreset>()?;
+        let brush = globals.get_global::<CurrentBrushPreset>()?;
 
         let parameters = brush
             .0
@@ -276,7 +276,7 @@ impl ToolFunction for BrushTool {
                     parameter
                         .value
                         .ty()
-                        .view_literal(slot_id, parameter.value.value(), services.assets())
+                        .view_literal(slot_id, parameter.value.value(), globals.assets())
                         .map(move |message| BrushToolMessage::UpdateParameter { id: *id, message }),
                 ]
                 .gap(4.0)

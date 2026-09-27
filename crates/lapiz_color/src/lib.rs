@@ -1,6 +1,4 @@
-use lapiz_runtime::{
-    Runtime, Services, event::Event, plugin::Plugin, service::Service,
-};
+use lapiz_runtime::{Globals, Runtime, event::Event, global::Global, plugin::Plugin};
 use lapiz_utils::wrapper;
 use moxcms::Matrix3f;
 
@@ -74,7 +72,7 @@ wrapper! {
     pub mut ForegroundColor : Color
 }
 
-impl Service for ForegroundColor {}
+impl Global for ForegroundColor {}
 
 impl ForegroundColor {
     pub fn get(&self) -> Color {
@@ -101,7 +99,7 @@ impl BackgroundColor {
     }
 }
 
-impl Service for BackgroundColor {}
+impl Global for BackgroundColor {}
 
 pub trait ForegroundBackgroundColorExt {
     fn foreground_color(&self) -> &ForegroundColor;
@@ -110,21 +108,21 @@ pub trait ForegroundBackgroundColorExt {
     fn background_color_mut(&mut self) -> &mut BackgroundColor;
 }
 
-impl ForegroundBackgroundColorExt for Services {
+impl ForegroundBackgroundColorExt for Globals {
     fn foreground_color(&self) -> &ForegroundColor {
-        self.service::<ForegroundColor>()
+        self.global::<ForegroundColor>()
     }
 
     fn foreground_color_mut(&mut self) -> &mut ForegroundColor {
-        self.service_mut::<ForegroundColor>()
+        self.global_mut::<ForegroundColor>()
     }
 
     fn background_color(&self) -> &BackgroundColor {
-        self.service::<BackgroundColor>()
+        self.global::<BackgroundColor>()
     }
 
     fn background_color_mut(&mut self) -> &mut BackgroundColor {
-        self.service_mut::<BackgroundColor>()
+        self.global_mut::<BackgroundColor>()
     }
 }
 
@@ -156,10 +154,10 @@ pub struct ColorPlugin;
 
 impl Plugin for ColorPlugin {
     fn build(&self, app: &mut Runtime) {
-        let services = app.services_mut();
+        let globals = app.globals_mut();
 
         let default_color = Color::Rgb(Rgb::new(0.0, 0.0, 0.0));
-        services.insert_service(ForegroundColor::new(default_color));
-        services.insert_service(BackgroundColor::new(default_color));
+        globals.insert_global(ForegroundColor::new(default_color));
+        globals.insert_global(BackgroundColor::new(default_color));
     }
 }

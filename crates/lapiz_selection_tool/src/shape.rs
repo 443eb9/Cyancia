@@ -9,7 +9,7 @@ use iced_core::{Element, Theme};
 use iced_runtime::Task;
 use lapiz_canvas::{CanvasAppExt as _, CanvasUndoStackAppExt as _};
 use lapiz_input::{key::KeyboardState, mouse::PressedMouseState};
-use lapiz_runtime::{Renderer, Services};
+use lapiz_runtime::{Globals, Renderer};
 use lapiz_tools::{ToolFunction, ToolId};
 use lapiz_utils::log_err::LogErr as _;
 use lapiz_widgets::{icon, space};
@@ -24,9 +24,9 @@ fn common_begin(
     state: &mut Option<ShapeSelectionState>,
     keyboard: &KeyboardState,
     mouse: &PressedMouseState,
-    services: &mut Services,
+    globals: &mut Globals,
 ) {
-    let Some(canvas) = services.current_canvas() else {
+    let Some(canvas) = globals.current_canvas() else {
         return;
     };
 
@@ -45,13 +45,13 @@ fn common_update(
     state: &mut Option<ShapeSelectionState>,
     keyboard: &KeyboardState,
     mouse: &PressedMouseState,
-    services: &mut Services,
+    globals: &mut Globals,
 ) {
     let Some(state) = state.as_mut() else {
         return;
     };
 
-    let Some(canvas) = services.current_canvas() else {
+    let Some(canvas) = globals.current_canvas() else {
         return;
     };
 
@@ -96,9 +96,9 @@ impl ToolFunction for RectangularSelectionTool {
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        common_begin(&mut self.state, keyboard, mouse, services);
+        common_begin(&mut self.state, keyboard, mouse, globals);
         Task::none()
     }
 
@@ -106,9 +106,9 @@ impl ToolFunction for RectangularSelectionTool {
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        common_update(&mut self.state, keyboard, mouse, services);
+        common_update(&mut self.state, keyboard, mouse, globals);
         Task::none()
     }
 
@@ -116,7 +116,7 @@ impl ToolFunction for RectangularSelectionTool {
         &mut self,
         _: &KeyboardState,
         _: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
         let Some(state) = self.state.take() else {
             return Task::none();
@@ -138,11 +138,11 @@ impl ToolFunction for RectangularSelectionTool {
             &[2, 1, 0, 3, 2, 0],
             selection_pixels,
             state.op,
-            services,
+            globals,
         );
 
         if let Some(cmd) = cmd {
-            services.push_undo_command_to_current(cmd).log_err();
+            globals.push_undo_command_to_current(cmd).log_err();
             info!(
                 "Selected rectangle {} to {}",
                 selection_pixels.min, selection_pixels.max
@@ -154,13 +154,13 @@ impl ToolFunction for RectangularSelectionTool {
 
     fn canvas_overlay<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
         let Some(state) = &self.state else {
             return space().into();
         };
 
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return space().into();
         };
 
@@ -223,9 +223,9 @@ impl ToolFunction for EllipticalSelectionTool {
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        common_begin(&mut self.state, keyboard, mouse, services);
+        common_begin(&mut self.state, keyboard, mouse, globals);
         Task::none()
     }
 
@@ -233,9 +233,9 @@ impl ToolFunction for EllipticalSelectionTool {
         &mut self,
         keyboard: &KeyboardState,
         mouse: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
-        common_update(&mut self.state, keyboard, mouse, services);
+        common_update(&mut self.state, keyboard, mouse, globals);
         Task::none()
     }
 
@@ -243,7 +243,7 @@ impl ToolFunction for EllipticalSelectionTool {
         &mut self,
         _: &KeyboardState,
         _: &PressedMouseState,
-        services: &mut Services,
+        globals: &mut Globals,
     ) -> Task<Self::Message> {
         let Some(state) = self.state.take() else {
             return Task::none();
@@ -264,11 +264,11 @@ impl ToolFunction for EllipticalSelectionTool {
             &geometry.indices,
             selection_pixels,
             state.op,
-            services,
+            globals,
         );
 
         if let Some(cmd) = cmd {
-            services.push_undo_command_to_current(cmd).log_err();
+            globals.push_undo_command_to_current(cmd).log_err();
             info!(
                 "Selected rectangle {} to {}",
                 selection_pixels.min, selection_pixels.max
@@ -280,13 +280,13 @@ impl ToolFunction for EllipticalSelectionTool {
 
     fn canvas_overlay<'a>(
         &'a self,
-        services: &'a Services,
+        globals: &'a Globals,
     ) -> Element<'a, Self::Message, Theme, Renderer> {
         let Some(state) = &self.state else {
             return space().into();
         };
 
-        let Some(canvas) = services.current_canvas() else {
+        let Some(canvas) = globals.current_canvas() else {
             return space().into();
         };
 
