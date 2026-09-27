@@ -1,5 +1,7 @@
 use std::io::{self, Cursor, Read, Write};
 
+use anyhow::Result;
+
 use indexmap::IndexMap;
 use lapiz_assets::{asset::Asset, loader::AssetSerializer};
 use lapiz_effect::asset::{
@@ -58,13 +60,11 @@ pub enum FilterPresetSerializerError {
 impl AssetSerializer for FilterPresetSerializer {
     type Asset = FilterPreset;
 
-    type Error = FilterPresetSerializerError;
-
     fn file_extension() -> &'static str {
         "lfp"
     }
 
-    fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset, Self::Error> {
+    fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf)?;
         let mut archive = ZipArchive::new(Cursor::new(buf))?;
@@ -101,7 +101,7 @@ impl AssetSerializer for FilterPresetSerializer {
         })
     }
 
-    fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<(), Self::Error> {
+    fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<()> {
         let mut buf = Vec::new();
         {
             let mut zip = zip::ZipWriter::new(Cursor::new(&mut buf));

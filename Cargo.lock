@@ -3258,7 +3258,6 @@ dependencies = [
  "lapiz_render",
  "lapiz_shader_graph",
  "log",
- "thiserror 2.0.20",
  "toml 1.1.6+spec-1.1.0",
  "uuid",
  "wesl",
@@ -3384,6 +3383,7 @@ dependencies = [
 name = "lapiz_assets"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "chrono",
  "dashmap",
  "downcast-rs 2.0.2",
@@ -3399,7 +3399,6 @@ dependencies = [
  "rusqlite",
  "rust-embed",
  "serde",
- "thiserror 2.0.20",
  "toml 1.1.6+spec-1.1.0",
  "uuid",
  "xxhash-rust",

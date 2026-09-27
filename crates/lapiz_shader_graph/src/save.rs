@@ -479,19 +479,17 @@ pub enum SerializableGraphFunctionSerializerError {
 impl AssetSerializer for SerializableGraphFunctionSerializer {
     type Asset = SerializableGraphFunction;
 
-    type Error = SerializableGraphFunctionSerializerError;
-
     fn file_extension() -> &'static str {
         "lsf"
     }
 
-    fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset, Self::Error> {
+    fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset> {
         let mut buf = String::new();
         reader.read_to_string(&mut buf)?;
         Ok(toml::from_str(&buf)?)
     }
 
-    fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<(), Self::Error> {
+    fn write(&self, asset: &Self::Asset, writer: &mut dyn Write) -> Result<()> {
         let serialized = toml::to_string(asset)?;
         writer.write_all(serialized.as_bytes())?;
         Ok(())

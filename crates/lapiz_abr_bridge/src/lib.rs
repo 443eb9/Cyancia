@@ -25,12 +25,12 @@
 use std::{
     collections::{BTreeMap, HashMap},
     ffi::OsStr,
-    fs, io,
+    fs,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use anyhow::Result;
+use anyhow::{Error, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
 use lapiz_abr::Abr;
 use lapiz_assets::{
@@ -40,7 +40,6 @@ use lapiz_assets::{
     tag::{AssetTags, TagFile},
 };
 use lapiz_render::texture::Image;
-use thiserror::Error;
 use uuid::Uuid;
 use xxhash_rust::xxh3::xxh3_128;
 
@@ -53,20 +52,6 @@ pub struct AbrAssetBundle {
     metadata: AssetBundleMetadata,
     manifest: BundleManifest,
     assets: HashMap<PathBuf, Arc<dyn ErasedAsset>>,
-}
-
-#[derive(Debug, Error)]
-pub enum AbrAssetBundleError {
-    #[error("Unsupported writing to ABR asset bundle")]
-    UnsupportedWriting,
-    #[error("Asset not found at path: {0}")]
-    AssetNotFound(PathBuf),
-    #[error("Tag not found at path: {0}")]
-    TagNotFound(PathBuf),
-    #[error("IO error: {0}")]
-    Io(#[from] io::Error),
-    #[error("ABR parse error: {0}")]
-    AbrParse(#[from] anyhow::Error),
 }
 
 impl AbrAssetBundle {
@@ -151,13 +136,13 @@ impl AbrAssetBundle {
         }
     }
 
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, AbrAssetBundleError> {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         let abr = Abr::parse(&fs::read(&path)?)?;
         Ok(Self::parse(path, abr))
     }
 
-    pub fn scan_bundles(root: impl AsRef<Path>) -> (Vec<Self>, Vec<AbrAssetBundleError>) {
+    pub fn scan_bundles(root: impl AsRef<Path>) -> (Vec<Self>, Vec<Error>) {
         let mut bundles = Vec::new();
         let mut errors = Vec::new();
         scan_bundles_dfs(root.as_ref(), &mut bundles, &mut errors);
@@ -169,11 +154,7 @@ impl AbrAssetBundle {
     }
 }
 
-fn scan_bundles_dfs(
-    root: &Path,
-    bundles: &mut Vec<AbrAssetBundle>,
-    errors: &mut Vec<AbrAssetBundleError>,
-) {
+fn scan_bundles_dfs(root: &Path, bundles: &mut Vec<AbrAssetBundle>, errors: &mut Vec<Error>) {
     let entries = match fs::read_dir(root) {
         Ok(entries) => entries,
         Err(error) => {
@@ -207,13 +188,11 @@ fn scan_bundles_dfs(
 impl AssetBundle for AbrAssetBundle {
     const READONLY: bool = true;
 
-    type Error = AbrAssetBundleError;
-
-    fn metadata(&self) -> Result<AssetBundleMetadata, Self::Error> {
+    fn metadata(&self) -> Result<AssetBundleMetadata> {
         Ok(self.metadata.clone())
     }
 
-    fn manifest(&self) -> Result<BundleManifest, Self::Error> {
+    fn manifest(&self) -> Result<BundleManifest> {
         Ok(self.manifest.clone())
     }
 
@@ -221,11 +200,11 @@ impl AssetBundle for AbrAssetBundle {
         &self,
         path: &Path,
         _: &dyn ErasedAssetSerializer,
-    ) -> Result<Arc<dyn ErasedAsset>, Self::Error> {
+    ) -> Result<Arc<dyn ErasedAsset>> {
         self.assets
             .get(path)
             .cloned()
-            .ok_or_else(|| AbrAssetBundleError::AssetNotFound(path.to_path_buf()))
+            .ok_or_else(|| anyhow!("Asset not found at path: {}", path.display()))
     }
 
     fn add_asset(
@@ -233,23 +212,23 @@ impl AssetBundle for AbrAssetBundle {
         _: &Path,
         _: &dyn ErasedAsset,
         _: &dyn ErasedAssetSerializer,
-    ) -> Result<UntypedAssetId, Self::Error> {
-        Err(AbrAssetBundleError::UnsupportedWriting)
+    ) -> Result<UntypedAssetId> {
+        bail!("Unsupported writing to ABR asset bundle")
     }
 
-    fn read_tag(&self, tag: &Path) -> Result<TagFile, Self::Error> {
-        Err(AbrAssetBundleError::TagNotFound(tag.to_path_buf()))
+    fn read_tag(&self, tag: &Path) -> Result<TagFile> {
+        bail!("Tag not found at path: {}", tag.display())
     }
 
-    fn add_tag(&self, _: &Path, _: &TagFile) -> Result<(), Self::Error> {
-        Err(AbrAssetBundleError::UnsupportedWriting)
+    fn add_tag(&self, _: &Path, _: &TagFile) -> Result<()> {
+        bail!("Unsupported writing to ABR asset bundle")
     }
 
-    fn read_asset_tags(&self, _: &Path) -> Result<Option<AssetTags>, Self::Error> {
+    fn read_asset_tags(&self, _: &Path) -> Result<Option<AssetTags>> {
         Ok(None)
     }
 
-    fn write_asset_tags(&self, _: &Path, _: &AssetTags) -> Result<(), Self::Error> {
-        Err(AbrAssetBundleError::UnsupportedWriting)
+    fn write_asset_tags(&self, _: &Path, _: &AssetTags) -> Result<()> {
+        bail!("Unsupported writing to ABR asset bundle")
     }
 }

@@ -1,5 +1,7 @@
 use std::io::{self, Cursor, Read, Write};
 
+use anyhow::Result;
+
 use image::{DynamicImage, ImageFormat};
 use lapiz_assets::{asset::Asset, loader::AssetSerializer};
 use serde::{Deserialize, Serialize};
@@ -56,13 +58,11 @@ pub enum ImageSerializerError {
 impl AssetSerializer for ImageSerializer {
     type Asset = Image;
 
-    type Error = ImageSerializerError;
-
     fn file_extension() -> &'static str {
         "lig"
     }
 
-    fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset, Self::Error> {
+    fn read(&self, reader: &mut dyn Read) -> Result<Self::Asset> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf)?;
         let mut archive = ZipArchive::new(Cursor::new(buf))?;
@@ -88,7 +88,7 @@ impl AssetSerializer for ImageSerializer {
         })
     }
 
-    fn write(&self, _: &Self::Asset, _: &mut dyn Write) -> Result<(), Self::Error> {
+    fn write(&self, _: &Self::Asset, _: &mut dyn Write) -> Result<()> {
         todo!()
     }
 }
