@@ -4,8 +4,12 @@ use std::{
 };
 
 use bevy_math::{IRect, Rect, UVec2};
-use iced::{Element, Subscription, Task, Theme, pointer, widget::Space, window};
-use iced_core::Point;
+use iced_core::{Element, Point, Theme, pointer, widget::Void, window};
+use iced_futures::Subscription;
+use iced_runtime::{
+    Task,
+    window::{events, raw_id},
+};
 use image::{ImageEncoder as _, codecs::png::PngEncoder};
 use lapiz_canvas::{
     CanvasAppExt as _, CanvasId, CanvasManager, CanvasToolProxyAppExt as _,
@@ -186,7 +190,7 @@ impl Dock for CanvasDock {
             self.raw_window_id,
             self.monitor_name.clone(),
         ) else {
-            return Space::new().into();
+            return Void.into();
         };
 
         let canvas_overlay = services.tool_proxy(&self.canvas).map(|proxy| {
@@ -292,8 +296,9 @@ impl Dock for CanvasDock {
                 })
                 .unwrap_or_else(Task::none)
                 .map(CanvasDockMessage::ToolFunctionMessage),
-            CanvasDockMessage::WindowMoved => window::raw_id::<()>(*self.window_id.borrow())
-                .map(CanvasDockMessage::RawWindowIdUpdate),
+            CanvasDockMessage::WindowMoved => {
+                raw_id::<()>(*self.window_id.borrow()).map(CanvasDockMessage::RawWindowIdUpdate)
+            }
             CanvasDockMessage::RawWindowIdUpdate(id) => {
                 self.raw_window_id = Some(id);
                 self.monitor_name = Some(get_window_monitor_name(id));
@@ -324,7 +329,7 @@ impl Dock for CanvasDock {
         let canvas_update = CanvasUpdated::listen_to()
             .map(|e| CanvasDockMessage::CanvasUpdated(Some(e.dirty_tiles)));
         let window_moved =
-            window::events()
+            events()
                 .with(cur_window)
                 .filter_map(|(cur_window, (window_id, event))| {
                     if matches!(event, window::Event::Moved(_)) && cur_window == window_id {

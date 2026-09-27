@@ -3,7 +3,6 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-use iced::widget::Image;
 use iced_core::{Element, Length, image::Handle, text::Ellipsis, window};
 use iced_futures::Subscription;
 use iced_runtime::Task;
@@ -15,7 +14,7 @@ use lapiz_image_importer::start_import;
 #[cfg(target_os = "android")]
 use lapiz_runtime::android::AndroidAppExt as _;
 use lapiz_runtime::{Renderer, Services, Theme};
-use lapiz_widgets::{button, column, container, flex::Flex, label, scrollable};
+use lapiz_widgets::{button, column, container, flex::Flex, image::Image, label, scrollable};
 
 pub struct LandingDock {
     config: Config<RecentFiles>,

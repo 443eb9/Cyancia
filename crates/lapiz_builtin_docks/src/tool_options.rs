@@ -1,6 +1,7 @@
 use std::sync::LazyLock;
 
-use iced::{Element, Length, Task, Theme, window};
+use iced_core::{Element, Length, Theme, window};
+use iced_runtime::Task;
 use lapiz_canvas::CanvasToolProxyAppExt as _;
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;

@@ -1,6 +1,7 @@
 use std::sync::LazyLock;
 
-use iced::{Element, Length, Task, Theme, window};
+use iced_core::{Border, Color, Element, Length, Theme, window};
+use iced_runtime::Task;
 use lapiz_canvas::CanvasToolProxyAppExt as _;
 use lapiz_dock::dock::{Dock, DockId};
 use lapiz_i18n::t;
@@ -86,7 +87,7 @@ impl Dock for ToolBoxDock {
                             } else if hovered {
                                 p.primary.weak.color
                             } else {
-                                iced::Color::TRANSPARENT
+                                Color::TRANSPARENT
                             }
                             .into(),
                         ),
@@ -95,7 +96,7 @@ impl Dock for ToolBoxDock {
                         } else {
                             p.background.weak.text
                         },
-                        border: iced::Border {
+                        border: Border {
                             radius: 0.0.into(),
                             width: if selected { 1.0 } else { 0.0 },
                             color: p.primary.base.color,
