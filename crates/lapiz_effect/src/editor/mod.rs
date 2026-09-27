@@ -7,7 +7,9 @@ use lapiz_shader_graph::{
     editor::{GraphEditor, GraphEditorMessage, GraphEditorState},
     graph::{Graph, GraphResources},
 };
-use lapiz_widgets::{button, column, flex::Flex, icon, label, panel, row, scrollable, text_input};
+use lapiz_widgets::{
+    button, column, flex::Flex, icon, icon_button, label, panel, row, scrollable, text_input,
+};
 use uuid::Uuid;
 
 use crate::{
@@ -187,7 +189,7 @@ fn pass_card<'a>(
                 text_input("", &pass.name)
                     .on_input(move |name| EffectEditorMessage::PassRenamed(pass_id, name))
                     .width(Length::Fill),
-                button::icon_button(icon::check().size(13))
+                icon_button(icon::check().size(13))
                     .on_press(EffectEditorMessage::PassRenameToggled(pass_id)),
             ]
             .gap(4.0)
@@ -212,18 +214,18 @@ fn pass_card<'a>(
     );
     if index > 0 {
         controls = controls.push(
-            button::icon_button(icon::chevron_up().size(13))
+            icon_button(icon::chevron_up().size(13))
                 .on_press(EffectEditorMessage::PassMoveRequested { index, up: true }),
         );
     }
     if index + 1 < pass_count {
         controls = controls.push(
-            button::icon_button(icon::chevron_down().size(13))
+            icon_button(icon::chevron_down().size(13))
                 .on_press(EffectEditorMessage::PassMoveRequested { index, up: false }),
         );
     }
     controls = controls.push(
-        button::icon_button(icon::pencil().size(13))
+        icon_button(icon::pencil().size(13))
             .on_press(EffectEditorMessage::PassRenameToggled(pass_id)),
     );
 

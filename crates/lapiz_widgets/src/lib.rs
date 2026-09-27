@@ -3,12 +3,10 @@
     reason = "lapiz_widgets is the widget facade of the workspace and re-exports iced base widgets"
 )]
 
-pub mod status_bar;
 pub mod button;
 pub mod callback;
 pub mod checkbox;
 pub mod collapsible;
-pub mod color;
 pub mod combo_box;
 pub mod curve_edit;
 pub mod divider;
@@ -32,6 +30,7 @@ pub mod slider;
 pub mod spin_box;
 pub mod spin_slider;
 pub mod splitter;
+pub mod status_bar;
 pub mod switch;
 pub mod tabs;
 pub mod tag;

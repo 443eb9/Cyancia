@@ -11,10 +11,7 @@ use iced_widget::button::Catalog;
 pub use iced_widget::button::{Status, Style};
 use lapiz_runtime::Renderer;
 
-use crate::{
-    button,
-    callback::{Callback, publish},
-};
+use crate::callback::{Callback, publish};
 
 pub struct Button<'a, Message> {
     content: Element<'a, Message, Theme, Renderer>,
@@ -44,6 +41,14 @@ impl<'a, Message> Button<'a, Message> {
             interactive: false,
             class: Box::new(default),
         }
+    }
+
+    pub fn icon(content: impl Into<Element<'a, Message, Theme, Renderer>>) -> Button<'a, Message> {
+        Self::new(content)
+            .width(24)
+            .height(24)
+            .padding(5)
+            .transparent()
     }
 
     pub fn width(mut self, width: impl Into<Length>) -> Self {
@@ -485,27 +490,6 @@ fn disabled(mut style: Style) -> Style {
     style.border.color.a *= 0.4;
     style.shadow = Shadow::default();
     style
-}
-
-pub fn icon_button<'a, Message>(
-    content: impl Into<Element<'a, Message, Theme, Renderer>>,
-) -> Button<'a, Message> {
-    button(content)
-        .width(24)
-        .height(24)
-        .padding(5)
-        .transparent()
-}
-
-pub fn toggle_button<'a, Message>(
-    content: impl Into<Element<'a, Message, Theme, Renderer>>,
-    activated: bool,
-) -> Button<'a, Message> {
-    button(content)
-        .height(24)
-        .padding([0, 10])
-        .transparent()
-        .activated(activated)
 }
 
 fn with_alpha(mut color: Color, alpha: f32) -> Color {

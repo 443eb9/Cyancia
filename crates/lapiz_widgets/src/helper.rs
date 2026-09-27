@@ -55,6 +55,12 @@ pub fn button<'a, Message>(
     Button::new(content)
 }
 
+pub fn icon_button<'a, Message>(
+    content: impl Into<Element<'a, Message, Theme, Renderer>>,
+) -> Button<'a, Message> {
+    Button::icon(content)
+}
+
 pub fn checkbox<'a, Message>(checked: bool) -> Checkbox<'a, Message> {
     Checkbox::new(checked)
 }

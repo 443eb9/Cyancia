@@ -8,8 +8,8 @@ use lapiz_shader_graph::{
     graph::{slot::ErasedGraphValueType, variable::GraphTypeRegistry},
 };
 use lapiz_widgets::{
-    button, column, combo_box, component::Component, flex::Flex, icon, label, row, scrollable,
-    text_input,
+    button, column, combo_box, component::Component, flex::Flex, icon, icon_button, label, row,
+    scrollable, text_input,
 };
 use uuid::Uuid;
 
@@ -122,13 +122,13 @@ impl<'a> EffectIoEditor<'a> {
         .gap(4.0);
         if let Some(message) = move_up {
             controls = controls.push(
-                button::icon_button(icon::chevron_up().size(13))
+                icon_button(icon::chevron_up().size(13))
                     .on_press(EffectIoEditorEvent::Apply(message)),
             );
         }
         if let Some(message) = move_down {
             controls = controls.push(
-                button::icon_button(icon::chevron_down().size(13))
+                icon_button(icon::chevron_down().size(13))
                     .on_press(EffectIoEditorEvent::Apply(message)),
             );
         }
