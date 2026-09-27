@@ -3,7 +3,7 @@
     reason = "lapiz_widgets is the widget facade of the workspace and re-exports iced base widgets"
 )]
 
-pub mod bar;
+pub mod status_bar;
 pub mod button;
 pub mod callback;
 pub mod checkbox;

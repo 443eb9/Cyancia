@@ -11,7 +11,6 @@ use lapiz_runtime::Renderer;
 use num_traits::AsPrimitive;
 
 use crate::{
-    bar::StatusBar,
     button::Button,
     checkbox::Checkbox,
     collapsible::Collapsible,
@@ -35,6 +34,7 @@ use crate::{
     slider::Slider,
     spin_box::SpinBox,
     spin_slider::SpinSlider,
+    status_bar::StatusBar,
     switch::Switch,
     tabs::{TabBar, TabbedView},
     tag::Tag,
