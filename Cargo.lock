@@ -3256,6 +3256,7 @@ dependencies = [
  "lapiz_effect",
  "lapiz_image",
  "lapiz_render",
+ "lapiz_runtime",
  "lapiz_shader_graph",
  "log",
  "toml 1.1.6+spec-1.1.0",

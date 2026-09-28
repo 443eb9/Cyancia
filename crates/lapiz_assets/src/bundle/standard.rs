@@ -13,10 +13,23 @@ use zip::{ZipArchive, result::ZipError};
 
 use crate::{
     asset::{ErasedAsset, UntypedAssetId},
-    bundle::{AssetBundle, AssetBundleMetadata, BundleId, BundleManifest},
+    bundle::{AssetBundle, AssetBundleMetadata, BundleId, BundleManifest, ErasedAssetBundle},
     loader::ErasedAssetSerializer,
+    source::AssetSource,
     tag::{ASSET_TAGS_EXT, AssetTags, TagFile},
 };
+
+pub struct StandardAssetBundleSource;
+
+impl AssetSource for StandardAssetBundleSource {
+    fn scan(root: &Path) -> Vec<Arc<dyn ErasedAssetBundle>> {
+        let (bundles, errors) = StandardAssetBundle::scan_bundles(root);
+        for error in errors {
+            log::error!("{}", error);
+        }
+        bundles.into_iter().map(|b| Arc::new(b) as _).collect()
+    }
+}
 
 pub struct StandardAssetBundle {
     path: PathBuf,

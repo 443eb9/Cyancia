@@ -299,7 +299,7 @@ mod tests {
     use super::*;
     use crate::{
         bundle::directory::AssetDirectory,
-        loader::{AssetRegistryBuilder, AssetSerializer},
+        loader::AssetSerializer,
         tag::{AssetTags, TagFile},
     };
 
@@ -361,10 +361,8 @@ mod tests {
         let assets_bundle_id = AssetBundle::metadata(&assets_bundle)?.bundle_id;
         let tags_bundle = AssetDirectory::new(&tags_root)?;
         let tags_bundle_id = AssetBundle::metadata(&tags_bundle)?.bundle_id;
-        let mut builder = registry_builder(&root);
-        builder.add_bundle(Arc::new(assets_bundle));
-        builder.add_bundle(Arc::new(tags_bundle));
-        let registry = builder.try_build()?;
+        let registry =
+            registry_with_bundles(&root, vec![Arc::new(assets_bundle), Arc::new(tags_bundle)])?;
 
         let stored_tag = registry.index_db().get_tag(tag.id)?;
         assert_eq!(stored_tag.bundle_id, tags_bundle_id);
@@ -423,9 +421,8 @@ mod tests {
         let tag = TagFile::new("Removed tag".to_string(), None);
         fs::write(bundle_root.join("removed.tag"), toml::to_string(&tag)?)?;
 
-        let mut builder = registry_builder(&root);
-        builder.add_bundle(Arc::new(AssetDirectory::new(&bundle_root)?));
-        let registry = builder.try_build()?;
+        let registry =
+            registry_with_bundles(&root, vec![Arc::new(AssetDirectory::new(&bundle_root)?)])?;
         assert_eq!(
             registry.index_db().get_tag(tag.id)?.relative_path,
             "removed.tag"
@@ -455,10 +452,16 @@ mod tests {
         fs::write(first_root.join("first.tag"), &serialized)?;
         fs::write(second_root.join("second.tag"), serialized)?;
 
-        let mut builder = registry_builder(&root);
-        builder.add_bundle(Arc::new(AssetDirectory::new(&first_root)?));
-        builder.add_bundle(Arc::new(AssetDirectory::new(&second_root)?));
-        assert!(builder.try_build().is_err());
+        assert!(
+            registry_with_bundles(
+                &root,
+                vec![
+                    Arc::new(AssetDirectory::new(&first_root)?),
+                    Arc::new(AssetDirectory::new(&second_root)?),
+                ],
+            )
+            .is_err()
+        );
 
         fs::remove_dir_all(root)?;
         Ok(())
@@ -474,13 +477,11 @@ mod tests {
         let bundle = AssetDirectory::new(&bundle_root)?;
         let bundle_id = AssetBundle::metadata(&bundle)?.bundle_id;
 
-        let mut builder = registry_builder(&root);
-        builder.add_bundle(Arc::new(bundle));
-        let registry = builder.try_build()?;
+        let registry = registry_with_bundles(&root, vec![Arc::new(bundle)])?;
         assert!(registry.index_db().get_tag(tag.id).is_ok());
         drop(registry);
 
-        let registry = registry_builder(&root).try_build()?;
+        let registry = registry_with_bundles(&root, vec![])?;
         assert!(registry.index_db().get_tag(tag.id).is_err());
         assert!(registry.index_db().get_bundle(&bundle_id).is_err());
 
@@ -496,9 +497,8 @@ mod tests {
         fs::create_dir_all(&bundle_root)?;
         fs::write(bundle_root.join("sample.storetest"), "9")?;
 
-        let mut builder = registry_builder(&root);
-        builder.add_bundle(Arc::new(AssetDirectory::new(&bundle_root)?));
-        let registry = builder.try_build()?;
+        let registry =
+            registry_with_bundles(&root, vec![Arc::new(AssetDirectory::new(&bundle_root)?)])?;
 
         let handle = registry.all_handles_of::<TestAsset>()?.remove(0);
         let asset_id = handle.untyped_id();
@@ -529,9 +529,8 @@ mod tests {
         fs::write(bundle_root.join("retained.storetest"), "1")?;
         fs::write(bundle_root.join("removed.storetest"), "2")?;
 
-        let mut builder = registry_builder(&root);
-        builder.add_bundle(Arc::new(AssetDirectory::new(&bundle_root)?));
-        let registry = builder.try_build()?;
+        let registry =
+            registry_with_bundles(&root, vec![Arc::new(AssetDirectory::new(&bundle_root)?)])?;
         assert_eq!(registry.all_handles_of::<TestAsset>()?.len(), 2);
 
         fs::remove_file(bundle_root.join("removed.storetest"))?;
@@ -564,16 +563,15 @@ mod tests {
         let bundle = AssetDirectory::new(&bundle_root)?;
         let bundle_id = AssetBundle::metadata(&bundle)?.bundle_id;
 
-        let mut builder = registry_builder(&root);
-        builder.add_bundle(Arc::new(bundle));
-        let registry = builder.try_build()?;
+        let registry = registry_with_bundles(&root, vec![Arc::new(bundle)])?;
         let previous_metadata = registry.index_db().get_bundle(&bundle_id)?;
         drop(registry);
 
         fs::write(bundle_root.join("sample.storetest.tags"), "tags = [")?;
-        let mut builder = registry_builder(&root);
-        builder.add_bundle(Arc::new(AssetDirectory::new(&bundle_root)?));
-        assert!(builder.try_build().is_err());
+        assert!(
+            registry_with_bundles(&root, vec![Arc::new(AssetDirectory::new(&bundle_root)?)],)
+                .is_err()
+        );
 
         let index = AssetIndexDb::connect(root.join("index.sqlite3"))?;
         assert_eq!(
@@ -585,11 +583,20 @@ mod tests {
         Ok(())
     }
 
-    fn registry_builder(root: &Path) -> AssetRegistryBuilder {
-        let mut builder = AssetRegistryBuilder::default();
-        builder.set_root(root.to_path_buf());
-        builder.add_serializer::<TestAssetSerializer>();
-        builder
+    fn registry_with_bundles(
+        root: &Path,
+        bundles: Vec<Arc<dyn ErasedAssetBundle>>,
+    ) -> Result<AssetRegistry> {
+        let mut serializers = AssetSerializerRegistry::default();
+        serializers.register::<TestAssetSerializer>();
+        let registry = AssetRegistry::new(root, Arc::new(serializers))?;
+        registry.add_erased_bundles(bundles)?;
+        let loaded_ids = registry
+            .bundles()
+            .map(|bundle| bundle.metadata().bundle_id)
+            .collect();
+        registry.index_db().remove_unloaded_bundles(&loaded_ids)?;
+        Ok(registry)
     }
 
     fn temp_root(name: &str) -> PathBuf {

@@ -15,10 +15,23 @@ use xxhash_rust::xxh3::xxh3_128;
 
 use crate::{
     asset::{ErasedAsset, UntypedAssetId},
-    bundle::{AssetBundle, AssetBundleMetadata, BundleId, BundleManifest},
+    bundle::{AssetBundle, AssetBundleMetadata, BundleId, BundleManifest, ErasedAssetBundle},
     loader::ErasedAssetSerializer,
+    source::AssetSource,
     tag::{ASSET_TAGS_EXT, AssetTags, TAG_EXT, TagFile},
 };
+
+pub struct BuiltinAssetsDirectorySource;
+
+impl AssetSource for BuiltinAssetsDirectorySource {
+    fn scan(root: &Path) -> Vec<Arc<dyn ErasedAssetBundle>> {
+        if let Ok(bundle) = AssetDirectory::new(root.join("builtin_assets")) {
+            vec![Arc::new(bundle)]
+        } else {
+            vec![]
+        }
+    }
+}
 
 const METADATA_FILE_NAME: &str = "metadata.toml";
 
@@ -204,10 +217,16 @@ fn asset_id_from_relative_path(bundle_id: &BundleId, path: &Path) -> UntypedAsse
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeSet, env, fs};
+    use std::{collections::BTreeSet, env, fs, path::Path};
 
-    use super::*;
-    use crate::tag::TagId;
+    use anyhow::Result;
+    use uuid::Uuid;
+
+    use super::{AssetDirectory, asset_id_from_relative_path};
+    use crate::{
+        bundle::{AssetBundle as _, BundleId},
+        tag::{AssetTags, TagId},
+    };
 
     #[test]
     fn asset_id_is_namespaced_by_bundle_id() {
