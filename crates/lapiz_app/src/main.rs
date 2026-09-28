@@ -1,30 +1,6 @@
 use std::env;
 
-use lapiz_about::AboutPlugin;
-use lapiz_abr_bridge::AbrBridgePlugin;
-use lapiz_actions::ActionPlugin;
-use lapiz_assets::AssetsPlugin;
-use lapiz_brush::BrushPlugin;
-use lapiz_bucket_tool::BucketPlugin;
-use lapiz_builtin_docks::BuiltinDocksPlugin;
-use lapiz_canvas::CanvasPlugin;
-use lapiz_color::ColorPlugin;
-use lapiz_color_selector::ColorSelectorPlugin;
-use lapiz_dirs::assets_dir;
-use lapiz_eye_dropper::EyeDropperPlugin;
-use lapiz_filter::FilterPlugin;
-use lapiz_image::ImagePlugin;
-use lapiz_image_exporter::ImageExporterPlugin;
-use lapiz_image_importer::ImageImporterPlugin;
-use lapiz_input::InputPlugin;
-use lapiz_main_view::MainViewPlugin;
-use lapiz_render::RenderPlugin;
 use lapiz_runtime::Application;
-use lapiz_selection_tool::SelectionPlugin;
-use lapiz_shader_graph::ShaderGraphPlugin;
-use lapiz_tools::ToolsPlugin;
-use lapiz_transform_tool::FreeTransformPlugin;
-use lapiz_undo::UndoPlugin;
 #[cfg(target_os = "android")]
 use winit::platform::android::activity::AndroidApp;
 
@@ -54,29 +30,29 @@ pub(crate) fn run(#[cfg(target_os = "android")] android_app: AndroidApp) {
         android_app,
     );
 
-    app.add_plugin(AssetsPlugin::new(assets_dir()))
-        .add_plugin(AbrBridgePlugin)
-        .add_plugin(UndoPlugin)
-        .add_plugin(RenderPlugin)
-        .add_plugin(ShaderGraphPlugin)
-        .add_plugin(ToolsPlugin)
-        .add_plugin(ImagePlugin)
-        .add_plugin(CanvasPlugin)
-        .add_plugin(InputPlugin)
-        .add_plugin(BrushPlugin)
-        .add_plugin(FilterPlugin)
-        .add_plugin(BucketPlugin)
-        .add_plugin(EyeDropperPlugin)
-        .add_plugin(SelectionPlugin)
-        .add_plugin(FreeTransformPlugin)
-        .add_plugin(ColorPlugin)
-        .add_plugin(ActionPlugin)
-        .add_plugin(ColorSelectorPlugin)
-        .add_plugin(BuiltinDocksPlugin)
-        .add_plugin(ImageImporterPlugin)
-        .add_plugin(ImageExporterPlugin)
-        .add_plugin(AboutPlugin)
-        .add_plugin(MainViewPlugin);
+    app.add_plugin(lapiz_assets::AssetsPlugin::new(lapiz_dirs::assets_dir()))
+        .add_plugin(lapiz_abr_bridge::AbrBridgePlugin)
+        .add_plugin(lapiz_undo::UndoPlugin)
+        .add_plugin(lapiz_render::RenderPlugin)
+        .add_plugin(lapiz_shader_graph::ShaderGraphPlugin)
+        .add_plugin(lapiz_tools::ToolsPlugin)
+        .add_plugin(lapiz_image::ImagePlugin)
+        .add_plugin(lapiz_canvas::CanvasPlugin)
+        .add_plugin(lapiz_input::InputPlugin)
+        .add_plugin(lapiz_brush::BrushPlugin)
+        .add_plugin(lapiz_filter::FilterPlugin)
+        .add_plugin(lapiz_bucket_tool::BucketPlugin)
+        .add_plugin(lapiz_eye_dropper::EyeDropperPlugin)
+        .add_plugin(lapiz_selection_tool::SelectionPlugin)
+        .add_plugin(lapiz_transform_tool::FreeTransformPlugin)
+        .add_plugin(lapiz_color::ColorPlugin)
+        .add_plugin(lapiz_actions::ActionPlugin)
+        .add_plugin(lapiz_color_selector::ColorSelectorPlugin)
+        .add_plugin(lapiz_builtin_docks::BuiltinDocksPlugin)
+        .add_plugin(lapiz_image_importer::ImageImporterPlugin)
+        .add_plugin(lapiz_image_exporter::ImageExporterPlugin)
+        .add_plugin(lapiz_about::AboutPlugin)
+        .add_plugin(lapiz_main_view::MainViewPlugin);
     app.build_plugins();
 
     lapiz_i18n::init();
