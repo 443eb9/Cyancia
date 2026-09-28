@@ -1,10 +1,16 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
+use anyhow::Result;
 use lapiz_runtime::{Runtime, global::Globals, plugin::Plugin};
+use lapiz_utils::log_err::LogErr as _;
 
 use crate::{
-    bundle::ErasedAssetBundle,
-    loader::{AssetRegistryBuilder, AssetSerializer},
+    bundle::{directory::BuiltinAssetsDirectorySource, standard::StandardAssetBundleSource},
+    loader::{AssetSerializer, AssetSerializerRegistry},
+    source::{AssetSourceRegistry, AssetSourceRegistryExt as _},
     store::AssetRegistry,
 };
 
@@ -13,46 +19,70 @@ pub mod bundle;
 pub mod embedded;
 pub mod index_db;
 pub mod loader;
+pub mod source;
 pub mod store;
 pub mod tag;
 
 pub struct AssetsPlugin {
-    pub asset_root: PathBuf,
-    pub bundles: Vec<Arc<dyn ErasedAssetBundle>>,
+    asset_root: PathBuf,
+}
+
+impl AssetsPlugin {
+    pub fn new(asset_root: impl AsRef<Path>) -> Self {
+        Self {
+            asset_root: asset_root.as_ref().to_path_buf(),
+        }
+    }
 }
 
 impl Plugin for AssetsPlugin {
     fn build(&self, app: &mut Runtime) {
-        let mut builder = AssetRegistryBuilder::default();
-        builder.set_root(self.asset_root.clone());
+        embedded::extract_if_empty(&self.asset_root).log_err();
 
-        for bundle in &self.bundles {
-            builder.add_bundle(bundle.clone());
-        }
-
-        app.add_global_instance(builder);
+        app.add_global::<AssetSourceRegistry>()
+            .add_global::<AssetSerializerRegistry>();
+        app.globals_mut()
+            .add_asset_source::<BuiltinAssetsDirectorySource>()
+            .add_asset_source::<StandardAssetBundleSource>();
     }
 
     fn finish(&self, app: &mut Runtime) {
-        let builder = app.globals_mut().remove_global::<AssetRegistryBuilder>();
-        app.add_global_instance(builder.build());
+        let sources = app.globals().global::<AssetSourceRegistry>();
+        let all_bundles = sources.scan_all(&self.asset_root);
+
+        let build_registry = || {
+            let registry = AssetRegistry::new(
+                &self.asset_root,
+                app.globals()
+                    .global::<AssetSerializerRegistry>()
+                    .clone()
+                    .into(),
+            )?;
+            registry.add_erased_bundles(all_bundles)?;
+            let loaded_bundle_ids = registry
+                .bundles()
+                .map(|bundle| bundle.metadata().bundle_id)
+                .collect::<HashSet<_>>();
+            registry
+                .index_db()
+                .remove_unloaded_bundles(&loaded_bundle_ids)?;
+            Result::<AssetRegistry, anyhow::Error>::Ok(registry)
+        };
+
+        if let Ok(registry) = build_registry().logged_err() {
+            app.add_global_instance(registry);
+        }
     }
 }
 
 pub trait AssetAppExt {
     fn add_asset_serializer<A: AssetSerializer + Default>(&mut self);
-    fn add_asset_bundle(&mut self, bundle: Arc<dyn ErasedAssetBundle>);
     fn assets(&self) -> &AssetRegistry;
 }
 
 impl AssetAppExt for Globals {
     fn add_asset_serializer<A: AssetSerializer + Default>(&mut self) {
-        self.global_mut::<AssetRegistryBuilder>()
-            .add_serializer::<A>();
-    }
-
-    fn add_asset_bundle(&mut self, bundle: Arc<dyn ErasedAssetBundle>) {
-        self.global_mut::<AssetRegistryBuilder>().add_bundle(bundle);
+        self.global_mut::<AssetSerializerRegistry>().register::<A>();
     }
 
     fn assets(&self) -> &AssetRegistry {

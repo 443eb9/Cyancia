@@ -1,65 +1,16 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     io::{Read, Write},
-    path::{Path, PathBuf},
+    path::Path,
     sync::Arc,
 };
 
 use anyhow::{Result, anyhow};
 use lapiz_runtime::global::Global;
 
-use crate::{
-    asset::{Asset, ErasedAsset},
-    bundle::ErasedAssetBundle,
-    store::AssetRegistry,
-};
+use crate::asset::{Asset, ErasedAsset};
 
-#[derive(Default)]
-pub struct AssetRegistryBuilder {
-    root: PathBuf,
-    bundles: Vec<Arc<dyn ErasedAssetBundle>>,
-    serializers: HashMap<&'static str, Box<dyn ErasedAssetSerializer>>,
-}
-
-impl Global for AssetRegistryBuilder {}
-
-impl AssetRegistryBuilder {
-    pub fn set_root(&mut self, root: PathBuf) {
-        self.root = root;
-    }
-
-    pub fn add_serializer<L: AssetSerializer + Default>(&mut self) {
-        let loader = Box::new(L::default());
-        self.serializers.insert(L::file_extension(), loader);
-    }
-
-    pub fn add_bundle(&mut self, bundle: Arc<dyn ErasedAssetBundle>) {
-        self.bundles.push(bundle);
-    }
-
-    pub fn build(self) -> AssetRegistry {
-        self.try_build().unwrap()
-    }
-
-    pub fn try_build(self) -> Result<AssetRegistry> {
-        let mut serializers = AssetSerializerRegistry::default();
-        for (ext, loader) in self.serializers {
-            serializers.serializers.insert(ext, Arc::from(loader));
-        }
-        let registry = AssetRegistry::new(&self.root, serializers.into())?;
-        registry.add_erased_bundles(self.bundles)?;
-        let loaded_bundle_ids = registry
-            .bundles()
-            .map(|bundle| bundle.metadata().bundle_id)
-            .collect::<HashSet<_>>();
-        registry
-            .index_db()
-            .remove_unloaded_bundles(&loaded_bundle_ids)?;
-        Ok(registry)
-    }
-}
-
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct AssetSerializerRegistry {
     serializers: HashMap<&'static str, Arc<dyn ErasedAssetSerializer>>,
 }
@@ -67,6 +18,11 @@ pub struct AssetSerializerRegistry {
 impl Global for AssetSerializerRegistry {}
 
 impl AssetSerializerRegistry {
+    pub fn register<T: AssetSerializer + Default>(&mut self) {
+        self.serializers
+            .insert(T::file_extension(), Arc::new(T::default()));
+    }
+
     pub fn get(&self, ext: &str) -> Option<Arc<dyn ErasedAssetSerializer>> {
         self.serializers.get(ext).cloned()
     }

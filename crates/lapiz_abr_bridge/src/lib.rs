@@ -35,17 +35,39 @@ use chrono::{DateTime, Utc};
 use lapiz_abr::Abr;
 use lapiz_assets::{
     asset::{AssetId, ErasedAsset, UntypedAssetId},
-    bundle::{AssetBundle, AssetBundleMetadata, BundleId, BundleManifest},
+    bundle::{AssetBundle, AssetBundleMetadata, BundleId, BundleManifest, ErasedAssetBundle},
     loader::ErasedAssetSerializer,
+    source::{AssetSource, AssetSourceRegistryExt as _},
     tag::{AssetTags, TagFile},
 };
 use lapiz_render::texture::Image;
+use lapiz_runtime::{Runtime, plugin::Plugin};
 use uuid::Uuid;
 use xxhash_rust::xxh3::xxh3_128;
 
 pub mod desc;
 pub mod patt;
 pub mod samp;
+
+pub struct AbrBridgePlugin;
+
+impl Plugin for AbrBridgePlugin {
+    fn build(&self, app: &mut Runtime) {
+        app.globals_mut().add_asset_source::<AbrAssetBundleSource>();
+    }
+}
+
+pub struct AbrAssetBundleSource;
+
+impl AssetSource for AbrAssetBundleSource {
+    fn scan(root: &Path) -> Vec<Arc<dyn ErasedAssetBundle>> {
+        let (bundles, errors) = AbrAssetBundle::scan_bundles(root);
+        for error in errors {
+            log::error!("{}", error);
+        }
+        bundles.into_iter().map(|b| Arc::new(b) as _).collect()
+    }
+}
 
 pub struct AbrAssetBundle {
     path: PathBuf,

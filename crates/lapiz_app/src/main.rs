@@ -1,13 +1,9 @@
-use std::{env, sync::Arc};
+use std::env;
 
 use lapiz_about::AboutPlugin;
-use lapiz_abr_bridge::AbrAssetBundle;
+use lapiz_abr_bridge::AbrBridgePlugin;
 use lapiz_actions::ActionPlugin;
-use lapiz_assets::{
-    AssetsPlugin,
-    bundle::{ErasedAssetBundle, directory::AssetDirectory, standard::StandardAssetBundle},
-    embedded,
-};
+use lapiz_assets::AssetsPlugin;
 use lapiz_brush::BrushPlugin;
 use lapiz_bucket_tool::BucketPlugin;
 use lapiz_builtin_docks::BuiltinDocksPlugin;
@@ -29,7 +25,6 @@ use lapiz_shader_graph::ShaderGraphPlugin;
 use lapiz_tools::ToolsPlugin;
 use lapiz_transform_tool::FreeTransformPlugin;
 use lapiz_undo::UndoPlugin;
-use lapiz_utils::log_err::LogErr as _;
 #[cfg(target_os = "android")]
 use winit::platform::android::activity::AndroidApp;
 
@@ -46,8 +41,6 @@ pub(crate) fn run(#[cfg(target_os = "android")] android_app: AndroidApp) {
         );
     }
 
-    embedded::extract_if_empty(assets_dir()).log_err();
-
     lapiz_report::setup_panic_hook();
 
     tracing_subscriber::fmt()
@@ -60,76 +53,30 @@ pub(crate) fn run(#[cfg(target_os = "android")] android_app: AndroidApp) {
         #[cfg(target_os = "android")]
         android_app,
     );
-    let mut asset_bundles = Vec::<Arc<dyn ErasedAssetBundle>>::new();
-    asset_bundles.push(Arc::new(
-        AssetDirectory::new(assets_dir().join("builtin_assets")).unwrap(),
-    ));
 
-    {
-        let (standard_bundles, errs) = StandardAssetBundle::scan_bundles(assets_dir());
-        log::info!(
-            "Loaded {} lazurite bundles with {} errors",
-            standard_bundles.len(),
-            errs.len()
-        );
-        for err in errs {
-            log::error!("Error loading asset bundle: {}", err);
-        }
-        for bundle in &standard_bundles {
-            log::info!("Loaded asset bundle: {}", bundle.path().display());
-        }
-        asset_bundles.extend(
-            standard_bundles
-                .into_iter()
-                .map(|b| Arc::new(b) as Arc<dyn ErasedAssetBundle>),
-        );
-    }
-
-    {
-        let (abr_bundles, errs) = AbrAssetBundle::scan_bundles(assets_dir());
-        log::info!(
-            "Loaded {} abr bundles with {} errors",
-            abr_bundles.len(),
-            errs.len()
-        );
-        for err in errs {
-            log::error!("Error loading ABR asset bundle: {}", err);
-        }
-        for bundle in &abr_bundles {
-            log::info!("Loaded ABR asset bundle: {}", bundle.path().display());
-        }
-        asset_bundles.extend(
-            abr_bundles
-                .into_iter()
-                .map(|b| Arc::new(b) as Arc<dyn ErasedAssetBundle>),
-        );
-    }
-
-    app.add_plugin(AssetsPlugin {
-        asset_root: assets_dir().into(),
-        bundles: asset_bundles,
-    })
-    .add_plugin(UndoPlugin)
-    .add_plugin(RenderPlugin)
-    .add_plugin(ShaderGraphPlugin)
-    .add_plugin(ToolsPlugin)
-    .add_plugin(ImagePlugin)
-    .add_plugin(CanvasPlugin)
-    .add_plugin(InputPlugin)
-    .add_plugin(BrushPlugin)
-    .add_plugin(FilterPlugin)
-    .add_plugin(BucketPlugin)
-    .add_plugin(EyeDropperPlugin)
-    .add_plugin(SelectionPlugin)
-    .add_plugin(FreeTransformPlugin)
-    .add_plugin(ColorPlugin)
-    .add_plugin(ActionPlugin)
-    .add_plugin(ColorSelectorPlugin)
-    .add_plugin(BuiltinDocksPlugin)
-    .add_plugin(ImageImporterPlugin)
-    .add_plugin(ImageExporterPlugin)
-    .add_plugin(AboutPlugin)
-    .add_plugin(MainViewPlugin);
+    app.add_plugin(AssetsPlugin::new(assets_dir()))
+        .add_plugin(AbrBridgePlugin)
+        .add_plugin(UndoPlugin)
+        .add_plugin(RenderPlugin)
+        .add_plugin(ShaderGraphPlugin)
+        .add_plugin(ToolsPlugin)
+        .add_plugin(ImagePlugin)
+        .add_plugin(CanvasPlugin)
+        .add_plugin(InputPlugin)
+        .add_plugin(BrushPlugin)
+        .add_plugin(FilterPlugin)
+        .add_plugin(BucketPlugin)
+        .add_plugin(EyeDropperPlugin)
+        .add_plugin(SelectionPlugin)
+        .add_plugin(FreeTransformPlugin)
+        .add_plugin(ColorPlugin)
+        .add_plugin(ActionPlugin)
+        .add_plugin(ColorSelectorPlugin)
+        .add_plugin(BuiltinDocksPlugin)
+        .add_plugin(ImageImporterPlugin)
+        .add_plugin(ImageExporterPlugin)
+        .add_plugin(AboutPlugin)
+        .add_plugin(MainViewPlugin);
     app.build_plugins();
 
     lapiz_i18n::init();
