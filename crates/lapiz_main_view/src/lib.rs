@@ -1,9 +1,7 @@
 use std::{any::Any, sync::Arc};
 
 use anyhow::Result;
-use iced::{
-    Element, Length, Subscription, Task, Theme, event::listen_with, keyboard::key, pointer, window,
-};
+use iced::{Element, Length, Subscription, Task, Theme, event::listen_with, keyboard::key, window};
 use iced_core::keyboard;
 use lapiz_actions::{
     ActionFunctionRegistry, ActionId,
@@ -85,9 +83,8 @@ pub enum MainViewMessage {
     Dock(DockMessage),
     #[cfg(not(target_os = "android"))]
     MainWindowDrag,
-    WindowEvent(window::Id, window::Event),
-    KeyboardEvent(window::Id, keyboard::Event),
-    PointerEvent(window::Id, pointer::Event),
+    WindowUnfocused,
+    KeyboardEvent(keyboard::Event),
     CanvasCreated(CanvasCreated),
     CanvasRemoved(CanvasRemoved),
     TriggerAction(ActionId),
@@ -424,27 +421,17 @@ impl WindowView for MainView {
                 .map(MainViewMessage::Dock),
             #[cfg(not(target_os = "android"))]
             MainViewMessage::MainWindowDrag => window::drag(self.dock_manager.main_window()),
-            MainViewMessage::WindowEvent(id, event) => {
-                let unfocused = matches!(event, window::Event::Unfocused);
-                let dock_task = self
-                    .dock_manager
-                    .update(DockMessage::WindowEvent(id, event), globals)
-                    .map(MainViewMessage::Dock);
-                if !unfocused {
-                    return dock_task;
-                }
-
+            MainViewMessage::WindowUnfocused => {
                 globals.global_mut::<KeyboardState>().clear();
-                let tool_task = globals
+                globals
                     .update_current_tool_proxy(|tool_proxy, globals| {
                         tool_proxy.switch_override_tool(None, globals)
                     })
                     .unwrap_or_else(Task::none)
-                    .map(MainViewMessage::ToolFunctionMessage);
-                Task::batch([dock_task, tool_task])
+                    .map(MainViewMessage::ToolFunctionMessage)
             }
 
-            MainViewMessage::KeyboardEvent(_window, event) => {
+            MainViewMessage::KeyboardEvent(event) => {
                 let keyboard_state = globals.global_mut::<KeyboardState>();
                 let old_modifier_count = keyboard_state.modifiers().bits().count_ones();
 
@@ -500,25 +487,6 @@ impl WindowView for MainView {
                     }
                     _ => Task::none(),
                 }
-            }
-            MainViewMessage::PointerEvent(window, event) => {
-                match event {
-                    pointer::Event::PointerMoved { position, .. } => {
-                        return self
-                            .dock_manager
-                            .update(DockMessage::CursorMoved(window, position), globals)
-                            .map(MainViewMessage::Dock);
-                    }
-                    pointer::Event::PointerReleased { .. } if event.is_primary_release() => {
-                        return self
-                            .dock_manager
-                            .update(DockMessage::PointerReleased, globals)
-                            .map(MainViewMessage::Dock);
-                    }
-                    _ => {}
-                }
-
-                Task::none()
             }
             MainViewMessage::CanvasCreated(e) => {
                 log::info!("Canvas created: {}", e.id);
@@ -637,10 +605,9 @@ impl WindowView for MainView {
     }
 
     fn subscription(&self, globals: &Globals) -> Subscription<Self::Message> {
-        let external = listen_with(|event, _status, window| match event {
-            iced::Event::Window(e) => Some(MainViewMessage::WindowEvent(window, e)),
-            iced::Event::Keyboard(e) => Some(MainViewMessage::KeyboardEvent(window, e)),
-            iced::Event::Pointer(e) => Some(MainViewMessage::PointerEvent(window, e)),
+        let external = listen_with(|event, _status, _window| match event {
+            iced::Event::Window(window::Event::Unfocused) => Some(MainViewMessage::WindowUnfocused),
+            iced::Event::Keyboard(event) => Some(MainViewMessage::KeyboardEvent(event)),
             _ => None,
         });
 

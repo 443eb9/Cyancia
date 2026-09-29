@@ -7,8 +7,8 @@ use std::{
 
 use dock::{DockAction, DockId, TabEvent};
 use group::DockGroupData;
-use iced_core::{Element, Length, Point, Size, Theme, Vector, widget::Void, window};
-use iced_futures::Subscription;
+use iced_core::{Element, Length, Point, Size, Theme, Vector, pointer, widget::Void, window};
+use iced_futures::{Subscription, event::listen_with};
 use iced_runtime::Task;
 use lapiz_runtime::{
     Renderer,
@@ -951,11 +951,26 @@ impl DockManager {
     }
 
     pub fn subscription(&self, globals: &Globals) -> Subscription<DockMessage> {
-        Subscription::batch(self.docks.iter().map(|(id, dock)| {
-            dock.subscription(globals)
-                .with(id.clone())
-                .map(|(dock, message)| DockMessage::Dock(dock, message))
-        }))
+        let events = listen_with(|event, _status, window| match event {
+            iced_core::Event::Window(event) => Some(DockMessage::WindowEvent(window, event)),
+            iced_core::Event::Pointer(pointer::Event::PointerMoved { position, .. }) => {
+                Some(DockMessage::CursorMoved(window, position))
+            }
+            iced_core::Event::Pointer(event @ pointer::Event::PointerReleased { .. })
+                if event.is_primary_release() =>
+            {
+                Some(DockMessage::PointerReleased)
+            }
+            _ => None,
+        });
+
+        Subscription::batch(
+            iter::once(events).chain(self.docks.iter().map(|(id, dock)| {
+                dock.subscription(globals)
+                    .with(id.clone())
+                    .map(|(dock, message)| DockMessage::Dock(dock, message))
+            })),
+        )
     }
 }
 
