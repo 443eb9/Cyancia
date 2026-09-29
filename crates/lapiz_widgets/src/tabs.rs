@@ -1,176 +1,53 @@
 use iced_core::{
-    Border, Element, Event, Layout, Length, Pixels, Point, Rectangle, Renderer as _, Shadow, Shell,
-    Size, Theme, Vector, alignment, layout, overlay, pointer,
-    pointer::mouse,
+    Element, Event, Layout, Length, Pixels, Point, Rectangle, Renderer as _, Shell, Size, Theme,
+    Vector, Widget, alignment, layout, overlay,
+    pointer::{self, mouse},
     renderer,
-    text::{self, LineHeight, Renderer as _, Shaping, Text, paragraph, paragraph::Plain},
+    text::{
+        self, LineHeight, Renderer as _, Shaping, Text,
+        paragraph::{self, Plain},
+    },
     widget::{self, Tree, tree},
 };
-use iced_widget::button::{Status, Style};
 use lapiz_runtime::Renderer;
 
 use crate::{
-    button,
-    button::{activated_style, transparent},
-    flex::{self, Flex},
+    column,
+    menu::{ContextMenu, Menu},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Variant {
-    #[default]
-    Line,
-    Block,
-}
-
-struct Tab<'a, Message> {
-    content: Element<'a, Message, Theme, Renderer>,
-    selected: bool,
-    message: Option<Message>,
-}
-
-pub struct TabBar<'a, Message> {
-    tabs: Vec<Tab<'a, Message>>,
-    variant: Variant,
-    width: Length,
-    height: Length,
-}
-
-impl<'a, Message> TabBar<'a, Message> {
-    pub fn new() -> Self {
-        Self {
-            tabs: Vec::new(),
-            variant: Variant::Line,
-            width: Length::Fit,
-            height: Length::Fixed(26.0),
-        }
-    }
-
-    pub fn push(
-        mut self,
-        content: impl Into<Element<'a, Message, Theme, Renderer>>,
-        selected: bool,
-        message: Message,
-    ) -> Self {
-        self.tabs.push(Tab {
-            content: content.into(),
-            selected,
-            message: Some(message),
-        });
-        self
-    }
-
-    pub fn push_disabled(
-        mut self,
-        content: impl Into<Element<'a, Message, Theme, Renderer>>,
-        selected: bool,
-    ) -> Self {
-        self.tabs.push(Tab {
-            content: content.into(),
-            selected,
-            message: None,
-        });
-        self
-    }
-
-    pub fn width(mut self, width: impl Into<Length>) -> Self {
-        self.width = width.into();
-        self
-    }
-
-    pub fn height(mut self, height: impl Into<Length>) -> Self {
-        self.height = height.into();
-        self
-    }
-
-    pub fn line(mut self) -> Self {
-        self.variant = Variant::Line;
-        self
-    }
-
-    pub fn block(mut self) -> Self {
-        self.variant = Variant::Block;
-        self
-    }
-}
-
-impl<Message> Default for TabBar<'_, Message> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<'a, Message: 'a> From<TabBar<'a, Message>> for Element<'a, Message, Theme, Renderer> {
-    fn from(value: TabBar<'a, Message>) -> Self {
-        let variant = value.variant;
-        let tabs = value.tabs.into_iter().map(move |tab| {
-            let selected = tab.selected;
-            button(tab.content)
-                .height(Length::Fill)
-                .padding([0, 12])
-                .style(move |theme, status| style(theme, status, variant, selected))
-                .on_press_maybe(tab.message)
-                .into()
-        });
-        Flex::row(tabs)
-            .width(value.width)
-            .height(value.height)
-            .style(tab_bar)
-            .into()
-    }
-}
-
-fn style(theme: &Theme, status: Status, variant: Variant, selected: bool) -> Style {
-    if variant == Variant::Block && selected {
-        return activated_style(theme, status);
-    }
-    let p = theme.palette();
-    let mut style = transparent(theme, status);
-    if selected {
-        style.text_color = p.background.base.text;
-        if variant == Variant::Line {
-            style.border.width = 0.0;
-            style.shadow = Shadow {
-                color: p.primary.base.color,
-                offset: Vector::new(0.0, 2.0),
-                blur_radius: 0.0,
-            };
-        }
-    }
-    style
-}
-
-fn tab_bar(theme: &Theme, _status: flex::Status) -> flex::Style {
-    let p = theme.palette();
-    flex::Style::default().border(Border {
-        radius: 0.0.into(),
-        width: 1.0,
-        color: p.background.strong.color,
-    })
-}
-
-// TODO Dock groups should also use this
 pub struct TabbedView<'a, Message> {
-    pages: Vec<Page<'a, Message>>,
-    selected: usize,
-    on_select: Box<dyn Fn(usize) -> Message + 'a>,
-    font_size: Pixels,
-    padding: f32,
+    bar: TabBar<'a, Message>,
+    pages: Vec<Element<'a, Message, Theme, Renderer>>,
+    context_menu: Option<Menu<Message>>,
 }
 
-struct Page<'a, Message> {
-    title: String,
-    content: Element<'a, Message, Theme, Renderer>,
+impl<'a, Message: 'a> Default for TabbedView<'a, Message> {
+    fn default() -> Self {
+        Self {
+            bar: TabBar::new(),
+            pages: Vec::new(),
+            context_menu: None,
+        }
+    }
 }
 
 impl<'a, Message: 'a> TabbedView<'a, Message> {
-    pub fn new(selected: usize, on_select: impl Fn(usize) -> Message + 'a) -> Self {
-        Self {
-            pages: Vec::new(),
-            selected,
-            on_select: Box::new(on_select),
-            font_size: Pixels(11.0),
-            padding: 7.0,
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn tabs(
+        tabs: impl IntoIterator<Item = (String, Element<'a, Message, Theme, Renderer>)>,
+        selected: usize,
+    ) -> Self {
+        let mut this = Self::new();
+        for (title, content) in tabs {
+            this.bar = this.bar.tab(title);
+            this.pages.push(content);
         }
+        this.bar = this.bar.selected(selected);
+        this
     }
 
     pub fn tab(
@@ -178,64 +55,77 @@ impl<'a, Message: 'a> TabbedView<'a, Message> {
         title: impl Into<String>,
         content: impl Into<Element<'a, Message, Theme, Renderer>>,
     ) -> Self {
-        self.pages.push(Page {
-            title: title.into(),
-            content: content.into(),
-        });
+        self.bar = self.bar.tab(title);
+        self.pages.push(content.into());
+        self
+    }
+
+    pub fn selected(mut self, index: usize) -> Self {
+        self.bar = self.bar.selected(index);
+        self
+    }
+
+    pub fn on_select(mut self, callback: impl Fn(usize) -> Message + 'a) -> Self {
+        self.bar = self.bar.on_select(callback);
+        self
+    }
+
+    pub fn on_reorder(mut self, callback: impl Fn(usize, usize) -> Message + 'a) -> Self {
+        self.bar = self.bar.on_reorder(callback);
+        self
+    }
+
+    pub fn on_detach(mut self, callback: impl Fn(usize) -> Message + 'a) -> Self {
+        self.bar = self.bar.on_detach(callback);
         self
     }
 
     pub fn font_size(mut self, font_size: impl Into<Pixels>) -> Self {
-        self.font_size = font_size.into();
+        self.bar = self.bar.font_size(font_size);
         self
     }
 
     pub fn padding(mut self, padding: f32) -> Self {
-        self.padding = padding;
+        self.bar = self.bar.padding(padding);
+        self
+    }
+
+    pub fn context_menu(mut self, menu: Menu<Message>) -> Self {
+        self.context_menu = Some(menu);
         self
     }
 }
 
-impl<'a, Message: 'a> From<TabbedView<'a, Message>> for Element<'a, Message, Theme, Renderer> {
+impl<'a, Message: Clone + 'a> From<TabbedView<'a, Message>>
+    for Element<'a, Message, Theme, Renderer>
+{
     fn from(value: TabbedView<'a, Message>) -> Self {
-        let TabbedView {
-            pages,
-            selected,
-            on_select,
-            font_size,
-            padding,
-        } = value;
-        let bar_height = font_size.0 + padding * 2.0;
-        let mut children = Vec::with_capacity(pages.len() + 1);
-        children.push(
-            TabRow {
-                titles: pages.iter().map(|page| page.title.clone()).collect(),
-                selected,
-                on_select,
-                font_size,
-                padding,
-            }
-            .into(),
-        );
-        children.extend(pages.into_iter().map(|page| page.content));
+        let selected = value.bar.selected;
+        let header = if let Some(menu) = value.context_menu {
+            Element::new(ContextMenu::new(value.bar, menu))
+        } else {
+            Element::new(value.bar)
+        };
 
-        Element::new(TabbedViewWidget {
-            children,
-            selected,
-            bar_height,
-        })
+        column![
+            header,
+            Element::new(TabbedViewWidget {
+                pages: value.pages,
+                selected,
+            })
+        ]
+        .into()
     }
 }
 
 struct TabbedViewWidget<'a, Message> {
-    children: Vec<Element<'a, Message, Theme, Renderer>>,
-    selected: usize,
-    bar_height: f32,
+    pages: Vec<Element<'a, Message, Theme, Renderer>>,
+    selected: Option<usize>,
 }
 
-impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabbedViewWidget<'_, Message> {
+impl<Message> Widget<Message, Theme, Renderer> for TabbedViewWidget<'_, Message> {
     fn diff(&mut self, tree: &mut Tree) {
-        tree.diff_children(&mut self.children);
+        tree.diff_children(&mut self.pages);
     }
 
     fn size(&self) -> Size<Length> {
@@ -249,31 +139,18 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabbedViewWidget<'
         limits: &layout::Limits,
     ) -> layout::Node {
         let size = limits.resolve(Length::Fill, Length::Fill, Size::ZERO);
-        let bar_height = self.bar_height.min(size.height);
-        let content_height = (size.height - bar_height).max(0.0);
-
-        let mut nodes = Vec::with_capacity(self.children.len());
-        let row = self.children[0].as_widget_mut().layout(
-            &mut tree.children[0],
-            renderer,
-            &layout::Limits::new(Size::ZERO, Size::new(size.width, bar_height)),
-        );
-        nodes.push(row);
-
-        let page_index = self.selected + 1;
-        for (index, child) in self.children.iter_mut().enumerate().skip(1) {
-            if index == page_index {
-                let node = child.as_widget_mut().layout(
+        let mut nodes = Vec::with_capacity(self.pages.len());
+        for (index, page) in self.pages.iter_mut().enumerate() {
+            if Some(index) == self.selected {
+                nodes.push(page.as_widget_mut().layout(
                     &mut tree.children[index],
                     renderer,
-                    &layout::Limits::new(Size::ZERO, Size::new(size.width, content_height)),
-                );
-                nodes.push(node.move_to(Point::new(0.0, bar_height)));
+                    &layout::Limits::new(Size::ZERO, size),
+                ));
             } else {
                 nodes.push(layout::Node::new(Size::ZERO));
             }
         }
-
         layout::Node::with_children(size, nodes)
     }
 
@@ -287,28 +164,17 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabbedViewWidget<'
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        let layouts = layout.children().collect::<Vec<_>>();
-        self.children[0].as_widget_mut().update(
-            &mut tree.children[0],
-            event,
-            layouts[0],
-            cursor,
-            renderer,
-            shell,
-            viewport,
-        );
-
-        if shell.is_event_captured() {
+        let Some(selected) = self.selected else {
             return;
-        }
-        let page_index = self.selected + 1;
+        };
+
         if let (Some(page), Some(state), Some(layout)) = (
-            self.children.get_mut(page_index),
-            tree.children.get_mut(page_index),
-            layouts.get(page_index),
+            self.pages.get_mut(selected),
+            tree.children.get_mut(selected),
+            layout.children().nth(selected),
         ) {
             page.as_widget_mut()
-                .update(state, event, *layout, cursor, renderer, shell, viewport);
+                .update(state, event, layout, cursor, renderer, shell, viewport);
         }
     }
 
@@ -320,26 +186,20 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabbedViewWidget<'
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        let layouts = layout.children().collect::<Vec<_>>();
-        let row = self.children[0].as_widget().mouse_interaction(
-            &tree.children[0],
-            layouts[0],
-            cursor,
-            viewport,
-            renderer,
-        );
-        let page_index = self.selected + 1;
-        let page = match (
-            self.children.get(page_index),
-            tree.children.get(page_index),
-            layouts.get(page_index),
-        ) {
-            (Some(child), Some(state), Some(layout)) => child
-                .as_widget()
-                .mouse_interaction(state, *layout, cursor, viewport, renderer),
-            _ => mouse::Interaction::None,
+        let Some(selected) = self.selected else {
+            return mouse::Interaction::None;
         };
-        row.max(page)
+
+        match (
+            self.pages.get(selected),
+            tree.children.get(selected),
+            layout.children().nth(selected),
+        ) {
+            (Some(page), Some(state), Some(layout)) => page
+                .as_widget()
+                .mouse_interaction(state, layout, cursor, viewport, renderer),
+            _ => mouse::Interaction::None,
+        }
     }
 
     fn draw(
@@ -352,24 +212,17 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabbedViewWidget<'
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        let layouts = layout.children().collect::<Vec<_>>();
-        self.children[0].as_widget().draw(
-            &tree.children[0],
-            renderer,
-            theme,
-            style,
-            layouts[0],
-            cursor,
-            viewport,
-        );
-        let page_index = self.selected + 1;
+        let Some(selected) = self.selected else {
+            return;
+        };
+
         if let (Some(page), Some(state), Some(layout)) = (
-            self.children.get(page_index),
-            tree.children.get(page_index),
-            layouts.get(page_index),
+            self.pages.get(selected),
+            tree.children.get(selected),
+            layout.children().nth(selected),
         ) {
             page.as_widget()
-                .draw(state, renderer, theme, style, *layout, cursor, viewport);
+                .draw(state, renderer, theme, style, layout, cursor, viewport);
         }
     }
 
@@ -380,19 +233,17 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabbedViewWidget<'
         renderer: &Renderer,
         operation: &mut dyn widget::Operation,
     ) {
-        let layouts = layout.children().collect::<Vec<_>>();
-        let page_index = self.selected + 1;
-        for index in [0, page_index] {
-            let (Some(child), Some(state), Some(layout)) = (
-                self.children.get_mut(index),
-                tree.children.get_mut(index),
-                layouts.get(index),
-            ) else {
-                continue;
-            };
-            child
-                .as_widget_mut()
-                .operate(state, *layout, renderer, operation);
+        let Some(selected) = self.selected else {
+            return;
+        };
+
+        if let (Some(page), Some(state), Some(layout)) = (
+            self.pages.get_mut(selected),
+            tree.children.get_mut(selected),
+            layout.children().nth(selected),
+        ) {
+            page.as_widget_mut()
+                .operate(state, layout, renderer, operation);
         }
     }
 
@@ -404,21 +255,58 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabbedViewWidget<'
         viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
-        let page_index = self.selected + 1;
-        let page = self.children.get_mut(page_index)?;
-        let state = tree.children.get_mut(page_index)?;
-        let layout = layout.children().nth(page_index)?;
-        page.as_widget_mut()
-            .overlay(state, layout, renderer, viewport, translation)
+        let selected = self.selected?;
+        self.pages.get_mut(selected)?.as_widget_mut().overlay(
+            tree.children.get_mut(selected)?,
+            layout.children().nth(selected)?,
+            renderer,
+            viewport,
+            translation,
+        )
     }
 }
 
 #[derive(Debug, Default)]
 struct TabRowState {
     hovered: Option<usize>,
-    pressed: Option<usize>,
+    action: TabAction,
     labels: Vec<Plain<<Renderer as text::Renderer>::Paragraph>>,
     bounds: Vec<Rectangle>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+enum TabAction {
+    #[default]
+    Idle,
+    Pressing {
+        index: usize,
+        origin: Point,
+    },
+    Dragging {
+        index: usize,
+    },
+    TitleDragging {
+        origin: Point,
+    },
+}
+
+const DETACH_DEADBAND_FACTOR: f32 = 0.5;
+
+fn drag_target_index(bounds: Rectangle, tab_bounds: &[Rectangle], cursor: Point) -> Option<usize> {
+    let margin = bounds.height * DETACH_DEADBAND_FACTOR;
+    if cursor.x < bounds.x - margin
+        || cursor.x > bounds.x + bounds.width + bounds.height + margin
+        || cursor.y < bounds.y - margin
+        || cursor.y > bounds.y + bounds.height * 2.0 + margin
+    {
+        return None;
+    }
+
+    let x = cursor.x - bounds.x;
+    tab_bounds
+        .iter()
+        .position(|tab| x < tab.center_x())
+        .or(Some(tab_bounds.len()))
 }
 
 fn hit_test(bounds: &[Rectangle], cursor_rel: Point) -> Option<usize> {
@@ -431,21 +319,105 @@ fn hit_test(bounds: &[Rectangle], cursor_rel: Point) -> Option<usize> {
     None
 }
 
-struct TabRow<'a, Message> {
+pub struct TabBar<'a, Message> {
     titles: Vec<String>,
-    selected: usize,
-    on_select: Box<dyn Fn(usize) -> Message + 'a>,
+    selected: Option<usize>,
+    on_select: Option<Box<dyn Fn(usize) -> Message + 'a>>,
+    on_reorder: Option<Box<dyn Fn(usize, usize) -> Message + 'a>>,
+    on_detach: Option<Box<dyn Fn(usize) -> Message + 'a>>,
+    on_title_drag: Option<Box<dyn Fn() -> Message + 'a>>,
+    title_drag_threshold: f32,
+    tab_drag_threshold: f32,
     font_size: Pixels,
     padding: f32,
 }
 
-impl<Message> TabRow<'_, Message> {
+impl<'a, Message> Default for TabBar<'a, Message> {
+    fn default() -> Self {
+        Self {
+            titles: Vec::new(),
+            selected: None,
+            on_select: None,
+            on_reorder: None,
+            on_detach: None,
+            on_title_drag: None,
+            font_size: Pixels(11.0),
+            title_drag_threshold: 10.0,
+            tab_drag_threshold: 5.0,
+            padding: 6.0,
+        }
+    }
+}
+
+impl<'a, Message: 'a> TabBar<'a, Message> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn tabs(tabs: impl IntoIterator<Item = String>, selected: usize) -> Self {
+        Self {
+            titles: tabs.into_iter().collect(),
+            selected: Some(selected),
+            ..Self::new()
+        }
+    }
+
+    pub fn tab(mut self, title: impl Into<String>) -> Self {
+        self.titles.push(title.into());
+        self
+    }
+
+    pub fn selected(mut self, index: usize) -> Self {
+        self.selected = Some(index);
+        self
+    }
+
+    pub fn on_select(mut self, callback: impl Fn(usize) -> Message + 'a) -> Self {
+        self.on_select = Some(Box::new(callback));
+        self
+    }
+
+    pub fn on_reorder(mut self, callback: impl Fn(usize, usize) -> Message + 'a) -> Self {
+        self.on_reorder = Some(Box::new(callback));
+        self
+    }
+
+    pub fn on_detach(mut self, callback: impl Fn(usize) -> Message + 'a) -> Self {
+        self.on_detach = Some(Box::new(callback));
+        self
+    }
+
+    pub fn on_title_drag(mut self, callback: impl Fn() -> Message + 'a) -> Self {
+        self.on_title_drag = Some(Box::new(callback));
+        self
+    }
+
+    pub fn font_size(mut self, font_size: impl Into<Pixels>) -> Self {
+        self.font_size = font_size.into();
+        self
+    }
+
+    pub fn title_drag_threshold(mut self, threshold: f32) -> Self {
+        self.title_drag_threshold = threshold;
+        self
+    }
+
+    pub fn tab_drag_threshold(mut self, threshold: f32) -> Self {
+        self.tab_drag_threshold = threshold;
+        self
+    }
+
+    pub fn padding(mut self, padding: f32) -> Self {
+        self.padding = padding;
+        self
+    }
+
     fn height(&self) -> f32 {
         self.font_size.0 + self.padding * 2.0
     }
 }
 
-impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabRow<'_, Message> {
+impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabBar<'_, Message> {
     fn tag(&self) -> tree::Tag {
         tree::Tag::of::<TabRowState>()
     }
@@ -521,7 +493,7 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabRow<'_, Message
         theme: &Theme,
         _style: &renderer::Style,
         layout: Layout<'_>,
-        _cursor: mouse::Cursor,
+        cursor: mouse::Cursor,
         _viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_ref::<TabRowState>();
@@ -547,6 +519,14 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabRow<'_, Message
             p.background.strong.color,
         );
 
+        let drag_target = if matches!(state.action, TabAction::Dragging { .. }) {
+            cursor
+                .position()
+                .and_then(|pos| drag_target_index(bounds, &state.bounds, pos))
+        } else {
+            None
+        };
+
         for i in 0..self.titles.len() {
             let tab_rect_rel = state.bounds[i];
             let tab_rect = Rectangle {
@@ -555,7 +535,7 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabRow<'_, Message
                 ..tab_rect_rel
             };
 
-            let is_selected = i == self.selected;
+            let is_selected = self.selected == Some(i);
             let is_hovered = state.hovered == Some(i);
             let (background, text_color) = if is_selected {
                 (p.background.weakest.color, p.background.base.text)
@@ -618,6 +598,26 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabRow<'_, Message
             };
             renderer.fill_text(label, position, text_color, clip);
         }
+
+        if let Some(target) = drag_target {
+            let x = state
+                .bounds
+                .get(target)
+                .map(|tab| tab.x)
+                .unwrap_or_else(|| state.bounds.last().map_or(0.0, |tab| tab.x + tab.width));
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: Rectangle {
+                        x: bounds.x + x - 1.5,
+                        y: bounds.y,
+                        width: 3.0,
+                        height: bounds.height,
+                    },
+                    ..Default::default()
+                },
+                p.primary.base.color,
+            );
+        }
     }
 
     fn update(
@@ -643,8 +643,36 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabRow<'_, Message
                     state.hovered = hovered;
                     shell.request_redraw();
                 }
-                if state.pressed.is_some() {
-                    shell.capture_event();
+                match state.action {
+                    TabAction::Idle => {}
+                    TabAction::Pressing { index, origin } => {
+                        if position.distance(origin) >= self.tab_drag_threshold
+                            && (self.on_reorder.is_some() || self.on_detach.is_some())
+                        {
+                            state.action = TabAction::Dragging { index };
+                            shell.request_redraw();
+                        }
+                        shell.capture_event();
+                    }
+                    TabAction::Dragging { index } => {
+                        shell.capture_event();
+                        shell.request_redraw();
+                        if drag_target_index(bounds, &state.bounds, *position).is_none()
+                            && let Some(callback) = &self.on_detach
+                        {
+                            shell.publish(callback(index));
+                            state.action = TabAction::Idle;
+                        }
+                    }
+                    TabAction::TitleDragging { origin } => {
+                        if position.distance(origin) > self.title_drag_threshold {
+                            if let Some(callback) = &self.on_title_drag {
+                                shell.publish(callback());
+                            }
+                            state.action = TabAction::Idle;
+                        }
+                        shell.capture_event();
+                    }
                 }
             }
 
@@ -655,11 +683,20 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabRow<'_, Message
                     return;
                 }
 
-                if let Some(index) = hit_test(
+                state.action = match hit_test(
                     &state.bounds,
                     Point::new(position.x - bounds.x, position.y - bounds.y),
                 ) {
-                    state.pressed = Some(index);
+                    Some(index) => TabAction::Pressing {
+                        index,
+                        origin: *position,
+                    },
+                    None if self.on_title_drag.is_some() => {
+                        TabAction::TitleDragging { origin: *position }
+                    }
+                    None => TabAction::Idle,
+                };
+                if !matches!(state.action, TabAction::Idle) {
                     shell.capture_event();
                 }
             }
@@ -667,17 +704,35 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabRow<'_, Message
             Event::Pointer(event @ pointer::Event::PointerReleased { position, .. })
                 if event.is_primary_release() =>
             {
-                if let Some(index) = state.pressed.take() {
-                    let released_on = bounds
-                        .contains(*position)
-                        .then(|| Point::new(position.x - bounds.x, position.y - bounds.y))
-                        .and_then(|position| hit_test(&state.bounds, position));
-                    if released_on == Some(index) {
-                        shell.publish((self.on_select)(index));
+                match state.action {
+                    TabAction::Pressing { index, .. } => {
+                        let released_on = bounds
+                            .contains(*position)
+                            .then(|| Point::new(position.x - bounds.x, position.y - bounds.y))
+                            .and_then(|position| hit_test(&state.bounds, position));
+                        if released_on == Some(index)
+                            && let Some(callback) = &self.on_select
+                        {
+                            shell.publish(callback(index));
+                        }
                     }
-                    shell.capture_event();
-                    shell.request_redraw();
+                    TabAction::Dragging { index: from } => {
+                        if let (Some(to), Some(callback)) = (
+                            drag_target_index(bounds, &state.bounds, *position),
+                            &self.on_reorder,
+                        ) {
+                            let to = if to > from { to - 1 } else { to };
+                            if to != from {
+                                shell.publish(callback(from, to));
+                            }
+                        }
+                    }
+                    TabAction::TitleDragging { .. } => {}
+                    TabAction::Idle => return,
                 }
+                state.action = TabAction::Idle;
+                shell.capture_event();
+                shell.request_redraw();
             }
 
             _ => {}
@@ -693,6 +748,9 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabRow<'_, Message
         _renderer: &Renderer,
     ) -> mouse::Interaction {
         let state = tree.state.downcast_ref::<TabRowState>();
+        if matches!(state.action, TabAction::Dragging { .. }) {
+            return mouse::Interaction::Grabbing;
+        }
         match cursor.position_in(layout.bounds()) {
             Some(position) => match hit_test(&state.bounds, position) {
                 Some(_) => mouse::Interaction::Pointer,
@@ -703,8 +761,8 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for TabRow<'_, Message
     }
 }
 
-impl<'a, Message: 'a> From<TabRow<'a, Message>> for Element<'a, Message, Theme, Renderer> {
-    fn from(widget: TabRow<'a, Message>) -> Self {
+impl<'a, Message: 'a> From<TabBar<'a, Message>> for Element<'a, Message, Theme, Renderer> {
+    fn from(widget: TabBar<'a, Message>) -> Self {
         Element::new(widget)
     }
 }

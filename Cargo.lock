@@ -3636,6 +3636,7 @@ dependencies = [
  "iced_runtime",
  "iced_wgpu",
  "indexmap",
+ "lapiz_config",
  "lapiz_i18n",
  "lapiz_runtime",
  "lapiz_utils",

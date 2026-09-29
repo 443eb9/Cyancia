@@ -1,24 +1,14 @@
 use std::{any::Any, sync::Arc};
 
 use anyhow::Result;
-use iced::{
-    Element, Length, Subscription, Task, Theme, event::listen_with, keyboard::key, pointer, window,
-};
+use iced::{Element, Length, Subscription, Task, Theme, event::listen_with, keyboard::key, window};
 use iced_core::keyboard;
 use lapiz_actions::{
     ActionFunctionRegistry, ActionId,
     manifest::{ActionBindingManifestConfig, ActionCollection, MenuBarItem, MenuBarManifestConfig},
 };
 use lapiz_brush::tool::CurrentBrushPresetHandle;
-use lapiz_builtin_docks::{
-    brush_preset::BRUSH_PRESETS_DOCK_ID,
-    canvas::{CanvasDock, construct_canvas_dock_id},
-    color_selector::COLOR_SELECTOR_DOCK_ID,
-    layers::LAYER_DOCK_ID,
-    recent_files::RECENT_FILES_DOCK_ID,
-    tool_box::TOOL_BOX_DOCK_ID,
-    tool_options::TOOL_OPTIONS_DOCK_ID,
-};
+use lapiz_builtin_docks::canvas::{CanvasDock, construct_canvas_dock_id};
 use lapiz_canvas::{
     CanvasAppExt as _, CanvasToolProxyAppExt as _,
     event::{CanvasCreated, CanvasRemoved},
@@ -30,6 +20,7 @@ use lapiz_dock::{
     DockManager, DockMessage, DockRegistry,
     dock::{Dock, DockId},
     group::DockGroupId,
+    layout::DockLayout,
 };
 use lapiz_i18n::{config::LanguageConfig, t};
 use lapiz_image::{
@@ -56,7 +47,7 @@ use lapiz_widgets::{
     icon::{self, Icon},
     label, menu,
     menu::{Item, Menu, MenuBar},
-    menu_bar, pane_grid, row, status_bar, title_bar,
+    menu_bar, row, status_bar, title_bar,
 };
 use moxcms::ProfileText;
 use unic_langid::LanguageIdentifier;
@@ -85,9 +76,8 @@ pub enum MainViewMessage {
     Dock(DockMessage),
     #[cfg(not(target_os = "android"))]
     MainWindowDrag,
-    WindowEvent(window::Id, window::Event),
-    KeyboardEvent(window::Id, keyboard::Event),
-    PointerEvent(window::Id, pointer::Event),
+    WindowUnfocused,
+    KeyboardEvent(keyboard::Event),
     CanvasCreated(CanvasCreated),
     CanvasRemoved(CanvasRemoved),
     TriggerAction(ActionId),
@@ -105,6 +95,7 @@ pub enum MainViewMessage {
 #[derive(Clone)]
 pub enum MenuBarMessage {
     TriggerAction(ActionId),
+    ToggleDock(DockId),
     SetTheme(Theme),
     SetLanguage(LanguageIdentifier),
 }
@@ -192,6 +183,30 @@ impl MainView {
                     });
         }
 
+        if let Some(window) = menu_bar.get_menu_mut(&window_title)
+            && let Some(Item::Submenu { submenu, .. }) =
+                window.get_item_mut(&t!("menu_dock_submenu"))
+        {
+            let mut docks = self.dock_manager.registered_docks().collect::<Vec<_>>();
+            docks.sort_by(|dock_a, dock_b| {
+                let name_a = dock_a.display_name();
+                let name_b = dock_b.display_name();
+                name_a.cmp(&name_b)
+            });
+            let dock_menu = docks
+                .into_iter()
+                .fold(menu().min_width(220.0), |menu, dock| {
+                    let id = dock.id();
+                    let name = dock.display_name();
+                    if self.dock_manager.is_dock_open(&id) {
+                        menu.selected_item(name, MenuBarMessage::ToggleDock(id))
+                    } else {
+                        menu.item(name, MenuBarMessage::ToggleDock(id))
+                    }
+                });
+            *submenu = dock_menu;
+        }
+
         menu_bar
     }
 
@@ -262,64 +277,11 @@ impl WindowView for MainView {
         let dock_registry = globals.remove_global::<DockRegistry>();
         let (mut dock_manager, dock_manager_task) = dock_registry.build(main_window);
 
-        let task_tool_options = dock_manager.open_dock(globals, TOOL_OPTIONS_DOCK_ID.clone());
-        let tool_options = *dock_manager
-            .dock_state()
-            .dock_in_group(&TOOL_OPTIONS_DOCK_ID)
-            .unwrap()
-            .id();
-        let task_landing_page =
-            dock_manager.open_dock_in_group(globals, RECENT_FILES_DOCK_ID.clone(), &tool_options);
-        let task_tool_box = dock_manager.open_dock_split(
-            globals,
-            TOOL_BOX_DOCK_ID.clone(),
-            &tool_options,
-            pane_grid::Edge::Left,
-            0.06,
-        );
-        let task_color_selector = dock_manager.open_dock_split(
-            globals,
-            COLOR_SELECTOR_DOCK_ID.clone(),
-            &tool_options,
-            pane_grid::Edge::Right,
-            0.76,
-        );
-        let color_selector = *dock_manager
-            .dock_state()
-            .dock_in_group(&COLOR_SELECTOR_DOCK_ID)
-            .unwrap()
-            .id();
-        let task_brush_presets = dock_manager.open_dock_split(
-            globals,
-            BRUSH_PRESETS_DOCK_ID.clone(),
-            &color_selector,
-            pane_grid::Edge::Bottom,
-            0.34,
-        );
-        let brush_preset = &dock_manager
-            .dock_state()
-            .dock_in_group(&BRUSH_PRESETS_DOCK_ID)
-            .unwrap()
-            .id()
-            .clone();
-
-        let task_layer = dock_manager.open_dock_split(
-            globals,
-            LAYER_DOCK_ID.clone(),
-            brush_preset,
-            pane_grid::Edge::Bottom,
-            0.5,
-        );
-
-        let dock_tasks = Task::batch([
-            task_tool_options,
-            task_landing_page,
-            task_tool_box,
-            task_brush_presets,
-            task_layer,
-            task_color_selector,
-        ])
-        .map(MainViewMessage::Dock);
+        let saved_layout = Config::<DockLayout>::read_or_init_or_fallback();
+        let dock_tasks = dock_manager
+            .restore_layout(&saved_layout.get(), globals)
+            .unwrap_or_else(Task::none)
+            .map(MainViewMessage::Dock);
 
         Ok((
             Self {
@@ -346,7 +308,7 @@ impl WindowView for MainView {
             .view(window, globals)?
             .map(MainViewMessage::Dock);
 
-        if window != self.dock_manager.main_window().id {
+        if window != self.dock_manager.main_window() {
             return Some(dock);
         }
 
@@ -436,25 +398,18 @@ impl WindowView for MainView {
                 .update(m, globals)
                 .map(MainViewMessage::Dock),
             #[cfg(not(target_os = "android"))]
-            MainViewMessage::MainWindowDrag => window::drag(self.dock_manager.main_window().id),
-            MainViewMessage::WindowEvent(id, event) => {
-                let unfocused = matches!(event, window::Event::Unfocused);
-                let window_task = self.dock_manager.on_window_event(id, event).discard();
-                if !unfocused {
-                    return window_task;
-                }
-
+            MainViewMessage::MainWindowDrag => window::drag(self.dock_manager.main_window()),
+            MainViewMessage::WindowUnfocused => {
                 globals.global_mut::<KeyboardState>().clear();
-                let tool_task = globals
+                globals
                     .update_current_tool_proxy(|tool_proxy, globals| {
                         tool_proxy.switch_override_tool(None, globals)
                     })
                     .unwrap_or_else(Task::none)
-                    .map(MainViewMessage::ToolFunctionMessage);
-                Task::batch([window_task, tool_task])
+                    .map(MainViewMessage::ToolFunctionMessage)
             }
 
-            MainViewMessage::KeyboardEvent(_window, event) => {
+            MainViewMessage::KeyboardEvent(event) => {
                 let keyboard_state = globals.global_mut::<KeyboardState>();
                 let old_modifier_count = keyboard_state.modifiers().bits().count_ones();
 
@@ -511,25 +466,6 @@ impl WindowView for MainView {
                     _ => Task::none(),
                 }
             }
-            MainViewMessage::PointerEvent(window, event) => {
-                match event {
-                    pointer::Event::PointerMoved { position, .. } => {
-                        return self
-                            .dock_manager
-                            .on_cursor_moved(window, position)
-                            .map(MainViewMessage::Dock);
-                    }
-                    pointer::Event::PointerReleased { .. } if event.is_primary_release() => {
-                        return self
-                            .dock_manager
-                            .on_float_window_drag_end()
-                            .map(MainViewMessage::Dock);
-                    }
-                    _ => {}
-                }
-
-                Task::none()
-            }
             MainViewMessage::CanvasCreated(e) => {
                 log::info!("Canvas created: {}", e.id);
 
@@ -563,7 +499,7 @@ impl WindowView for MainView {
                         tool_proxy.switch_tool(PanTool::id(), globals)
                     })
                     .unwrap_or_else(Task::none);
-                let dock = CanvasDock::new(e.id, self.dock_manager.main_window().id);
+                let dock = CanvasDock::new(e.id, self.dock_manager.main_window());
                 let id = <CanvasDock as Dock>::id(&dock);
                 self.dock_manager.register_dock(dock);
 
@@ -572,11 +508,7 @@ impl WindowView for MainView {
                         .open_dock_in_group(globals, id.clone(), &target)
                 } else {
                     let task = self.dock_manager.open_dock(globals, id.clone());
-                    self.canvas_group_anchor = self
-                        .dock_manager
-                        .dock_state()
-                        .dock_in_group(&id)
-                        .map(|group| *group.id());
+                    self.canvas_group_anchor = self.dock_manager.group_of(&id);
                     task
                 }
                 .map(MainViewMessage::Dock);
@@ -589,8 +521,7 @@ impl WindowView for MainView {
             MainViewMessage::CanvasRemoved(e) => {
                 log::info!("Canvas removed: {}", e.id);
                 let id = DockId::new(construct_canvas_dock_id(e.id).into());
-                self.dock_manager.unregister_dock(&id);
-                Task::none()
+                self.dock_manager.unregister_dock(&id).discard()
             }
             MainViewMessage::TriggerAction(action_id) => {
                 if let Some(action_func) = globals
@@ -630,6 +561,15 @@ impl WindowView for MainView {
             MainViewMessage::MaximizeWindow(id) => window::toggle_maximize(id),
             #[cfg(not(target_os = "android"))]
             MainViewMessage::CloseWindow(id) => window::close(id),
+            MainViewMessage::MenuBar(MenuBarMessage::ToggleDock(id)) => {
+                if self.dock_manager.is_dock_open(&id) {
+                    self.dock_manager.close_dock(&id).discard()
+                } else {
+                    self.dock_manager
+                        .open_dock(globals, id)
+                        .map(MainViewMessage::Dock)
+                }
+            }
             MainViewMessage::MenuBar(MenuBarMessage::SetTheme(theme)) => {
                 globals.global_mut::<ApplicationTheme>().0 = theme;
                 Task::none()
@@ -648,14 +588,16 @@ impl WindowView for MainView {
     }
 
     fn close(self, _globals: &mut Globals) -> Task<()> {
+        Config::<DockLayout>::read_or_init_or_fallback()
+            .update(|config| *config = self.dock_manager.layout_snapshot())
+            .log_err();
         iced::exit()
     }
 
     fn subscription(&self, globals: &Globals) -> Subscription<Self::Message> {
-        let external = listen_with(|event, _status, window| match event {
-            iced::Event::Window(e) => Some(MainViewMessage::WindowEvent(window, e)),
-            iced::Event::Keyboard(e) => Some(MainViewMessage::KeyboardEvent(window, e)),
-            iced::Event::Pointer(e) => Some(MainViewMessage::PointerEvent(window, e)),
+        let external = listen_with(|event, _status, _window| match event {
+            iced::Event::Window(window::Event::Unfocused) => Some(MainViewMessage::WindowUnfocused),
+            iced::Event::Keyboard(event) => Some(MainViewMessage::KeyboardEvent(event)),
             _ => None,
         });
 
@@ -670,15 +612,10 @@ impl WindowView for MainView {
     }
 
     fn windows(&self) -> Arc<[window::Id]> {
-        self.dock_manager
-            .window_infos()
-            .map(|i| i.id)
-            .chain(self.dock_manager.sub_windows())
-            .collect::<Vec<_>>()
-            .into()
+        self.dock_manager.windows().collect::<Vec<_>>().into()
     }
 
     fn root_window(&self) -> Option<window::Id> {
-        Some(self.dock_manager.main_window().id)
+        Some(self.dock_manager.main_window())
     }
 }

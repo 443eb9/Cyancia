@@ -212,15 +212,18 @@ pub fn switch<'a, Message>(
     Switch::new(checked, on_toggle)
 }
 
-pub fn tab_bar<'a, Message>() -> TabBar<'a, Message> {
-    TabBar::new()
+pub fn tab_bar<'a, Message: 'a>(
+    tabs: impl IntoIterator<Item = String>,
+    selected: usize,
+) -> TabBar<'a, Message> {
+    TabBar::tabs(tabs, selected)
 }
 
 pub fn tabbed_view<'a, Message: 'a>(
+    tabs: impl IntoIterator<Item = (String, Element<'a, Message, Theme, Renderer>)>,
     selected: usize,
-    on_select: impl Fn(usize) -> Message + 'a,
 ) -> TabbedView<'a, Message> {
-    TabbedView::new(selected, on_select)
+    TabbedView::tabs(tabs, selected)
 }
 
 pub fn tag<'a, Message>(content: impl text::IntoFragment<'a>) -> Tag<'a, Message> {

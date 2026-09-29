@@ -1,16 +1,28 @@
+use std::time::Instant;
+
+use iced_core::{Point, Size, Vector, window};
 use indexmap::IndexSet;
 use lapiz_utils::wrapper;
 use parse_display::Display;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::dock::DockId;
-
-pub mod tab_row;
+use crate::{dock::DockId, state::DockState};
 
 wrapper! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display)]
     pub DockGroupId : Uuid
+}
+
+#[derive(Debug)]
+pub struct GroupWindowInfo {
+    pub(crate) id: window::Id,
+    pub(crate) raw_id: Option<u64>,
+    pub(crate) position: Point,
+    pub(crate) size: Size,
+    pub(crate) layout: DockState,
+    pub(crate) dragging_cursor_relative: Option<Vector>,
+    pub(crate) last_overlap: Option<(window::Id, Instant, Point)>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -26,14 +38,6 @@ impl DockGroupData {
             id: DockGroupId::new(Uuid::new_v4()),
             docks: IndexSet::from([dock.clone()]),
             active: Some(dock),
-        }
-    }
-
-    pub fn empty() -> Self {
-        Self {
-            id: DockGroupId::new(Uuid::new_v4()),
-            docks: IndexSet::default(),
-            active: None,
         }
     }
 

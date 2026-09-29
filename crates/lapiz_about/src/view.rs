@@ -123,9 +123,14 @@ impl WindowView for AboutView {
             .on_minimize(AboutMessage::Minimize)
             .on_drag(AboutMessage::Drag);
 
-        let tabs = tabbed_view(self.tab.index(), AboutMessage::SelectTab)
-            .tab(t!("about_tab"), self.view_about())
-            .tab(t!("third_party_licenses_tab"), self.view_third_party());
+        let tabs = tabbed_view(
+            [
+                (t!("about_tab"), self.view_about()),
+                (t!("third_party_licenses_tab"), self.view_third_party()),
+            ],
+            self.tab.index(),
+        )
+        .on_select(AboutMessage::SelectTab);
 
         panel(column![titlebar, tabs])
     }

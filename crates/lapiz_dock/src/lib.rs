@@ -1,34 +1,34 @@
 use std::{
     any::Any,
     collections::HashMap,
+    iter,
     time::{Duration, Instant},
 };
 
 use dock::{DockAction, DockId, TabEvent};
 use group::DockGroupData;
-use iced_core::{Element, Point, Size, Theme, Vector, window};
-use iced_futures::Subscription;
+use iced_core::{Element, Length, Point, Size, Theme, Vector, pointer, widget::Void, window};
+use iced_futures::{Subscription, event::listen_with};
 use iced_runtime::Task;
 use lapiz_runtime::{
     Renderer,
     global::{Global, Globals},
 };
-use lapiz_widgets::pane_grid;
+use lapiz_widgets::{column, context_menu, menu, pane_grid, space, stack, tab_bar};
 use state::DockState;
 
 use crate::{
-    dock::{Dock, DockWidget, ErasedDock, FloatingDockWidget},
-    group::DockGroupId,
+    dock::{Dock, ErasedDock, PaneEvent, PaneHintOverlay, WindowHintOverlay},
+    group::{DockGroupId, GroupWindowInfo},
 };
 
 pub mod dock;
 pub mod group;
+pub mod layout;
 pub mod state;
-pub mod style;
 
 const ATTACH_DWELL: Duration = Duration::from_millis(200);
 const MERGE_DISTANCE: f32 = 30.0;
-const _FLOATING_WINDOW_SNAP_DISTANCE: f32 = 10.0;
 
 #[derive(Default)]
 pub struct DockRegistry {
@@ -55,7 +55,6 @@ impl Global for DockRegistry {}
 
 pub struct DockManager {
     main_window: GroupWindowInfo,
-    dock_state: DockState,
     detached: HashMap<window::Id, GroupWindowInfo>,
     docks: HashMap<DockId, Box<dyn ErasedDock>>,
     cursor_pos: Option<(window::Id, Point)>,
@@ -63,18 +62,17 @@ pub struct DockManager {
 }
 
 impl DockManager {
-    pub fn new(main_window: window::Id) -> (Self, Task<DockMessage>) {
+    fn new(main_window: window::Id) -> (Self, Task<DockMessage>) {
         let this = Self {
             main_window: GroupWindowInfo {
                 id: main_window,
                 raw_id: None,
                 position: Point::ORIGIN,
                 size: Size::ZERO,
-                group: DockGroupData::empty(),
+                layout: DockState::default(),
                 dragging_cursor_relative: None,
                 last_overlap: None,
             },
-            dock_state: DockState::default(),
             docks: HashMap::new(),
             detached: HashMap::new(),
             cursor_pos: None,
@@ -91,16 +89,77 @@ impl DockManager {
         self.docks.insert(dock.id(), Box::new(dock));
     }
 
-    pub fn register_dock_boxed(&mut self, dock: Box<dyn ErasedDock>) {
+    pub fn registered_docks(&self) -> impl Iterator<Item = &dyn ErasedDock> + '_ {
+        self.docks.values().map(Box::as_ref)
+    }
+
+    pub fn is_dock_open(&self, id: &DockId) -> bool {
+        self.main_window.layout.dock_in_group(id).is_some()
+            || self
+                .detached
+                .values()
+                .any(|window| window.layout.dock_in_group(id).is_some())
+    }
+
+    fn register_dock_boxed(&mut self, dock: Box<dyn ErasedDock>) {
         self.docks.insert(dock.id(), dock);
     }
 
-    pub fn unregister_dock(&mut self, dock_id: &DockId) {
+    pub fn unregister_dock(&mut self, dock_id: &DockId) -> Task<()> {
+        let task = self.close_dock(dock_id);
         self.docks.remove(dock_id);
+        self.sub_windows.retain(|_, id| id != dock_id);
+        task
+    }
+
+    pub fn close_dock(&mut self, dock_id: &DockId) -> Task<()> {
+        let panes = &mut self.main_window.layout;
+        let empty = panes
+            .panes_state_mut()
+            .map(|state| {
+                state
+                    .iter_mut()
+                    .filter_map(|(pane, group)| {
+                        if group.iter().any(|id| id == dock_id) {
+                            group.remove_dock(dock_id);
+                            group.is_empty().then_some(*pane)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        for pane in empty {
+            panes.close(pane);
+        }
+
+        let mut windows_to_close = Vec::new();
+        self.detached.retain(|id, info| {
+            let Some(group) = info.layout.single_group_mut() else {
+                return true;
+            };
+            group.remove_dock(dock_id);
+            if group.is_empty() {
+                windows_to_close.push(*id);
+                false
+            } else {
+                true
+            }
+        });
+        Task::batch(
+            windows_to_close
+                .into_iter()
+                .map(iced_runtime::window::close),
+        )
     }
 
     pub fn open_dock(&mut self, globals: &mut Globals, dock_id: DockId) -> Task<DockMessage> {
-        self.dock_state.open(dock_id.clone());
+        if !self.docks.contains_key(&dock_id) {
+            log::warn!("Dock not registered: {}", dock_id);
+            return Task::none();
+        }
+        self.main_window.layout.open(dock_id.clone());
 
         self.on_open_task(globals, dock_id)
     }
@@ -111,8 +170,13 @@ impl DockManager {
         dock_id: DockId,
         target: &DockGroupId,
     ) -> Task<DockMessage> {
+        if !self.docks.contains_key(&dock_id) {
+            log::warn!("Dock not registered: {}", dock_id);
+            return Task::none();
+        }
         if self
-            .dock_state
+            .main_window
+            .layout
             .open_in_group(target, dock_id.clone())
             .is_none()
         {
@@ -139,8 +203,13 @@ impl DockManager {
         edge: pane_grid::Edge,
         ratio: f32,
     ) -> Task<DockMessage> {
+        if !self.docks.contains_key(&dock_id) {
+            log::warn!("Dock not registered: {}", dock_id);
+            return Task::none();
+        }
         if self
-            .dock_state
+            .main_window
+            .layout
             .open_split(target, edge, ratio, dock_id.clone())
             .is_none()
         {
@@ -150,15 +219,16 @@ impl DockManager {
         self.on_open_task(globals, dock_id)
     }
 
-    pub fn on_dock_action(
-        &mut self,
-        globals: &mut Globals,
-        action: DockAction,
-    ) -> Task<DockMessage> {
+    fn on_dock_action(&mut self, globals: &mut Globals, action: DockAction) -> Task<DockMessage> {
+        if matches!(action, DockAction::Tab(_, TabEvent::Detach(_)))
+            && self.screen_cursor_pos().is_none()
+        {
+            return Task::none();
+        }
         match action {
-            DockAction::Pane(event) => self.dock_state.update(event),
+            DockAction::Pane(event) => self.main_window.layout.update(event),
             DockAction::Tab(pane, tab_event) => {
-                let Some(pane_state) = self.dock_state.panes_state_mut() else {
+                let Some(pane_state) = self.main_window.layout.panes_state_mut() else {
                     return Task::none();
                 };
 
@@ -172,7 +242,7 @@ impl DockManager {
                         if let Some(group) = pane_state.get_mut(pane) {
                             group.remove_dock(&dock_id);
                             if group.is_empty() {
-                                pane_state.close(pane);
+                                self.main_window.layout.close(pane);
                             }
                         }
 
@@ -194,7 +264,7 @@ impl DockManager {
                         if let Some(group) = pane_state.get_mut(pane) {
                             group.remove_dock(&dock_id);
                             if group.is_empty() {
-                                pane_state.close(pane);
+                                self.main_window.layout.close(pane);
                             }
 
                             return match self.detach_group(DockGroupData::new(dock_id)) {
@@ -209,9 +279,9 @@ impl DockManager {
                         return self.detach(pane);
                     }
                     TabEvent::CloseGroup => {
-                        let Some((group, _)) = pane_state.close(pane) else {
+                        let Some(group) = self.main_window.layout.close(pane) else {
                             log::error!(
-                                "Failed to close pane, the pane cannot be found or it's the last pane: {:?}",
+                                "Failed to close pane, the pane cannot be found: {:?}",
                                 pane
                             );
                             return Task::none();
@@ -238,42 +308,11 @@ impl DockManager {
         Task::none()
     }
 
-    pub fn on_cursor_moved(&mut self, window: window::Id, pos: Point) -> Task<DockMessage> {
+    fn on_cursor_moved(&mut self, window: window::Id, pos: Point) {
         self.cursor_pos = Some((window, pos));
-
-        // TODO Implement window snapping if possible
-        //      Currently, if we are using manually implemented dragging, it may cause problem
-        //      when the cursor is moving too fast and it goes into inner widget, then the event is
-        //      captured by that widget, and stuck.
-        //      Also, the drop target window won't update and show indicator.
-        //      So although snapping will work if you uncomment the code below and stop the native
-        //      window drag in `TabEvent::TitleBarDrag`, it may cause bad user experience.
-
-        // let Some(cursor_pos) = self.screen_cursor_pos() else {
-        //     return Task::none();
-        // };
-
-        // for window in self.detached.values() {
-        //     let Some(p) = window.dragging_cursor_relative else {
-        //         continue;
-        //     };
-
-        //     let mut pos = cursor_pos - p;
-        //     for another in self.detached.values() {
-        //         if another.id == window.id {
-        //             continue;
-        //         }
-
-        //         pos = snap(pos, window.size, another.position, another.size);
-        //     }
-
-        //     return iced_runtime::window::move_to(window.id, pos);
-        // }
-
-        Task::none()
     }
 
-    pub fn on_float_window_drag_end(&mut self) -> Task<DockMessage> {
+    fn on_float_window_drag_end(&mut self) -> Task<DockMessage> {
         let mut try_attach_or_merge = None;
         for (id, info) in &mut self.detached {
             if info.dragging_cursor_relative.is_none() {
@@ -302,7 +341,7 @@ impl DockManager {
         Task::none()
     }
 
-    pub fn on_window_event(&mut self, id: window::Id, event: window::Event) -> Task<()> {
+    fn on_window_event(&mut self, id: window::Id, event: window::Event) {
         match event {
             window::Event::Opened { position, size, .. } => {
                 if id == self.main_window.id {
@@ -344,33 +383,53 @@ impl DockManager {
             }
             _ => {}
         }
-        Task::none()
     }
 
-    pub fn on_float_action(&mut self, id: window::Id, tab_event: TabEvent) -> Task<DockMessage> {
+    fn on_float_action(
+        &mut self,
+        id: window::Id,
+        tab_event: TabEvent,
+        globals: &mut Globals,
+    ) -> Task<DockMessage> {
+        if matches!(tab_event, TabEvent::Detach(_)) && self.screen_cursor_pos().is_none() {
+            return Task::none();
+        }
         let Some(info) = self.detached.get_mut(&id) else {
+            return Task::none();
+        };
+        let Some(group) = info.layout.single_group_mut() else {
             return Task::none();
         };
 
         match tab_event {
             TabEvent::Select(dock_id) => {
-                info.group.set_active(dock_id);
+                group.set_active(dock_id);
             }
             TabEvent::Close(dock_id) => {
-                info.group.remove_dock(&dock_id);
-                if info.group.is_empty() {
+                group.remove_dock(&dock_id);
+                let close_window = if group.is_empty() {
                     self.detached.remove(&id);
-                    return iced_runtime::window::close(id);
-                }
+                    iced_runtime::window::close::<()>(id).discard()
+                } else {
+                    Task::none()
+                };
+                let close_dock = self
+                    .docks
+                    .get_mut(&dock_id)
+                    .map_or_else(Task::none, |dock| {
+                        dock.on_close(globals)
+                            .map(move |m| DockMessage::Dock(dock_id.clone(), m))
+                    });
+                return Task::batch([close_window, close_dock]);
             }
             TabEvent::Reorder { from, to } => {
-                let dock_id = info.group.iter().nth(from);
+                let dock_id = group.iter().nth(from).cloned();
                 if let Some(d) = dock_id {
-                    info.group.reorder(d.clone(), to);
+                    group.reorder(d, to);
                 }
             }
             TabEvent::Detach(dock_id) => {
-                if info.group.len() == 1 {
+                if group.len() == 1 {
                     // Equivalent to dragging the window
                     let Some(cursor_pos) = self.screen_cursor_pos() else {
                         return Task::none();
@@ -383,7 +442,7 @@ impl DockManager {
                     ));
                     return iced_runtime::window::drag(id);
                 } else {
-                    info.group.remove_dock(&dock_id);
+                    group.remove_dock(&dock_id);
                     return match self.detach_group(DockGroupData::new(dock_id)) {
                         Some((_, task)) => task.map(|m| DockMessage::RawWindowGet(m.0, m.1)),
                         None => Task::none(),
@@ -403,63 +462,95 @@ impl DockManager {
                 return iced_runtime::window::drag(id);
             }
             TabEvent::CloseGroup => {
+                let dock_ids = group.iter().cloned().collect::<Vec<_>>();
                 self.detached.remove(&id);
-                return iced_runtime::window::close(id);
+                let tasks = dock_ids.into_iter().filter_map(|dock_id| {
+                    let dock = self.docks.get_mut(&dock_id)?;
+                    Some(
+                        dock.on_close(globals)
+                            .map(move |m| DockMessage::Dock(dock_id.clone(), m)),
+                    )
+                });
+                return Task::batch(tasks).chain(iced_runtime::window::close::<()>(id).discard());
             }
         }
 
         Task::none()
     }
 
-    pub fn attach_to_main(&mut self, id: window::Id) -> Task<()> {
+    fn attach_to_main(&mut self, id: window::Id) -> Task<()> {
         let Some(attach) = self.main_attach_info(id) else {
             return Task::none();
         };
 
-        let Some(info) = self.detached.remove(&id) else {
+        let Some(group) = self
+            .detached
+            .get(&id)
+            .and_then(|info| info.layout.single_group())
+            .cloned()
+        else {
             return Task::none();
         };
-
-        match attach {
-            AttachInfo::Split { pane, result_edge } => {
-                self.dock_state.split(pane, result_edge, info.group);
-            }
+        let attached = match attach {
+            AttachInfo::Split { pane, result_edge } => self
+                .main_window
+                .layout
+                .split(pane, result_edge, group)
+                .is_some(),
             AttachInfo::Merge { pane } => {
-                if let Some(group) = self
-                    .dock_state
+                if let Some(target) = self
+                    .main_window
+                    .layout
                     .panes_state_mut()
                     .and_then(|st| st.get_mut(pane))
                 {
-                    for dock in info.group.iter() {
-                        group.add_dock(dock.clone());
-                    }
+                    target.extend(group);
+                    true
+                } else {
+                    false
                 }
             }
             AttachInfo::Initialize => {
-                self.dock_state.open_group(info.group);
+                self.main_window.layout.open_group(group);
+                true
             }
+        };
+        if !attached {
+            return Task::none();
         }
-
+        self.detached.remove(&id);
         iced_runtime::window::close(id)
     }
 
-    pub fn merge_floating(&mut self, src: window::Id, dst: window::Id) -> Task<()> {
-        let Some(src_info) = self.detached.remove(&src) else {
+    fn merge_floating(&mut self, src: window::Id, dst: window::Id) -> Task<()> {
+        if src == dst {
             return Task::none();
-        };
-        let Some(dst_info) = self.detached.get_mut(&dst) else {
-            return Task::none();
-        };
-
-        for dock in src_info.group.iter() {
-            dst_info.group.add_dock(dock.clone());
         }
-
+        let Some(group) = self
+            .detached
+            .get(&src)
+            .and_then(|info| info.layout.single_group())
+            .cloned()
+        else {
+            return Task::none();
+        };
+        let Some(target) = self
+            .detached
+            .get_mut(&dst)
+            .and_then(|info| info.layout.single_group_mut())
+        else {
+            return Task::none();
+        };
+        target.extend(group);
+        self.detached.remove(&src);
         iced_runtime::window::close(src)
     }
 
     fn detach(&mut self, pane: pane_grid::Pane) -> Task<DockMessage> {
-        let Some(group) = self.dock_state.close(pane) else {
+        if self.screen_cursor_pos().is_none() {
+            return Task::none();
+        }
+        let Some(group) = self.main_window.layout.close(pane) else {
             log::error!(
                 "Failed to detach pane, the pane cannot be found: {:?}",
                 pane
@@ -482,11 +573,21 @@ impl DockManager {
         &mut self,
         group: DockGroupData,
     ) -> Option<(window::Id, Task<(window::Id, u64)>)> {
-        let window_size = Size::new(400.0, 350.0);
+        let position = self.screen_cursor_pos()?;
+        Some(self.open_detached_group(group, position, Size::new(400.0, 350.0), true))
+    }
+
+    fn open_detached_group(
+        &mut self,
+        group: DockGroupData,
+        position: Point,
+        size: Size,
+        dragging: bool,
+    ) -> (window::Id, Task<(window::Id, u64)>) {
         let (window_id, open_task) = iced_runtime::window::open(window::Settings {
             decorations: false,
-            position: window::Position::Specific(self.screen_cursor_pos()?),
-            size: window_size,
+            position: window::Position::Specific(position),
+            size,
             #[cfg(target_os = "windows")]
             platform_specific: window::settings::PlatformSpecific {
                 skip_taskbar: true,
@@ -500,22 +601,22 @@ impl DockManager {
             GroupWindowInfo {
                 id: window_id,
                 raw_id: None,
-                group,
-                position: self.screen_cursor_pos()?,
-                size: window_size,
-                dragging_cursor_relative: Some(Vector::ZERO),
+                layout: DockState::single(group),
+                position,
+                size,
+                dragging_cursor_relative: dragging.then_some(Vector::ZERO),
                 last_overlap: None,
             },
         );
 
-        Some((
+        (
             window_id,
             open_task
                 .then(move |id| iced_runtime::window::raw_id::<()>(id).map(move |raw| (id, raw))),
-        ))
+        )
     }
 
-    pub fn screen_cursor_pos(&self) -> Option<Point> {
+    fn screen_cursor_pos(&self) -> Option<Point> {
         let (window, cursor) = self.cursor_pos?;
 
         if window == self.main_window.id {
@@ -530,7 +631,7 @@ impl DockManager {
         }
     }
 
-    pub fn is_over_main_window(&self, id: window::Id) -> bool {
+    fn is_over_main_window(&self, id: window::Id) -> bool {
         if id == self.main_window.id {
             return true;
         }
@@ -547,27 +648,21 @@ impl DockManager {
         false
     }
 
-    pub fn main_window(&self) -> &GroupWindowInfo {
-        &self.main_window
+    pub fn main_window(&self) -> window::Id {
+        self.main_window.id
     }
 
-    pub fn detached_window(&self, id: window::Id) -> Option<&GroupWindowInfo> {
+    fn detached_window(&self, id: window::Id) -> Option<&GroupWindowInfo> {
         self.detached.get(&id)
     }
 
-    pub fn window_infos(&self) -> impl Iterator<Item = &GroupWindowInfo> {
-        std::iter::once(&self.main_window).chain(self.detached.values())
+    pub fn windows(&self) -> impl Iterator<Item = window::Id> + '_ {
+        iter::once(self.main_window.id)
+            .chain(self.detached.keys().copied())
+            .chain(self.sub_windows())
     }
 
-    pub fn window_info(&self, id: window::Id) -> Option<&GroupWindowInfo> {
-        if id == self.main_window.id {
-            Some(&self.main_window)
-        } else {
-            self.detached.get(&id)
-        }
-    }
-
-    pub fn sub_windows(&self) -> impl Iterator<Item = window::Id> {
+    fn sub_windows(&self) -> impl Iterator<Item = window::Id> {
         self.sub_windows.keys().copied()
     }
 
@@ -579,11 +674,14 @@ impl DockManager {
         task.chain(iced_runtime::window::close(self.main_window.id))
     }
 
-    pub fn dock_state(&self) -> &DockState {
-        &self.dock_state
+    pub fn group_of(&self, dock: &DockId) -> Option<DockGroupId> {
+        self.main_window
+            .layout
+            .dock_in_group(dock)
+            .map(|group| *group.id())
     }
 
-    pub fn main_attach_info(&self, window: window::Id) -> Option<AttachInfo> {
+    fn main_attach_info(&self, window: window::Id) -> Option<AttachInfo> {
         const SPACING: f32 = 2.0;
 
         let info = self.detached.get(&window)?;
@@ -592,7 +690,7 @@ impl DockManager {
             info.position.y + info.size.height / 2.0 - self.main_window.position.y,
         );
 
-        let Some(node) = self.dock_state.panes_state().map(|st| st.layout()) else {
+        let Some(node) = self.main_window.layout.panes_state().map(|st| st.layout()) else {
             let rel_cx = self.main_window.size.width / 2.0;
             let rel_cy = self.main_window.size.height / 2.0;
 
@@ -642,7 +740,7 @@ impl DockManager {
             })
     }
 
-    pub fn floating_merge_info(&self, src_window: window::Id) -> Option<window::Id> {
+    fn floating_merge_info(&self, src_window: window::Id) -> Option<window::Id> {
         let info = self.detached_window(src_window)?;
         let src_center = Point::new(
             info.position.x + info.size.width / 2.0,
@@ -667,7 +765,7 @@ impl DockManager {
         None
     }
 
-    pub fn current_attach_or_merge_info(&self) -> Option<AttachOrMergeInfo> {
+    fn current_attach_or_merge_info(&self) -> Option<AttachOrMergeInfo> {
         let dragging = self
             .detached
             .values()
@@ -688,44 +786,123 @@ impl DockManager {
         globals: &'a Globals,
     ) -> Option<Element<'a, DockMessage, Theme, Renderer>> {
         if window_id == self.main_window.id {
-            let dock_w = DockWidget::new(&self.docks, &self.dock_state, DockMessage::Main).content(
-                move |_, dock_id| {
-                    let dock = self
-                        .docks
-                        .get(&dock_id)
-                        .unwrap_or_else(|| panic!("Dock not found: {}", dock_id));
-                    dock.view(window_id, globals)
-                        .map(move |m| DockMessage::Dock(dock_id.clone(), m))
+            let grid = self.main_window.layout.panes_state().map_or_else(
+                || Element::new(Void),
+                |panes| {
+                    pane_grid::PaneGrid::new(panes, move |pane, group, _| {
+                        let body = group.active().map_or_else(
+                            || Element::new(space()),
+                            |id| {
+                                self.docks[id].view(window_id, globals).map({
+                                    let id = id.clone();
+                                    move |m| DockMessage::Dock(id.clone(), m)
+                                })
+                            },
+                        );
+
+                        let ids = group.iter().cloned().collect::<Vec<_>>();
+                        let selected = group
+                            .active()
+                            .and_then(|id| ids.iter().position(|item| item == id))
+                            .unwrap_or(0);
+                        let select_ids = ids.clone();
+                        let detach_ids = ids.clone();
+
+                        let tabs =
+                            tab_bar(ids.iter().map(|id| self.docks[id].display_name()), selected)
+                                .on_select(move |index| TabEvent::Select(select_ids[index].clone()))
+                                .on_reorder(|from, to| TabEvent::Reorder { from, to })
+                                .on_detach(move |index| TabEvent::Detach(detach_ids[index].clone()))
+                                .on_title_drag(|| TabEvent::TitleBarDrag);
+
+                        let Some(active) = group.active() else {
+                            return pane_grid::Content::new(Element::new(space()));
+                        };
+
+                        let tabs = context_menu(
+                            tabs,
+                            menu()
+                                .item("Close Active", TabEvent::Close(active.clone()))
+                                .item("Close Group", TabEvent::CloseGroup),
+                        );
+                        pane_grid::Content::new(body).title_bar(pane_grid::TitleBar::new(
+                            Element::new(tabs)
+                                .map(move |event| DockMessage::Main(DockAction::Tab(pane, event))),
+                        ))
+                    })
+                    .on_click(|pane| DockMessage::Main(DockAction::Pane(PaneEvent::Clicked(pane))))
+                    .on_resize(5.0, |event| {
+                        DockMessage::Main(DockAction::Pane(PaneEvent::Resized(event)))
+                    })
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .spacing(2.0)
+                    .into()
                 },
             );
 
-            if let Some(AttachOrMergeInfo::Attach(attach)) = self.current_attach_or_merge_info() {
-                Some(dock_w.attach_info(attach).into())
+            if let Some(AttachOrMergeInfo::Attach(attach_info)) =
+                self.current_attach_or_merge_info()
+            {
+                Some(
+                    stack![
+                        grid,
+                        Element::new(PaneHintOverlay {
+                            state: &self.main_window.layout,
+                            attach_info,
+                            spacing: 2.0,
+                        })
+                    ]
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into(),
+                )
             } else {
-                Some(dock_w.into())
+                Some(grid)
             }
         } else if let Some(info) = self.detached_window(window_id) {
-            Some(
-                FloatingDockWidget::new(&self.docks, &info.group, move |action| {
-                    DockMessage::Float {
+            let group = info.layout.single_group()?;
+            let ids = group.iter().cloned().collect::<Vec<_>>();
+            let selected = group
+                .active()
+                .and_then(|id| ids.iter().position(|item| item == id))
+                .unwrap_or(0);
+            let select_ids = ids.clone();
+            let detach_ids = ids.clone();
+
+            let tabs = tab_bar(ids.iter().map(|id| self.docks[id].display_name()), selected)
+                .on_select(move |index| TabEvent::Select(select_ids[index].clone()))
+                .on_reorder(|from, to| TabEvent::Reorder { from, to })
+                .on_detach(move |index| TabEvent::Detach(detach_ids[index].clone()))
+                .on_title_drag(|| TabEvent::TitleBarDrag);
+            let active = group.active()?;
+            let tabs = context_menu(
+                tabs,
+                menu()
+                    .item("Close Active", TabEvent::Close(active.clone()))
+                    .item("Close Group", TabEvent::CloseGroup),
+            );
+            let body = self.docks[active].view(window_id, globals).map({
+                let active = active.clone();
+                move |m| DockMessage::Dock(active.clone(), m)
+            });
+            let content = Element::from(
+                column![
+                    Element::new(tabs).map(move |action| DockMessage::Float {
                         id: window_id,
                         action,
-                    }
-                })
-                .content(move |dock_id| {
-                    let dock = self
-                        .docks
-                        .get(&dock_id)
-                        .unwrap_or_else(|| panic!("Dock not found: {}", dock_id));
-                    dock.view(window_id, globals)
-                        .map(move |m| DockMessage::Dock(dock_id.clone(), m))
-                })
-                .is_merging(match self.current_attach_or_merge_info() {
-                    Some(AttachOrMergeInfo::Merge { dst }) => dst == window_id,
-                    _ => false,
-                })
-                .into(),
-            )
+                    }),
+                    body
+                ]
+                .width(Length::Fill)
+                .height(Length::Fill),
+            );
+            if matches!(self.current_attach_or_merge_info(), Some(AttachOrMergeInfo::Merge { dst }) if dst == window_id)
+            {
+                Some(stack![Element::new(WindowHintOverlay), content].into())
+            } else {
+                Some(content)
+            }
         } else if let Some(dock_id) = self.sub_windows.get(&window_id)
             && let Some(dock) = self.docks.get(dock_id)
         {
@@ -741,7 +918,7 @@ impl DockManager {
     pub fn update(&mut self, action: DockMessage, globals: &mut Globals) -> Task<DockMessage> {
         let task = match action {
             DockMessage::Main(dock_action) => self.on_dock_action(globals, dock_action),
-            DockMessage::Float { id, action } => self.on_float_action(id, action),
+            DockMessage::Float { id, action } => self.on_float_action(id, action, globals),
             DockMessage::Dock(dock_id, msg) => {
                 if let Some(dock) = self.docks.get_mut(&dock_id) {
                     dock.update(msg, globals)
@@ -753,16 +930,19 @@ impl DockManager {
             DockMessage::RawWindowGet(id, raw_id) => {
                 if id == self.main_window.id {
                     self.main_window.raw_id = Some(raw_id);
+                    for info in self.detached.values() {
+                        if let Some(detached_raw_id) = info.raw_id {
+                            lapiz_runtime::platform::set_window_parent(raw_id, detached_raw_id);
+                        }
+                    }
                     Task::none()
                 } else if let Some(info) = self.detached.get_mut(&id) {
                     info.raw_id = Some(raw_id);
                     lapiz_runtime::platform::disable_window_snap(raw_id);
 
-                    let Some(main_raw_id) = self.main_window.raw_id else {
-                        log::error!("Main window raw ID is not available. This should not happen.");
-                        return Task::none();
-                    };
-                    lapiz_runtime::platform::set_window_parent(main_raw_id, raw_id);
+                    if let Some(main_raw_id) = self.main_window.raw_id {
+                        lapiz_runtime::platform::set_window_parent(main_raw_id, raw_id);
+                    }
 
                     if info.dragging_cursor_relative.is_some() {
                         iced_runtime::window::drag(id)
@@ -773,7 +953,16 @@ impl DockManager {
                     Task::none()
                 }
             }
-            DockMessage::RedrawRequested => Task::none(),
+            DockMessage::WindowEvent(id, event) => {
+                self.on_window_event(id, event);
+                return Task::none();
+            }
+            DockMessage::CursorMoved(id, position) => {
+                self.on_cursor_moved(id, position);
+                return Task::none();
+            }
+            DockMessage::PointerReleased => return self.on_float_window_drag_end(),
+            DockMessage::RedrawRequested => return Task::none(),
         };
 
         self.sub_windows.clear();
@@ -787,11 +976,24 @@ impl DockManager {
     }
 
     pub fn subscription(&self, globals: &Globals) -> Subscription<DockMessage> {
-        Subscription::batch(self.docks.iter().map(|(id, dock)| {
-            dock.subscription(globals)
-                .with(id.clone())
-                .map(|(dock, message)| DockMessage::Dock(dock, message))
-        }))
+        let events = listen_with(|event, _status, window| match event {
+            iced_core::Event::Window(event) => Some(DockMessage::WindowEvent(window, event)),
+            iced_core::Event::Pointer(pointer::Event::PointerMoved { position, .. }) => {
+                Some(DockMessage::CursorMoved(window, position))
+            }
+            iced_core::Event::Pointer(event) if event.is_primary_release() => {
+                Some(DockMessage::PointerReleased)
+            }
+            _ => None,
+        });
+
+        Subscription::batch(
+            iter::once(events).chain(self.docks.iter().map(|(id, dock)| {
+                dock.subscription(globals)
+                    .with(id.clone())
+                    .map(|(dock, message)| DockMessage::Dock(dock, message))
+            })),
+        )
     }
 }
 
@@ -802,54 +1004,14 @@ fn overlaps(pos_a: Point, size_a: Size, pos_b: Point, size_b: Size) -> bool {
         && pos_a.y + size_a.height > pos_b.y
 }
 
-fn _snap(pos_a: Point, size_a: Size, pos_b: Point, size_b: Size) -> Point {
-    let mut result = pos_a;
-
-    // snap left to left
-    if (pos_a.x - pos_b.x).abs() < _FLOATING_WINDOW_SNAP_DISTANCE {
-        result.x = pos_b.x;
-    }
-    // snap left to right
-    else if (pos_a.x - (pos_b.x + size_b.width)).abs() < _FLOATING_WINDOW_SNAP_DISTANCE {
-        result.x = pos_b.x + size_b.width;
-    }
-
-    // snap right to right
-    if (pos_a.x + size_a.width - (pos_b.x + size_b.width)).abs() < _FLOATING_WINDOW_SNAP_DISTANCE {
-        result.x = pos_b.x + size_b.width - size_a.width;
-    }
-    // snap right to left
-    else if (pos_a.x + size_a.width - pos_b.x).abs() < _FLOATING_WINDOW_SNAP_DISTANCE {
-        result.x = pos_b.x - size_a.width;
-    }
-
-    // snap top to top
-    if (pos_a.y - pos_b.y).abs() < _FLOATING_WINDOW_SNAP_DISTANCE {
-        result.y = pos_b.y;
-    }
-    // snap top to bottom
-    else if (pos_a.y - (pos_b.y + size_b.height)).abs() < _FLOATING_WINDOW_SNAP_DISTANCE {
-        result.y = pos_b.y + size_b.height;
-    }
-
-    // snap bottom to bottom
-    if (pos_a.y + size_a.height - (pos_b.y + size_b.height)).abs() < _FLOATING_WINDOW_SNAP_DISTANCE
-    {
-        result.y = pos_b.y + size_b.height - size_a.height;
-    }
-    // snap bottom to top
-    else if (pos_a.y + size_a.height - pos_b.y).abs() < _FLOATING_WINDOW_SNAP_DISTANCE {
-        result.y = pos_b.y - size_a.height;
-    }
-
-    result
-}
-
 pub enum DockMessage {
     Main(DockAction),
     Float { id: window::Id, action: TabEvent },
     Dock(DockId, Box<dyn Any + Send>),
     RawWindowGet(window::Id, u64),
+    WindowEvent(window::Id, window::Event),
+    CursorMoved(window::Id, Point),
+    PointerReleased,
     RedrawRequested,
 }
 
@@ -868,30 +1030,26 @@ impl std::fmt::Debug for DockMessage {
                 .field("id", id)
                 .field("raw_id", raw_id)
                 .finish(),
+            Self::WindowEvent(id, event) => {
+                f.debug_tuple("WindowEvent").field(id).field(event).finish()
+            }
+            Self::CursorMoved(id, point) => {
+                f.debug_tuple("CursorMoved").field(id).field(point).finish()
+            }
+            Self::PointerReleased => f.debug_tuple("PointerReleased").finish(),
             Self::RedrawRequested => f.debug_tuple("RedrawRequested").finish(),
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct GroupWindowInfo {
-    pub id: window::Id,
-    pub raw_id: Option<u64>,
-    pub position: Point,
-    pub size: Size,
-    pub group: DockGroupData,
-    pub dragging_cursor_relative: Option<Vector>,
-    pub last_overlap: Option<(window::Id, std::time::Instant, Point)>,
-}
-
-#[derive(Debug, Clone)]
-pub enum AttachOrMergeInfo {
+enum AttachOrMergeInfo {
     Attach(AttachInfo),
     Merge { dst: window::Id },
 }
 
 #[derive(Debug, Clone)]
-pub enum AttachInfo {
+pub(crate) enum AttachInfo {
     Split {
         pane: pane_grid::Pane,
         result_edge: pane_grid::Edge,
