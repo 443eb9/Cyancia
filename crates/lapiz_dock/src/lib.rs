@@ -19,7 +19,7 @@ use state::DockState;
 
 use crate::{
     dock::{Dock, ErasedDock, PaneEvent, PaneHintOverlay, WindowHintOverlay},
-    group::DockGroupId,
+    group::{DockGroupId, GroupWindowInfo},
 };
 
 pub mod dock;
@@ -100,7 +100,7 @@ impl DockManager {
     }
 
     pub fn close_dock(&mut self, dock_id: &DockId) -> Task<()> {
-        let panes = self.main_window.panes_mut();
+        let panes = &mut self.main_window.layout;
         let empty = panes
             .panes_state_mut()
             .map(|state| {
@@ -146,7 +146,7 @@ impl DockManager {
             log::warn!("Dock not registered: {}", dock_id);
             return Task::none();
         }
-        self.main_window.panes_mut().open(dock_id.clone());
+        self.main_window.layout.open(dock_id.clone());
 
         self.on_open_task(globals, dock_id)
     }
@@ -163,7 +163,7 @@ impl DockManager {
         }
         if self
             .main_window
-            .panes_mut()
+            .layout
             .open_in_group(target, dock_id.clone())
             .is_none()
         {
@@ -196,7 +196,7 @@ impl DockManager {
         }
         if self
             .main_window
-            .panes_mut()
+            .layout
             .open_split(target, edge, ratio, dock_id.clone())
             .is_none()
         {
@@ -213,9 +213,9 @@ impl DockManager {
             return Task::none();
         }
         match action {
-            DockAction::Pane(event) => self.main_window.panes_mut().update(event),
+            DockAction::Pane(event) => self.main_window.layout.update(event),
             DockAction::Tab(pane, tab_event) => {
-                let Some(pane_state) = self.main_window.panes_mut().panes_state_mut() else {
+                let Some(pane_state) = self.main_window.layout.panes_state_mut() else {
                     return Task::none();
                 };
 
@@ -229,7 +229,7 @@ impl DockManager {
                         if let Some(group) = pane_state.get_mut(pane) {
                             group.remove_dock(&dock_id);
                             if group.is_empty() {
-                                self.main_window.panes_mut().close(pane);
+                                self.main_window.layout.close(pane);
                             }
                         }
 
@@ -251,7 +251,7 @@ impl DockManager {
                         if let Some(group) = pane_state.get_mut(pane) {
                             group.remove_dock(&dock_id);
                             if group.is_empty() {
-                                self.main_window.panes_mut().close(pane);
+                                self.main_window.layout.close(pane);
                             }
 
                             return match self.detach_group(DockGroupData::new(dock_id)) {
@@ -266,7 +266,7 @@ impl DockManager {
                         return self.detach(pane);
                     }
                     TabEvent::CloseGroup => {
-                        let Some(group) = self.main_window.panes_mut().close(pane) else {
+                        let Some(group) = self.main_window.layout.close(pane) else {
                             log::error!(
                                 "Failed to close pane, the pane cannot be found: {:?}",
                                 pane
@@ -481,13 +481,13 @@ impl DockManager {
         let attached = match attach {
             AttachInfo::Split { pane, result_edge } => self
                 .main_window
-                .panes_mut()
+                .layout
                 .split(pane, result_edge, group)
                 .is_some(),
             AttachInfo::Merge { pane } => {
                 if let Some(target) = self
                     .main_window
-                    .panes_mut()
+                    .layout
                     .panes_state_mut()
                     .and_then(|st| st.get_mut(pane))
                 {
@@ -498,7 +498,7 @@ impl DockManager {
                 }
             }
             AttachInfo::Initialize => {
-                self.main_window.panes_mut().open_group(group);
+                self.main_window.layout.open_group(group);
                 true
             }
         };
@@ -537,7 +537,7 @@ impl DockManager {
         if self.screen_cursor_pos().is_none() {
             return Task::none();
         }
-        let Some(group) = self.main_window.panes_mut().close(pane) else {
+        let Some(group) = self.main_window.layout.close(pane) else {
             log::error!(
                 "Failed to detach pane, the pane cannot be found: {:?}",
                 pane
@@ -654,7 +654,7 @@ impl DockManager {
 
     pub fn group_of(&self, dock: &DockId) -> Option<DockGroupId> {
         self.main_window
-            .panes()
+            .layout
             .dock_in_group(dock)
             .map(|group| *group.id())
     }
@@ -668,7 +668,7 @@ impl DockManager {
             info.position.y + info.size.height / 2.0 - self.main_window.position.y,
         );
 
-        let Some(node) = self.main_window.panes().panes_state().map(|st| st.layout()) else {
+        let Some(node) = self.main_window.layout.panes_state().map(|st| st.layout()) else {
             let rel_cx = self.main_window.size.width / 2.0;
             let rel_cy = self.main_window.size.height / 2.0;
 
@@ -764,7 +764,7 @@ impl DockManager {
         globals: &'a Globals,
     ) -> Option<Element<'a, DockMessage, Theme, Renderer>> {
         if window_id == self.main_window.id {
-            let grid = self.main_window.panes().panes_state().map_or_else(
+            let grid = self.main_window.layout.panes_state().map_or_else(
                 || Element::new(Void),
                 |panes| {
                     pane_grid::PaneGrid::new(panes, move |pane, group, _| {
@@ -826,7 +826,7 @@ impl DockManager {
                     stack![
                         grid,
                         Element::new(PaneHintOverlay {
-                            state: self.main_window.panes(),
+                            state: &self.main_window.layout,
                             attach_info,
                             spacing: 2.0,
                         })
@@ -956,9 +956,7 @@ impl DockManager {
             iced_core::Event::Pointer(pointer::Event::PointerMoved { position, .. }) => {
                 Some(DockMessage::CursorMoved(window, position))
             }
-            iced_core::Event::Pointer(event @ pointer::Event::PointerReleased { .. })
-                if event.is_primary_release() =>
-            {
+            iced_core::Event::Pointer(event) if event.is_primary_release() => {
                 Some(DockMessage::PointerReleased)
             }
             _ => None,
@@ -1016,27 +1014,6 @@ impl std::fmt::Debug for DockMessage {
             Self::PointerReleased => f.debug_tuple("PointerReleased").finish(),
             Self::RedrawRequested => f.debug_tuple("RedrawRequested").finish(),
         }
-    }
-}
-
-#[derive(Debug)]
-struct GroupWindowInfo {
-    id: window::Id,
-    raw_id: Option<u64>,
-    position: Point,
-    size: Size,
-    layout: DockState,
-    dragging_cursor_relative: Option<Vector>,
-    last_overlap: Option<(window::Id, Instant, Point)>,
-}
-
-impl GroupWindowInfo {
-    fn panes(&self) -> &DockState {
-        &self.layout
-    }
-
-    fn panes_mut(&mut self) -> &mut DockState {
-        &mut self.layout
     }
 }
 
