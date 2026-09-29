@@ -95,6 +95,7 @@ pub enum MainViewMessage {
 #[derive(Clone)]
 pub enum MenuBarMessage {
     TriggerAction(ActionId),
+    ToggleDock(DockId),
     SetTheme(Theme),
     SetLanguage(LanguageIdentifier),
 }
@@ -180,6 +181,30 @@ impl MainView {
                             menu.item(*name, message)
                         }
                     });
+        }
+
+        if let Some(window) = menu_bar.get_menu_mut(&window_title)
+            && let Some(Item::Submenu { submenu, .. }) =
+                window.get_item_mut(&t!("menu_dock_submenu"))
+        {
+            let mut docks = self.dock_manager.registered_docks().collect::<Vec<_>>();
+            docks.sort_by(|dock_a, dock_b| {
+                let name_a = dock_a.display_name();
+                let name_b = dock_b.display_name();
+                name_a.cmp(&name_b)
+            });
+            let dock_menu = docks
+                .into_iter()
+                .fold(menu().min_width(220.0), |menu, dock| {
+                    let id = dock.id();
+                    let name = dock.display_name();
+                    if self.dock_manager.is_dock_open(&id) {
+                        menu.selected_item(name, MenuBarMessage::ToggleDock(id))
+                    } else {
+                        menu.item(name, MenuBarMessage::ToggleDock(id))
+                    }
+                });
+            *submenu = dock_menu;
         }
 
         menu_bar
@@ -536,6 +561,15 @@ impl WindowView for MainView {
             MainViewMessage::MaximizeWindow(id) => window::toggle_maximize(id),
             #[cfg(not(target_os = "android"))]
             MainViewMessage::CloseWindow(id) => window::close(id),
+            MainViewMessage::MenuBar(MenuBarMessage::ToggleDock(id)) => {
+                if self.dock_manager.is_dock_open(&id) {
+                    self.dock_manager.close_dock(&id).discard()
+                } else {
+                    self.dock_manager
+                        .open_dock(globals, id)
+                        .map(MainViewMessage::Dock)
+                }
+            }
             MainViewMessage::MenuBar(MenuBarMessage::SetTheme(theme)) => {
                 globals.global_mut::<ApplicationTheme>().0 = theme;
                 Task::none()

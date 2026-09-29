@@ -89,6 +89,18 @@ impl DockManager {
         self.docks.insert(dock.id(), Box::new(dock));
     }
 
+    pub fn registered_docks(&self) -> impl Iterator<Item = &dyn ErasedDock> + '_ {
+        self.docks.values().map(Box::as_ref)
+    }
+
+    pub fn is_dock_open(&self, id: &DockId) -> bool {
+        self.main_window.layout.dock_in_group(id).is_some()
+            || self
+                .detached
+                .values()
+                .any(|window| window.layout.dock_in_group(id).is_some())
+    }
+
     fn register_dock_boxed(&mut self, dock: Box<dyn ErasedDock>) {
         self.docks.insert(dock.id(), dock);
     }

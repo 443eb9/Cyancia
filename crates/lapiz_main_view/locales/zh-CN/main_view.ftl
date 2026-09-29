@@ -26,6 +26,7 @@ open_about_action = 关于
 generate_report_action = 生成报告
 debug_manual_panic_action = 调试手动崩溃（真的会崩溃！）
 
+menu_dock_submenu = 停靠面板
 menu_theme_submenu = 主题
 menu_language_submenu = 语言
 default_layer_name = 图层

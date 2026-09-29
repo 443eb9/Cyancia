@@ -49,6 +49,12 @@ items = [
     "toggle_filter_panel_action",
     "Separator",
     {
+        title = "menu_dock_submenu",
+        items = [
+            # Injected in runtime
+        ]
+    },
+    {
         title = "menu_theme_submenu",
         items = [
             # Injected in runtime
