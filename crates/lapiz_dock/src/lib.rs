@@ -24,7 +24,8 @@ use crate::{
 
 pub mod dock;
 pub mod group;
-mod state;
+pub mod layout;
+pub mod state;
 
 const ATTACH_DWELL: Duration = Duration::from_millis(200);
 const MERGE_DISTANCE: f32 = 30.0;
@@ -561,11 +562,20 @@ impl DockManager {
         group: DockGroupData,
     ) -> Option<(window::Id, Task<(window::Id, u64)>)> {
         let position = self.screen_cursor_pos()?;
-        let window_size = Size::new(400.0, 350.0);
+        Some(self.open_detached_group(group, position, Size::new(400.0, 350.0), true))
+    }
+
+    fn open_detached_group(
+        &mut self,
+        group: DockGroupData,
+        position: Point,
+        size: Size,
+        dragging: bool,
+    ) -> (window::Id, Task<(window::Id, u64)>) {
         let (window_id, open_task) = iced_runtime::window::open(window::Settings {
             decorations: false,
             position: window::Position::Specific(position),
-            size: window_size,
+            size,
             #[cfg(target_os = "windows")]
             platform_specific: window::settings::PlatformSpecific {
                 skip_taskbar: true,
@@ -581,17 +591,17 @@ impl DockManager {
                 raw_id: None,
                 layout: DockState::single(group),
                 position,
-                size: window_size,
-                dragging_cursor_relative: Some(Vector::ZERO),
+                size,
+                dragging_cursor_relative: dragging.then_some(Vector::ZERO),
                 last_overlap: None,
             },
         );
 
-        Some((
+        (
             window_id,
             open_task
                 .then(move |id| iced_runtime::window::raw_id::<()>(id).map(move |raw| (id, raw))),
-        ))
+        )
     }
 
     fn screen_cursor_pos(&self) -> Option<Point> {
@@ -908,16 +918,19 @@ impl DockManager {
             DockMessage::RawWindowGet(id, raw_id) => {
                 if id == self.main_window.id {
                     self.main_window.raw_id = Some(raw_id);
+                    for info in self.detached.values() {
+                        if let Some(detached_raw_id) = info.raw_id {
+                            lapiz_runtime::platform::set_window_parent(raw_id, detached_raw_id);
+                        }
+                    }
                     Task::none()
                 } else if let Some(info) = self.detached.get_mut(&id) {
                     info.raw_id = Some(raw_id);
                     lapiz_runtime::platform::disable_window_snap(raw_id);
 
-                    let Some(main_raw_id) = self.main_window.raw_id else {
-                        log::error!("Main window raw ID is not available. This should not happen.");
-                        return Task::none();
-                    };
-                    lapiz_runtime::platform::set_window_parent(main_raw_id, raw_id);
+                    if let Some(main_raw_id) = self.main_window.raw_id {
+                        lapiz_runtime::platform::set_window_parent(main_raw_id, raw_id);
+                    }
 
                     if info.dragging_cursor_relative.is_some() {
                         iced_runtime::window::drag(id)

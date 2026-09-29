@@ -11,7 +11,7 @@ use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_utils::wrapper;
 use lapiz_widgets::pane_grid;
 use parse_display::Display;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{AttachInfo, DockState};
 
@@ -112,7 +112,7 @@ impl<T: Dock> ErasedDock for T {
 }
 
 wrapper! {
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, Display, Serialize)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Display, Deserialize, Serialize)]
     #[display("{0}")]
     pub DockId : Arc<str>
 }

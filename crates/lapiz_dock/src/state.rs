@@ -21,6 +21,13 @@ impl Default for DockState {
 }
 
 impl DockState {
+    pub fn from_configuration(config: pane_grid::Configuration<DockGroupData>) -> Self {
+        Self {
+            panes: Some(pane_grid::State::with_configuration(config)),
+            allow_splits: true,
+        }
+    }
+
     pub fn single(group: DockGroupData) -> Self {
         Self {
             panes: Some(pane_grid::State::new(group).0),
@@ -75,6 +82,7 @@ impl DockState {
         if !self.allow_splits {
             return None;
         }
+
         let panes = self.panes.as_mut()?;
         let target_pane = panes
             .iter()
@@ -114,6 +122,7 @@ impl DockState {
         if !self.allow_splits {
             return None;
         }
+
         let panes = self.panes.as_mut()?;
         let (new_pane, _) = panes.split(
             match result_edge {

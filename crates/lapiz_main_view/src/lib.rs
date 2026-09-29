@@ -28,6 +28,7 @@ use lapiz_dock::{
     DockManager, DockMessage, DockRegistry,
     dock::{Dock, DockId},
     group::DockGroupId,
+    layout::DockLayout,
 };
 use lapiz_i18n::{config::LanguageConfig, t};
 use lapiz_image::{
@@ -259,51 +260,61 @@ impl WindowView for MainView {
         let dock_registry = globals.remove_global::<DockRegistry>();
         let (mut dock_manager, dock_manager_task) = dock_registry.build(main_window);
 
-        let task_tool_options = dock_manager.open_dock(globals, TOOL_OPTIONS_DOCK_ID.clone());
-        let tool_options = dock_manager.group_of(&TOOL_OPTIONS_DOCK_ID).unwrap();
-        let task_landing_page =
-            dock_manager.open_dock_in_group(globals, RECENT_FILES_DOCK_ID.clone(), &tool_options);
-        let task_tool_box = dock_manager.open_dock_split(
-            globals,
-            TOOL_BOX_DOCK_ID.clone(),
-            &tool_options,
-            pane_grid::Edge::Left,
-            0.06,
-        );
-        let task_color_selector = dock_manager.open_dock_split(
-            globals,
-            COLOR_SELECTOR_DOCK_ID.clone(),
-            &tool_options,
-            pane_grid::Edge::Right,
-            0.76,
-        );
-        let color_selector = dock_manager.group_of(&COLOR_SELECTOR_DOCK_ID).unwrap();
-        let task_brush_presets = dock_manager.open_dock_split(
-            globals,
-            BRUSH_PRESETS_DOCK_ID.clone(),
-            &color_selector,
-            pane_grid::Edge::Bottom,
-            0.34,
-        );
-        let brush_preset = dock_manager.group_of(&BRUSH_PRESETS_DOCK_ID).unwrap();
+        let saved_layout = Config::<DockLayout>::read_or_init_or_fallback();
+        let dock_tasks = if let Some(task) =
+            dock_manager.restore_layout(&saved_layout.get(), globals)
+        {
+            task
+        } else {
+            let task_tool_options = dock_manager.open_dock(globals, TOOL_OPTIONS_DOCK_ID.clone());
+            let tool_options = dock_manager.group_of(&TOOL_OPTIONS_DOCK_ID).unwrap();
+            let task_landing_page = dock_manager.open_dock_in_group(
+                globals,
+                RECENT_FILES_DOCK_ID.clone(),
+                &tool_options,
+            );
+            let task_tool_box = dock_manager.open_dock_split(
+                globals,
+                TOOL_BOX_DOCK_ID.clone(),
+                &tool_options,
+                pane_grid::Edge::Left,
+                0.06,
+            );
+            let task_color_selector = dock_manager.open_dock_split(
+                globals,
+                COLOR_SELECTOR_DOCK_ID.clone(),
+                &tool_options,
+                pane_grid::Edge::Right,
+                0.76,
+            );
+            let color_selector = dock_manager.group_of(&COLOR_SELECTOR_DOCK_ID).unwrap();
+            let task_brush_presets = dock_manager.open_dock_split(
+                globals,
+                BRUSH_PRESETS_DOCK_ID.clone(),
+                &color_selector,
+                pane_grid::Edge::Bottom,
+                0.34,
+            );
+            let brush_preset = dock_manager.group_of(&BRUSH_PRESETS_DOCK_ID).unwrap();
 
-        let task_layer = dock_manager.open_dock_split(
-            globals,
-            LAYER_DOCK_ID.clone(),
-            &brush_preset,
-            pane_grid::Edge::Bottom,
-            0.5,
-        );
+            let task_layer = dock_manager.open_dock_split(
+                globals,
+                LAYER_DOCK_ID.clone(),
+                &brush_preset,
+                pane_grid::Edge::Bottom,
+                0.5,
+            );
 
-        let dock_tasks = Task::batch([
-            task_tool_options,
-            task_landing_page,
-            task_tool_box,
-            task_brush_presets,
-            task_layer,
-            task_color_selector,
-        ])
-        .map(MainViewMessage::Dock);
+            Task::batch([
+                task_tool_options,
+                task_landing_page,
+                task_tool_box,
+                task_brush_presets,
+                task_layer,
+                task_color_selector,
+            ])
+        };
+        let dock_tasks = dock_tasks.map(MainViewMessage::Dock);
 
         Ok((
             Self {
@@ -601,6 +612,9 @@ impl WindowView for MainView {
     }
 
     fn close(self, _globals: &mut Globals) -> Task<()> {
+        Config::<DockLayout>::read_or_init_or_fallback()
+            .update(|config| *config = self.dock_manager.layout_snapshot())
+            .log_err();
         iced::exit()
     }
 
