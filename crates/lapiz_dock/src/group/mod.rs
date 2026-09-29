@@ -6,8 +6,6 @@ use uuid::Uuid;
 
 use crate::dock::DockId;
 
-pub mod tab_row;
-
 wrapper! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display)]
     pub DockGroupId : Uuid
@@ -26,14 +24,6 @@ impl DockGroupData {
             id: DockGroupId::new(Uuid::new_v4()),
             docks: IndexSet::from([dock.clone()]),
             active: Some(dock),
-        }
-    }
-
-    pub fn empty() -> Self {
-        Self {
-            id: DockGroupId::new(Uuid::new_v4()),
-            docks: IndexSet::default(),
-            active: None,
         }
     }
 

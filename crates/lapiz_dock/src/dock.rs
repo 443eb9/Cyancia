@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashMap, sync::Arc};
+use std::{any::Any, sync::Arc};
 
 use iced_core::{
     Element, Layout, Length, Rectangle, Renderer as _, Size, Theme, layout, pointer::mouse,
@@ -9,14 +9,11 @@ use iced_runtime::Task;
 use lapiz_i18n::t;
 use lapiz_runtime::{Renderer, global::Globals};
 use lapiz_utils::wrapper;
-use lapiz_widgets::{column, context_menu, menu, pane_grid, space, stack};
+use lapiz_widgets::pane_grid;
 use parse_display::Display;
 use serde::Serialize;
 
-use crate::{
-    AttachInfo, DockState,
-    group::{DockGroupData, tab_row::TabRowWidget},
-};
+use crate::{AttachInfo, DockState};
 
 pub trait Dock: 'static {
     type Message: Send + 'static;
@@ -142,205 +139,6 @@ pub enum TabEvent {
     TitleBarDrag,
 }
 
-type DockContentView<'a, Message> =
-    Box<dyn Fn(pane_grid::Pane, DockId) -> Element<'a, Message, Theme, Renderer> + 'a>;
-
-type FloatContentView<'a, Message> =
-    Box<dyn Fn(DockId) -> Element<'a, Message, Theme, Renderer> + 'a>;
-
-pub struct DockWidget<'a, Message> {
-    docks: &'a HashMap<DockId, Box<dyn ErasedDock>>,
-    state: &'a DockState,
-    content: Option<DockContentView<'a, Message>>,
-    on_action: Box<dyn Fn(DockAction) -> Message + 'a>,
-    spacing: f32,
-    attach_info: Option<AttachInfo>,
-}
-
-impl<'a, Message> DockWidget<'a, Message> {
-    pub fn new(
-        docks: &'a HashMap<DockId, Box<dyn ErasedDock>>,
-        state: &'a DockState,
-        on_action: impl Fn(DockAction) -> Message + 'a,
-    ) -> Self {
-        Self {
-            docks,
-            state,
-            content: None,
-            on_action: Box::new(on_action),
-            spacing: 2.0,
-            attach_info: None,
-        }
-    }
-
-    pub fn content(
-        mut self,
-        f: impl Fn(pane_grid::Pane, DockId) -> Element<'a, Message, Theme, Renderer> + 'a,
-    ) -> Self {
-        self.content = Some(Box::new(f));
-        self
-    }
-
-    pub fn spacing(mut self, s: f32) -> Self {
-        self.spacing = s;
-        self
-    }
-
-    pub fn attach_info(mut self, split_info: AttachInfo) -> Self {
-        self.attach_info = Some(split_info);
-        self
-    }
-}
-
-impl<'a, Message: 'a> From<DockWidget<'a, Message>> for Element<'a, Message, Theme, Renderer> {
-    fn from(w: DockWidget<'a, Message>) -> Self {
-        use std::rc::Rc;
-
-        let DockWidget {
-            docks,
-            state,
-            content,
-            on_action,
-            spacing,
-            attach_info: drag_hint,
-        } = w;
-
-        let on_action = Rc::<dyn Fn(DockAction) -> Message>::from(on_action);
-        let a_click = Rc::clone(&on_action);
-        let a_resize = Rc::clone(&on_action);
-        let a_titlebar = Rc::clone(&on_action);
-
-        let grid = if let Some(panes_state) = state.panes_state().as_ref() {
-            pane_grid::PaneGrid::new(panes_state, move |pane, group_data, _maximized| {
-                let body = group_data
-                    .active()
-                    .and_then(|id| content.as_ref().map(|c| c(pane, id.clone())))
-                    .unwrap_or_else(|| Element::new(space()));
-
-                let tabs = TabRowWidget::new(group_data, std::convert::identity, move |id| {
-                    docks.get(id).unwrap().display_name()
-                })
-                .title_drag_deadband(10.0);
-
-                let Some(active) = group_data.active() else {
-                    return space().into();
-                };
-                let ctx_menu = context_menu(
-                    Element::new(tabs),
-                    menu()
-                        .item("Close Active", TabEvent::Close(active.clone()))
-                        .item("Close Group", TabEvent::CloseGroup),
-                );
-                let a_titlebar = Rc::clone(&a_titlebar);
-                pane_grid::Content::new(body).title_bar(pane_grid::TitleBar::new(
-                    Element::new(ctx_menu)
-                        .map(move |msg| (a_titlebar.as_ref())(DockAction::Tab(pane, msg))),
-                ))
-            })
-            .on_click(move |p| (a_click.as_ref())(DockAction::Pane(PaneEvent::Clicked(p))))
-            .on_resize(5.0, move |e| {
-                (a_resize.as_ref())(DockAction::Pane(PaneEvent::Resized(e)))
-            })
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .spacing(spacing)
-            .into()
-        } else {
-            space().into()
-        };
-
-        if let Some(split_info) = drag_hint {
-            let overlay = PaneHintOverlay {
-                state,
-                attach_info: split_info,
-                spacing,
-            };
-            stack![grid, Element::new(overlay)]
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into()
-        } else {
-            grid
-        }
-    }
-}
-
-pub struct FloatingDockWidget<'a, Message> {
-    docks: &'a HashMap<DockId, Box<dyn ErasedDock>>,
-    group_data: &'a DockGroupData,
-    content: Option<FloatContentView<'a, Message>>,
-    on_action: Box<dyn Fn(TabEvent) -> Message + 'a>,
-    is_attaching: bool,
-}
-
-impl<'a, Message> FloatingDockWidget<'a, Message> {
-    pub fn new(
-        docks: &'a HashMap<DockId, Box<dyn ErasedDock>>,
-        group_data: &'a DockGroupData,
-        on_action: impl Fn(TabEvent) -> Message + 'a,
-    ) -> Self {
-        Self {
-            docks,
-            group_data,
-            content: None,
-            on_action: Box::new(on_action),
-            is_attaching: false,
-        }
-    }
-
-    pub fn content(
-        mut self,
-        f: impl Fn(DockId) -> Element<'a, Message, Theme, Renderer> + 'a,
-    ) -> Self {
-        self.content = Some(Box::new(f));
-        self
-    }
-
-    pub fn is_merging(mut self, attaching: bool) -> Self {
-        self.is_attaching = attaching;
-        self
-    }
-}
-
-impl<'a, Message: 'a> From<FloatingDockWidget<'a, Message>>
-    for Element<'a, Message, Theme, Renderer>
-{
-    fn from(w: FloatingDockWidget<'a, Message>) -> Self {
-        use std::rc::Rc;
-
-        let FloatingDockWidget {
-            docks,
-            group_data,
-            content,
-            on_action,
-            is_attaching,
-        } = w;
-
-        let on_action = Rc::from(on_action) as Rc<dyn Fn(TabEvent) -> Message + 'a>;
-
-        let tab_row = TabRowWidget::new(
-            group_data,
-            move |event| (on_action.as_ref())(event),
-            move |id| docks.get(id).unwrap().display_name(),
-        );
-
-        let body = group_data
-            .active()
-            .and_then(|id| content.map(|c| c(id.clone())))
-            .unwrap_or_else(|| Element::new(space()));
-
-        let content = column![Element::from(tab_row), body]
-            .width(Length::Fill)
-            .height(Length::Fill);
-
-        if is_attaching {
-            stack![Element::new(WindowHintOverlay), content].into()
-        } else {
-            content.into()
-        }
-    }
-}
-
 const ATTACH_HINT_COLOR: iced_core::Color = iced_core::Color {
     r: 0.15,
     g: 0.55,
@@ -348,12 +146,10 @@ const ATTACH_HINT_COLOR: iced_core::Color = iced_core::Color {
     a: 0.35,
 };
 
-/// Transparent overlay widget drawn on top of `DockWidget` to show where a
-/// floating window would re-attach (the pane half closest to the hint cursor).
-struct PaneHintOverlay<'a> {
-    state: &'a DockState,
-    attach_info: AttachInfo,
-    spacing: f32,
+pub(crate) struct PaneHintOverlay<'a> {
+    pub state: &'a DockState,
+    pub attach_info: AttachInfo,
+    pub spacing: f32,
 }
 
 impl<Message> iced_core::Widget<Message, Theme, Renderer> for PaneHintOverlay<'_> {
@@ -396,25 +192,25 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for PaneHintOverlay<'_
                 };
 
                 match result_edge {
-                    pane_grid::Edge::Left => iced_core::Rectangle {
+                    pane_grid::Edge::Left => Rectangle {
                         x: bounds.x + region.x,
                         y: bounds.y + region.y,
                         width: region.width / 2.0,
                         height: region.height,
                     },
-                    pane_grid::Edge::Right => iced_core::Rectangle {
+                    pane_grid::Edge::Right => Rectangle {
                         x: bounds.x + region.x + region.width / 2.0,
                         y: bounds.y + region.y,
                         width: region.width / 2.0,
                         height: region.height,
                     },
-                    pane_grid::Edge::Top => iced_core::Rectangle {
+                    pane_grid::Edge::Top => Rectangle {
                         x: bounds.x + region.x,
                         y: bounds.y + region.y,
                         width: region.width,
                         height: region.height / 2.0,
                     },
-                    pane_grid::Edge::Bottom => iced_core::Rectangle {
+                    pane_grid::Edge::Bottom => Rectangle {
                         x: bounds.x + region.x,
                         y: bounds.y + region.y + region.height / 2.0,
                         width: region.width,
@@ -426,15 +222,13 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for PaneHintOverlay<'_
                 let Some(pane_states) = self.state.panes_state() else {
                     return;
                 };
-
                 let regions = pane_states
                     .layout()
                     .pane_regions(self.spacing, 0.0, bounds.size());
                 let Some(region) = regions.get(&pane) else {
                     return;
                 };
-
-                iced_core::Rectangle {
+                Rectangle {
                     x: bounds.x + region.x,
                     y: bounds.y + region.y,
                     width: region.width,
@@ -445,16 +239,16 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for PaneHintOverlay<'_
         };
 
         renderer.fill_quad(
-            iced_core::renderer::Quad {
+            renderer::Quad {
                 bounds: highlight,
-                ..iced_core::renderer::Quad::default()
+                ..Default::default()
             },
             iced_core::Background::Color(ATTACH_HINT_COLOR),
         );
     }
 }
 
-struct WindowHintOverlay;
+pub(crate) struct WindowHintOverlay;
 
 impl<Message> iced_core::Widget<Message, Theme, Renderer> for WindowHintOverlay {
     fn size(&self) -> Size<Length> {
@@ -481,7 +275,7 @@ impl<Message> iced_core::Widget<Message, Theme, Renderer> for WindowHintOverlay 
         _viewport: &Rectangle,
     ) {
         renderer.fill_quad(
-            iced_core::renderer::Quad {
+            renderer::Quad {
                 bounds: layout.bounds(),
                 ..Default::default()
             },

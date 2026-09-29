@@ -320,17 +320,17 @@ impl BrushEditor {
         ))
         .map(BrushEditorMessage::Effect);
 
-        let slots = BrushEffectSlot::ALL
-            .into_iter()
-            .fold(tab_bar(), |tabs, slot| {
-                tabs.push(
-                    label(slot.label()),
-                    slot == self.active_slot,
-                    BrushEditorMessage::SelectEffectSlot(slot),
-                )
-            });
+        let selected_slot = BrushEffectSlot::ALL
+            .iter()
+            .position(|slot| *slot == self.active_slot)
+            .unwrap();
+        let slots = tab_bar(
+            BrushEffectSlot::ALL.into_iter().map(BrushEffectSlot::label),
+            selected_slot,
+        )
+        .on_select(|index| BrushEditorMessage::SelectEffectSlot(BrushEffectSlot::ALL[index]));
 
-        column![naming, effect_editor, slots.width(Length::Fill)]
+        column![naming, effect_editor, slots]
             .gap(6.0)
             .height(Length::Fill)
             .into()

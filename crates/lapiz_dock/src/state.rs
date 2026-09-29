@@ -5,12 +5,45 @@ use crate::{
     group::{DockGroupData, DockGroupId},
 };
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct DockState {
     panes: Option<pane_grid::State<DockGroupData>>,
+    allow_splits: bool,
+}
+
+impl Default for DockState {
+    fn default() -> Self {
+        Self {
+            panes: None,
+            allow_splits: true,
+        }
+    }
 }
 
 impl DockState {
+    pub fn single(group: DockGroupData) -> Self {
+        Self {
+            panes: Some(pane_grid::State::new(group).0),
+            allow_splits: false,
+        }
+    }
+
+    pub fn single_group(&self) -> Option<&DockGroupData> {
+        let panes = self.panes.as_ref()?;
+        if panes.len() != 1 {
+            return None;
+        }
+        panes.iter().next().map(|(_, group)| group)
+    }
+
+    pub fn single_group_mut(&mut self) -> Option<&mut DockGroupData> {
+        let panes = self.panes.as_mut()?;
+        if panes.len() != 1 {
+            return None;
+        }
+        panes.iter_mut().next().map(|(_, group)| group)
+    }
+
     pub fn open(&mut self, dock: DockId) -> pane_grid::Pane {
         if let Some(state) = self.panes.as_mut() {
             let (pane, group) = state.iter_mut().next().unwrap();
@@ -39,6 +72,9 @@ impl DockState {
         ratio: f32,
         dock: DockId,
     ) -> Option<pane_grid::Pane> {
+        if !self.allow_splits {
+            return None;
+        }
         let panes = self.panes.as_mut()?;
         let target_pane = panes
             .iter()
@@ -75,6 +111,9 @@ impl DockState {
         result_edge: pane_grid::Edge,
         new_group: DockGroupData,
     ) -> Option<pane_grid::Pane> {
+        if !self.allow_splits {
+            return None;
+        }
         let panes = self.panes.as_mut()?;
         let (new_pane, _) = panes.split(
             match result_edge {
@@ -108,14 +147,6 @@ impl DockState {
         } else {
             None
         }
-    }
-
-    pub fn len(&self) -> usize {
-        self.panes.as_ref().map(|panes| panes.len()).unwrap_or(0)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.panes.is_none()
     }
 
     pub fn update(&mut self, action: PaneEvent) {
