@@ -22,7 +22,10 @@ use lapiz_runtime::{
 };
 use lapiz_shader_graph::{
     GraphElement,
-    editor::parameters::{ParametersEditor, ParametersEditorMessage},
+    editor::{
+        GraphEditor,
+        parameters::{ParametersEditor, ParametersEditorMessage},
+    },
     graph::{Graph, slot::ErasedGraphValueType},
     wgsl_std::types::{handle::LayerType, primitive::F32Type},
 };
@@ -314,11 +317,29 @@ impl BrushEditor {
         .gap(6.0)
         .height(Length::Shrink);
 
-        let effect_editor = GraphElement::from(EffectEditorView::new(
-            effect(&selected.instance, self.active_slot),
-            self.editor_states.get(self.active_slot),
-        ))
-        .map(BrushEditorMessage::Effect);
+        let effect_editor = match self.active_slot {
+            BrushEffectSlot::Spacing => {
+                let state = &self.editor_states.spacing;
+                let instance = selected.instance.spacing_effect();
+                let (pass_id, pass) = (
+                    instance.single_pass_id().unwrap(),
+                    instance.single_pass().unwrap(),
+                );
+
+                GraphElement::from(GraphEditor::new(
+                    &pass.graph,
+                    &state.graph_editor_states[&pass_id],
+                ))
+                .map(|message| BrushEditorMessage::Effect(EffectEditorMessage::Graph(message)))
+            }
+            BrushEffectSlot::Main | BrushEffectSlot::Postprocess => {
+                GraphElement::from(EffectEditorView::new(
+                    effect(&selected.instance, self.active_slot),
+                    self.editor_states.get(self.active_slot),
+                ))
+                .map(BrushEditorMessage::Effect)
+            }
+        };
 
         let selected_slot = BrushEffectSlot::ALL
             .iter()
@@ -361,17 +382,28 @@ impl BrushEditor {
         let Some(handle) = self.brushes.get(index).cloned() else {
             return Task::none();
         };
-        let instance = match BrushPresetInstance::from_asset(&handle, globals.assets().clone()) {
+        let mut instance = match BrushPresetInstance::from_asset(&handle, globals.assets().clone())
+        {
             Ok(instance) => instance,
             Err(error) => {
                 log::error!("Failed to load brush preset: {error:#}");
                 return Task::none();
             }
         };
+
+        let mut editor_states = BrushEffectEditorStates::new(globals.assets());
+
+        if let Some(spacing_pass) = instance.spacing_effect().single_pass_id() {
+            editor_states.spacing.update(
+                instance.spacing_effect_mut(),
+                EffectEditorMessage::OpenPass(spacing_pass),
+            );
+        }
+
         self.selected_index = Some(index);
         self.name_buffer = instance.metadata().name.clone();
         self.selected = Some(SelectedBrush { handle, instance });
-        self.editor_states = BrushEffectEditorStates::new(globals.assets());
+        self.editor_states = editor_states;
         self.active_slot = BrushEffectSlot::Main;
         self.dirty = false;
         Task::none()

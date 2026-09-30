@@ -146,6 +146,30 @@ impl EffectInstance {
         })
     }
 
+    pub fn single_pass_id(&self) -> Option<EffectPassId> {
+        if self.passes.len() == 1 {
+            Some(*self.passes.keys().next().unwrap())
+        } else {
+            None
+        }
+    }
+
+    pub fn single_pass(&self) -> Option<&EffectPass> {
+        if self.passes.len() == 1 {
+            Some(self.passes.values().next().unwrap())
+        } else {
+            None
+        }
+    }
+
+    pub fn single_pass_mut(&mut self) -> Option<&mut EffectPass> {
+        if self.passes.len() == 1 {
+            Some(self.passes.values_mut().next().unwrap())
+        } else {
+            None
+        }
+    }
+
     pub fn sync_pass_graph_effect_properties(&mut self) -> Result<()> {
         let effect_input_types = self
             .inputs
