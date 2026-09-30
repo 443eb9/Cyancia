@@ -1,5 +1,5 @@
 use std::{
-    any::Any,
+    any::{Any, type_name, type_name_of_val},
     collections::{HashMap, hash_map::Entry},
     hash::Hash,
     sync::Arc,
@@ -8,7 +8,7 @@ use std::{
 use anyhow::{Result, bail};
 use iced_core::{Element, Theme, window};
 use iced_runtime::{Task, futures::Subscription};
-use lapiz_utils::{log_err::LogErr, wrapper};
+use lapiz_utils::{log_err::LogErr as _, wrapper};
 use parse_display::Display;
 
 use crate::global::{Global, Globals};
@@ -173,8 +173,8 @@ where
                         Err(params) => {
                             anyhow::bail!(
                                 "Invalid params for view: Expected {}, found {}",
-                                std::any::type_name::<T::BootParams>(),
-                                std::any::type_name_of_val(params.as_ref())
+                                type_name::<T::BootParams>(),
+                                type_name_of_val(params.as_ref())
                             );
                         }
                     }

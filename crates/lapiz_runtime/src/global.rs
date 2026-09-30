@@ -1,5 +1,5 @@
 use std::{
-    any::{Any, TypeId},
+    any::{Any, TypeId, type_name},
     collections::HashMap,
 };
 
@@ -24,12 +24,12 @@ impl Globals {
     pub fn global<T: Global>(&self) -> &T {
         self.globals
             .get(&TypeId::of::<T>())
-            .unwrap_or_else(|| panic!("Global of type {} not found", std::any::type_name::<T>()))
+            .unwrap_or_else(|| panic!("Global of type {} not found", type_name::<T>()))
             .downcast_ref()
             .unwrap_or_else(|| {
                 panic!(
                     "Global of type {} has wrong type. This should not happen.",
-                    std::any::type_name::<T>()
+                    type_name::<T>()
                 )
             })
     }
@@ -37,12 +37,12 @@ impl Globals {
     pub fn global_mut<T: Global>(&mut self) -> &mut T {
         self.globals
             .get_mut(&TypeId::of::<T>())
-            .unwrap_or_else(|| panic!("Global of type {} not found", std::any::type_name::<T>()))
+            .unwrap_or_else(|| panic!("Global of type {} not found", type_name::<T>()))
             .downcast_mut()
             .unwrap_or_else(|| {
                 panic!(
                     "Global of type {} has wrong type. This should not happen.",
-                    std::any::type_name::<T>()
+                    type_name::<T>()
                 )
             })
     }
@@ -67,14 +67,14 @@ impl Globals {
         let s = self
             .globals
             .remove(&TypeId::of::<T>())
-            .unwrap_or_else(|| panic!("Global of type {} not found", std::any::type_name::<T>()));
+            .unwrap_or_else(|| panic!("Global of type {} not found", type_name::<T>()));
 
         match s.downcast() {
             Ok(s) => *s,
             Err(_) => {
                 panic!(
                     "Global of type {} has wrong type. This should not happen.",
-                    std::any::type_name::<T>()
+                    type_name::<T>()
                 )
             }
         }
@@ -88,7 +88,7 @@ impl Globals {
             Err(_) => {
                 panic!(
                     "Global of type {} has wrong type. This should not happen.",
-                    std::any::type_name::<T>()
+                    type_name::<T>()
                 )
             }
         }

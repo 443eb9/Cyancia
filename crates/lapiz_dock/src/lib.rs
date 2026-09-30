@@ -1,7 +1,7 @@
 use std::{
     any::Any,
     collections::HashMap,
-    iter,
+    fmt, iter,
     time::{Duration, Instant},
 };
 
@@ -9,10 +9,14 @@ use dock::{DockAction, DockId, TabEvent};
 use group::DockGroupData;
 use iced_core::{Element, Length, Point, Size, Theme, Vector, pointer, widget::Void, window};
 use iced_futures::{Subscription, event::listen_with};
-use iced_runtime::Task;
+use iced_runtime::{
+    Task,
+    window::{close, drag, open, raw_id},
+};
 use lapiz_runtime::{
     Renderer,
     global::{Global, Globals},
+    platform,
 };
 use lapiz_widgets::{column, context_menu, menu, pane_grid, space, stack, tab_bar};
 use state::DockState;
@@ -79,8 +83,8 @@ impl DockManager {
             sub_windows: HashMap::new(),
         };
 
-        let task = iced_runtime::window::raw_id::<()>(main_window)
-            .map(move |raw| DockMessage::RawWindowGet(main_window, raw));
+        let task =
+            raw_id::<()>(main_window).map(move |raw| DockMessage::RawWindowGet(main_window, raw));
 
         (this, task)
     }
@@ -147,11 +151,7 @@ impl DockManager {
                 true
             }
         });
-        Task::batch(
-            windows_to_close
-                .into_iter()
-                .map(iced_runtime::window::close),
-        )
+        Task::batch(windows_to_close.into_iter().map(close))
     }
 
     pub fn open_dock(&mut self, globals: &mut Globals, dock_id: DockId) -> Task<DockMessage> {
@@ -409,7 +409,7 @@ impl DockManager {
                 group.remove_dock(&dock_id);
                 let close_window = if group.is_empty() {
                     self.detached.remove(&id);
-                    iced_runtime::window::close::<()>(id).discard()
+                    close::<()>(id).discard()
                 } else {
                     Task::none()
                 };
@@ -440,7 +440,7 @@ impl DockManager {
                         cursor_pos.x - info.position.x,
                         cursor_pos.y - info.position.y,
                     ));
-                    return iced_runtime::window::drag(id);
+                    return drag(id);
                 } else {
                     group.remove_dock(&dock_id);
                     return match self.detach_group(DockGroupData::new(dock_id)) {
@@ -459,7 +459,7 @@ impl DockManager {
                     cursor_pos.x - info.position.x,
                     cursor_pos.y - info.position.y,
                 ));
-                return iced_runtime::window::drag(id);
+                return drag(id);
             }
             TabEvent::CloseGroup => {
                 let dock_ids = group.iter().cloned().collect::<Vec<_>>();
@@ -471,7 +471,7 @@ impl DockManager {
                             .map(move |m| DockMessage::Dock(dock_id.clone(), m)),
                     )
                 });
-                return Task::batch(tasks).chain(iced_runtime::window::close::<()>(id).discard());
+                return Task::batch(tasks).chain(close::<()>(id).discard());
             }
         }
 
@@ -519,7 +519,7 @@ impl DockManager {
             return Task::none();
         }
         self.detached.remove(&id);
-        iced_runtime::window::close(id)
+        close(id)
     }
 
     fn merge_floating(&mut self, src: window::Id, dst: window::Id) -> Task<()> {
@@ -543,7 +543,7 @@ impl DockManager {
         };
         target.extend(group);
         self.detached.remove(&src);
-        iced_runtime::window::close(src)
+        close(src)
     }
 
     fn detach(&mut self, pane: pane_grid::Pane) -> Task<DockMessage> {
@@ -584,7 +584,7 @@ impl DockManager {
         size: Size,
         dragging: bool,
     ) -> (window::Id, Task<(window::Id, u64)>) {
-        let (window_id, open_task) = iced_runtime::window::open(window::Settings {
+        let (window_id, open_task) = open(window::Settings {
             decorations: false,
             position: window::Position::Specific(position),
             size,
@@ -611,8 +611,7 @@ impl DockManager {
 
         (
             window_id,
-            open_task
-                .then(move |id| iced_runtime::window::raw_id::<()>(id).map(move |raw| (id, raw))),
+            open_task.then(move |id| raw_id::<()>(id).map(move |raw| (id, raw))),
         )
     }
 
@@ -669,9 +668,9 @@ impl DockManager {
     pub fn close(self) -> Task<()> {
         let mut task = Task::none();
         for id in self.detached.keys() {
-            task = task.chain(iced_runtime::window::close(*id));
+            task = task.chain(close(*id));
         }
-        task.chain(iced_runtime::window::close(self.main_window.id))
+        task.chain(close(self.main_window.id))
     }
 
     pub fn group_of(&self, dock: &DockId) -> Option<DockGroupId> {
@@ -932,20 +931,20 @@ impl DockManager {
                     self.main_window.raw_id = Some(raw_id);
                     for info in self.detached.values() {
                         if let Some(detached_raw_id) = info.raw_id {
-                            lapiz_runtime::platform::set_window_parent(raw_id, detached_raw_id);
+                            platform::set_window_parent(raw_id, detached_raw_id);
                         }
                     }
                     Task::none()
                 } else if let Some(info) = self.detached.get_mut(&id) {
                     info.raw_id = Some(raw_id);
-                    lapiz_runtime::platform::disable_window_snap(raw_id);
+                    platform::disable_window_snap(raw_id);
 
                     if let Some(main_raw_id) = self.main_window.raw_id {
-                        lapiz_runtime::platform::set_window_parent(main_raw_id, raw_id);
+                        platform::set_window_parent(main_raw_id, raw_id);
                     }
 
                     if info.dragging_cursor_relative.is_some() {
-                        iced_runtime::window::drag(id)
+                        drag(id)
                     } else {
                         Task::none()
                     }
@@ -1015,8 +1014,8 @@ pub enum DockMessage {
     RedrawRequested,
 }
 
-impl std::fmt::Debug for DockMessage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for DockMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Main(arg0) => f.debug_tuple("Main").field(arg0).finish(),
             Self::Float { id, action } => f

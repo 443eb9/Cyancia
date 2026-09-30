@@ -3,7 +3,7 @@
     reason = "Win32 FFI in this function is sequenced and checked locally"
 )]
 
-use std::ffi::c_void;
+use std::{ffi::c_void, mem::size_of};
 
 use windows::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
@@ -22,14 +22,14 @@ use windows::Win32::{
 };
 
 pub fn get_window_monitor_name(raw_window_id: u64) -> String {
-    let window = HWND(raw_window_id as *mut std::ffi::c_void);
+    let window = HWND(raw_window_id as *mut c_void);
     let monitor = unsafe { MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST) };
     if monitor.is_invalid() {
         return String::new();
     }
 
     let mut info = MONITORINFOEXW::default();
-    info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+    info.monitorInfo.cbSize = size_of::<MONITORINFOEXW>() as u32;
     let succeeded = unsafe { GetMonitorInfoW(monitor, &mut info as *mut _ as *mut _) };
     if !succeeded.as_bool() {
         return String::new();
@@ -45,16 +45,12 @@ pub fn get_window_monitor_name(raw_window_id: u64) -> String {
 
 pub fn set_window_parent(parent: u64, child: u64) {
     unsafe {
-        SetWindowLongPtrW(
-            HWND(child as *mut std::ffi::c_void),
-            GWLP_HWNDPARENT,
-            parent as isize,
-        );
+        SetWindowLongPtrW(HWND(child as *mut c_void), GWLP_HWNDPARENT, parent as isize);
     }
 }
 
 pub fn disable_window_snap(raw_window_id: u64) {
-    let window = HWND(raw_window_id as *mut std::ffi::c_void);
+    let window = HWND(raw_window_id as *mut c_void);
     unsafe {
         let style = GetWindowLongPtrW(window, GWL_STYLE);
         SetWindowLongPtrW(window, GWL_STYLE, style & !(WS_MAXIMIZEBOX.0 as isize));

@@ -19,3 +19,6 @@ serde.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true
 toml.workspace = true
+
+[lints]
+workspace = true

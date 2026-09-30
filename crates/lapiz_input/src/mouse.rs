@@ -1,3 +1,5 @@
+use std::f32::consts::FRAC_2_PI;
+
 use glam::Vec2;
 use iced_core::{
     Point,
@@ -21,7 +23,7 @@ impl PressedMouseState {
             position,
             force: 1.0,
             tilt: Vec2::ZERO,
-            altitude: std::f32::consts::FRAC_2_PI,
+            altitude: FRAC_2_PI,
             azimuth: 0.0,
             twist: 0.0,
             tangential_force: 0.0,
@@ -87,7 +89,7 @@ impl HoverMouseState {
         Self {
             position,
             tilt: Vec2::default(),
-            altitude: std::f32::consts::FRAC_2_PI,
+            altitude: FRAC_2_PI,
             azimuth: 0.0,
             twist: 0.0,
         }

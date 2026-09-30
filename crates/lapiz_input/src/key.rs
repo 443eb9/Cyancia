@@ -1,6 +1,8 @@
+use std::fmt;
+
 use iced_core::keyboard::{Modifiers, key};
 use lapiz_runtime::global::Global;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de};
 use smallvec::SmallVec;
 
 #[derive(Debug, Default, Clone)]
@@ -89,7 +91,7 @@ impl<'de> Deserialize<'de> for KeySequence {
         D: serde::Deserializer<'de>,
     {
         let string = String::deserialize(deserializer)?;
-        Self::parse(&string).map_err(serde::de::Error::custom)
+        Self::parse(&string).map_err(de::Error::custom)
     }
 }
 
@@ -200,8 +202,8 @@ impl KeySequence {
     }
 }
 
-impl std::fmt::Display for KeySequence {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for KeySequence {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut parts = Vec::new();
         if self.modifiers.contains(Modifiers::CTRL) {
             parts.push("Ctrl");
