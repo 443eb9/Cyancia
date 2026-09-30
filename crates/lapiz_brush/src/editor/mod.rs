@@ -332,6 +332,7 @@ impl BrushEditor {
 
         column![naming, effect_editor, slots]
             .gap(6.0)
+            .width(Length::Fill)
             .height(Length::Fill)
             .into()
     }
