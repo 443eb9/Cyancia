@@ -1,9 +1,14 @@
-use std::{cell::RefCell, collections::VecDeque};
+use std::{cell::RefCell, collections::VecDeque, mem, time::Duration};
 
-use iced_core::{Element, Length, Widget, window};
+use iced_core::{
+    Element, Length, Widget, layout, pointer::mouse, renderer::Style, widget::Tree, window,
+};
 use iced_futures::{Subscription, backend::native, event::listen_with};
+#[cfg(target_os = "android")]
+use iced_graphics::text::font_system;
 use iced_runtime::{Task, window::raw_id};
 use iced_winit::program::Program;
+use parking_lot::deadlock;
 #[cfg(target_os = "android")]
 use winit::platform::android::activity::AndroidApp;
 
@@ -95,9 +100,7 @@ impl Application {
 
         #[cfg(target_os = "android")]
         {
-            let mut font_system = iced_graphics::text::font_system()
-                .write()
-                .expect("Font system");
+            let mut font_system = font_system().write().expect("Font system");
             let db = font_system.raw().db_mut();
             db.load_fonts_dir("/system/fonts");
             db.set_sans_serif_family("Roboto");
@@ -140,7 +143,7 @@ impl Program for Application {
     }
 
     fn boot(&self) -> (Self::State, Task<Self::Message>) {
-        let mut rt = std::mem::take::<Runtime>(&mut self.runtime.borrow_mut());
+        let mut rt = mem::take::<Runtime>(&mut self.runtime.borrow_mut());
 
         let window_task = rt
             .wm
@@ -148,8 +151,8 @@ impl Program for Application {
             .map(ApplicationMessage::Window);
         let deadlock_detect_task = Task::future(async {
             loop {
-                smol::Timer::after(std::time::Duration::from_secs(5)).await;
-                let deadlocks = parking_lot::deadlock::check_deadlock();
+                smol::Timer::after(Duration::from_secs(5)).await;
+                let deadlocks = deadlock::check_deadlock();
                 for (i_dl, threads) in deadlocks.into_iter().enumerate() {
                     log::error!("#{} Deadlock detected", i_dl);
 
@@ -188,7 +191,7 @@ impl Program for Application {
             }
         };
 
-        let mut cmd = std::mem::take(state.globals.global_mut::<WindowCommandBuffer>());
+        let mut cmd = mem::take(state.globals.global_mut::<WindowCommandBuffer>());
         task = task.chain(cmd.execute(&mut state.wm, &mut state.globals).discard());
 
         task
@@ -207,21 +210,21 @@ impl Program for Application {
 
             fn layout(
                 &mut self,
-                _tree: &mut iced_core::widget::Tree,
+                _tree: &mut Tree,
                 _renderer: &Renderer,
-                limits: &iced_core::layout::Limits,
-            ) -> iced_core::layout::Node {
-                iced_core::layout::atomic(limits, Length::Fill, Length::Fill)
+                limits: &layout::Limits,
+            ) -> layout::Node {
+                layout::atomic(limits, Length::Fill, Length::Fill)
             }
 
             fn draw(
                 &self,
-                _tree: &iced_core::widget::Tree,
+                _tree: &Tree,
                 _renderer: &mut Renderer,
                 _theme: &Theme,
-                _style: &iced_core::renderer::Style,
+                _style: &Style,
                 _layout: iced_core::Layout<'_>,
-                _cursor: iced_core::pointer::mouse::Cursor,
+                _cursor: mouse::Cursor,
                 _viewport: &iced_core::Rectangle,
             ) {
             }

@@ -1,11 +1,16 @@
 use std::sync::{Arc, LazyLock};
 
 use futures::executor::block_on;
-use iced_core::backend;
-use iced_graphics::compositor;
+use iced_core::{backend, image, renderer, svg};
+use iced_graphics::{color, compositor, geometry, mesh};
+use iced_wgpu::{
+    primitive,
+    window::compositor::{Error, Settings, present, present_mode_from_env},
+};
 use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle,
 };
+use wgpu::util::new_instance_with_webgpu_detection;
 
 use crate::global::Global;
 
@@ -49,7 +54,7 @@ impl Global for RenderContext {}
 
 impl RenderContext {
     pub async fn request() -> Self {
-        let instance = wgpu::util::new_instance_with_webgpu_detection(wgpu::InstanceDescriptor {
+        let instance = new_instance_with_webgpu_detection(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::from_env().unwrap_or(wgpu::Backends::PRIMARY),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         })
@@ -135,32 +140,26 @@ impl iced_core::Renderer for Renderer {
     }
 
     #[inline]
-    fn fill_quad(
-        &mut self,
-        quad: iced_core::renderer::Quad,
-        background: impl Into<iced_core::Background>,
-    ) {
+    fn fill_quad(&mut self, quad: renderer::Quad, background: impl Into<iced_core::Background>) {
         self.inner.fill_quad(quad, background);
     }
 
     #[inline]
     fn allocate_image(
         &self,
-        handle: &iced_core::image::Handle,
-        callback: impl FnOnce(Result<iced_core::image::Allocation, iced_core::image::Error>)
-        + Send
-        + 'static,
+        handle: &image::Handle,
+        callback: impl FnOnce(Result<image::Allocation, image::Error>) + Send + 'static,
     ) {
         self.inner.allocate_image(handle, callback);
     }
 
     #[inline]
-    fn hint(&mut self, scale: iced_core::renderer::Scale) {
+    fn hint(&mut self, scale: renderer::Scale) {
         self.inner.hint(scale);
     }
 
     #[inline]
-    fn scale(&self) -> Option<iced_core::renderer::Scale> {
+    fn scale(&self) -> Option<renderer::Scale> {
         self.inner.scale()
     }
 
@@ -170,7 +169,7 @@ impl iced_core::Renderer for Renderer {
     }
 
     #[inline]
-    fn settings(&self) -> iced_core::renderer::Settings {
+    fn settings(&self) -> renderer::Settings {
         self.inner.settings()
     }
 
@@ -180,6 +179,10 @@ impl iced_core::Renderer for Renderer {
     }
 }
 
+#[allow(
+    clippy::absolute_paths,
+    reason = "Both text modules define Renderer, which also names the local renderer type"
+)]
 impl iced_core::text::Renderer for Renderer {
     type Font = <iced_wgpu::Renderer as iced_core::text::Renderer>::Font;
     type Paragraph = <iced_wgpu::Renderer as iced_core::text::Renderer>::Paragraph;
@@ -243,6 +246,10 @@ impl iced_core::text::Renderer for Renderer {
     }
 }
 
+#[allow(
+    clippy::absolute_paths,
+    reason = "Both text modules define Renderer, which also names the local renderer type"
+)]
 impl iced_graphics::text::Renderer for Renderer {
     #[inline]
     fn fill_raw(&mut self, raw: iced_graphics::text::Raw) {
@@ -250,9 +257,9 @@ impl iced_graphics::text::Renderer for Renderer {
     }
 }
 
-impl iced_core::svg::Renderer for Renderer {
+impl svg::Renderer for Renderer {
     #[inline]
-    fn measure_svg(&self, handle: &iced_core::svg::Handle) -> iced_core::Size<u32> {
+    fn measure_svg(&self, handle: &svg::Handle) -> iced_core::Size<u32> {
         self.inner.measure_svg(handle)
     }
 
@@ -267,19 +274,19 @@ impl iced_core::svg::Renderer for Renderer {
     }
 }
 
-impl iced_graphics::mesh::Renderer for Renderer {
+impl mesh::Renderer for Renderer {
     #[inline]
     fn draw_mesh(&mut self, mesh: iced_graphics::Mesh) {
         self.inner.draw_mesh(mesh)
     }
 
     #[inline]
-    fn draw_mesh_cache(&mut self, cache: iced_graphics::mesh::Cache) {
+    fn draw_mesh_cache(&mut self, cache: mesh::Cache) {
         self.inner.draw_mesh_cache(cache)
     }
 }
 
-impl iced_wgpu::primitive::Renderer for Renderer {
+impl primitive::Renderer for Renderer {
     #[inline]
     fn draw_primitive(
         &mut self,
@@ -290,9 +297,9 @@ impl iced_wgpu::primitive::Renderer for Renderer {
     }
 }
 
-impl iced_graphics::geometry::Renderer for Renderer {
-    type Geometry = <iced_wgpu::Renderer as iced_graphics::geometry::Renderer>::Geometry;
-    type Frame = <iced_wgpu::Renderer as iced_graphics::geometry::Renderer>::Frame;
+impl geometry::Renderer for Renderer {
+    type Geometry = <iced_wgpu::Renderer as geometry::Renderer>::Geometry;
+    type Frame = <iced_wgpu::Renderer as geometry::Renderer>::Frame;
 
     #[inline]
     fn new_frame(&self, bounds: iced_core::Rectangle) -> Self::Frame {
@@ -305,11 +312,10 @@ impl iced_graphics::geometry::Renderer for Renderer {
     }
 }
 
-impl iced_core::renderer::Headless for Renderer {
+impl renderer::Headless for Renderer {
     #[inline]
-    async fn new(settings: iced_core::renderer::Settings, backend: Option<&str>) -> Option<Self> {
-        let inner =
-            <iced_wgpu::Renderer as iced_core::renderer::Headless>::new(settings, backend).await?;
+    async fn new(settings: renderer::Settings, backend: Option<&str>) -> Option<Self> {
+        let inner = <iced_wgpu::Renderer as renderer::Headless>::new(settings, backend).await?;
         Some(Self { inner })
     }
 
@@ -325,7 +331,7 @@ impl iced_core::renderer::Headless for Renderer {
         scale_factor: f32,
         background_color: iced_core::Color,
     ) -> Vec<u8> {
-        <iced_wgpu::Renderer as iced_core::renderer::Headless>::screenshot(
+        <iced_wgpu::Renderer as renderer::Headless>::screenshot(
             &mut self.inner,
             size,
             scale_factor,
@@ -334,14 +340,11 @@ impl iced_core::renderer::Headless for Renderer {
     }
 }
 
-impl iced_core::image::Renderer for Renderer {
-    type Handle = iced_core::image::Handle;
+impl image::Renderer for Renderer {
+    type Handle = image::Handle;
 
     #[inline]
-    fn load_image(
-        &self,
-        handle: &Self::Handle,
-    ) -> Result<iced_core::image::Allocation, iced_core::image::Error> {
+    fn load_image(&self, handle: &Self::Handle) -> Result<image::Allocation, image::Error> {
         self.inner.load_image(handle)
     }
 
@@ -368,16 +371,16 @@ pub struct Compositor {
 
     format: wgpu::TextureFormat,
     alpha_mode: wgpu::CompositeAlphaMode,
-    settings: iced_wgpu::window::compositor::Settings,
+    settings: Settings,
 }
 
 impl Compositor {
     pub async fn request(
-        settings: iced_wgpu::window::compositor::Settings,
+        settings: Settings,
         display: impl compositor::Display,
         compatible_window: impl compositor::Window,
         shell: iced_graphics::Shell,
-    ) -> Result<Self, iced_wgpu::window::compositor::Error> {
+    ) -> Result<Self, Error> {
         let render_context = global_render_context();
         let display = Arc::new(display) as Arc<dyn compositor::Display>;
 
@@ -392,7 +395,7 @@ impl Compositor {
                     window: Box::new(compatible_window),
                 },
             )))
-            .map_err(|_| iced_wgpu::window::compositor::Error::IncompatibleSurface)?;
+            .map_err(|_| Error::IncompatibleSurface)?;
 
         let capabilities = compatible_surface.get_capabilities(&render_context.adapter);
         let formats = capabilities.formats.iter().copied();
@@ -408,7 +411,7 @@ impl Compositor {
             format.required_features() == wgpu::Features::empty() && !BLACKLIST.contains(format)
         });
 
-        let format = if iced_graphics::color::GAMMA_CORRECTION {
+        let format = if color::GAMMA_CORRECTION {
             formats.find(wgpu::TextureFormat::is_srgb)
         } else {
             formats.find(|format| !wgpu::TextureFormat::is_srgb(format))
@@ -417,7 +420,7 @@ impl Compositor {
             log::warn!("No preferred surface format found");
             capabilities.formats.first().copied()
         })
-        .ok_or(iced_wgpu::window::compositor::Error::IncompatibleSurface)?;
+        .ok_or(Error::IncompatibleSurface)?;
 
         log::info!("Available alpha modes: {:#?}", capabilities.alpha_modes);
 
@@ -477,20 +480,20 @@ impl iced_graphics::Compositor for Compositor {
             });
         }
 
-        let mut settings = iced_wgpu::window::compositor::Settings::from(settings);
+        let mut settings = Settings::from(settings);
 
         if let Some(backends) = wgpu::Backends::from_env() {
             settings.backends = backends;
         }
 
-        if let Some(present_mode) = iced_wgpu::window::compositor::present_mode_from_env() {
+        if let Some(present_mode) = present_mode_from_env() {
             settings.present_mode = present_mode;
         }
 
         Ok(Self::request(settings, display, compatible_window, shell).await?)
     }
 
-    fn create_renderer(&self, settings: iced_core::renderer::Settings) -> Self::Renderer {
+    fn create_renderer(&self, settings: renderer::Settings) -> Self::Renderer {
         log::info!("Creating Lapiz renderer");
         Renderer {
             inner: iced_wgpu::Renderer::new(self.engine.clone(), settings),
@@ -556,7 +559,7 @@ impl iced_graphics::Compositor for Compositor {
         background_color: iced_core::Color,
         on_pre_present: impl FnOnce(),
     ) -> Result<(), compositor::SurfaceError> {
-        iced_wgpu::window::compositor::present(
+        present(
             &mut renderer.inner,
             surface,
             viewport,
