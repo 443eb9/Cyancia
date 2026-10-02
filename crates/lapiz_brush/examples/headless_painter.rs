@@ -36,8 +36,7 @@ use lapiz_brush::{
     render::{
         graph::CanvasResources,
         stroke_preview::{
-            CACHED_STROKE_PREVIEW_SIZE, create_stroke_image_on_target_with,
-            predefined_curve_samples,
+            CACHED_STROKE_PREVIEW_SIZE, create_stroke_preview_on, predefined_curve_samples,
         },
     },
 };
@@ -125,7 +124,7 @@ async fn paint(args: Args) -> Result<()> {
     let (width, height) = base
         .as_ref()
         .map(RgbaImage::dimensions)
-        .unwrap_or(CACHED_STROKE_PREVIEW_SIZE);
+        .unwrap_or(CACHED_STROKE_PREVIEW_SIZE.into());
     let samples = load_curve(args.input_curve.as_deref(), width, height)?;
     let input_load_ms = start.elapsed().as_secs_f64() * 1_000.0;
 
@@ -141,9 +140,10 @@ async fn paint(args: Args) -> Result<()> {
     let base_upload_ms = start.elapsed().as_secs_f64() * 1_000.0;
 
     let start = Instant::now();
-    let task = create_stroke_image_on_target_with(
+    let task = create_stroke_preview_on(
         &brush,
         &samples,
+        None,
         device,
         queue,
         &CanvasResources {

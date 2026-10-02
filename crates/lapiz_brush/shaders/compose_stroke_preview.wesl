@@ -17,16 +17,6 @@ fn load_result(pixel: vec2i) -> vec4f {
     return vec4f(0.0);
 }
 
-@compute
-@workgroup_size(16, 16, 1)
-fn unscaled(@builtin(global_invocation_id) global_id: vec3u) {
-    if any(global_id.xy >= textureDimensions(output)) {
-        return;
-    }
-
-    textureStore(output, global_id.xy, load_result(result_bounds.xy + vec2i(global_id.xy)));
-}
-
 fn sample_result(pixel: vec2f) -> vec4f {
     let base = vec2i(floor(pixel));
     let fraction = fract(pixel);
@@ -46,14 +36,19 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         return;
     }
 
-    let output_size = vec2f(textureDimensions(output));
-    let bounds_min = vec2f(result_bounds.xy);
-    let bounds_size = vec2f(result_bounds.zw - result_bounds.xy);
-
-    if any(bounds_size == vec2f(0.0)) {
+    if any(result_bounds.zw <= result_bounds.xy) {
         return;
     }
 
+    let bounds_extent = vec2u(result_bounds.zw) - vec2u(result_bounds.xy);
+    if all(textureDimensions(output) == bounds_extent) {
+        textureStore(output, global_id.xy, load_result(result_bounds.xy + vec2i(global_id.xy)));
+        return;
+    }
+
+    let output_size = vec2f(textureDimensions(output));
+    let bounds_min = vec2f(result_bounds.xy);
+    let bounds_size = vec2f(bounds_extent);
     let scale = min(output_size.x / bounds_size.x, output_size.y / bounds_size.y);
     let scaled_bounds_size = bounds_size * scale;
     let scaled_bounds_min = (output_size - scaled_bounds_size) * 0.5;
