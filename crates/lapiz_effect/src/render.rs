@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -972,7 +972,7 @@ fn compile_shader(
     is_eval: bool,
     dependencies: &[&CodegenPkg],
 ) -> Result<String> {
-    let (_, _, graph_shader) = graph
+    let (_, _, graph_shader, extra_shader_body) = graph
         .compile(Vec::new(), GraphVarIdentGenerator::default())
         .context("Effect graph code generation failed")?;
 
@@ -1016,10 +1016,18 @@ fn compile_shader(
     }
 
     let setup = dispatch_setup(dispatch)?;
-    let shader = template
+    let mut shader = template
         .replace("//CODEGEN_FLAG_RESOURCE_HELPERS", &resource_helpers)
         .replace("//CODEGEN_FLAG_COMPILED_GRAPH", &graph_shader)
         .replace("//CODEGEN_FLAG_DISPATCH_SETUP", &setup);
+
+    for body in extra_shader_body
+        .into_iter()
+        .collect::<BTreeMap<_, _>>()
+        .into_values()
+    {
+        body.inject_body(&mut shader);
+    }
 
     let mut deps = vec![&image::PACKAGE, &render::PACKAGE];
     deps.extend_from_slice(dependencies);

@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+};
 
 use iced_core::Length;
 use lapiz_i18n::t;
@@ -6,19 +9,27 @@ use lapiz_shader_graph::{
     GraphElement,
     editor::{GraphEditor, GraphEditorMessage, GraphEditorState},
     graph::{Graph, GraphResources},
+    wgsl_std::types::{
+        atomic::{ArrayAtomicI32Type, ArrayAtomicU32Type},
+        handle::{ArrayType, LayerType},
+    },
 };
 use lapiz_widgets::{
-    button, column, flex::Flex, icon, icon_button, label, panel, row, scrollable, text_input,
+    button, column, combo_box, flex::Flex, icon, icon_button, label, panel, row, scrollable,
+    text_input,
 };
 use uuid::Uuid;
 
 use crate::{
     asset::{EffectPassDispatchStrategy, EffectPassId, EffectPassOutputSlotId},
     instance::{EffectInstance, EffectPass},
-    nodes::{PassInput, PassInputNode, PassOutput, PassOutputNode},
+    nodes::{PassInput, PassInputNode, PassOutput, PassOutputChoiceTarget, PassOutputNode},
 };
 
 pub mod io;
+
+#[cfg(test)]
+mod tests;
 
 pub struct EffectEditorState {
     pub open_pass: Option<EffectPassId>,
@@ -69,6 +80,16 @@ impl EffectEditorState {
                 }
                 resync(instance);
             }
+            EffectEditorMessage::PassDispatchStrategySelected(pass_id, strategy) => {
+                if instance.passes.contains_key(&pass_id)
+                    && dispatch_choices(instance, pass_id)
+                        .iter()
+                        .any(|choice| choice.strategy == strategy)
+                {
+                    instance.passes.get_mut(&pass_id).unwrap().dispatch_strategy = strategy;
+                    resync(instance);
+                }
+            }
             EffectEditorMessage::PassRenameToggled(pass_id) => {
                 self.renaming_pass = if self.renaming_pass == Some(pass_id) {
                     None
@@ -112,6 +133,7 @@ pub enum EffectEditorMessage {
     Graph(GraphEditorMessage),
     Io(io::EffectIoEditorMessage),
     PassRenamed(EffectPassId, String),
+    PassDispatchStrategySelected(EffectPassId, EffectPassDispatchStrategy),
     PassRenameToggled(EffectPassId),
     PassMoveRequested { index: usize, up: bool },
     PassRemoveRequested(EffectPassId),
@@ -256,9 +278,57 @@ fn view_pass_graph<'a>(
     let back = button(row![icon::chevron_left().size(13), label(t!("back_to_passes"))].gap(4.0))
         .transparent()
         .on_press(EffectEditorMessage::BackToPassList);
+    let choices = dispatch_choices(instance, pass_id);
+    let selected_kind = DispatchStrategyKind::of(pass.dispatch_strategy);
+    let kinds = [
+        DispatchStrategyKind::Once,
+        DispatchStrategyKind::EveryBufferElement,
+        DispatchStrategyKind::EveryOutputLayerPixel,
+        DispatchStrategyKind::EveryInputLayerPixel,
+    ]
+    .into_iter()
+    .filter(|kind| {
+        *kind == selected_kind
+            || choices
+                .iter()
+                .any(|choice| DispatchStrategyKind::of(choice.strategy) == *kind)
+    })
+    .collect::<Vec<_>>();
+    let targets = choices
+        .iter()
+        .filter(|choice| DispatchStrategyKind::of(choice.strategy) == selected_kind)
+        .cloned()
+        .collect::<Vec<_>>();
+    let selected_target = targets
+        .iter()
+        .find(|choice| choice.strategy == pass.dispatch_strategy)
+        .cloned();
+    let dispatch_strategy = combo_box(kinds, Some(selected_kind), move |kind| {
+        let strategy = if kind == selected_kind {
+            pass.dispatch_strategy
+        } else {
+            choices
+                .iter()
+                .find(|choice| DispatchStrategyKind::of(choice.strategy) == kind)
+                .expect("available dispatch strategies have a compatible target")
+                .strategy
+        };
+        EffectEditorMessage::PassDispatchStrategySelected(pass_id, strategy)
+    });
+
+    let mut header = row![back, dispatch_strategy].gap(8.0);
+    if selected_kind != DispatchStrategyKind::Once {
+        header = header.push(
+            combo_box(targets, selected_target, move |choice: DispatchChoice| {
+                EffectEditorMessage::PassDispatchStrategySelected(pass_id, choice.strategy)
+            })
+            .placeholder(t!("dispatch_target")),
+        );
+    }
+    header = header.push(label(pass.name.clone()).strong());
 
     column![
-        row![back, label(pass.name.clone()).strong()].gap(8.0),
+        header,
         GraphElement::from(GraphEditor::new(&pass.graph, graph_state))
             .map(EffectEditorMessage::Graph),
     ]
@@ -266,6 +336,106 @@ fn view_pass_graph<'a>(
     .width(Length::Fill)
     .height(Length::Fill)
     .into()
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DispatchStrategyKind {
+    Once,
+    EveryBufferElement,
+    EveryOutputLayerPixel,
+    EveryInputLayerPixel,
+}
+
+impl DispatchStrategyKind {
+    fn of(strategy: EffectPassDispatchStrategy) -> Self {
+        match strategy {
+            EffectPassDispatchStrategy::Once => Self::Once,
+            EffectPassDispatchStrategy::EveryBufferElement(_) => Self::EveryBufferElement,
+            EffectPassDispatchStrategy::EveryOutputLayerPixel(_) => Self::EveryOutputLayerPixel,
+            EffectPassDispatchStrategy::EveryInputLayerPixel(_) => Self::EveryInputLayerPixel,
+        }
+    }
+}
+
+impl fmt::Display for DispatchStrategyKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&match self {
+            Self::Once => t!("dispatch_once"),
+            Self::EveryBufferElement => t!("dispatch_every_buffer_element"),
+            Self::EveryOutputLayerPixel => t!("dispatch_every_output_layer_pixel"),
+            Self::EveryInputLayerPixel => t!("dispatch_every_input_layer_pixel"),
+        })
+    }
+}
+
+#[derive(Clone, PartialEq)]
+struct DispatchChoice {
+    label: String,
+    strategy: EffectPassDispatchStrategy,
+}
+
+impl fmt::Display for DispatchChoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.label)
+    }
+}
+
+fn dispatch_choices(instance: &EffectInstance, pass_id: EffectPassId) -> Vec<DispatchChoice> {
+    let pass = &instance.passes[&pass_id];
+    let mut choices = vec![DispatchChoice {
+        label: t!("dispatch_once"),
+        strategy: EffectPassDispatchStrategy::Once,
+    }];
+
+    for node in pass.graph.iter_nodes() {
+        if let Some(state) = node.data.state::<PassInputNode>() {
+            let (Some(input), Some(ty)) = (state.input, &state.cached_ty) else {
+                continue;
+            };
+            let strategy = if ty.is::<LayerType>() {
+                EffectPassDispatchStrategy::EveryInputLayerPixel(state.id)
+            } else if ty.is::<ArrayType>()
+                || ty.is::<ArrayAtomicI32Type>()
+                || ty.is::<ArrayAtomicU32Type>()
+            {
+                EffectPassDispatchStrategy::EveryBufferElement(state.id)
+            } else {
+                continue;
+            };
+            let label = state
+                .available_sources
+                .iter()
+                .find(|choice| choice.input == Some(input))
+                .expect("synced options contain the current binding")
+                .label
+                .clone();
+            choices.push(DispatchChoice { label, strategy });
+        } else if let Some(state) = node.data.state::<PassOutputNode>() {
+            if !state
+                .cached_ty
+                .as_ref()
+                .is_some_and(|ty| ty.is::<LayerType>())
+            {
+                continue;
+            }
+            let label = match &state.output {
+                Some(PassOutput::Pass(def)) => format!("{} ({})", def.name, def.ty.id().id),
+                Some(PassOutput::Effect(id)) => state
+                    .available_targets
+                    .iter()
+                    .find(|choice| choice.target == PassOutputChoiceTarget::Effect(*id))
+                    .expect("synced options contain the current binding")
+                    .label
+                    .clone(),
+                None => continue,
+            };
+            choices.push(DispatchChoice {
+                label,
+                strategy: EffectPassDispatchStrategy::EveryOutputLayerPixel(state.id),
+            });
+        }
+    }
+    choices
 }
 
 fn resync(instance: &mut EffectInstance) {

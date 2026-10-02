@@ -644,9 +644,13 @@ impl GraphNode for DispatchIndexNode {
 
     fn generate_code(
         &self,
-        _: &Self::State,
+        state: &Self::State,
         mut ctx: GraphNodeCodeGenContext<'_>,
     ) -> Result<String, GraphNodeCodeGenError> {
+        if state.cached_dispatch_strategy == EffectPassDispatchStrategy::Once {
+            return Ok(String::new());
+        }
+
         let output = ctx.get_output(0)?;
 
         Ok(format!(

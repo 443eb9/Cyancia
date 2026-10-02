@@ -907,7 +907,7 @@ impl GraphNode for RepeatNode {
         code.push_str(&format!(
             "for (var {iteration} = 0i; {iteration} < {iterations}; {iteration}++) {{\n"
         ));
-        let (body_output_idents, _, body_code) = body
+        let (body_output_idents, _, body_code, _) = body
             .compile(
                 body_inputs,
                 GraphVarIdentGenerator::new(format!(

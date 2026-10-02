@@ -71,6 +71,7 @@ pub trait GraphNode: Send + Sync + 'static + DynClone {
         message: Self::Message,
         ctx: GraphNodeUpdateContext<'_>,
     );
+    fn extra_shader_body(&self, _: &Self::State, _: GraphNodeInjectShaderBodyContext<'_>) {}
     fn generate_code(
         &self,
         state: &Self::State,
@@ -138,6 +139,11 @@ pub trait ErasedGraphNode: Send + Sync + 'static + DynClone + Downcast {
         state: &mut (dyn Any + Send + Sync),
         message: ErasedGraphNodeMessage,
         ctx: GraphNodeUpdateContext<'_>,
+    );
+    fn extra_shader_body(
+        &self,
+        state: &(dyn Any + Send + Sync),
+        ctx: GraphNodeInjectShaderBodyContext<'_>,
     );
     fn generate_code(
         &self,
@@ -243,6 +249,17 @@ impl<T: GraphNode> ErasedGraphNode for T {
         self.update(state, *message, ctx);
     }
 
+    fn extra_shader_body(
+        &self,
+        state: &(dyn Any + Send + Sync),
+        ctx: GraphNodeInjectShaderBodyContext<'_>,
+    ) {
+        let state = state
+            .downcast_ref::<T::State>()
+            .expect("failed to downcast graph node state");
+        self.extra_shader_body(state, ctx)
+    }
+
     fn generate_code(
         &self,
         state: &(dyn Any + Send + Sync),
@@ -329,6 +346,10 @@ impl StatefulGraphNode {
         self.data.generate_code(self.state.as_ref(), ctx)
     }
 
+    pub fn extra_shader_body(&self, ctx: GraphNodeInjectShaderBodyContext<'_>) {
+        self.data.extra_shader_body(self.state.as_ref(), ctx)
+    }
+
     pub fn serialize_state(&self) -> Result<toml::Value> {
         self.data.serialize_state(self.state.as_ref())
     }
@@ -393,6 +414,7 @@ pub trait StatelessCommonGraphNode: Send + Sync + 'static + DynClone {
     fn create_inputs(&self, ctx: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultInputSlot>;
     fn create_outputs(&self, ctx: GraphNodeCreateSlotsContext<'_>) -> Vec<GraphDefaultOutputSlot>;
     fn update_signature(&self, _: GraphNodeUpdateSignatureContext<'_>) {}
+    fn extra_shader_body(&self, _: GraphNodeInjectShaderBodyContext<'_>) {}
     fn generate_code(
         &self,
         ctx: GraphNodeCodeGenContext<'_>,
@@ -423,6 +445,11 @@ impl GraphNodeData {
             },
         )
     }
+}
+
+pub trait ExtraShaderBody: Send + Sync + 'static {
+    fn key(&self) -> String;
+    fn inject_body(&self, shader: &mut String);
 }
 
 #[derive(Clone, Copy)]
@@ -597,6 +624,20 @@ impl GraphNodeUpdateSignatureContext<'_> {
             *slot_id,
             GraphVariable::new_boxed(name, slot.data.ty().clone()),
         );
+    }
+}
+
+pub struct GraphNodeInjectShaderBodyContext<'a> {
+    pub inputs: &'a [GraphInputSlotId],
+    pub outputs: &'a [GraphOutputSlotId],
+    pub graph_slots: &'a GraphSlots,
+    pub resources: &'a GraphResources,
+    pub extra_body: &'a mut HashMap<String, Box<dyn ExtraShaderBody>>,
+}
+
+impl GraphNodeInjectShaderBodyContext<'_> {
+    pub fn inject_extra_body<T: ExtraShaderBody>(&mut self, body: T) {
+        self.extra_body.insert(body.key(), Box::new(body));
     }
 }
 

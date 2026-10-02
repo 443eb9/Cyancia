@@ -12,10 +12,11 @@ use wesl::syntax::Expression;
 
 use crate::graph::{
     node::{
-        ContextualGraphNodeCodeGenError, ErasedGraphNode, ErasedGraphNodeMessage, GraphNode,
-        GraphNodeCodeGenContext, GraphNodeCreateSlotsContext, GraphNodeData,
-        GraphNodeDefaultStateContext, GraphNodeId, GraphNodeRegistry, GraphNodeUpdateContext,
-        GraphNodeUpdateSignatureContext, StatefulGraphNode,
+        ContextualGraphNodeCodeGenError, ErasedGraphNode, ErasedGraphNodeMessage, ExtraShaderBody,
+        GraphNode, GraphNodeCodeGenContext, GraphNodeCreateSlotsContext, GraphNodeData,
+        GraphNodeDefaultStateContext, GraphNodeId, GraphNodeInjectShaderBodyContext,
+        GraphNodeRegistry, GraphNodeUpdateContext, GraphNodeUpdateSignatureContext,
+        StatefulGraphNode,
     },
     slot::{
         GraphDefaultInputSlot, GraphDefaultOutputSlot, GraphInputSlotData, GraphInputSlotId,
@@ -533,6 +534,7 @@ impl Graph {
             Vec<Expression>,
             HashMap<GraphOutputSlotId, Expression>,
             String,
+            HashMap<String, Box<dyn ExtraShaderBody>>,
         ),
         GraphCompileError,
     > {
@@ -542,6 +544,9 @@ impl Graph {
         if self.cached_signature.read().is_none() {
             self.update_signature_cache();
         }
+
+        let mut extra_shader_body = HashMap::new();
+        self.collect_extra_shader_bodies(&mut extra_shader_body);
 
         let run_order = self.cached_run_order.read();
         let signature = self.cached_signature.read();
@@ -606,7 +611,32 @@ impl Graph {
             "This should never fail."
         );
 
-        Ok((graph_output_idents, output_slot_idents, code))
+        Ok((
+            graph_output_idents,
+            output_slot_idents,
+            code,
+            extra_shader_body,
+        ))
+    }
+
+    pub(crate) fn collect_extra_shader_bodies(
+        &self,
+        bodies: &mut HashMap<String, Box<dyn ExtraShaderBody>>,
+    ) {
+        for node in self.nodes.values() {
+            node.data
+                .extra_shader_body(GraphNodeInjectShaderBodyContext {
+                    inputs: &node.inputs,
+                    outputs: &node.outputs,
+                    graph_slots: &self.slots,
+                    resources: &self.resources,
+                    extra_body: bodies,
+                });
+
+            for subgraph in node.data.subgraphs() {
+                subgraph.collect_extra_shader_bodies(bodies);
+            }
+        }
     }
 
     pub fn resources(&self) -> &GraphResources {

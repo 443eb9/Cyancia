@@ -374,7 +374,8 @@ impl BrushPresetInstance {
             parameters.push(parameter.value.clone());
         }
 
-        let (_, _, code) = graph.compile(Vec::new(), GraphVarIdentGenerator::default())?;
+        let (_, _, code, extra_shader_body) =
+            graph.compile(Vec::new(), GraphVarIdentGenerator::default())?;
         let output = pass_output_ident(spacing_port);
         let output_ty = spacing_ty.wgsl_type_name().with_context(|| {
             format!(
@@ -383,9 +384,18 @@ impl BrushPresetInstance {
             )
         })?;
         let body = format!("var {output}: {output_ty};\n{code}return {output};\n");
-        let shader = include_str!("render/brush_sample.wesl")
+        let mut shader = include_str!("render/brush_sample.wesl")
             .replace("//CODEGENFLAG_COMPUTED_GRAPH_REQUIRED_SPACING", &body)
             .replace("//CODEGENFLAG_INJECTED_RESOURCES", &declarations);
+
+        for body in extra_shader_body
+            .into_iter()
+            .collect::<BTreeMap<_, _>>()
+            .into_values()
+        {
+            body.inject_body(&mut shader);
+        }
+
         let shader = wesl_jit::compile_wesl_with_config_and_include(
             shader,
             &[&image::PACKAGE, &render::PACKAGE],
