@@ -3350,6 +3350,7 @@ dependencies = [
  "lapiz_config",
  "lapiz_dirs",
  "lapiz_dock",
+ "lapiz_effect",
  "lapiz_eye_dropper",
  "lapiz_file_dialog",
  "lapiz_filter",
