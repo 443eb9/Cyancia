@@ -35,6 +35,7 @@ pub(crate) fn run(#[cfg(target_os = "android")] android_app: AndroidApp) {
         .add_plugin(lapiz_undo::UndoPlugin)
         .add_plugin(lapiz_render::RenderPlugin)
         .add_plugin(lapiz_shader_graph::ShaderGraphPlugin)
+        .add_plugin(lapiz_effect::EffectPlugin)
         .add_plugin(lapiz_tools::ToolsPlugin)
         .add_plugin(lapiz_image::ImagePlugin)
         .add_plugin(lapiz_canvas::CanvasPlugin)

@@ -12,3 +12,4 @@ rename = Rename
 back_to_passes = All Passes
 pass_input_node = Pass Input
 pass_output_node = Pass Output
+dispatch_index_node = Dispatch Index

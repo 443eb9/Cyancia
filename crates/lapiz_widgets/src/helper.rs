@@ -4,10 +4,10 @@ use std::{
     str::FromStr,
 };
 
-use iced_core::{Element, Theme, text};
+use iced_core::{Element, text};
 use iced_widget::svg;
 use lapiz_math::curve::CubicCurve;
-use lapiz_runtime::Renderer;
+use lapiz_runtime::{Renderer, Theme};
 use num_traits::AsPrimitive;
 
 use crate::{
@@ -73,7 +73,7 @@ pub fn collapsible<'a, Message>(
     Collapsible::new(header, content, open)
 }
 
-pub fn combo_box<'a, T, Message>(
+pub fn combo_box<'a, T, Message: 'a>(
     options: impl Into<Vec<T>>,
     selected: Option<T>,
     on_selected: impl Fn(T) -> Message + 'a,

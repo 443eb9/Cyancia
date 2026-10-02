@@ -11,7 +11,7 @@ use crate::{
     save::SerializableGraphFunction,
     wgsl_std::{
         builtin_nodes, builtin_types,
-        nodes::{GraphInputNode, GraphOutputNode},
+        nodes::graph_io::{GraphInputNode, GraphOutputNode},
     },
 };
 

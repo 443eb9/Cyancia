@@ -12,3 +12,4 @@ rename = 重命名
 back_to_passes = 全部 Pass
 pass_input_node = Pass 输入
 pass_output_node = Pass 输出
+dispatch_index_node = 调度索引

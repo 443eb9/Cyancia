@@ -30,7 +30,7 @@ use lapiz_shader_graph::{
     },
     save::{SerializableGraph, SerializableGraphLiteral},
     wgsl_std::{
-        nodes::{CustomExpressionNode, CustomExpressionNodeState},
+        nodes::custom_expression::{CustomExpressionNode, CustomExpressionNodeState},
         types::{
             compound::{ColorType, RectType},
             handle::{LayerType, TextureType},

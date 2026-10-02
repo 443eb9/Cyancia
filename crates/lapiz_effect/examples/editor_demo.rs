@@ -29,7 +29,7 @@ use lapiz_shader_graph::{
     },
     wgsl_std::{
         builtin_types,
-        nodes::{ScalarMathNode, ScalarMathNodeMode},
+        nodes::math::{ScalarMathNode, ScalarMathNodeMode},
         types::primitive::F32Type,
     },
 };

@@ -32,7 +32,7 @@ pub fn parse_samp(sample: &Sample) -> Result<Image> {
 
     Ok(Image {
         metadata: ImageMetadata {
-            name: sample.id.to_string(),
+            name: format!("samp-{}", sample.id),
         },
         image: DynamicImage::ImageRgba8(image),
         format: ImageFormat::Png,
