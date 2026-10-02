@@ -936,10 +936,13 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditorVi
         let view_transformation = state.view_transformation(layout.bounds());
         let inverse_view_transformation = view_transformation.inverse();
         let graph_cursor = cursor * inverse_view_transformation;
-        let graph_viewport = *viewport * inverse_view_transformation;
+        let Some(visible_bounds) = layout.bounds().intersection(viewport) else {
+            return;
+        };
+        let graph_viewport = visible_bounds * inverse_view_transformation;
         renderer.fill_quad(
             Quad {
-                bounds: layout.bounds(),
+                bounds: visible_bounds,
                 ..Default::default()
             },
             theme.palette().background.base.color,
@@ -1029,13 +1032,13 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditorVi
             }
         }
 
-        renderer.with_layer(layout.bounds(), |renderer| {
+        renderer.with_layer(visible_bounds, |renderer| {
             renderer.with_transformation(view_transformation, |renderer| {
                 renderer.draw_geometry(frame.into_geometry());
             });
         });
 
-        renderer.with_layer(layout.bounds(), |renderer| {
+        renderer.with_layer(visible_bounds, |renderer| {
             renderer.with_transformation(view_transformation, |renderer| {
                 for ((child, node_tree), node_layout) in self
                     .graph
@@ -1124,7 +1127,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditorVi
                 },
             );
 
-            renderer.with_layer(layout.bounds(), |renderer| {
+            renderer.with_layer(visible_bounds, |renderer| {
                 renderer.with_transformation(view_transformation, |renderer| {
                     renderer.draw_geometry(frame.into_geometry());
                 });
@@ -1135,7 +1138,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditorVi
             let Some(cursor_pos) = graph_cursor.position() else {
                 return;
             };
-            renderer.with_layer(layout.bounds(), |renderer| {
+            renderer.with_layer(visible_bounds, |renderer| {
                 renderer.with_transformation(view_transformation, |renderer| {
                     renderer.fill_quad(
                         Quad {
