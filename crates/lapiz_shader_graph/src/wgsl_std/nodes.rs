@@ -12,13 +12,15 @@ use std::{
 use anyhow::anyhow;
 use glam::{Vec2, Vec3, Vec3Swizzles as _};
 use iced_core::{
-    Event, Layout, Length, Rectangle, Shell, Size, Widget, layout,
+    Event, Layout, Length, Rectangle, Renderer as _, Shell, Size, Widget, alignment, layout,
+    pointer,
     pointer::mouse,
     renderer,
     shell::Bus,
-    text::parser::PlainText,
+    text::{self, Renderer as _, Wrapping, paragraph::Plain, parser::PlainText},
     widget::{Operation, Tree, tree},
 };
+use iced_widget::scrollable::{Direction, Scrollbar};
 use indexmap::IndexMap;
 use lapiz_assets::{
     asset::{AssetHandle, AssetId},
@@ -30,7 +32,7 @@ use lapiz_shader_graph_derive::stateless;
 use lapiz_utils::{random_oklch_hue_chroma, wrapper};
 use lapiz_widgets::{
     button, column, combo_box, container, curve_edit, flex::Flex, fluent_builder::When as _, label,
-    popover, row, text_editor, text_input, text_input::default,
+    popover, row, scrollable, text_editor, text_input, text_input::default,
 };
 use parking_lot::Mutex;
 use parse_display::Display;
@@ -46,6 +48,7 @@ use wesl_quote::{quote_expression, quote_statement};
 
 use crate::{
     GraphElement, GraphRenderer, GraphTheme,
+    editor::NODE_WIDTH,
     graph::{
         Graph, GraphResources, GraphVarIdentGenerator,
         function::{GRAPH_FUNCTION_NODE_REGISTRY, GRAPH_FUNCTION_TYPE_REGISTRY},
@@ -3285,6 +3288,9 @@ impl GraphSerializable for CustomExpressionNodeState {
     }
 }
 
+const CUSTOM_EXPRESSION_CODE_TEXT_SIZE: f32 = 12.0;
+const CUSTOM_EXPRESSION_CODE_PADDING: f32 = 5.0;
+
 struct CustomExpressionCodeEditor<'a> {
     code: &'a str,
 }
@@ -3293,15 +3299,21 @@ struct CustomExpressionCodeEditor<'a> {
 //      because text_editor::Content is not sync, but GraphNode::State must be sync.
 struct CustomExpressionCodeEditorState {
     content: RefCell<text_editor::Content<GraphRenderer>>,
+    paragraph: Plain<<GraphRenderer as text::Renderer>::Paragraph>,
+    width: f32,
 }
 
 fn custom_expression_text_editor(
     content: &text_editor::Content<GraphRenderer>,
+    width: f32,
 ) -> text_editor::TextEditor<'_, PlainText, text_editor::Action, GraphTheme, GraphRenderer> {
     text_editor(content)
         .placeholder("WGSL")
-        .size(12.0)
-        .height(Length::Fixed(140.0))
+        .size(CUSTOM_EXPRESSION_CODE_TEXT_SIZE)
+        .padding(CUSTOM_EXPRESSION_CODE_PADDING)
+        .wrapping(Wrapping::None)
+        .width(width)
+        .height(Length::Shrink)
         .on_action(identity)
 }
 
@@ -3315,6 +3327,8 @@ impl Widget<CustomExpressionNodeMessage, GraphTheme, GraphRenderer>
     fn state(&self) -> tree::State {
         tree::State::new(CustomExpressionCodeEditorState {
             content: RefCell::new(text_editor::Content::with_text(self.code)),
+            paragraph: Plain::default(),
+            width: NODE_WIDTH,
         })
     }
 
@@ -3324,7 +3338,7 @@ impl Widget<CustomExpressionNodeMessage, GraphTheme, GraphRenderer>
             *state.content.borrow_mut() = text_editor::Content::with_text(self.code);
         }
         let content = state.content.borrow();
-        let mut editor = custom_expression_text_editor(&content);
+        let mut editor = custom_expression_text_editor(&content, state.width);
 
         if tree.children.is_empty() {
             tree.children
@@ -3335,7 +3349,7 @@ impl Widget<CustomExpressionNodeMessage, GraphTheme, GraphRenderer>
     }
 
     fn size(&self) -> Size<Length> {
-        Size::new(Length::Fill, Length::Fixed(140.0))
+        Size::new(Length::Shrink, Length::Shrink)
     }
 
     fn layout(
@@ -3344,8 +3358,26 @@ impl Widget<CustomExpressionNodeMessage, GraphTheme, GraphRenderer>
         renderer: &GraphRenderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-        let state = tree.state.downcast_ref::<CustomExpressionCodeEditorState>();
-        custom_expression_text_editor(&state.content.borrow()).layout(
+        let state = tree.state.downcast_mut::<CustomExpressionCodeEditorState>();
+        state.paragraph.update(text::Text {
+            content: self.code,
+            bounds: Size::new(f32::INFINITY, f32::INFINITY),
+            size: CUSTOM_EXPRESSION_CODE_TEXT_SIZE.into(),
+            line_height: text::LineHeight::default(),
+            font: renderer.default_font(),
+            align_x: text::Alignment::Left,
+            align_y: alignment::Vertical::Top,
+            shaping: text::Shaping::Advanced,
+            wrapping: Wrapping::None,
+            ellipsis: text::Ellipsis::None,
+            hint_factor: renderer.hint_factor(),
+        });
+
+        state.width =
+            (state.paragraph.min_width().ceil() + CUSTOM_EXPRESSION_CODE_PADDING * 2.0 + 1.0)
+                .max(NODE_WIDTH);
+
+        custom_expression_text_editor(&state.content.borrow(), state.width).layout(
             &mut tree.children[0],
             renderer,
             limits,
@@ -3360,7 +3392,7 @@ impl Widget<CustomExpressionNodeMessage, GraphTheme, GraphRenderer>
         operation: &mut dyn Operation,
     ) {
         let state = tree.state.downcast_ref::<CustomExpressionCodeEditorState>();
-        custom_expression_text_editor(&state.content.borrow()).operate(
+        custom_expression_text_editor(&state.content.borrow(), state.width).operate(
             &mut tree.children[0],
             layout,
             renderer,
@@ -3378,10 +3410,14 @@ impl Widget<CustomExpressionNodeMessage, GraphTheme, GraphRenderer>
         shell: &mut Shell<'_, CustomExpressionNodeMessage>,
         viewport: &Rectangle,
     ) {
+        if matches!(event, Event::Pointer(pointer::Event::WheelScrolled { .. })) {
+            return;
+        }
+
         let state = tree.state.downcast_ref::<CustomExpressionCodeEditorState>();
         let mut actions = Bus::new();
         let mut child_shell = shell.local(&mut actions);
-        custom_expression_text_editor(&state.content.borrow()).update(
+        custom_expression_text_editor(&state.content.borrow(), state.width).update(
             &mut tree.children[0],
             event,
             layout,
@@ -3390,6 +3426,11 @@ impl Widget<CustomExpressionNodeMessage, GraphTheme, GraphRenderer>
             &mut child_shell,
             viewport,
         );
+        if !child_shell.is_empty() {
+            child_shell.capture_event();
+            child_shell.invalidate_layout();
+            child_shell.request_redraw();
+        }
         shell.merge(child_shell, |action| {
             let mut content = state.content.borrow_mut();
             content.perform(action);
@@ -3406,7 +3447,7 @@ impl Widget<CustomExpressionNodeMessage, GraphTheme, GraphRenderer>
         renderer: &GraphRenderer,
     ) -> mouse::Interaction {
         let state = tree.state.downcast_ref::<CustomExpressionCodeEditorState>();
-        custom_expression_text_editor(&state.content.borrow()).mouse_interaction(
+        custom_expression_text_editor(&state.content.borrow(), state.width).mouse_interaction(
             &tree.children[0],
             layout,
             cursor,
@@ -3426,7 +3467,7 @@ impl Widget<CustomExpressionNodeMessage, GraphTheme, GraphRenderer>
         viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_ref::<CustomExpressionCodeEditorState>();
-        custom_expression_text_editor(&state.content.borrow()).draw(
+        custom_expression_text_editor(&state.content.borrow(), state.width).draw(
             &tree.children[0],
             renderer,
             theme,
@@ -3664,7 +3705,15 @@ impl GraphNode for CustomExpressionNode {
         ctx.view_all_slots_with_header(
             column![
                 popover(trigger).content(content),
-                GraphElement::new(CustomExpressionCodeEditor { code: &state.code })
+                scrollable(GraphElement::new(CustomExpressionCodeEditor {
+                    code: &state.code
+                }))
+                .direction(Direction::Both {
+                    vertical: Scrollbar::new(),
+                    horizontal: Scrollbar::new(),
+                })
+                .width(Length::Fill)
+                .height(140.0)
             ]
             .gap(4.0),
             CustomExpressionNodeMessage::LiteralUpdate,

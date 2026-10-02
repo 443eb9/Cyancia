@@ -520,6 +520,7 @@ impl GraphNodeViewContext<'_> {
         column!()
             .push(header)
             .push(self.view_all_slots(map_literal))
+            .width(Length::Fill)
             .gap(2.0)
             .into()
     }
