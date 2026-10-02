@@ -1,3 +1,11 @@
+fn unpack_a8_texel(texel: vec4f) -> f32 {
+    return texel.r;
+}
+
+fn pack_a8_texel(value: f32) -> vec4f {
+    return vec4f(value, 0.0, 0.0, 0.0);
+}
+
 fn rgba8_coord(pixel: vec2u) -> vec2u {
     return pixel;
 }

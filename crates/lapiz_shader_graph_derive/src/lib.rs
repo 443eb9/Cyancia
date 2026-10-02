@@ -84,6 +84,14 @@ fn generate_graph_node_impl(
                 ctx.update_literal(message);
             }
 
+            fn extra_shader_body(
+                &self,
+                _state: &Self::State,
+                ctx: #crate_path::graph::node::GraphNodeInjectShaderBodyContext<'_>,
+            ) {
+                <Self as #crate_path::graph::node::StatelessCommonGraphNode>::extra_shader_body(self, ctx);
+            }
+
             fn generate_code(
                 &self,
                 _state: &Self::State,

@@ -21,8 +21,9 @@ use lapiz_shader_graph::{
     graph::{
         GraphResources,
         node::{
-            GraphNode, GraphNodeCodeGenContext, GraphNodeCodeGenError, GraphNodeCreateSlotsContext,
-            GraphNodeDefaultStateContext, GraphNodeRegistry, GraphNodeUpdateContext,
+            ExtraShaderBody, GraphNode, GraphNodeCodeGenContext, GraphNodeCodeGenError,
+            GraphNodeCreateSlotsContext, GraphNodeDefaultStateContext,
+            GraphNodeInjectShaderBodyContext, GraphNodeRegistry, GraphNodeUpdateContext,
             GraphNodeViewContext, StatelessCommonGraphNode, stateless,
         },
         slot::{
@@ -55,6 +56,9 @@ use wesl_quote::quote_statement;
 use wgpu::{Buffer, Device, Queue, util::DeviceExt as _};
 
 use super::ComputedPenInput;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct CanvasResources {
@@ -174,19 +178,21 @@ impl GraphValueType for ComputedPenInputValueType {
     ) -> Result<Self::AssociatedLiteralType> {
         Ok(Self::AssociatedLiteralType::deserialize(value)?)
     }
+}
 
-    fn generate_extra_shader_body(&self, _stage: GraphShaderStage, name: &str) -> Option<String> {
-        (name == BRUSH_SAMPLE_BUILTIN).then(||
-            "struct BrushMask { bounds: render::math::Rect, value: f32 }\n\
-             fn elliptical_mask(pixel: vec2f, center: vec2f, radii: vec2f, rotation: f32) -> BrushMask {\n\
-                 let relative = pixel - center;\n\
-                 let rotated = render::math::rotate_mat2x2(rotation) * relative;\n\
-                 let extent = vec2f(max(radii.x, radii.y));\n\
-                 let distance = render::math::sdf_ellipse(rotated, vec2f(0.0), radii);\n\
-                 return BrushMask(render::math::Rect(center - extent, center + extent), smoothstep(1.0, 0.0, distance));\n\
-             }\n"
-                .into()
-        )
+struct BrushNodeShaderBody {
+    node: &'static str,
+    source: &'static str,
+}
+
+impl ExtraShaderBody for BrushNodeShaderBody {
+    fn key(&self) -> String {
+        self.node.into()
+    }
+
+    fn inject_body(&self, shader: &mut String) {
+        shader.push('\n');
+        shader.push_str(self.source);
     }
 }
 
@@ -660,6 +666,13 @@ pub struct FilterWithinBoundsNode;
 
 #[stateless]
 impl StatelessCommonGraphNode for FilterWithinBoundsNode {
+    fn extra_shader_body(&self, mut ctx: GraphNodeInjectShaderBodyContext<'_>) {
+        ctx.inject_extra_body(BrushNodeShaderBody {
+            node: StatelessCommonGraphNode::id(self),
+            source: include_str!("graph/filter_within_bounds.wesl"),
+        });
+    }
+
     fn id(&self) -> &'static str {
         "filter_within_bounds_node"
     }
@@ -688,10 +701,16 @@ impl StatelessCommonGraphNode for FilterWithinBoundsNode {
     ) -> Result<String, GraphNodeCodeGenError> {
         let color = ctx.get_input(0)?;
         let bounds = ctx.get_input(1)?;
+        let output_color = ctx.get_output(0)?;
+        let output_bounds = ctx.get_output(1)?;
         Ok(format!(
-            "let {} = filter_within_bounds(pixel_pos, {color}, {bounds});\nlet {} = {bounds};\n",
-            ctx.get_output(0)?,
-            ctx.get_output(1)?
+            "{}\n{}\n",
+            quote_statement! {
+                let #output_color = filter_within_bounds(dispatch_index, #color, #bounds);
+            },
+            quote_statement! {
+                let #output_bounds = #bounds;
+            },
         ))
     }
 }
@@ -1143,6 +1162,13 @@ pub struct EllipticalMaskNode;
 
 #[stateless]
 impl StatelessCommonGraphNode for EllipticalMaskNode {
+    fn extra_shader_body(&self, mut ctx: GraphNodeInjectShaderBodyContext<'_>) {
+        ctx.inject_extra_body(BrushNodeShaderBody {
+            node: StatelessCommonGraphNode::id(self),
+            source: include_str!("graph/elliptical_mask.wesl"),
+        });
+    }
+
     fn id(&self) -> &'static str {
         "elliptical_mask_node"
     }

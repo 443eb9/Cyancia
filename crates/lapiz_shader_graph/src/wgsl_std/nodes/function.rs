@@ -19,7 +19,8 @@ use crate::{
         function::{GRAPH_FUNCTION_NODE_REGISTRY, GRAPH_FUNCTION_TYPE_REGISTRY},
         node::{
             GraphNode, GraphNodeCodeGenContext, GraphNodeCodeGenError, GraphNodeCreateSlotsContext,
-            GraphNodeDefaultStateContext, GraphNodeUpdateContext, GraphNodeViewContext,
+            GraphNodeDefaultStateContext, GraphNodeInjectShaderBodyContext, GraphNodeUpdateContext,
+            GraphNodeViewContext,
         },
         slot::{ErasedGraphLiteralUpdateMessage, GraphDefaultInputSlot, GraphDefaultOutputSlot},
     },
@@ -222,6 +223,12 @@ impl GraphNode for GraphFunctionNode {
         }
     }
 
+    fn extra_shader_body(&self, state: &Self::State, ctx: GraphNodeInjectShaderBodyContext<'_>) {
+        if let Some(graph) = &state.cached_graph {
+            graph.collect_extra_shader_bodies(ctx.extra_body);
+        }
+    }
+
     fn generate_code(
         &self,
         state: &Self::State,
@@ -243,7 +250,7 @@ impl GraphNode for GraphFunctionNode {
             "function_{}",
             UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed)
         );
-        let (output_idents, _, code) = graph
+        let (output_idents, _, code, _) = graph
             .compile(input_idents, GraphVarIdentGenerator::new(suffix))
             .map_err(|e| GraphNodeCodeGenError::Custom(e.into()))?;
 

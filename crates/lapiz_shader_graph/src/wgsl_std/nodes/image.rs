@@ -1,15 +1,16 @@
 use lapiz_shader_graph_derive::stateless;
 use lapiz_utils::random_oklch_hue_chroma;
 use wesl::syntax::{
-    BinaryExpression, BinaryOperator, Declaration, DeclarationKind, Expression, FunctionCall,
-    Ident, IndexingExpression, NamedComponentExpression, Span, Spanned, Statement, TypeExpression,
+    Declaration, DeclarationKind, Expression, FunctionCall, Ident, Span, Spanned, Statement,
+    TypeExpression,
 };
 use wesl_quote::quote_statement;
 
 use crate::{
     graph::{
         node::{
-            GraphNodeCodeGenContext, GraphNodeCodeGenError, GraphNodeCreateSlotsContext,
+            ExtraShaderBody, GraphNodeCodeGenContext, GraphNodeCodeGenError,
+            GraphNodeCreateSlotsContext, GraphNodeInjectShaderBodyContext,
             StatelessCommonGraphNode,
         },
         slot::{GraphDefaultInputSlot, GraphDefaultOutputSlot},
@@ -24,6 +25,10 @@ pub struct GetPixelColorNode;
 
 #[stateless]
 impl StatelessCommonGraphNode for GetPixelColorNode {
+    fn extra_shader_body(&self, mut ctx: GraphNodeInjectShaderBodyContext<'_>) {
+        ctx.inject_extra_body(TextureSampleShaderBody);
+    }
+
     fn id(&self) -> &'static str {
         "get_pixel_color_node"
     }
@@ -51,13 +56,25 @@ impl StatelessCommonGraphNode for GetPixelColorNode {
         let input_position = ctx.get_input(1)?;
         let output_color = ctx.get_output(0)?;
 
-        // TODO: sample_local_texture is only defined in `brush_template.wesl`
         Ok(format!(
             "{}\n",
             quote_statement! {
-                let #output_color = sample_local_texture(#input_texture, vec2u(#input_position));
+                let #output_color = sample_texture(#input_texture, vec2u(#input_position));
             }
         ))
+    }
+}
+
+struct TextureSampleShaderBody;
+
+impl ExtraShaderBody for TextureSampleShaderBody {
+    fn key(&self) -> String {
+        StatelessCommonGraphNode::id(&GetPixelColorNode).into()
+    }
+
+    fn inject_body(&self, shader: &mut String) {
+        shader.push('\n');
+        shader.push_str(include_str!("sample_texture.wesl"));
     }
 }
 
@@ -134,8 +151,7 @@ impl StatelessCommonGraphNode for TextureSizeNode {
         Ok(format!(
             "{}\n",
             quote_statement! {
-                let #output_size =
-                    vec2f(texture_bounds[#input_texture].max - texture_bounds[#input_texture].min);
+                let #output_size = vec2f(textureDimensions(#input_texture));
             }
         ))
     }
