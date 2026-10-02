@@ -2,10 +2,11 @@ use chrono::{DateTime, Utc};
 use glam::Vec2;
 use lapiz_input::mouse::PressedMouseState;
 use ringbuffer::{AllocRingBuffer, RingBuffer as _};
+use serde::{Deserialize, Serialize};
 
 use crate::render::{ComputedPenInput, PenInput, Time};
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 pub struct RawPenInput {
     pub position: Vec2,
     pub pressure: f32,

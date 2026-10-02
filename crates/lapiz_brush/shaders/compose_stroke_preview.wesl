@@ -17,6 +17,16 @@ fn load_result(pixel: vec2i) -> vec4f {
     return vec4f(0.0);
 }
 
+@compute
+@workgroup_size(16, 16, 1)
+fn unscaled(@builtin(global_invocation_id) global_id: vec3u) {
+    if any(global_id.xy >= textureDimensions(output)) {
+        return;
+    }
+
+    textureStore(output, global_id.xy, load_result(result_bounds.xy + vec2i(global_id.xy)));
+}
+
 fn sample_result(pixel: vec2f) -> vec4f {
     let base = vec2i(floor(pixel));
     let fraction = fract(pixel);

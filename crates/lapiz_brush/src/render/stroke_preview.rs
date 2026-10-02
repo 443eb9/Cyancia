@@ -20,7 +20,9 @@ use lapiz_render::{
     bind_group_layout_entries::{BindGroupLayoutEntries, binding_types},
     buffer::DynamicBuffer,
     readback::{
-        create_readback_buffer_and_schedule_copy_texture, readback_buffer_raw_on_submit_async,
+        create_readback_buffer_and_schedule_copy_buffer,
+        create_readback_buffer_and_schedule_copy_texture, readback_buffer_on_submit_async,
+        readback_buffer_raw_on_submit_async,
     },
     render_context::RenderContextAppExt as _,
     util::DevicePollExt as _,
@@ -227,15 +229,65 @@ pub fn create_stroke_preview_on_target_with(
     device: &Device,
     queue: &Queue,
     canvas_resources: &CanvasResources,
-    mut target_layer: DynamicLayerStorage,
+    target_layer: DynamicLayerStorage,
 ) -> Result<Task<Texture>> {
-    ensure!(
-        samples.len() >= 2,
-        "stroke preview requires at least two samples"
-    );
     ensure!(
         width > 0 && height > 0,
         "stroke preview dimensions must be non-zero"
+    );
+    let stroke = render_stroke_on_target_with(
+        brush,
+        samples,
+        device,
+        queue,
+        canvas_resources,
+        target_layer,
+    )?;
+    let device = device.clone();
+    let queue = queue.clone();
+    Ok(stroke.map(move |result| {
+        map_result_texture(device.clone(), queue.clone(), width, height, result)
+    }))
+}
+
+/// Renders at the original resolution and crops to the non-transparent pixel bounds.
+/// An empty result is represented by a transparent 1×1 texture.
+pub fn create_stroke_image_on_target_with(
+    brush: &BrushPresetInstance,
+    samples: &[RawPenInput],
+    device: &Device,
+    queue: &Queue,
+    canvas_resources: &CanvasResources,
+    target_layer: DynamicLayerStorage,
+) -> Result<Task<Result<Texture>>> {
+    let stroke = render_stroke_on_target_with(
+        brush,
+        samples,
+        device,
+        queue,
+        canvas_resources,
+        target_layer,
+    )?;
+    let device = device.clone();
+    let queue = queue.clone();
+    Ok(stroke.then(move |result| {
+        let device = device.clone();
+        let queue = queue.clone();
+        Task::future(async move { map_tight_result_texture(&device, &queue, result).await })
+    }))
+}
+
+fn render_stroke_on_target_with(
+    brush: &BrushPresetInstance,
+    samples: &[RawPenInput],
+    device: &Device,
+    queue: &Queue,
+    canvas_resources: &CanvasResources,
+    mut target_layer: DynamicLayerStorage,
+) -> Result<Task<DynamicLayerStorage>> {
+    ensure!(
+        samples.len() >= 2,
+        "stroke preview requires at least two samples"
     );
 
     let mut selection_layer = DynamicLayerStorage::new(
@@ -306,28 +358,65 @@ pub fn create_stroke_preview_on_target_with(
         renderer.update(pen_input);
     }
 
-    let final_result = renderer.end();
-    let device = device.clone();
-    let queue = queue.clone();
-
-    let texture = final_result.map(move |result| {
-        Some(map_result_texture(
-            device.clone(),
-            queue.clone(),
-            width,
-            height,
-            result,
-        ))
+    let mut target_layer = Some(target_layer);
+    let final_result = renderer.end().map(move |result| {
+        let mut target_layer = target_layer.take().expect("stroke task must only run once");
+        // The brush result replaces modified tiles, not the entire target layer.
+        target_layer.copy_tiles_from(&result, result.iter_tile_indices());
+        Some(target_layer)
     });
-    Ok(Task::batch([worker.map(|()| None), texture])
+    Ok(Task::batch([worker.map(|()| None), final_result])
         .collect()
-        .map(|textures| {
-            textures
+        .map(|layers| {
+            layers
                 .into_iter()
                 .flatten()
                 .next()
-                .expect("stroke preview worker produced no texture")
+                .expect("stroke worker produced no layer")
         }))
+}
+
+async fn map_tight_result_texture(
+    device: &Device,
+    queue: &Queue,
+    result: DynamicLayerStorage,
+) -> Result<Texture> {
+    let Some(binding) = result.binding() else {
+        return Ok(create_output_texture(device, 1, 1));
+    };
+    let mut encoder = device.create_command_encoder(&Default::default());
+    let bounds_buffer = LayerBoundsPipeline::new(device, TexelType::RGBA8, false).dispatch(
+        device,
+        queue,
+        &mut encoder,
+        &binding,
+        None,
+    );
+    let staging =
+        create_readback_buffer_and_schedule_copy_buffer(device, &mut encoder, &bounds_buffer);
+    let readback = readback_buffer_on_submit_async::<IVec4, _>(&mut encoder, &staging, ..);
+    let submission = queue.submit([encoder.finish()]);
+    device.poll_indefinitely_for(submission)?;
+    let bounds = readback.into_inner().await??;
+    if bounds.z <= bounds.x || bounds.w <= bounds.y {
+        return Ok(create_output_texture(device, 1, 1));
+    }
+    let width = (i64::from(bounds.z) - i64::from(bounds.x)) as u64;
+    let height = (i64::from(bounds.w) - i64::from(bounds.y)) as u64;
+    let limit = u64::from(device.limits().max_texture_dimension_2d);
+    ensure!(
+        width <= limit && height <= limit,
+        "stroke bounds exceed the texture size limit: {width}×{height}"
+    );
+    let texture = create_output_texture(device, width as u32, height as u32);
+    ComposeStrokePreviewPipeline::new(device, "unscaled").dispatch(
+        device,
+        queue,
+        &binding,
+        &bounds_buffer,
+        &texture,
+    );
+    Ok(texture)
 }
 
 fn map_result_texture(
@@ -337,22 +426,7 @@ fn map_result_texture(
     height: u32,
     result: DynamicLayerStorage,
 ) -> Texture {
-    let output_texture = device.create_texture(&TextureDescriptor {
-        label: Some("stroke preview texture"),
-        size: Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format: TextureFormat::Rgba8Unorm,
-        usage: TextureUsages::STORAGE_BINDING
-            | TextureUsages::TEXTURE_BINDING
-            | TextureUsages::COPY_SRC,
-        view_formats: &[],
-    });
+    let output_texture = create_output_texture(&device, width, height);
 
     let Some(result_binding) = result.binding() else {
         return output_texture;
@@ -367,7 +441,7 @@ fn map_result_texture(
     );
     queue.submit([ec.finish()]);
 
-    ComposeStrokePreviewPipeline::new(&device).dispatch(
+    ComposeStrokePreviewPipeline::new(&device, "main").dispatch(
         &device,
         &queue,
         &result_binding,
@@ -378,13 +452,32 @@ fn map_result_texture(
     output_texture
 }
 
+fn create_output_texture(device: &Device, width: u32, height: u32) -> Texture {
+    device.create_texture(&TextureDescriptor {
+        label: Some("stroke preview texture"),
+        size: Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: TextureDimension::D2,
+        format: TextureFormat::Rgba8Unorm,
+        usage: TextureUsages::STORAGE_BINDING
+            | TextureUsages::TEXTURE_BINDING
+            | TextureUsages::COPY_SRC,
+        view_formats: &[],
+    })
+}
+
 struct ComposeStrokePreviewPipeline {
     layout: BindGroupLayout,
     pipeline: ComputePipeline,
 }
 
 impl ComposeStrokePreviewPipeline {
-    pub fn new(device: &Device) -> Self {
+    pub fn new(device: &Device, entry_point: &str) -> Self {
         let layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("compose stroke preview bind group layout"),
             entries: BindGroupLayoutEntries::sequential(
@@ -417,7 +510,7 @@ impl ComposeStrokePreviewPipeline {
             label: Some("compose stroke preview pipeline"),
             layout: Some(&pipeline_layout),
             module: &shader,
-            entry_point: Some("main"),
+            entry_point: Some(entry_point),
             compilation_options: Default::default(),
             cache: None,
         });
@@ -457,5 +550,62 @@ impl ComposeStrokePreviewPipeline {
             pass.dispatch_workgroups(output.width().div_ceil(16), output.height().div_ceil(16), 1);
         }
         queue.submit([encoder.finish()]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+    use futures::executor::block_on;
+    use glam::IVec2;
+    use lapiz_render::util::DevicePollExt as _;
+    use lapiz_runtime::renderer::RenderContext;
+
+    use super::{
+        DynamicLayerStorage, GpuLayerInfo, TexelType,
+        create_readback_buffer_and_schedule_copy_texture, map_tight_result_texture,
+        readback_buffer_raw_on_submit_async,
+    };
+
+    #[test]
+    fn tight_output_preserves_negative_coordinates_and_pixel_values() -> Result<()> {
+        block_on(async {
+            let context = RenderContext::request().await;
+            let device = &context.device;
+            let queue = &context.queue;
+            let new_layer = || {
+                DynamicLayerStorage::new(
+                    device.clone(),
+                    queue.clone(),
+                    GpuLayerInfo {
+                        texel_type: TexelType::RGBA8,
+                    },
+                )
+            };
+            let empty = map_tight_result_texture(device, queue, new_layer()).await?;
+            assert_eq!((empty.width(), empty.height()), (1, 1));
+
+            let mut layer = new_layer();
+            let mut bytes = vec![0; 256 * 256 * 4];
+            let offset = (254 * 256 + 253) * 4;
+            bytes[offset..offset + 4].copy_from_slice(&[9, 10, 11, 127]);
+            layer.write_raw(queue, IVec2::new(-1, -1), &bytes);
+            bytes.fill(0);
+            let offset = (254 * 256 + 60) * 4;
+            bytes[offset..offset + 4].copy_from_slice(&[12, 13, 14, 255]);
+            layer.write_raw(queue, IVec2::new(0, -1), &bytes);
+            let texture = map_tight_result_texture(device, queue, layer).await?;
+            assert_eq!((texture.width(), texture.height()), (64, 1));
+            let mut encoder = device.create_command_encoder(&Default::default());
+            let staging =
+                create_readback_buffer_and_schedule_copy_texture(device, &mut encoder, &texture);
+            let readback = readback_buffer_raw_on_submit_async(&mut encoder, &staging, ..);
+            device.poll_indefinitely_for(queue.submit([encoder.finish()]))?;
+            let bytes = readback.into_inner().await??;
+            assert_eq!(&bytes[..4], &[9, 10, 11, 127]);
+            assert!(bytes[4..63 * 4].iter().all(|byte| *byte == 0));
+            assert_eq!(&bytes[63 * 4..], &[12, 13, 14, 255]);
+            Ok(())
+        })
     }
 }
