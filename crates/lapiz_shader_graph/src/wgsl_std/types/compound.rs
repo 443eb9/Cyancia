@@ -2,7 +2,7 @@ use anyhow::Result;
 use bevy_math::Rect;
 use encase::ShaderType;
 use glam::Vec4;
-use iced_core::Element;
+use iced_core::{Element, Length};
 use lapiz_assets::store::AssetRegistry;
 use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
@@ -107,6 +107,7 @@ impl GraphValueType for ColorType {
                 .on_change(ColorMessage::A)
                 .allow_beyond_range(false),
         ]
+        .width(Length::Fill)
         .padding(2)
         .into()
     }
@@ -229,6 +230,7 @@ impl GraphValueType for RectType {
             spin_slider(0.0..=1.0, data.max.x).on_change(RectMessage::MaxX),
             spin_slider(0.0..=1.0, data.max.y).on_change(RectMessage::MaxY),
         ]
+        .width(Length::Fill)
         .padding(2)
         .into()
     }

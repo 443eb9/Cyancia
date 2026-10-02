@@ -1,7 +1,7 @@
 use anyhow::Result;
 use encase::ShaderType;
 use glam::{IVec2, IVec3, IVec4, UVec2, UVec3, UVec4, Vec2, Vec3, Vec4};
-use iced_core::Element;
+use iced_core::{Element, Length};
 use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
     bind_group_layout_entries::DynamicBindGroupLayoutEntries,
@@ -107,7 +107,7 @@ macro_rules! vector_type {
                             .into()
                     })
                     .collect::<Vec<Element<'static, Self::Message, GraphTheme, GraphRenderer>>>();
-                Flex::column(controls).padding(2).into()
+                Flex::column(controls).width(Length::Fill).padding(2).into()
             }
 
             fn update_literal(
