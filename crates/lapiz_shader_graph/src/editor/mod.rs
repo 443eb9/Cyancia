@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    convert::identity,
     fmt, mem,
     sync::Arc,
     time::Instant,
@@ -1214,7 +1215,6 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditorVi
                 hovered,
                 &|item| item.to_string(),
                 move |name| {
-                    position.take();
                     let node_id = GraphNodeId::new(Uuid::new_v4());
                     selected_nodes.clear();
                     selected_nodes.insert(node_id);
@@ -1235,7 +1235,10 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditorVi
             .width(200.0)
             .padding(2);
 
-            return Some(menu.overlay(menu_position, *viewport, 0.0, Length::Shrink));
+            return Some(overlay::Element::new(Box::new(NodeCreationMenuOverlay {
+                content: menu.overlay(menu_position, *viewport, 0.0, Length::Shrink),
+                position,
+            })));
         }
 
         None
@@ -1245,6 +1248,87 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditorVi
 impl<'a> From<GraphEditorView<'a>> for Element<'a, GraphEditorMessage, GraphTheme, GraphRenderer> {
     fn from(value: GraphEditorView<'a>) -> Self {
         Element::new(value)
+    }
+}
+
+struct NodeCreationMenuOverlay<'a> {
+    content: overlay::Element<'a, GraphEditorMessage, GraphTheme, GraphRenderer>,
+    position: &'a mut Option<Point>,
+}
+
+impl iced_core::Overlay<GraphEditorMessage, GraphTheme, GraphRenderer>
+    for NodeCreationMenuOverlay<'_>
+{
+    fn layout(&mut self, renderer: &GraphRenderer, bounds: Size) -> Node {
+        self.content.as_overlay_mut().layout(renderer, bounds)
+    }
+
+    fn operate(
+        &mut self,
+        layout: Layout<'_>,
+        renderer: &GraphRenderer,
+        operation: &mut dyn Operation,
+    ) {
+        self.content
+            .as_overlay_mut()
+            .operate(layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: Cursor,
+        renderer: &GraphRenderer,
+        shell: &mut Shell<'_, GraphEditorMessage>,
+    ) {
+        if let Event::Pointer(pointer::Event::PointerPressed { position, .. }) = event
+            && !layout.bounds().contains(*position)
+        {
+            self.position.take();
+            shell.capture_event();
+            shell.invalidate_layout();
+            shell.request_redraw();
+            return;
+        }
+
+        let mut messages = Bus::new();
+        let mut menu_shell = shell.local(&mut messages);
+        self.content
+            .as_overlay_mut()
+            .update(event, layout, cursor, renderer, &mut menu_shell);
+        if !menu_shell.is_empty() {
+            self.position.take();
+        }
+        shell.merge(menu_shell, identity);
+        if self.position.is_none() {
+            shell.invalidate_layout();
+            shell.request_redraw();
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        layout: Layout<'_>,
+        cursor: Cursor,
+        renderer: &GraphRenderer,
+    ) -> Interaction {
+        self.content
+            .as_overlay()
+            .mouse_interaction(layout, cursor, renderer)
+    }
+
+    fn draw(
+        &self,
+        renderer: &mut GraphRenderer,
+        theme: &GraphTheme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: Cursor,
+    ) {
+        self.content
+            .as_overlay()
+            .draw(renderer, theme, style, layout, cursor);
     }
 }
 
