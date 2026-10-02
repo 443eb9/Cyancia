@@ -53,9 +53,7 @@ wgpu-profiler.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
-clap.workspace = true
 futures.workspace = true
-serde_json.workspace = true
 
 [build-dependencies]
 lapiz_image.workspace = true

@@ -1,7 +1,7 @@
 //! Headless brush rendering with unscaled, tightly cropped image output.
 //!
 //! Run from the workspace root, for example:
-//! `ASSETS_DIR=assets cargo run --release -p lapiz_brush --example headless_painter --
+//! `ASSETS_DIR=assets cargo run --release -p lapiz_app --example headless_painter --
 //! --preset "My Brush" --output stroke.png --perf perf.json`
 //! `--input-curve` accepts a JSON array of RawPenInput objects or a JSON file path.
 //! Vector fields are [x, y]; time is {"now": 0.0, "stroke_begin": 0.0}.
@@ -11,16 +11,23 @@ use std::{
     fs::{self, File},
     io::{self, Write as _},
     path::{Path, PathBuf},
-    sync::Arc,
-    time::Instant,
+    sync::{Arc, mpsc},
+    thread,
+    time::{Duration, Instant},
 };
 
-use anyhow::{Context as _, Result, bail, ensure};
+use anyhow::{Context as _, Result, anyhow, bail, ensure};
 use clap::Parser;
-use futures::{StreamExt as _, executor::block_on};
+use futures::{
+    StreamExt as _,
+    channel::oneshot,
+    executor::block_on,
+    future::{Either, select},
+};
 use glam::{IVec2, Vec4};
 use iced_runtime::{Action, Task, task::into_stream};
 use image::{DynamicImage, RgbaImage, imageops};
+use lapiz_abr_bridge::AbrBridgePlugin;
 use lapiz_assets::{
     asset::{AssetHandle, AssetId},
     bundle::{directory::BuiltinAssetsDirectorySource, standard::StandardAssetBundleSource},
@@ -50,13 +57,13 @@ use lapiz_render::{
     readback::readback_buffer_raw_on_submit_async, texture::ImageSerializer,
     util::DevicePollExt as _,
 };
-use lapiz_runtime::renderer::RenderContext;
+use lapiz_runtime::{Runtime, plugin::Plugin as _, renderer::RenderContext};
 use lapiz_shader_graph::save::SerializableGraphFunctionSerializer;
 use serde::Serialize;
 use uuid::Uuid;
 use wgpu::{
-    BufferDescriptor, BufferUsages, COPY_BYTES_PER_ROW_ALIGNMENT, Device, Extent3d, Queue,
-    TexelCopyBufferInfo, TexelCopyBufferLayout, Texture,
+    BufferDescriptor, BufferUsages, COPY_BYTES_PER_ROW_ALIGNMENT, Device, Extent3d, PollType,
+    Queue, TexelCopyBufferInfo, TexelCopyBufferLayout, Texture,
 };
 
 #[derive(Debug, Parser)]
@@ -152,7 +159,7 @@ async fn paint(args: Args) -> Result<()> {
         },
         target,
     )?;
-    let texture = run_task(task).await??;
+    let texture = run_task_with_device(device, task).await??;
     wait_for_queue(device, queue)?;
     let render_ms = start.elapsed().as_secs_f64() * 1_000.0;
 
@@ -214,6 +221,11 @@ fn load_assets() -> Result<AssetRegistry> {
     let mut sources = AssetSourceRegistry::default();
     sources.register::<BuiltinAssetsDirectorySource>();
     sources.register::<StandardAssetBundleSource>();
+    let mut runtime = Runtime::default();
+    runtime.add_global_instance(sources);
+    AbrBridgePlugin.build(&mut runtime);
+    AbrBridgePlugin.finish(&mut runtime);
+    let sources = runtime.globals().global::<AssetSourceRegistry>();
     let assets = AssetRegistry::new(root, Arc::new(serializers))?;
     assets.add_erased_bundles(sources.scan_all(root))?;
     Ok(assets)
@@ -310,6 +322,43 @@ fn wait_for_queue(device: &Device, queue: &Queue) -> Result<()> {
     Ok(())
 }
 
+async fn run_task_with_device<T: Send + 'static>(device: &Device, task: Task<T>) -> Result<T> {
+    let device = device.clone();
+    let (stop_sender, stop_receiver) = mpsc::channel::<()>();
+    let (poll_sender, poll_finished) = oneshot::channel();
+    let poll_thread = thread::Builder::new()
+        .name("headless-gpu-poll".into())
+        .spawn(move || {
+            let result = (|| -> Result<()> {
+                loop {
+                    device.poll(PollType::Poll)?;
+                    match stop_receiver.recv_timeout(Duration::from_millis(10)) {
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
+                    }
+                }
+            })();
+            let _ = poll_sender.send(result);
+        })
+        .context("Unable to start GPU polling thread")?;
+
+    let (task_result, poll_result) = match select(Box::pin(run_task(task)), poll_finished).await {
+        Either::Left((result, poll_finished)) => {
+            drop(stop_sender);
+            (Some(result), poll_finished.await)
+        }
+        Either::Right((poll_result, _)) => {
+            drop(stop_sender);
+            (None, poll_result)
+        }
+    };
+    poll_thread
+        .join()
+        .map_err(|_| anyhow!("GPU polling thread panicked"))?;
+    poll_result.context("GPU polling thread stopped without a result")??;
+    task_result.context("GPU polling stopped before the brush task finished")?
+}
+
 async fn run_task<T: Send + 'static>(task: Task<T>) -> Result<T> {
     let mut stream = into_stream(task).context("Brush task produced no stream")?;
     let mut output = None;
@@ -383,14 +432,17 @@ mod tests {
         render::stroke_preview::predefined_curve_samples,
     };
     use lapiz_effect::asset::EffectAsset;
+    use lapiz_render::readback::readback_buffer_raw_on_submit_async;
     use lapiz_runtime::renderer::RenderContext;
     use uuid::Uuid;
     use wgpu::{
-        Extent3d, TexelCopyBufferLayout, TextureDescriptor, TextureDimension, TextureFormat,
-        TextureUsages,
+        BufferDescriptor, BufferUsages, Extent3d, TexelCopyBufferLayout, TextureDescriptor,
+        TextureDimension, TextureFormat, TextureUsages,
     };
 
-    use super::{Args, find_preset, load_curve, read_image, run_task, upload_base};
+    use super::{
+        Args, find_preset, load_curve, read_image, run_task, run_task_with_device, upload_base,
+    };
 
     #[test]
     fn preset_is_required_and_perf_path_is_optional() {
@@ -532,6 +584,40 @@ mod tests {
                 texture.size(),
             );
             assert_eq!(read_image(device, queue, &texture).await?, image);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn gpu_polling_completes_async_readback_and_stops_on_task_error() -> Result<()> {
+        block_on(async {
+            let context = RenderContext::request().await;
+            let device = &context.device;
+            let queue = &context.queue;
+            let source = device.create_buffer(&BufferDescriptor {
+                label: None,
+                size: 256,
+                usage: BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            });
+            let staging = device.create_buffer(&BufferDescriptor {
+                label: None,
+                size: 256,
+                usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            let mut encoder = device.create_command_encoder(&Default::default());
+            encoder.copy_buffer_to_buffer(&source, 0, &staging, 0, 256);
+            let readback = readback_buffer_raw_on_submit_async(&mut encoder, &staging, ..);
+            queue.submit([encoder.finish()]);
+            let task = Task::future(async move { readback.into_inner().await? });
+            let pixels = run_task_with_device(device, task).await??;
+            assert_eq!(pixels, vec![0; 256]);
+            assert!(
+                run_task_with_device(device, Task::<()>::none())
+                    .await
+                    .is_err()
+            );
             Ok(())
         })
     }

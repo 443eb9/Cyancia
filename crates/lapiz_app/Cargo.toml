@@ -62,6 +62,13 @@ tracing-subscriber.workspace = true
 unic-langid.workspace = true
 wgpu.workspace = true
 
+[dev-dependencies]
+clap.workspace = true
+glam.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+
 [build-dependencies]
 fs_extra.workspace = true
 
