@@ -8,11 +8,18 @@ pub mod types;
 
 pub fn builtin_nodes() -> GraphNodeRegistry {
     use nodes::{
-        ClampNode, ColorMixNode, CombineColorComponentsNode, CombineComponentsNode, CompareNode,
-        CurveNode, CustomExpressionNode, GetPixelColorNode, GraphFunctionNode, RandomNode,
-        RectMathNode, RepeatNode, ScalarMathNode, ScalarSelectNode, SmoothStepNode,
-        SplitColorComponentsNode, SplitComponentsNode, StepNode, TextureSizeNode, VectorMathNode,
-        VectorSelectNode,
+        components::{
+            CombineColorComponentsNode, CombineComponentsNode, SplitColorComponentsNode,
+            SplitComponentsNode,
+        },
+        curve::CurveNode,
+        custom_expression::CustomExpressionNode,
+        function::GraphFunctionNode,
+        image::{ColorMixNode, GetPixelColorNode, TextureSizeNode},
+        math::{ClampNode, RectMathNode, ScalarMathNode, SmoothStepNode, StepNode, VectorMathNode},
+        random::RandomNode,
+        repeat::RepeatNode,
+        selection::{CompareNode, ScalarSelectNode, VectorSelectNode},
     };
 
     let mut nodes = GraphNodeRegistry::with_capacity();
