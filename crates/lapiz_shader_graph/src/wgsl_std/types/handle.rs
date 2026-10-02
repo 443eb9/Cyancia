@@ -1,4 +1,4 @@
-use std::{fmt, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{Context as _, Result, bail};
 use bevy_math::{IRect, IVec2, IVec4};
@@ -17,11 +17,11 @@ use lapiz_render::{
     bind_group_entries::DynamicBindGroupEntries,
     bind_group_layout_entries::{DynamicBindGroupLayoutEntries, binding_types},
     readback::{create_readback_buffer_and_schedule_copy_buffer, readback_buffer_on_submit_async},
-    texture::{GpuImage, Image},
+    texture::{GpuImage, Image, ImageListItem},
     util::DevicePollExt as _,
 };
 use lapiz_utils::random_oklch_hue_chroma;
-use lapiz_widgets::{combo_box, flex::Flex, label, row, space};
+use lapiz_widgets::{combo_box::ComboBox, flex::Flex, label, row, space};
 use serde::{Deserialize, Serialize};
 use toml::map::Map;
 use uuid::Uuid;
@@ -58,24 +58,6 @@ use crate::{
     },
     save::GraphValueTypeId,
 };
-
-#[derive(Clone)]
-pub struct TextureOption {
-    pub name: String,
-    pub handle: AssetHandle<Image>,
-}
-
-impl fmt::Display for TextureOption {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.name)
-    }
-}
-
-impl PartialEq for TextureOption {
-    fn eq(&self, other: &Self) -> bool {
-        self.handle.id() == other.handle.id()
-    }
-}
 
 #[derive(Clone)]
 pub struct TextureChanged(pub AssetHandle<Image>);
@@ -256,26 +238,14 @@ impl GraphValueType for TextureType {
         data: &Self::AssociatedLiteralType,
         assets: &AssetRegistry,
     ) -> Element<'static, Self::Message, GraphTheme, GraphRenderer> {
-        let options = assets
-            .all_handles_of::<Image>()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|handle| TextureOption {
-                name: handle
-                    .get()
-                    .map(|image| image.metadata.name.clone())
-                    .unwrap_or_default(),
-                handle,
-            })
-            .collect::<Vec<_>>();
-        let selected = data.texture.as_ref().and_then(|handle| {
-            options
-                .iter()
-                .find(|option| option.handle.id() == handle.id())
-                .cloned()
-        });
-        combo_box(options, selected, |option| {
-            TextureChanged(option.handle.clone())
+        let options = assets.all_handles_of::<Image>().unwrap_or_default();
+        let selected = data
+            .texture
+            .as_ref()
+            .and_then(|handle| options.iter().find(|option| *option == handle).cloned());
+
+        ComboBox::new_with(options, selected, TextureChanged, |handle| {
+            ImageListItem::new(handle.clone()).into()
         })
         .placeholder(t!("select_texture"))
         .width(iced_core::Length::Fill)
