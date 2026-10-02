@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use iced_core::{Element, Length, Size, Theme, window};
-use iced_futures::Subscription;
+use iced_core::{Element, Length, Size, Theme, pointer, window};
+use iced_futures::{Subscription, event::listen_with};
 use iced_runtime::{
     Task,
     window::{close, drag, minimize, open, toggle_maximize},
@@ -42,6 +42,7 @@ use crate::{
         spacing_effect_resources,
     },
     render::graph::{MAIN_DAB_BUFFER, SPACING_OUTPUT, STROKE_RESULT},
+    tool::{BrushglobalsExt as _, CurrentBrushPresetHandle},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,6 +126,7 @@ pub enum BrushEditorMessage {
     SelectEffectSlot(BrushEffectSlot),
     Effect(EffectEditorMessage),
     Parameters(ParametersEditorMessage),
+    CursorLeft(window::Id),
 
     Close,
     Maximize,
@@ -272,6 +274,12 @@ impl WindowView for BrushEditor {
                 }
                 Task::none()
             }
+            BrushEditorMessage::CursorLeft(window) => {
+                if window == self.main_window {
+                    self.refresh_current_brush(globals);
+                }
+                Task::none()
+            }
             BrushEditorMessage::Close => close(self.main_window),
             BrushEditorMessage::Maximize => toggle_maximize(self.main_window),
             BrushEditorMessage::Minimize => minimize(self.main_window, true),
@@ -280,7 +288,12 @@ impl WindowView for BrushEditor {
     }
 
     fn subscription(&self, _globals: &Globals) -> Subscription<Self::Message> {
-        Subscription::none()
+        listen_with(|event, _status, window| match event {
+            iced_core::Event::Pointer(pointer::Event::PointerLeft {
+                kind: pointer::Kind::Mouse,
+            }) => Some(BrushEditorMessage::CursorLeft(window)),
+            _ => None,
+        })
     }
 
     fn close(self, _: &mut Globals) -> Task<()> {
@@ -472,6 +485,32 @@ impl BrushEditor {
         let task = self.select_brush(index, globals);
         self.dirty = true;
         task
+    }
+
+    fn refresh_current_brush(&self, globals: &mut Globals) {
+        let Some(selected) = self.selected.as_ref() else {
+            return;
+        };
+        let Some(current) = globals.get_global::<CurrentBrushPresetHandle>() else {
+            return;
+        };
+        if current.0.id() != selected.handle.id() {
+            return;
+        }
+
+        let preset = match selected.instance.as_asset(globals.assets()) {
+            Ok(preset) => preset,
+            Err(error) => {
+                log::error!("Failed to serialize brush preset: {error:#}");
+                return;
+            }
+        };
+        if let Err(error) = selected.handle.update(preset) {
+            log::error!("Failed to update brush preset: {error:#}");
+            return;
+        }
+
+        globals.set_current_brush_preset(selected.handle.clone());
     }
 
     fn save(&mut self, globals: &Globals) -> Task<BrushEditorMessage> {
