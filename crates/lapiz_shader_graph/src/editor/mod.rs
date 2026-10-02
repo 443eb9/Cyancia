@@ -1212,7 +1212,7 @@ impl<'a> Widget<GraphEditorMessage, GraphTheme, GraphRenderer> for GraphEditorVi
                 menu_state,
                 &self.node_creation_menu_items,
                 hovered,
-                &|item: &NodeCreationMenuItem| item.node_title.to_string(),
+                &|item| item.to_string(),
                 move |name| {
                     position.take();
                     let node_id = GraphNodeId::new(Uuid::new_v4());
