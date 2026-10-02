@@ -333,26 +333,24 @@ impl GraphValueType for BoolType {
         push_storage_layout(stage, "u32", name, group, binding, bindings, shader)
     }
 
-    fn handle_input_values(
+    fn as_input_pass_gen(
         &self,
         input_name: &str,
-        base_index: usize,
         ctx: &mut GraphNodeCodeGenContext,
     ) -> Result<String> {
-        ctx.get_output(base_index)?;
+        ctx.get_output(0)?;
         let name = Ident::new(input_name.to_string());
         ctx.output_slot_idents
-            .insert(ctx.outputs[base_index], quote_expression! { #name != 0u });
+            .insert(ctx.outputs[0], quote_expression! { #name != 0u });
         Ok(String::new())
     }
 
-    fn handle_output_values(
+    fn as_output_pass_gen(
         &self,
         output_name: &str,
-        base_index: usize,
         ctx: &GraphNodeCodeGenContext,
     ) -> Result<String> {
-        let value = ctx.get_input(base_index)?;
+        let value = ctx.get_input(0)?;
         Ok(format!(
             "@if(!EVAL) {{ {output_name} = select(0u, 1u, {value}); }}\n"
         ))

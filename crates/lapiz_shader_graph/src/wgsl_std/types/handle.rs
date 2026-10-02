@@ -57,6 +57,7 @@ use crate::{
         variable::GraphLiteral,
     },
     save::GraphValueTypeId,
+    wgsl_std::types::vector::Vec2IType,
 };
 
 #[derive(Clone)]
@@ -334,7 +335,7 @@ impl GraphValueType for LayerType {
         })
     }
 
-    fn push_input_slots(&self) -> Vec<GraphDefaultInputSlot> {
+    fn as_pass_output(&self) -> Vec<GraphDefaultInputSlot> {
         let color = match self.texel_type {
             TexelType::RGBA8 => GraphDefaultInputSlot::new::<ColorType>("color".into()),
             TexelType::A8 => GraphDefaultInputSlot::new::<F32Type>("alpha".into()),
@@ -345,33 +346,39 @@ impl GraphValueType for LayerType {
         ]
     }
 
-    fn push_output_slots(&self) -> Vec<GraphDefaultOutputSlot> {
+    fn as_pass_input(&self) -> (Vec<GraphDefaultInputSlot>, Vec<GraphDefaultOutputSlot>) {
         let color = match self.texel_type {
             TexelType::RGBA8 => GraphDefaultOutputSlot::new::<ColorType>("color".into()),
             TexelType::A8 => GraphDefaultOutputSlot::new::<F32Type>("alpha".into()),
         };
-        vec![
-            color,
-            GraphDefaultOutputSlot::new::<RectType>("bounds".into()),
-        ]
+        (
+            vec![GraphDefaultInputSlot::new::<Vec2IType>(
+                "pixel_position".into(),
+            )],
+            vec![
+                color,
+                GraphDefaultOutputSlot::new::<RectType>("bounds".into()),
+            ],
+        )
     }
 
-    fn handle_input_values(
+    fn as_input_pass_gen(
         &self,
         input_name: &str,
-        base_index: usize,
         ctx: &mut GraphNodeCodeGenContext,
     ) -> Result<String> {
-        let color = ctx.get_output(base_index)?;
-        let bounds = ctx.get_output(base_index + 1)?;
+        let pixel_position = ctx.get_input(0)?;
+        let color = ctx.get_output(0)?;
+        let bounds = ctx.get_output(1)?;
+
         ctx.output_slot_idents
-            .insert(ctx.outputs[base_index], color.clone().into());
+            .insert(ctx.outputs[0], color.clone().into());
         ctx.output_slot_idents
-            .insert(ctx.outputs[base_index + 1], bounds.clone().into());
+            .insert(ctx.outputs[1], bounds.clone().into());
         let load = Ident::new(layer_load_ident(input_name));
         let input_bounds = Ident::new(layer_bounds_ident(input_name));
         let color_stmt = quote_statement! {
-            let #color = #load(dispatch_index);
+            let #color = #load(#pixel_position);
         };
         let bounds_stmt = quote_statement! {
             let #bounds = render::math::Rect(vec2f(#input_bounds.xy), vec2f(#input_bounds.zw));
@@ -379,14 +386,13 @@ impl GraphValueType for LayerType {
         Ok(format!("{}\n{}", color_stmt, bounds_stmt))
     }
 
-    fn handle_output_values(
+    fn as_output_pass_gen(
         &self,
         output_name: &str,
-        base_index: usize,
         ctx: &GraphNodeCodeGenContext,
     ) -> Result<String> {
-        let color = ctx.get_input(base_index)?;
-        let bounds = ctx.get_input(base_index + 1)?;
+        let color = ctx.get_input(0)?;
+        let bounds = ctx.get_input(1)?;
         let output_bounds = Ident::new(layer_bounds_ident(output_name));
         let store = Ident::new(layer_store_ident(output_name));
         let eval_stmt = quote_statement! {
@@ -773,43 +779,43 @@ impl GraphValueType for ArrayType {
         GraphValueTypeId::new(format!("array_{}_{}", self.element_type.id().id, self.len))
     }
 
-    fn push_input_slots(&self) -> Vec<GraphDefaultInputSlot> {
+    fn as_pass_output(&self) -> Vec<GraphDefaultInputSlot> {
         vec![
             GraphDefaultInputSlot::new::<I32Type>("index".into()),
             GraphDefaultInputSlot::new_boxed("value".into(), self.element_type.clone()),
         ]
     }
 
-    fn push_output_slots(&self) -> Vec<GraphDefaultOutputSlot> {
-        vec![GraphDefaultOutputSlot::new_boxed(
-            "value".into(),
-            self.element_type.clone(),
-        )]
+    fn as_pass_input(&self) -> (Vec<GraphDefaultInputSlot>, Vec<GraphDefaultOutputSlot>) {
+        (
+            vec![GraphDefaultInputSlot::new::<I32Type>("index".into())],
+            vec![GraphDefaultOutputSlot::new_boxed(
+                "value".into(),
+                self.element_type.clone(),
+            )],
+        )
     }
 
-    fn handle_input_values(
+    fn as_input_pass_gen(
         &self,
         input_name: &str,
-        base_index: usize,
         ctx: &mut GraphNodeCodeGenContext,
     ) -> Result<String> {
-        ctx.get_output(base_index)?;
+        let index = ctx.get_input(0)?;
+        ctx.get_output(0)?;
         let name = Ident::new(input_name.to_string());
-        ctx.output_slot_idents.insert(
-            ctx.outputs[base_index],
-            quote_expression! { #name[dispatch_index] },
-        );
+        ctx.output_slot_idents
+            .insert(ctx.outputs[0], quote_expression! { #name[#index] });
         Ok(String::new())
     }
 
-    fn handle_output_values(
+    fn as_output_pass_gen(
         &self,
         output_name: &str,
-        base_index: usize,
         ctx: &GraphNodeCodeGenContext,
     ) -> Result<String> {
-        let index = ctx.get_input(base_index)?;
-        let value = ctx.get_input(base_index + 1)?;
+        let index = ctx.get_input(0)?;
+        let value = ctx.get_input(1)?;
         Ok(format!(
             "@if(!EVAL) {{ {output_name}[{index}] = {value}; }}\n"
         ))

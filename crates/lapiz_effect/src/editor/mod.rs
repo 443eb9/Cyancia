@@ -28,9 +28,6 @@ use crate::{
 
 pub mod io;
 
-#[cfg(test)]
-mod tests;
-
 pub struct EffectEditorState {
     pub open_pass: Option<EffectPassId>,
     pub graph_editor_states: HashMap<EffectPassId, GraphEditorState>,

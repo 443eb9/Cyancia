@@ -91,36 +91,37 @@ macro_rules! atomic_type {
                 prepare_uniform_storage(data, device, concat!("graph ", $id, " literal"))
             }
 
-            fn push_input_slots(&self) -> Vec<GraphDefaultInputSlot> {
+            fn as_pass_output(&self) -> Vec<GraphDefaultInputSlot> {
                 vec![GraphDefaultInputSlot::new::<$plain>("value".into())]
             }
 
-            fn push_output_slots(&self) -> Vec<GraphDefaultOutputSlot> {
-                vec![GraphDefaultOutputSlot::new::<$plain>("value".into())]
+            fn as_pass_input(&self) -> (Vec<GraphDefaultInputSlot>, Vec<GraphDefaultOutputSlot>) {
+                (
+                    vec![],
+                    vec![GraphDefaultOutputSlot::new::<$plain>("value".into())]
+                )
             }
 
-            fn handle_input_values(
+            fn as_input_pass_gen(
                 &self,
                 input_name: &str,
-                base_index: usize,
                 ctx: &mut GraphNodeCodeGenContext,
             ) -> Result<String> {
-                ctx.get_output(base_index)?;
+                ctx.get_output(0)?;
                 let name = Ident::new(input_name.to_string());
                 ctx.output_slot_idents.insert(
-                    ctx.outputs[base_index],
+                    ctx.outputs[0],
                     quote_expression! { atomicLoad(&#name) },
                 );
                 Ok(String::new())
             }
 
-            fn handle_output_values(
+            fn as_output_pass_gen(
                 &self,
                 output_name: &str,
-                base_index: usize,
                 ctx: &GraphNodeCodeGenContext,
             ) -> Result<String> {
-                let value = ctx.get_input(base_index)?;
+                let value = ctx.get_input(0)?;
                 let output = Ident::new(output_name.to_string());
                 Ok(quote_statement! { @if(!EVAL) { atomicAdd(&#output, #value); } }.to_string())
             }
@@ -232,40 +233,41 @@ macro_rules! atomic_array_type {
                 Ok(PreparedAtomicArray { buffer, len: self.len })
             }
 
-            fn push_input_slots(&self) -> Vec<GraphDefaultInputSlot> {
+            fn as_pass_output(&self) -> Vec<GraphDefaultInputSlot> {
                 vec![
                     GraphDefaultInputSlot::new::<I32Type>("index".into()),
                     GraphDefaultInputSlot::new::<$plain>("value".into()),
                 ]
             }
 
-            fn push_output_slots(&self) -> Vec<GraphDefaultOutputSlot> {
-                vec![GraphDefaultOutputSlot::new::<$plain>("value".into())]
+            fn as_pass_input(&self) -> (Vec<GraphDefaultInputSlot>, Vec<GraphDefaultOutputSlot>) {
+                (
+                    vec![GraphDefaultInputSlot::new::<I32Type>("index".into())],
+                    vec![GraphDefaultOutputSlot::new::<$plain>("value".into())]
+                )
             }
 
-            fn handle_input_values(
+            fn as_input_pass_gen(
                 &self,
                 input_name: &str,
-                base_index: usize,
                 ctx: &mut GraphNodeCodeGenContext,
             ) -> Result<String> {
-                ctx.get_output(base_index)?;
+                let index = ctx.get_input(0)?;
                 let name = Ident::new(input_name.to_string());
                 ctx.output_slot_idents.insert(
-                    ctx.outputs[base_index],
-                    quote_expression! { atomicLoad(&#name[dispatch_index]) },
+                    ctx.outputs[0],
+                    quote_expression! { atomicLoad(&#name[#index]) },
                 );
                 Ok(String::new())
             }
 
-            fn handle_output_values(
+            fn as_output_pass_gen(
                 &self,
                 output_name: &str,
-                base_index: usize,
                 ctx: &GraphNodeCodeGenContext,
             ) -> Result<String> {
-                let index = ctx.get_input(base_index)?;
-                let value = ctx.get_input(base_index + 1)?;
+                let index = ctx.get_input(0)?;
+                let value = ctx.get_input(1)?;
                 let output = Ident::new(output_name.to_string());
                 Ok(
                     quote_statement! { @if(!EVAL) { atomicAdd(&#output[#index], #value); } }

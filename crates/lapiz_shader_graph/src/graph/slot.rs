@@ -161,40 +161,39 @@ pub trait GraphValueType: Send + Sync + 'static + DynClone {
         queue: &Queue,
     ) -> Result<Self::PreparedShaderType>;
 
-    fn push_input_slots(&self) -> Vec<GraphDefaultInputSlot>
+    fn as_pass_output(&self) -> Vec<GraphDefaultInputSlot>
     where
         Self: Sized,
     {
         let ty = Arc::<Self>::from(dyn_clone::clone_box(self));
         vec![GraphDefaultInputSlot::new_boxed("value".into(), ty)]
     }
-    fn push_output_slots(&self) -> Vec<GraphDefaultOutputSlot>
+    fn as_pass_input(&self) -> (Vec<GraphDefaultInputSlot>, Vec<GraphDefaultOutputSlot>)
     where
         Self: Sized,
     {
         let ty = Arc::<Self>::from(dyn_clone::clone_box(self));
-        vec![GraphDefaultOutputSlot::new_boxed("value".into(), ty)]
+        (
+            vec![],
+            vec![GraphDefaultOutputSlot::new_boxed("value".into(), ty)],
+        )
     }
-    fn handle_input_values(
+    fn as_input_pass_gen(
         &self,
         input_name: &str,
-        base_index: usize,
         ctx: &mut GraphNodeCodeGenContext,
     ) -> Result<String> {
-        ctx.get_output(base_index)?;
-        ctx.output_slot_idents.insert(
-            ctx.outputs[base_index],
-            Ident::new(input_name.to_string()).into(),
-        );
+        ctx.get_output(0)?;
+        ctx.output_slot_idents
+            .insert(ctx.outputs[0], Ident::new(input_name.to_string()).into());
         Ok(String::new())
     }
-    fn handle_output_values(
+    fn as_output_pass_gen(
         &self,
         output_name: &str,
-        base_index: usize,
         ctx: &GraphNodeCodeGenContext,
     ) -> Result<String> {
-        let value = ctx.get_input(base_index)?;
+        let value = ctx.get_input(0)?;
         let output = Ident::new(output_name.to_string());
         Ok(quote_statement! { @if(!EVAL) { #output = #value; } }.to_string())
     }
@@ -299,24 +298,26 @@ pub trait ErasedGraphValueType: Send + Sync + 'static + DynClone + Downcast {
     // These three values are used in effect passes to allow types to be able to
     // customize its own behavior
     // TODO better naming
-    fn push_input_slots(&self) -> Vec<GraphDefaultInputSlot>;
+    // This method means: when this type is used as an output of a pass, what it
+    // is requires to write to the output buffers?
+    fn as_pass_output(&self) -> Vec<GraphDefaultInputSlot>;
     // TODO better naming
-    fn push_output_slots(&self) -> Vec<GraphDefaultOutputSlot>;
+    // This method means: when this type is used as an input of a pass, what parameters
+    // it requires to read from the input buffers, and what it will output?
+    fn as_pass_input(&self) -> (Vec<GraphDefaultInputSlot>, Vec<GraphDefaultOutputSlot>);
     // TODO better naming
     // This actually means to read the value of this type from shader binding.
     // For general types, it just copies the identifier. But for special types like
     // layer, the pixel value needs to call a helper to get.
-    fn handle_input_values(
+    fn as_input_pass_gen(
         &self,
         input_name: &str,
-        base_index: usize,
         ctx: &mut GraphNodeCodeGenContext,
     ) -> Result<String>;
     // TODO better naming
-    fn handle_output_values(
+    fn as_output_pass_gen(
         &self,
         output_name: &str,
-        base_index: usize,
         ctx: &mut GraphNodeCodeGenContext,
     ) -> Result<String>;
 
@@ -421,30 +422,28 @@ impl<T: GraphValueType> ErasedGraphValueType for T {
         )?))
     }
 
-    fn push_input_slots(&self) -> Vec<GraphDefaultInputSlot> {
-        GraphValueType::push_input_slots(self)
+    fn as_pass_output(&self) -> Vec<GraphDefaultInputSlot> {
+        GraphValueType::as_pass_output(self)
     }
 
-    fn push_output_slots(&self) -> Vec<GraphDefaultOutputSlot> {
-        GraphValueType::push_output_slots(self)
+    fn as_pass_input(&self) -> (Vec<GraphDefaultInputSlot>, Vec<GraphDefaultOutputSlot>) {
+        GraphValueType::as_pass_input(self)
     }
 
-    fn handle_input_values(
+    fn as_input_pass_gen(
         &self,
         input_name: &str,
-        base_index: usize,
         ctx: &mut GraphNodeCodeGenContext,
     ) -> Result<String> {
-        GraphValueType::handle_input_values(self, input_name, base_index, ctx)
+        GraphValueType::as_input_pass_gen(self, input_name, ctx)
     }
 
-    fn handle_output_values(
+    fn as_output_pass_gen(
         &self,
         output_name: &str,
-        base_index: usize,
         ctx: &mut GraphNodeCodeGenContext,
     ) -> Result<String> {
-        GraphValueType::handle_output_values(self, output_name, base_index, ctx)
+        GraphValueType::as_output_pass_gen(self, output_name, ctx)
     }
 
     fn requires_eval(&self) -> bool {

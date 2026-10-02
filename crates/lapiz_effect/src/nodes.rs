@@ -176,6 +176,7 @@ impl GraphSerializable for PassInputNodeState {
 #[derive(Debug, Clone)]
 pub enum PassInputNodeMessage {
     SourceSelected(PassInputChoice),
+    LiteralUpdate(ErasedGraphLiteralUpdateMessage),
 }
 
 impl GraphNode for PassInputNode {
@@ -201,10 +202,13 @@ impl GraphNode for PassInputNode {
 
     fn create_inputs(
         &self,
-        _: &Self::State,
+        state: &Self::State,
         _: GraphNodeCreateSlotsContext<'_>,
     ) -> Vec<GraphDefaultInputSlot> {
-        vec![]
+        match &state.cached_ty {
+            None => vec![],
+            Some(ty) => ty.as_pass_input().0,
+        }
     }
 
     fn create_outputs(
@@ -214,7 +218,7 @@ impl GraphNode for PassInputNode {
     ) -> Vec<GraphDefaultOutputSlot> {
         match &state.cached_ty {
             None => vec![],
-            Some(ty) => ty.push_output_slots(),
+            Some(ty) => ty.as_pass_input().1,
         }
     }
 
@@ -236,20 +240,24 @@ impl GraphNode for PassInputNode {
         .placeholder(t!("unbound"))
         .width(Length::Fill);
 
-        column![selector, Flex::column(ctx.view_all_outputs()).gap(2.0),]
-            .gap(4.0)
-            .width(Length::Fill)
-            .into()
+        column![
+            selector,
+            ctx.view_all_slots(PassInputNodeMessage::LiteralUpdate),
+        ]
+        .gap(4.0)
+        .width(Length::Fill)
+        .into()
     }
 
     fn update(
         &self,
         state: &mut Self::State,
         message: Self::Message,
-        _: GraphNodeUpdateContext<'_>,
+        mut ctx: GraphNodeUpdateContext<'_>,
     ) {
         match message {
             PassInputNodeMessage::SourceSelected(choice) => state.input = choice.input,
+            PassInputNodeMessage::LiteralUpdate(message) => ctx.update_literal(message),
         }
     }
 
@@ -263,7 +271,7 @@ impl GraphNode for PassInputNode {
         };
         let name = pass_input_ident(state.id);
 
-        Ok(ty.handle_input_values(&name, 0, &mut ctx)?)
+        Ok(ty.as_input_pass_gen(&name, &mut ctx)?)
     }
 }
 
@@ -422,11 +430,11 @@ impl GraphNode for PassOutputNode {
     ) -> Vec<GraphDefaultInputSlot> {
         match &state.output {
             None => vec![],
-            Some(PassOutput::Pass(def)) => def.ty.push_input_slots(),
+            Some(PassOutput::Pass(def)) => def.ty.as_pass_output(),
             Some(PassOutput::Effect(_)) => state
                 .cached_ty
                 .as_ref()
-                .map_or_else(Vec::new, |ty| ty.push_input_slots()),
+                .map_or_else(Vec::new, |ty| ty.as_pass_output()),
         }
     }
 
@@ -558,7 +566,7 @@ impl GraphNode for PassOutputNode {
         };
         let name = pass_output_ident(state.id);
 
-        Ok(ty.handle_output_values(&name, 0, &mut ctx)?)
+        Ok(ty.as_output_pass_gen(&name, &mut ctx)?)
     }
 }
 

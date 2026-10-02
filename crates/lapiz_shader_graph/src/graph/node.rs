@@ -49,6 +49,7 @@ pub trait GraphNode: Send + Sync + 'static + DynClone {
     fn id(&self) -> &'static str;
     fn default_state(&self, ctx: GraphNodeDefaultStateContext<'_>) -> Self::State;
     fn header_hue_chroma(&self) -> (f32, f32);
+    // TODO: Merge create_inputs and create outputs
     fn create_inputs(
         &self,
         state: &Self::State,
